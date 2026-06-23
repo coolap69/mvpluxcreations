@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MVPLUXCREATIONS | Life-Size Cutouts</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- TOP NAV -->
+  <header class="top-nav">
+    <div class="brand"></div>
+
+    <nav>
+      <a href="#home">Home</a>
+      <a href="#shop">Shop</a>
+      <a href="#custom">Custom Orders</a>
+      <a href="#fan-requests">Fan Requests</a>
+      <a href="#why">Why Us</a>
+      <a href="#contact">Contact</a>
+    </nav>
+
+    <button class="cart-button" onclick="toggleCart()" aria-label="Open cart">
+  <span class="cart-icon">🛒</span>
+  <span id="cartCount" class="cart-count">0</span>
+</button>
+  </header>
+
+  <!-- CART PANEL -->
+  <aside id="cartPanel" class="cart-panel">
+    <button class="close-cart" onclick="toggleCart()">×</button>
+    <h2>Your Cart</h2>
+    <div id="cartItems"></div>
+    <p class="cart-total">Total: $<span id="cartTotal">0.00</span></p>
+    <button class="checkout-btn" onclick="openCheckout()">Checkout / Pay</button>
+  </aside>
+
+  <!-- HERO -->
+<section id="home" class="hero-stage">
+
+  <!-- background without shadows -->
+  <img class="hero-bg hero-bg-clean" src="images/Herobackgroundparts/websitebackground1.png" alt="">
+
+  <!-- background with final shadows -->
+  <!-- large MVPLUX words -->
+  <img class="hero-logo-words" src="images/Herobackgroundparts/logowords.png" alt="MVPLUXCREATIONS">
+
+  <!-- 3 animated cutout groups -->
+  <img class="hero-group hero-middle" src="images/Herobackgroundparts/hero-middle.png" alt="">
+  <img class="hero-group hero-left" src="images/Herobackgroundparts/hero-left.png" alt="">
+  <img class="hero-group hero-right" src="images/Herobackgroundparts/hero-right.png" alt="">
+
+  <!-- flash effect -->
+  <div class="hero-flash"></div>
+
+  <!-- small MVP logo appears at end -->
+  <img class="hero-mvp-small" src="images/Herobackgroundparts/logogold.png" alt="MVP logo">
+
+  <!-- hero buttons -->
+  <a href="#shop" class="lux-hero-btn shop-btn">Shop Cutouts</a>
+  <a href="#custom" class="lux-hero-btn custom-btn">Custom Order</a>
+
+</section>
+
+  <!-- FAN REQUEST BOARD -->
+<section id="fan-requests" class="fan-board-section">
+
+  <div class="fan-board-header">
+    <h2>Fan Request Board</h2>
+    <p>
+      Vote for fan favorites, explore past fan requests, and suggest the next cutout we should create.
+    </p>
+  </div>
+
+  <!-- PART 1 -->
+  <div class="fan-board-block">
+    <div class="fan-block-title">
+      <h3>Top Fan Favorites</h3>
+      <p>
+        Vote for your favorite cutouts. When a design reaches 100 votes, signed-in voters unlock 10% off automatically.
+      </p>
+    </div>
+
+    <p class="fan-reward-note">
+      Vote goal: 100 votes • one vote per person • one reward per person • limit 2 discounted purchases • free shipping included
+    </p>
+
+    <div class="fan-vote-grid">
+
+      <div class="fan-vote-card">
+        <img src="images/Herobackgroundparts/hero5M.png" alt="Fan favorite cutout">
+        <h4>Basketball Legend Cutout</h4>
+        <p>72 / 100 votes</p>
+        <div class="fan-bar"><div style="width:72%"></div></div>
+        <button onclick="openFanRequest()">Vote</button>
+      </div>
+
+      <div class="fan-vote-card">
+        <img src="images/Herobackgroundparts/hero5M.png" alt="Fan favorite cutout">
+        <h4>Movie Inspired Cutout</h4>
+        <p>61 / 100 votes</p>
+        <div class="fan-bar"><div style="width:61%"></div></div>
+        <button onclick="openFanRequest()">Vote</button>
+      </div>
+
+      <div class="fan-vote-card">
+        <img src="images/Herobackgroundparts/hero5M.png" alt="Fan favorite cutout">
+        <h4>Dinosaur Party Cutout</h4>
+        <p>54 / 100 votes</p>
+        <div class="fan-bar"><div style="width:54%"></div></div>
+        <button onclick="openFanRequest()">Vote</button>
+      </div>
+
+      <div class="fan-vote-card">
+        <img src="images/Herobackgroundparts/hero5M.png" alt="Fan favorite cutout">
+        <h4>Music Artist Cutout</h4>
+        <p>47 / 100 votes</p>
+        <div class="fan-bar"><div style="width:47%"></div></div>
+        <button onclick="openFanRequest()">Vote</button>
+      </div>
+
+      <div class="fan-vote-card">
+        <img src="images/Herobackgroundparts/hero5M.png" alt="Fan favorite cutout">
+        <h4>Video Game Inspired Cutout</h4>
+        <p>39 / 100 votes</p>
+        <div class="fan-bar"><div style="width:39%"></div></div>
+        <button onclick="openFanRequest()">Vote</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- PART 2 -->
+  <div class="fan-board-block">
+    <div class="fan-block-title">
+      <h3>Fan Request Gallery</h3>
+      <p>
+        Browse past fan requests, community-inspired ideas, and designs that helped shape the collection.
+      </p>
+    </div>
+
+    <div class="fan-gallery-grid">
+      <img src="images/Herobackgroundparts/hero5M.png" alt="Past fan request">
+      <img src="images/Herobackgroundparts/hero5M.png" alt="Past fan request">
+      <img src="images/Herobackgroundparts/hero5M.png" alt="Past fan request">
+      <img src="images/Herobackgroundparts/hero5M.png" alt="Past fan request">
+    </div>
+  </div>
+
+  <!-- PART 3 -->
+  <div class="fan-board-block fan-suggest-block">
+    <div class="fan-block-title">
+      <h3>Suggest the Next Cutout</h3>
+      <p>
+        Signed-in members can upload reference images and write exactly what they want. If we choose your idea, you unlock 10% off that cutout.
+      </p>
+    </div>
+
+    <div class="fan-suggest-box">
+      <p>
+        Use a screen name if you do not want your real name shown. Suggestions and posts may be reviewed before appearing publicly.
+      </p>
+
+      <button onclick="openFanRequest()">Submit a Cutout Idea</button>
+      <a href="signup.html" class="fan-signup-link">Create Account</a>
+    </div>
+  </div>
+
+</section>
+
+  <!-- FEATURED PRODUCTS -->
+  <section id="shop" class="section">
+    <h2>Featured Cutouts</h2>
+    <p class="section-subtitle">Life-size cutouts printed on durable 4mm corrugated plastic.</p>
+    <div class="shop-tools">
+
+  <input type="text" id="searchInput" placeholder="Search cutouts..." onkeyup="filterProducts()">
+
+  <select id="categoryFilter" onchange="filterProducts()">
+
+    <option value="all">All Categories</option>
+
+    <option value="sports">Sports</option>
+
+    <option value="movies">Movies</option>
+
+    <option value="music">Music</option>
+
+    <option value="dinosaurs">Dinosaurs</option>
+
+    <option value="custom">Custom</option>
+
+  </select>
+
+</div>
+
+<div class="product-grid">
+
+  <!-- SPORTS -->
+  <div class="product-card" data-category="sports" data-name="sports legends cutouts basketball football baseball">
+    <a href="sports-legends.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/Herobackgroundparts/backgroundforimages.png" alt="">
+        <img class="product-cutout" src="images/Herobackgroundparts/hero5M.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="sports-legends.html" class="product-title-link">Sports Legends Cutouts</a></h3>
+    <p class="product-description">Original size and custom sizes available. Waterproof 4mm corrugated plastic for fan rooms, parties, events, and sports decor.</p>
+    <p class="price">Custom cutouts from 4ft–8ft • starting at $80.99 • Free shipping</p>
+
+    <div class="size-builder" data-product-name="Sports Legends Cutout" data-original-price="119.99">
+  <div class="size-option active">
+    <label>
+      <input type="radio" name="sportsSizeMode" value="original" checked>
+      <span>Original Size — 6'6" — $119.99</span>
+    </label>
+  </div>
+
+  <div class="size-option">
+    <label>
+      <input type="radio" name="sportsSizeMode" value="custom">
+      <span>Custom Size</span>
+    </label>
+
+    <div class="custom-size-box">
+      <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+      <p class="size-help">Type height like 5'8 or total inches like 68.</p>
+    </div>
+  </div>
+
+  <p class="live-price-line">
+    Price: <span class="live-size-price">$119.99</span>
+  </p>
+</div>
+
+<div class="button-row">
+  <button onclick="addSelectedToCart(this)">Add to Cart</button>
+  <button onclick="buySelectedNow(this)">Buy Now</button>
+  <button class="offer-btn" onclick="openOffer('Sports Legends Cutout')">Make Offer</button>
+</div>
+</div>
+
+  <!-- MOVIES -->
+  <div class="product-card" data-category="movies" data-name="movie inspired characters cutouts">
+    <a href="movie-inspired.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/Herobackgroundparts/backgroundforimages.png" alt="">
+        <img class="product-cutout" src="images/Herobackgroundparts/hero5M.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="movie-inspired.html" class="product-title-link">Movie Inspired Characters</a></h3>
+    <p class="product-description">Movie-style display cutouts for fan rooms, parties, collections, and themed spaces. Original size and custom sizes available.</p>
+    <p class="price">Starting at $80.99 / 4ft</p>
+
+    <select class="size-select">
+      <option>4 ft - $80.99</option>
+      <option>5 ft - $94.99</option>
+      <option>6 ft - $109.99</option>
+      <option>7 ft - $132.99</option>
+      <option>8 ft - $159.99</option>
+      <option>Custom height available</option>
+    </select>
+
+    <div class="button-row">
+      <a href="movie-inspired.html" class="button-link">View Options</a>
+      <button class="offer-btn" onclick="openOffer('Movie Inspired Characters')">Make Offer</button>
+    </div>
+  </div>
+
+  <!-- MUSIC -->
+  <div class="product-card" data-category="music" data-name="music artist cutouts">
+    <a href="music-artists.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/Herobackgroundparts/backgroundforimages.png" alt="">
+        <img class="product-cutout" src="images/Herobackgroundparts/hero5M.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="music-artists.html" class="product-title-link">Music Artist Cutouts</a></h3>
+    <p class="product-description">Stage-style cutouts for fan rooms, concerts, birthdays, parties, and music displays. Original size and custom sizes available.</p>
+    <p class="price">Starting at $80.99 / 4ft</p>
+
+    <select class="size-select">
+      <option>4 ft - $80.99</option>
+      <option>5 ft - $94.99</option>
+      <option>6 ft - $109.99</option>
+      <option>7 ft - $132.99</option>
+      <option>8 ft - $159.99</option>
+      <option>Custom height available</option>
+    </select>
+
+    <div class="button-row">
+      <a href="music-artists.html" class="button-link">View Options</a>
+      <button class="offer-btn" onclick="openOffer('Music Artist Cutouts')">Make Offer</button>
+    </div>
+  </div>
+
+  <!-- RELIGIOUS -->
+  <div class="product-card" data-category="religious" data-name="religious cutouts jesus church holiday">
+    <a href="religious-cutouts.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/Herobackgroundparts/backgroundforimages.png" alt="">
+        <img class="product-cutout" src="images/Herobackgroundparts/hero5M.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="religious-cutouts.html" class="product-title-link">Religious Cutouts</a></h3>
+    <p class="product-description">Inspirational cutouts for churches, events, holidays, rooms, plays, and special celebrations. Custom sizes available.</p>
+    <p class="price">Starting at $80.99 / 4ft</p>
+
+    <select class="size-select">
+      <option>4 ft - $80.99</option>
+      <option>5 ft - $94.99</option>
+      <option>6 ft - $109.99</option>
+      <option>7 ft - $132.99</option>
+      <option>8 ft - $159.99</option>
+      <option>Custom height available</option>
+    </select>
+
+    <div class="button-row">
+      <a href="religious-cutouts.html" class="button-link">View Options</a>
+      <button class="offer-btn" onclick="openOffer('Religious Cutouts')">Make Offer</button>
+    </div>
+  </div>
+
+  <!-- FAN INSPIRED -->
+  <div class="product-card" data-category="custom" data-name="fan inspired custom cutouts">
+    <a href="fan-inspired.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/Herobackgroundparts/backgroundforimages.png" alt="">
+        <img class="product-cutout" src="images/Herobackgroundparts/hero5M.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="fan-inspired.html" class="product-title-link">Fan Inspired Cutouts</a></h3>
+    <p class="product-description">Fun custom display pieces for collectors, fan rooms, themed spaces, gifts, and events. Waterproof 4mm corrugated plastic.</p>
+    <p class="price">Starting at $80.99 / 4ft</p>
+
+    <select class="size-select">
+      <option>4 ft - $80.99</option>
+      <option>5 ft - $94.99</option>
+      <option>6 ft - $109.99</option>
+      <option>7 ft - $132.99</option>
+      <option>8 ft - $159.99</option>
+      <option>Custom height available</option>
+    </select>
+
+    <div class="button-row">
+      <a href="fan-inspired.html" class="button-link">View Options</a>
+      <button class="offer-btn" onclick="openOffer('Fan Inspired Cutouts')">Make Offer</button>
+    </div>
+  </div>
+
+  <!-- DINOSAURS -->
+  <div class="product-card" data-category="dinosaurs" data-name="dinosaur party cutouts">
+    <a href="dinosaur-cutouts.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/Herobackgroundparts/backgroundforimages.png" alt="">
+        <img class="product-cutout" src="images/Herobackgroundparts/hero5M.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="dinosaur-cutouts.html" class="product-title-link">Dinosaur Party Cutouts</a></h3>
+    <p class="product-description">Big dinosaur displays for birthdays, rooms, events, and outdoor party setups. Available up to giant 8ft+ options.</p>
+    <p class="price">Starting at $80.99 / 4ft</p>
+
+    <select class="size-select">
+      <option>4 ft - $80.99</option>
+      <option>5 ft - $94.99</option>
+      <option>6 ft - $109.99</option>
+      <option>7 ft - $132.99</option>
+      <option>8 ft - $159.99</option>
+      <option>Custom height available</option>
+    </select>
+
+    <div class="button-row">
+      <a href="dinosaur-cutouts.html" class="button-link">View Options</a>
+      <button class="offer-btn" onclick="openOffer('Dinosaur Party Cutouts')">Make Offer</button>
+    </div>
+  </div>
+
+  <!-- VIDEO GAMES -->
+  <div class="product-card" data-category="videogames" data-name="video game inspired cutouts gaming birthday">
+    <a href="videogame-cutouts.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/Herobackgroundparts/backgroundforimages.png" alt="">
+        <img class="product-cutout" src="images/Herobackgroundparts/hero5M.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="videogame-cutouts.html" class="product-title-link">Video Game Inspired Cutouts</a></h3>
+    <p class="product-description">Game-inspired displays for game rooms, birthdays, streams, and themed events. Custom scenes and sizes available.</p>
+    <p class="price">Starting at $80.99 / 4ft</p>
+
+    <select class="size-select">
+      <option>4 ft - $80.99</option>
+      <option>5 ft - $94.99</option>
+      <option>6 ft - $109.99</option>
+      <option>7 ft - $132.99</option>
+      <option>8 ft - $159.99</option>
+      <option>Custom height available</option>
+    </select>
+
+    <div class="button-row">
+      <a href="videogame-cutouts.html" class="button-link">View Options</a>
+      <button class="offer-btn" onclick="openOffer('Video Game Inspired Cutouts')">Make Offer</button>
+    </div>
+  </div>
+
+  <!-- CUSTOM PHOTO -->
+  <div class="product-card" data-category="custom" data-name="custom photo cutout yourself family kid birthday">
+    <a href="custom-photo-cutouts.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/Herobackgroundparts/backgroundforimages.png" alt="">
+        <img class="product-cutout" src="images/Herobackgroundparts/hero5M.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="custom-photo-cutouts.html" class="product-title-link">Custom Photo Cutouts</a></h3>
+    <p class="product-description">Turn yourself, your kid, family, athlete, or guest of honor into a custom cutout. Life-size and smaller party sizes available.</p>
+    <p class="price">Starting at $80.99 / 4ft</p>
+
+    <select class="size-select">
+      <option>4 ft - $80.99</option>
+      <option>5 ft - $94.99</option>
+      <option>6 ft - $109.99</option>
+      <option>7 ft - $132.99</option>
+      <option>8 ft - $159.99</option>
+      <option>Custom height available</option>
+    </select>
+
+    <div class="button-row">
+      <a href="custom-photo-cutouts.html" class="button-link">View Options</a>
+      <button class="offer-btn" onclick="openOffer('Custom Photo Cutouts')">Make Offer</button>
+    </div>
+  </div>
+
+  <!-- SMALL CUTOUTS -->
+  <div class="product-card" data-category="custom" data-name="small cutouts party packs 1ft 2ft 3ft 4ft">
+    <a href="small-cutout-party-packs.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/Herobackgroundparts/backgroundforimages.png" alt="">
+        <img class="product-cutout" src="images/Herobackgroundparts/hero5M.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="small-cutout-party-packs.html" class="product-title-link">Small Cutouts & Party Packs</a></h3>
+    <p class="product-description">1ft, 2ft, 3ft, and 4ft custom cutouts for tables, birthdays, rooms, gifts, and party displays. Minimum order applies.</p>
+    <p class="price">$80.99</p>
+
+    <select class="size-select">
+      <option>1 ft - Custom pack quote</option>
+      <option>2 ft - Custom pack quote</option>
+      <option>3 ft - 3 item minimum</option>
+      <option>4 ft - 2 item minimum / $80 minimum</option>
+      <option>Mix small sizes - $80 minimum</option>
+    </select>
+
+    <div class="button-row">
+      <a href="small-cutout-party-packs.html" class="button-link">View Options</a>
+      <button class="offer-btn" onclick="openOffer('Small Cutouts & Party Packs')">Make Offer</button>
+    </div>
+  </div>
+
+</div>
+
+  </section>
+<section class="info-carousel-section">
+  <div class="info-carousel-header">
+    <h2>Why Customers Choose MVPLUX</h2>
+    <p>Premium life-size cutouts made for rooms, parties, events, outdoor displays, and custom designs.</p>
+  </div>
+
+  <div class="info-carousel">
+    <button class="info-arrow info-prev" onclick="changeInfoSlide(-1)">‹</button>
+
+    <div class="info-slide active">
+      <img src="images/Business/page 1.png" alt="Real life size cutout options">
+    </div>
+
+    <div class="info-slide">
+      <img src="images/Business/page 2.png" alt="Easy setup cutout support">
+    </div>
+
+    <div class="info-slide">
+      <img src="images/Business/page 3.png" alt="Premium quality cutouts">
+    </div>
+
+    <div class="info-slide">
+      <img src="images/Business/page 4.png" alt="Custom cutout orders">
+    </div>
+
+    <button class="info-arrow info-next" onclick="changeInfoSlide(1)">›</button>
+  </div>
+
+  <div class="info-dots">
+    <button class="info-dot active" onclick="goInfoSlide(0)"></button>
+    <button class="info-dot" onclick="goInfoSlide(1)"></button>
+    <button class="info-dot" onclick="goInfoSlide(2)"></button>
+    <button class="info-dot" onclick="goInfoSlide(3)"></button>
+  </div>
+</section>
+
+  <!-- CUSTOM ORDERS -->
+  <section id="custom" class="section dark-section">
+    <h2>Custom Cutouts Made for You</h2>
+    <p>
+      Have an idea? Send us your photo, character idea, event theme, or custom request.
+      We can create custom life-size cutouts for parties, fan rooms, gifts, events, and displays.
+    </p>
+    <button onclick="openCustomForm()">Request a Custom Cutout</button>
+  </section>
+
+  <!-- WHY US -->
+  <section id="why" class="section dark-section">
+    <h2>Why MVPLUXCREATIONS?</h2>
+
+    <div class="why-grid">
+      <div>
+        <h3>Unique Designs</h3>
+        <p>Many designs are custom-created, restored, rebuilt, or enhanced for large-format display.</p>
+      </div>
+
+      <div>
+        <h3>Premium Material</h3>
+        <p>Printed on durable 4mm corrugated plastic. Lightweight, sturdy, and great for display.</p>
+      </div>
+
+      <div>
+        <h3>Custom Orders</h3>
+        <p>We help bring fan rooms, parties, events, and custom display ideas to life.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <footer id="contact">
+    <h2>MVPLUXCREATIONS</h2>
+    <p>Email: YOUR_EMAIL_HERE</p>
+    <p>PayPal • Venmo • Cash App options coming soon</p>
+
+    <p class="disclaimer">
+      Product images may be digitally restored, enhanced, reconstructed, retouched, composited, or recreated for print production and presentation purposes.
+      MVPLUXCREATIONS is not affiliated with or endorsed by any person, brand, team, studio, league, or rights holder unless expressly stated.
+    </p>
+
+    <p>© 2026 MVPLUXCREATIONS. All rights reserved.</p>
+  </footer>
+
+  <!-- BUY NOW MODAL -->
+  <div id="buyModal" class="modal">
+    <div class="modal-content">
+      <button class="close-modal" onclick="closeModals()">×</button>
+      <img id="modalImage" src="" alt="Product preview" />
+      <h2 id="modalTitle"></h2>
+      <p id="modalPrice"></p>
+
+      <a href="#" class="pay-link">Pay with PayPal</a>
+      <a href="#" class="pay-link">Pay with Venmo</a>
+      <a href="#" class="pay-link">Pay with Cash App</a>
+    </div>
+  </div>
+
+    <!-- OFFER MODAL -->
+  <div id="offerModal" class="modal">
+    <div class="modal-content">
+      <button class="close-modal" onclick="closeModals()">×</button>
+      <h2>Make an Offer</h2>
+      <p id="offerProduct"></p>
+
+      <input type="text" placeholder="Your name" />
+      <input type="email" placeholder="Your email" />
+      <input type="text" placeholder="Your offer amount" />
+      <textarea placeholder="Message / size wanted"></textarea>
+
+      <button class="submit-btn">Send Offer</button>
+    </div>
+  </div>
+
+  <!-- BACKGROUND OPTIONS MODAL -->
+  <div id="bgModal" class="bg-modal">
+    <div class="bg-modal-box">
+      <button class="bg-close" onclick="closeBgModal()">&times;</button>
+      <h3 id="bgModalTitle">Background Options</h3>
+      <p class="bg-modal-subtitle">Choose a display style for your cutout.</p>
+
+      <div class="bg-option-grid">
+        <div class="bg-option-card">
+          <img src="images/Herobackgroundparts/backgroundforimages.png" alt="Deluxe Display Background">
+          <h4>Deluxe Display</h4>
+          <p>Premium showcase background included in preview.</p>
+        </div>
+
+        <div class="bg-option-card">
+          <img src="images/background-options/white-background.jpg" alt="Clean White Background">
+          <h4>Clean White</h4>
+          <p>Simple white display background option.</p>
+        </div>
+
+        <div class="bg-option-card">
+          <img src="images/background-options/other-style.jpg" alt="Other Ready-Made Backgrounds">
+          <h4>Other Ready-Made Styles</h4>
+          <p>Ask about other available display backgrounds.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  
+
+  <script src="script.js"></script>
+</body>
+</html>
