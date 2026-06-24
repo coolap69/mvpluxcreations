@@ -215,6 +215,28 @@ function goInfoSlide(index) {
   showInfoSlide(index);
 }
 
+function openInfoPreview(button) {
+  const card = button.closest('.info-panel-card');
+  const image = card ? card.querySelector('img') : null;
+  const modal = document.getElementById('infoPreviewModal');
+  const preview = document.getElementById('infoPreviewImage');
+
+  if (!image || !modal || !preview) return;
+
+  preview.src = image.src;
+  preview.alt = image.alt || 'MVPLUX information preview';
+  modal.classList.add('show');
+}
+
+function closeInfoPreview(event) {
+  const modal = document.getElementById('infoPreviewModal');
+  if (!modal) return;
+
+  if (!event || event.target === modal || event.target.classList.contains('info-preview-close')) {
+    modal.classList.remove('show');
+  }
+}
+
 function togglePasswordVisibility(button) {
   const field = button.closest('.password-field');
   const input = field ? field.querySelector('input') : null;

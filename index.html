@@ -757,21 +757,32 @@
   <div class="info-panel-grid">
     <article class="info-panel-card" tabindex="0">
       <img src="images/FrontPageWeb/Business-page-1.jpg" alt="Real life size standee options">
+      <button class="info-expand-btn" type="button" onclick="openInfoPreview(this)" aria-label="Enlarge real life size standee options">+</button>
     </article>
 
     <article class="info-panel-card" tabindex="0">
       <img src="images/FrontPageWeb/Business-page-2.jpg" alt="Easy setup standee support">
+      <button class="info-expand-btn" type="button" onclick="openInfoPreview(this)" aria-label="Enlarge easy setup standee support">+</button>
     </article>
 
     <article class="info-panel-card" tabindex="0">
       <img src="images/FrontPageWeb/Business-page-3.jpg" alt="Premium quality standee material">
+      <button class="info-expand-btn" type="button" onclick="openInfoPreview(this)" aria-label="Enlarge premium quality standee material">+</button>
     </article>
 
     <article class="info-panel-card" tabindex="0">
       <img src="images/FrontPageWeb/Business-page-4.jpg" alt="Custom standee orders">
+      <button class="info-expand-btn" type="button" onclick="openInfoPreview(this)" aria-label="Enlarge custom standee orders">+</button>
     </article>
   </div>
 </section>
+
+<div id="infoPreviewModal" class="info-preview-modal" onclick="closeInfoPreview(event)">
+  <div class="info-preview-content">
+    <button class="info-preview-close" type="button" onclick="closeInfoPreview(event)" aria-label="Close preview">x</button>
+    <img id="infoPreviewImage" src="" alt="">
+  </div>
+</div>
 
   <!-- CUSTOM ORDERS -->
   <section id="custom" class="section dark-section">

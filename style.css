@@ -533,7 +533,7 @@ img {
 }
 
 #shop .size-builder::before {
-  content: "Tip: choose Original, or choose Custom and type the height.";
+  content: "Need help? Pick Original for 6\'6, or Custom and type your height. Buy Now is the main checkout button.";
   position: absolute;
   left: 10px;
   right: 10px;
@@ -629,7 +629,7 @@ img {
 }
 
 #shop .button-row {
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 2fr 1fr;
   gap: 7px;
 }
 
@@ -639,7 +639,7 @@ img {
 }
 
 #shop .button-row .offer-btn {
-  grid-column: 1 / -1;
+  grid-column: auto;
 }
 
 button,
@@ -654,11 +654,34 @@ button,
 }
 
 #shop .button-row button {
-  min-height: 36px;
-  padding: 9px 10px;
+  min-height: 34px;
+  padding: 8px 10px;
   border-radius: 7px;
   font-size: 13px;
   line-height: 1.05;
+}
+
+#shop .button-row button:nth-child(2) {
+  order: 1;
+  grid-column: 1 / -1;
+  min-height: 42px;
+  background: linear-gradient(180deg, #df222b, #9e0d13);
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 10px 20px rgba(177,18,38,0.25);
+}
+
+#shop .button-row button:nth-child(1) {
+  order: 2;
+}
+
+#shop .button-row .offer-btn {
+  order: 3;
+  grid-column: auto;
+  min-height: 30px;
+  padding: 7px 8px;
+  font-size: 11px;
+  opacity: 0.9;
 }
 
 .button-row .button-link,
@@ -704,7 +727,7 @@ button:hover,
 .product-stage-preview {
   position: relative;
   width: 100%;
-  aspect-ratio: 2 / 3;
+  aspect-ratio: 3 / 5;
   overflow: hidden;
   border-radius: 16px;
   cursor: pointer;
@@ -724,9 +747,9 @@ button:hover,
 .product-stage-logo {
   position: absolute;
   z-index: 3;
-  top: 0.8%;
+  top: -1%;
   left: 50%;
-  width: 78%;
+  width: 82%;
   height: auto;
   opacity: 0.92;
   transform: translateX(-50%);
@@ -738,10 +761,10 @@ button:hover,
   position: absolute;
   z-index: 2;
   left: 50%;
-  bottom: 18%;
+  bottom: 22%;
   transform: translateX(-50%);
   width: auto;
-  height: 64%;
+  height: 61%;
   max-width: 82%;
   object-fit: contain;
   display: block;
@@ -753,7 +776,7 @@ button:hover,
   height: auto;
   width: 88%;
   max-width: 90%;
-  bottom: 20%;
+  bottom: 24%;
 }
 
 .product-stage-preview::after {
@@ -762,7 +785,7 @@ button:hover,
   z-index: 1;
   left: 18%;
   right: 18%;
-  bottom: 18%;
+  bottom: 24%;
   height: 10px;
   border-radius: 999px;
   background: radial-gradient(ellipse at center, rgba(0,0,0,0.62), transparent 70%);
@@ -837,9 +860,76 @@ button:hover,
 .info-panel-card img {
   display: block;
   width: 100%;
-  max-height: 330px;
+  max-height: 380px;
   object-fit: contain;
   border-radius: 12px;
+}
+
+.info-expand-btn {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(244,208,111,0.78);
+  background: rgba(0,0,0,0.78);
+  color: #f4d06f;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 900;
+}
+
+.info-expand-btn:hover {
+  background: #f4d06f;
+  color: #111;
+}
+
+.info-preview-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+  padding: 24px;
+  background: rgba(0,0,0,0.82);
+}
+
+.info-preview-modal.show {
+  display: flex;
+}
+
+.info-preview-content {
+  position: relative;
+  width: min(94vw, 1100px);
+  max-height: 92vh;
+  padding: 14px;
+  border: 1px solid rgba(244,208,111,0.72);
+  border-radius: 18px;
+  background: #050505;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.75);
+}
+
+.info-preview-content img {
+  display: block;
+  width: 100%;
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.info-preview-close {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: #f4d06f;
+  color: #111;
+  border: 0;
+  font-weight: 900;
 }
 
 .info-panel-card:hover,
@@ -1630,7 +1720,7 @@ button:hover,
   bottom: 8%;
   width: auto;
   height: 78%;
-  max-width: 78%;
+  max-width: 82%;
   object-fit: contain;
   transform: translateX(-50%);
   filter: drop-shadow(0 16px 18px rgba(0,0,0,0.72));
