@@ -215,6 +215,17 @@ function goInfoSlide(index) {
   showInfoSlide(index);
 }
 
+function togglePasswordVisibility(button) {
+  const field = button.closest('.password-field');
+  const input = field ? field.querySelector('input') : null;
+  if (!input) return;
+
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  button.textContent = showing ? 'Show' : 'Hide';
+  button.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+}
+
 /* ---------------- PREMIUM SIZE BUILDER ---------------- */
 function parseHeightToInches(value) {
   if (!value) return null;
@@ -317,6 +328,12 @@ function buySelectedNow(button) {
 document.addEventListener('DOMContentLoaded', function () {
   updateCart();
   showInfoSlide(0);
+
+  document.querySelectorAll('img').forEach((image) => {
+    image.setAttribute('draggable', 'false');
+    image.addEventListener('dragstart', (event) => event.preventDefault());
+    image.addEventListener('contextmenu', (event) => event.preventDefault());
+  });
 
   const fanVotes = getFanVoteStore();
   document.querySelectorAll('[data-vote-id]').forEach((button) => {
