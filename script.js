@@ -75,6 +75,80 @@ function openFanRequest() {
   alert('Fan request form will be added here.');
 }
 
+function scrollFanVotes(direction) {
+  const track = document.getElementById('fanVoteTrack');
+  if (!track) return;
+
+  const card = track.querySelector('.fan-vote-card');
+  const cardWidth = card ? card.offsetWidth + 22 : track.clientWidth;
+  track.scrollBy({
+    left: direction * cardWidth,
+    behavior: 'smooth'
+  });
+}
+
+function getFanVoteStore() {
+  try {
+    return JSON.parse(localStorage.getItem('mvpluxFanVotes') || '{}');
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveFanVoteStore(votes) {
+  localStorage.setItem('mvpluxFanVotes', JSON.stringify(votes));
+}
+
+function setFanVoteButtonState(button, voted) {
+  if (!button) return;
+
+  button.classList.toggle('voted', voted);
+  button.disabled = voted;
+
+  if (voted && !button.dataset.originalText) {
+    button.dataset.originalText = button.textContent.trim();
+  }
+
+  if (voted) {
+    const count = button.querySelector('.fan-vote-count')?.textContent || '';
+    button.childNodes[0].textContent = button.textContent.toLowerCase().includes('best')
+      ? 'Voted Best Design '
+      : 'Voted ';
+    if (count && !button.querySelector('.fan-vote-count')) {
+      button.insertAdjacentHTML('beforeend', `<span class="fan-vote-count">${count}</span>`);
+    }
+  }
+}
+
+function incrementVoteCount(voteId) {
+  document.querySelectorAll(`[data-vote-id="${voteId}"] .fan-vote-count`).forEach((countEl) => {
+    const current = parseInt(countEl.textContent, 10);
+    if (!Number.isNaN(current)) {
+      countEl.textContent = current + 1;
+    }
+  });
+}
+
+function registerFanVote(voteId, button) {
+  const votes = getFanVoteStore();
+
+  if (votes[voteId]) {
+    setFanVoteButtonState(button, true);
+    alert('You already voted for this one.');
+    return;
+  }
+
+  votes[voteId] = true;
+  saveFanVoteStore(votes);
+  incrementVoteCount(voteId);
+
+  document.querySelectorAll(`[data-vote-id="${voteId}"]`).forEach((matchingButton) => {
+    setFanVoteButtonState(matchingButton, true);
+  });
+
+  alert('Vote counted. Thanks for helping choose what comes next.');
+}
+
 /* ---------------- PRODUCT FILTER ---------------- */
 function filterProducts() {
   const searchInput = document.getElementById('searchInput');
@@ -244,6 +318,11 @@ document.addEventListener('DOMContentLoaded', function () {
   updateCart();
   showInfoSlide(0);
 
+  const fanVotes = getFanVoteStore();
+  document.querySelectorAll('[data-vote-id]').forEach((button) => {
+    setFanVoteButtonState(button, Boolean(fanVotes[button.dataset.voteId]));
+  });
+
   window.addEventListener('click', function (e) {
     const bgModal = document.getElementById('bgModal');
     if (bgModal && e.target === bgModal) closeBgModal();
@@ -258,9 +337,12 @@ document.addEventListener('DOMContentLoaded', function () {
     radios.forEach((radio) => {
       radio.addEventListener('change', function () {
         if (this.value === 'custom') {
-        priceDisplay.textContent = 'Enter a height';
-        if (customInput) customInput.focus();
-    }
+          priceDisplay.textContent = 'Enter a height';
+          if (customInput) customInput.focus();
+          return;
+        }
+
+        priceDisplay.textContent = '$' + originalPrice.toFixed(2);
       });
     });
 
