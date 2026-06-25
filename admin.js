@@ -6,7 +6,7 @@ const adminProducts = [
     originalHeight: 78,
     originalPrice: 129.99,
     cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'movie-character-standee',
@@ -15,7 +15,7 @@ const adminProducts = [
     originalHeight: 74,
     originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/MovieCharacters-Endorskeleton-Endordarkinsideshouldercutout.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'music-artist-standee',
@@ -24,7 +24,7 @@ const adminProducts = [
     originalHeight: 69,
     originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Music-MJackson-MJTR.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'faith-celebration-standee',
@@ -33,7 +33,7 @@ const adminProducts = [
     originalHeight: 72,
     originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Religious-J13D.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'fan-request-standee',
@@ -42,7 +42,7 @@ const adminProducts = [
     originalHeight: 69,
     originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Music-MJackson-MJzombie.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'dinosaur-party-standee',
@@ -51,7 +51,7 @@ const adminProducts = [
     originalHeight: 96,
     originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Dinosaurs-JPRex.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'game-fantasy-standee',
@@ -60,7 +60,7 @@ const adminProducts = [
     originalHeight: 72,
     originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero10E.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'custom-photo-standee',
@@ -69,7 +69,7 @@ const adminProducts = [
     originalHeight: 66,
     originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero7T.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'small-standee-party-pack',
@@ -78,7 +78,7 @@ const adminProducts = [
     originalHeight: 36,
     originalPrice: 50,
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero8T.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   }
 ];
 
@@ -107,6 +107,53 @@ function setStatus(message) {
   if (status) status.textContent = message;
 }
 
+function productPreviewMarkup(value) {
+  const title = value.title || 'Product Card';
+  const description = value.description || '';
+  const cutoutImage = value.cutoutImage || '';
+  const backgroundImage = value.backgroundImage || 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg';
+  const cutoutHeight = value.cutoutHeight || '63';
+  const cutoutLeft = value.cutoutLeft || '50';
+  const cutoutBottom = value.cutoutBottom || '21';
+  const logoWidth = value.logoWidth || '82';
+  const logoTop = value.logoTop || '-4';
+  const backgroundPosition = value.stageBackgroundPosition || 'center center';
+
+  return `
+    <div class="admin-card-preview">
+      <h4>${title}</h4>
+      <p>${description}</p>
+      <div class="admin-preview-stage" style="background-image: url('${backgroundImage}'); background-position: ${backgroundPosition};">
+        <img class="admin-preview-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="" style="width: ${logoWidth}%; top: ${logoTop}%;">
+        <img class="admin-preview-cutout" src="${cutoutImage}" alt="" style="height: ${cutoutHeight}%; left: ${cutoutLeft}%; bottom: ${cutoutBottom}%;">
+        <div class="admin-preview-choice-row">
+          <span>Original</span>
+          <span>Custom Size</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function updateProductPreview(form) {
+  const preview = form.querySelector('.admin-card-preview-wrap');
+  if (!preview) return;
+
+  const formData = new FormData(form);
+  preview.innerHTML = productPreviewMarkup({
+    title: formData.get('title').trim(),
+    description: formData.get('description').trim(),
+    cutoutImage: formData.get('cutoutImage').trim(),
+    backgroundImage: formData.get('backgroundImage').trim(),
+    cutoutHeight: formData.get('cutoutHeight').trim(),
+    cutoutLeft: formData.get('cutoutLeft').trim(),
+    cutoutBottom: formData.get('cutoutBottom').trim(),
+    logoWidth: formData.get('logoWidth').trim(),
+    logoTop: formData.get('logoTop').trim(),
+    stageBackgroundPosition: formData.get('stageBackgroundPosition').trim()
+  });
+}
+
 function renderAdminProducts() {
   const container = document.getElementById('adminProducts');
   const saved = readAdminProducts();
@@ -116,39 +163,92 @@ function renderAdminProducts() {
     const value = { ...product, ...(saved[product.slug] || {}) };
     return `
       <form class="admin-product-card" data-slug="${product.slug}">
-        <h3>${product.title}</h3>
-        <label>
-          Card title
-          <input name="title" type="text" value="${value.title || ''}">
-        </label>
-        <label>
-          Card description
-          <textarea name="description" rows="3">${value.description || ''}</textarea>
-        </label>
-        <label>
-          Standee image path
-          <input name="cutoutImage" type="text" value="${value.cutoutImage || ''}">
-        </label>
-        <label>
-          Background image path
-          <input name="backgroundImage" type="text" value="${value.backgroundImage || ''}">
-        </label>
-        <div class="admin-form-row">
-          <label>
-            Original height
-            <input name="originalHeight" type="text" value="${value.originalHeight || ''}" placeholder="6'6 or 78">
-          </label>
-          <label>
-            Original price
-            <input name="originalPrice" type="number" min="0" step="0.01" value="${value.originalPrice || ''}" placeholder="Auto">
-          </label>
+        <div class="admin-product-heading">
+          <h3>${product.title}</h3>
+          <button type="submit">Save Product</button>
         </div>
-        <button type="submit">Save Product</button>
+        <div class="admin-product-layout">
+          <div class="admin-card-preview-wrap">
+            ${productPreviewMarkup(value)}
+          </div>
+          <div class="admin-control-groups">
+            <fieldset>
+              <legend>Card Text</legend>
+              <label>
+                Card title
+                <input name="title" type="text" value="${value.title || ''}">
+              </label>
+              <label>
+                Card description
+                <textarea name="description" rows="3">${value.description || ''}</textarea>
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend>Images</legend>
+              <label>
+                Standee image path
+                <input name="cutoutImage" type="text" value="${value.cutoutImage || ''}">
+              </label>
+              <label>
+                Background image path
+                <input name="backgroundImage" type="text" value="${value.backgroundImage || ''}">
+              </label>
+            </fieldset>
+            <fieldset>
+              <legend>Size & Price</legend>
+              <div class="admin-form-row">
+                <label>
+                  Original height
+                  <input name="originalHeight" type="text" value="${value.originalHeight || ''}" placeholder="6'6, 78, 2, or 24">
+                </label>
+                <label>
+                  Original price
+                  <input name="originalPrice" type="number" min="0" step="0.01" value="${value.originalPrice || ''}" placeholder="Auto">
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Main Page Placement</legend>
+              <div class="admin-form-row admin-placement-row">
+                <label>
+                  Standee size %
+                  <input name="cutoutHeight" type="number" min="30" max="100" step="1" value="${value.cutoutHeight || ''}" placeholder="63">
+                </label>
+                <label>
+                  Left / right %
+                  <input name="cutoutLeft" type="number" min="0" max="100" step="1" value="${value.cutoutLeft || ''}" placeholder="50">
+                </label>
+                <label>
+                  Up / down %
+                  <input name="cutoutBottom" type="number" min="0" max="60" step="1" value="${value.cutoutBottom || ''}" placeholder="21">
+                </label>
+              </div>
+              <div class="admin-form-row admin-placement-row">
+                <label>
+                  Logo size %
+                  <input name="logoWidth" type="number" min="30" max="100" step="1" value="${value.logoWidth || ''}" placeholder="82">
+                </label>
+                <label>
+                  Logo up / down %
+                  <input name="logoTop" type="number" min="-20" max="40" step="1" value="${value.logoTop || ''}" placeholder="-4">
+                </label>
+                <label>
+                  Background position
+                  <input name="stageBackgroundPosition" type="text" value="${value.stageBackgroundPosition || ''}" placeholder="center center">
+                </label>
+              </div>
+            </fieldset>
+          </div>
+        </div>
       </form>
     `;
   }).join('');
 
   container.querySelectorAll('.admin-product-card').forEach((form) => {
+    form.querySelectorAll('input, textarea').forEach((field) => {
+      field.addEventListener('input', () => updateProductPreview(form));
+    });
+
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       const formData = new FormData(form);
@@ -159,7 +259,13 @@ function renderAdminProducts() {
         cutoutImage: formData.get('cutoutImage').trim(),
         backgroundImage: formData.get('backgroundImage').trim(),
         originalHeight: formData.get('originalHeight').trim(),
-        originalPrice: formData.get('originalPrice').trim()
+        originalPrice: formData.get('originalPrice').trim(),
+        cutoutHeight: formData.get('cutoutHeight').trim(),
+        cutoutLeft: formData.get('cutoutLeft').trim(),
+        cutoutBottom: formData.get('cutoutBottom').trim(),
+        logoWidth: formData.get('logoWidth').trim(),
+        logoTop: formData.get('logoTop').trim(),
+        stageBackgroundPosition: formData.get('stageBackgroundPosition').trim()
       };
       writeAdminProducts(products);
       setStatus('Saved product changes. Go back to Shop to see them.');

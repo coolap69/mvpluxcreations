@@ -460,6 +460,7 @@ img {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 28px;
+  align-items: start;
 }
 
 .product-card {
@@ -474,7 +475,7 @@ img {
   padding: 16px;
   box-shadow: 0 20px 42px rgba(0,0,0,0.46), inset 0 0 26px rgba(244,208,111,0.045);
   color: #fff;
-  min-height: 820px;
+  min-height: 0;
   transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
 }
 
@@ -491,7 +492,15 @@ img {
 }
 
 .product-card h3 {
-  margin: 15px 0 8px;
+  order: 1;
+  margin: 0 0 8px;
+}
+
+.product-image-link {
+  order: 3;
+  display: block;
+  text-decoration: none;
+  color: inherit;
 }
 
 .product-title-link {
@@ -511,10 +520,12 @@ img {
 }
 
 .product-description {
+  order: 2;
   font-size: 14px;
   line-height: 1.42;
   color: #e9e2d2;
-  margin: 10px 0 12px;
+  margin: 0 0 12px;
+  text-align: center;
 }
 
 .price {
@@ -530,6 +541,7 @@ img {
 }
 
 #shop .size-builder {
+  order: 4;
   position: relative;
   display: block;
   margin: 0 0 12px;
@@ -542,30 +554,12 @@ img {
 }
 
 #shop .size-builder::before {
-  content: "Pick Original for 6\'6, or Custom and type your height. Buy Now checks out right away.";
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: calc(100% + 8px);
-  z-index: 5;
-  padding: 8px 10px;
-  border: 1px solid rgba(244,208,111,0.42);
-  border-radius: 8px;
-  background: rgba(0,0,0,0.88);
-  color: #f8e7aa;
-  font-size: 11px;
-  line-height: 1.3;
-  text-align: center;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(5px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  content: none;
 }
 
 #shop .size-builder:hover::before,
 #shop .size-builder:focus-within::before {
-  opacity: 1;
-  transform: translateY(0);
+  content: none;
 }
 
 #shop .size-option {
@@ -605,12 +599,6 @@ img {
   color: rgba(255,255,255,0.55);
 }
 
-#shop .size-help {
-  color: #d9c98f;
-  margin: 5px 0 0;
-  font-size: 11px;
-  line-height: 1.25;
-}
 
 #shop .live-price-line {
   margin: 8px 0 0;
@@ -631,10 +619,11 @@ img {
 }
 
 .button-row {
+  order: 5;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-top: auto;
+  margin-top: 8px;
 }
 
 #shop .button-row {
@@ -746,20 +735,13 @@ button:hover,
   overflow: hidden;
   border-radius: 16px;
   cursor: pointer;
-  background: #111;
+  background: #111 url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg") center center / cover no-repeat;
   border: 1px solid rgba(212, 175, 55, 0.65);
   box-shadow: inset 0 0 32px rgba(244,208,111,0.12), 0 14px 28px rgba(0,0,0,0.42);
 }
 
 .product-stage-bg {
-  position: absolute;
-  z-index: 0;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center center;
-  transform: scale(1.01);
+  display: none;
 }
 
 .product-stage-logo {
@@ -798,29 +780,11 @@ button:hover,
 }
 
 .product-stage-preview::before {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 36%;
-  background:
-    radial-gradient(ellipse at center top, rgba(244,208,111,0.34), transparent 58%),
-    linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0.82));
-  pointer-events: none;
+  content: none;
 }
 
 .product-stage-preview::after {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  left: 12%;
-  right: 12%;
-  bottom: 8%;
-  height: 14px;
-  border-radius: 999px;
-  background: radial-gradient(ellipse at center, rgba(244,208,111,0.44), rgba(0,0,0,0.66) 48%, transparent 72%);
+  content: none;
 }
 
 .stage-option-boxes {
@@ -2554,11 +2518,6 @@ footer {
   background: #fff;
 }
 
-.size-help {
-  font-size: 12px;
-  color: #5f512d;
-  margin: 8px 0 0;
-}
 
 .live-price-line {
   margin: 9px 0 0;
@@ -2574,4 +2533,545 @@ footer {
 .live-size-price {
   color: #f4d06f;
 }
+}
+
+/* Final shop cleanup: image buttons are the size choices. */
+#shop .product-card {
+  min-height: 0 !important;
+  padding: 14px !important;
+}
+
+#shop .product-card h3 {
+  order: 1 !important;
+  margin: 0 0 8px !important;
+}
+
+#shop .product-description {
+  order: 2 !important;
+  margin: 0 0 12px !important;
+  text-align: center !important;
+}
+
+#shop .product-image-link {
+  order: 3 !important;
+}
+
+#shop .size-builder {
+  order: 4 !important;
+}
+
+#shop .button-row {
+  order: 5 !important;
+}
+
+#shop .price,
+
+#shop .size-builder::before {
+  content: none !important;
+  display: none !important;
+}
+
+#shop .size-builder {
+  margin-top: 12px !important;
+}
+
+#shop .size-option {
+  display: none !important;
+}
+
+#shop .size-option:has(input[value="custom"]) {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+#shop .size-option:has(input[value="custom"]) > label {
+  display: none !important;
+}
+
+#shop .custom-size-box {
+  display: none !important;
+  margin: 0 !important;
+}
+
+#shop .size-builder.custom-active .custom-size-box {
+  display: block !important;
+}
+
+#shop .custom-height-input {
+  font-size: 13px !important;
+}
+
+#shop .custom-height-input:focus {
+  outline: 0 !important;
+  box-shadow: 0 0 0 2px rgba(244,208,111,0.48) !important;
+}
+
+.product-stage-bg {
+  display: none !important;
+}
+
+.category-card img {
+  max-height: 340px;
+}
+
+/* Final category page polish. */
+.category-page {
+  width: min(96%, 1280px) !important;
+  margin: 110px auto 48px !important;
+  color: #fff !important;
+}
+
+.category-hero,
+.category-panel {
+  color: #fff !important;
+}
+
+.category-hero h1,
+.category-panel h2 {
+  color: #f4d06f !important;
+  text-shadow: 0 0 16px rgba(244,208,111,0.22) !important;
+}
+
+.category-hero p {
+  color: #f0e7cf !important;
+}
+
+.category-panel {
+  margin-top: 22px !important;
+  padding: 20px !important;
+  border: 1px solid rgba(212,175,55,0.48) !important;
+  border-radius: 18px !important;
+  background: radial-gradient(circle at 50% 0%, rgba(244,208,111,0.12), transparent 32%), rgba(0,0,0,0.72) !important;
+}
+
+.category-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 18px !important;
+}
+
+.category-card {
+  display: grid !important;
+  gap: 10px !important;
+  padding: 14px !important;
+  border: 1px solid rgba(244,208,111,0.42) !important;
+  border-radius: 14px !important;
+  background: radial-gradient(circle at 50% 0%, rgba(244,208,111,0.12), transparent 38%), #070707 !important;
+}
+
+.category-card img {
+  width: 100% !important;
+  height: 340px !important;
+  object-fit: contain !important;
+  border-radius: 12px !important;
+  background: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg") center center / cover no-repeat #050505 !important;
+  border: 1px solid rgba(244,208,111,0.35) !important;
+}
+
+.category-card h3 {
+  margin: 0 !important;
+  color: #fff !important;
+  text-align: center !important;
+}
+
+.background-carousel {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+  margin-top: 16px !important;
+}
+
+.background-carousel img {
+  width: 100% !important;
+  height: 220px !important;
+  object-fit: cover !important;
+  border: 1px solid rgba(244,208,111,0.42) !important;
+  border-radius: 12px !important;
+}
+
+/* Final button scale: calmer, readable, not oversized. */
+button,
+.button-row button,
+.button-link,
+.category-card button,
+.admin-product-card button,
+.admin-coupon-form button,
+.admin-panel-header button,
+.admin-size-tools button,
+.checkout-btn {
+  min-height: 34px !important;
+  padding: 8px 12px !important;
+  border-radius: 7px !important;
+  font-size: 13px !important;
+  line-height: 1.1 !important;
+  letter-spacing: 0 !important;
+}
+
+#shop .button-row {
+  gap: 7px !important;
+  padding-top: 6px !important;
+}
+
+#shop .button-row button:nth-child(2) {
+  min-height: 40px !important;
+  padding: 9px 12px !important;
+  font-size: 14px !important;
+  box-shadow: 0 8px 16px rgba(177,18,38,0.24) !important;
+}
+
+#shop .button-row button:nth-child(1),
+#shop .button-row .offer-btn {
+  min-height: 32px !important;
+  padding: 7px 10px !important;
+  font-size: 12px !important;
+}
+
+.stage-option-boxes span {
+  min-height: 31px !important;
+  padding: 5px 7px !important;
+  border-radius: 7px !important;
+  font-size: 10px !important;
+}
+
+.lux-hero-btn {
+  min-height: 42px !important;
+  padding: 10px 22px !important;
+  font-size: 14px !important;
+}
+
+.auth-links a,
+.cart-button {
+  min-height: 32px !important;
+  padding: 7px 11px !important;
+  font-size: 12px !important;
+}
+
+/* Most Wanted Cutouts compact pass. */
+.fan-vote-grid {
+  align-items: start !important;
+}
+
+.fan-vote-card {
+  border-radius: 12px !important;
+  box-shadow: 0 12px 22px rgba(0,0,0,0.32) !important;
+}
+
+.fan-card-stage {
+  aspect-ratio: 4 / 4.6 !important;
+}
+
+.fan-card-cutout {
+  bottom: 15% !important;
+  height: 70% !important;
+  max-width: 76% !important;
+}
+
+.fan-card-cutout-wide {
+  bottom: 15% !important;
+  width: 86% !important;
+}
+
+.fan-vote-meter {
+  top: 8px !important;
+  left: 8px !important;
+  width: 64px !important;
+  padding: 6px !important;
+  border-radius: 8px !important;
+}
+
+.fan-vote-meter strong {
+  font-size: 16px !important;
+}
+
+.fan-vote-meter span {
+  margin-top: 4px !important;
+  font-size: 9px !important;
+}
+
+.fan-card-footer {
+  width: auto !important;
+  margin: 0 !important;
+  padding: 8px !important;
+  border-width: 0 !important;
+  border-top: 1px solid rgba(212,175,55,0.34) !important;
+  border-radius: 0 !important;
+  background: rgba(0,0,0,0.78) !important;
+  box-shadow: none !important;
+}
+
+.fan-card-footer h4 {
+  margin: 0 0 6px !important;
+  font-size: 12px !important;
+}
+
+.fan-card-footer > .fan-vote-action {
+  min-height: 28px !important;
+  padding: 6px 8px !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+}
+
+.fan-card-actions {
+  gap: 5px !important;
+  margin-top: 6px !important;
+}
+
+.fan-card-actions button {
+  min-height: 26px !important;
+  padding: 5px 6px !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+}
+
+/* Admin placement controls. */
+.admin-note {
+  margin: 0 0 14px;
+  color: #e9e2d2;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.admin-placement-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.admin-product-card input[type="number"] {
+  text-align: center;
+}
+
+/* Admin dashboard polish and product preview cards. */
+.admin-page {
+  width: min(96%, 1320px) !important;
+  margin: 110px auto 54px !important;
+  color: #fff !important;
+}
+
+.admin-hero {
+  padding: 22px 24px !important;
+  border: 1px solid rgba(244,208,111,0.42) !important;
+  border-radius: 18px !important;
+  background: radial-gradient(circle at 50% 0%, rgba(244,208,111,0.14), transparent 34%), rgba(0,0,0,0.72) !important;
+}
+
+.admin-hero h1 {
+  color: #f4d06f !important;
+  text-shadow: 0 0 16px rgba(244,208,111,0.24) !important;
+}
+
+.admin-panel {
+  padding: 20px !important;
+  border: 1px solid rgba(244,208,111,0.42) !important;
+  border-radius: 18px !important;
+  background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018)), #070707 !important;
+}
+
+.admin-panel-header h2 {
+  color: #f4d06f !important;
+}
+
+.admin-note {
+  max-width: 900px;
+  padding: 10px 12px;
+  border: 1px solid rgba(244,208,111,0.24);
+  border-radius: 10px;
+  background: rgba(244,208,111,0.08);
+  color: #f0e7cf !important;
+}
+
+.admin-product-list {
+  grid-template-columns: 1fr !important;
+}
+
+.admin-product-card {
+  gap: 14px !important;
+  padding: 16px !important;
+  border: 1px solid rgba(244,208,111,0.38) !important;
+  border-radius: 16px !important;
+  background: rgba(0,0,0,0.58) !important;
+}
+
+.admin-product-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-product-heading h3 {
+  margin: 0;
+  color: #fff;
+  font-size: 18px;
+}
+
+.admin-product-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.admin-card-preview-wrap {
+  position: sticky;
+  top: 92px;
+}
+
+.admin-card-preview {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(244,208,111,0.42);
+  border-radius: 14px;
+  background: #090909;
+}
+
+.admin-card-preview h4 {
+  min-height: 44px;
+  margin: 0;
+  color: #fff;
+  font-size: 17px;
+  line-height: 1.2;
+  text-align: center;
+  display: grid;
+  place-items: center;
+}
+
+.admin-card-preview p {
+  min-height: 58px;
+  margin: 0;
+  color: #e9e2d2;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.admin-preview-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border: 1px solid rgba(244,208,111,0.52);
+  border-radius: 12px;
+  background: #111 center center / cover no-repeat;
+}
+
+.admin-preview-logo {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.admin-preview-cutout {
+  position: absolute;
+  z-index: 3;
+  width: auto;
+  max-width: 90%;
+  object-fit: contain;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 14px 14px rgba(0,0,0,0.62));
+  pointer-events: none;
+}
+
+.admin-preview-choice-row {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.admin-preview-choice-row span {
+  min-height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(244,208,111,0.58);
+  border-radius: 7px;
+  background: rgba(0,0,0,0.72);
+  color: #f8e7aa;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.admin-preview-choice-row span:first-child {
+  background: linear-gradient(180deg, #df222b, #9e0d13);
+  color: #fff;
+}
+
+.admin-control-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-product-card fieldset {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid rgba(244,208,111,0.24);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.035);
+}
+
+.admin-product-card legend {
+  padding: 0 6px;
+  color: #f4d06f;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.admin-product-card label,
+.admin-coupon-form label {
+  color: #f8e7aa !important;
+  font-size: 12px !important;
+}
+
+.admin-product-card input,
+.admin-product-card textarea,
+.admin-coupon-form input {
+  background: rgba(0,0,0,0.72) !important;
+  color: #fff !important;
+  border-color: rgba(244,208,111,0.46) !important;
+}
+
+.admin-form-row {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.admin-placement-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+/* Equalize front card title and description areas. */
+#shop .product-card h3 {
+  min-height: 48px !important;
+  display: grid !important;
+  place-items: center !important;
+}
+
+#shop .product-title-link {
+  display: block !important;
+}
+
+#shop .product-description {
+  min-height: 58px !important;
+  display: grid !important;
+  place-items: center !important;
+}
+
+#shop .product-description {
+  height: 64px !important;
+  min-height: 64px !important;
+  overflow: hidden !important;
 }

@@ -269,20 +269,18 @@ function parseHeightToInches(value) {
   }
 
   if (/^\d+$/.test(raw)) {
-  const number = parseInt(raw, 10);
+    const number = parseInt(raw, 10);
 
-  // If they type 4, 5, 6, 7, or 8, treat it as feet
-  if (number >= 4 && number <= 8) {
-    return number * 12;
+    if (number >= 2 && number <= 8) {
+      return number * 12;
+    }
+
+    if (number >= 24) {
+      return number;
+    }
+
+    return null;
   }
-
-  // If they type 48 or more, treat it as inches
-  if (number >= 48) {
-    return number;
-  }
-
-  return null;
-}
 
   return null;
 }
@@ -290,7 +288,11 @@ function parseHeightToInches(value) {
 function calculateCutoutPrice(inches) {
   if (!inches) return null;
 
-  if (inches <= 36) return 50.00;
+  if (inches < 24) return null;
+
+  if (inches <= 36) {
+    return 35.00 + ((inches - 24) * 1.25);
+  }
 
   if (inches > 36 && inches <= 78) {
     return 50.00 + ((inches - 36) * ((129.99 - 50.00) / 42));
@@ -336,23 +338,27 @@ function getAdminCoupons() {
 function applyAdminProductOverrides(builder) {
   const card = builder.closest('.product-card');
   const productName = builder.dataset.productName || card?.querySelector('.product-title-link')?.textContent || '';
-  const override = getAdminProducts()[getProductSlug(productName)];
+  const override = getAdminProducts()[builder.dataset.adminSlug || getProductSlug(productName)];
   if (!override || !card) return;
 
   const titleLink = card.querySelector('.product-title-link');
   const description = card.querySelector('.product-description');
   const cutout = card.querySelector('.product-cutout');
-  const background = card.querySelector('.product-stage-bg');
+  const stage = card.querySelector('.product-stage-preview');
+  const logo = card.querySelector('.product-stage-logo');
 
   if (override.title && titleLink) titleLink.textContent = override.title;
   if (override.description && description) description.textContent = override.description;
   if (override.cutoutImage && cutout) cutout.src = override.cutoutImage;
-  if (override.backgroundImage && background) {
-    background.src = override.backgroundImage.replace(
-      'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg',
-      'images/FanBackgrounds/top-favorite-stage-scifi.png'
-    );
+  if (override.backgroundImage && stage) {
+    stage.style.backgroundImage = `url("${override.backgroundImage}")`;
   }
+  if (override.stageBackgroundPosition && stage) stage.style.backgroundPosition = override.stageBackgroundPosition;
+  if (override.cutoutHeight && cutout) cutout.style.height = `${override.cutoutHeight}%`;
+  if (override.cutoutLeft && cutout) cutout.style.left = `${override.cutoutLeft}%`;
+  if (override.cutoutBottom && cutout) cutout.style.bottom = `${override.cutoutBottom}%`;
+  if (override.logoWidth && logo) logo.style.width = `${override.logoWidth}%`;
+  if (override.logoTop && logo) logo.style.top = `${override.logoTop}%`;
   if (override.originalHeight) {
     const overrideHeight = parseHeightToInches(String(override.originalHeight)) || parseInt(override.originalHeight, 10);
     if (overrideHeight) builder.dataset.originalHeight = String(overrideHeight);
@@ -405,6 +411,7 @@ function selectSizeMode(builder, mode) {
   if (!radio) return;
 
   radio.checked = true;
+  builder.classList.toggle('custom-active', mode === 'custom');
   setStageChoice(builder, mode);
 
   if (mode === 'custom') {
