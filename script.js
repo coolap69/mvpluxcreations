@@ -228,6 +228,13 @@ function openInfoPreview(button) {
   modal.classList.add('show');
 }
 
+function openInfoPreviewFromKey(event, card) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    openInfoPreview(card);
+  }
+}
+
 function closeInfoPreview(event) {
   const modal = document.getElementById('infoPreviewModal');
   if (!modal) return;
@@ -283,22 +290,202 @@ function parseHeightToInches(value) {
 function calculateCutoutPrice(inches) {
   if (!inches) return null;
 
-  if (inches < 48) return 80.99;
-  if (inches >= 96) return 159.99;
+  if (inches <= 36) return 50.00;
 
-  if (inches >= 48 && inches <= 59) {
-    return 80.99 + ((inches - 48) * 1.00);
+  if (inches > 36 && inches <= 78) {
+    return 50.00 + ((inches - 36) * ((129.99 - 50.00) / 42));
   }
 
-  if (inches >= 60 && inches <= 71) {
-    return 94.99 + ((inches - 60) * 1.50);
+  return 129.99 + ((inches - 78) * 2.00);
+}
+
+function formatHeight(inches) {
+  const feet = Math.floor(inches / 12);
+  const remainder = inches % 12;
+  return remainder ? `${feet}'${remainder}"` : `${feet}'`;
+}
+
+function formatMoney(price) {
+  return '$' + price.toFixed(2);
+}
+
+function getProductAdminKey(builder) {
+  return 'mvpluxOriginalHeight:' + (builder.dataset.productName || 'product').replace(/\W+/g, '-').toLowerCase();
+}
+
+function getProductSlug(productName) {
+  return (productName || 'product').replace(/\W+/g, '-').toLowerCase();
+}
+
+function getAdminProducts() {
+  try {
+    return JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
+  } catch (error) {
+    return {};
+  }
+}
+
+function getAdminCoupons() {
+  try {
+    return JSON.parse(localStorage.getItem('mvpluxAdminCoupons') || '[]');
+  } catch (error) {
+    return [];
+  }
+}
+
+function applyAdminProductOverrides(builder) {
+  const card = builder.closest('.product-card');
+  const productName = builder.dataset.productName || card?.querySelector('.product-title-link')?.textContent || '';
+  const override = getAdminProducts()[getProductSlug(productName)];
+  if (!override || !card) return;
+
+  const titleLink = card.querySelector('.product-title-link');
+  const description = card.querySelector('.product-description');
+  const cutout = card.querySelector('.product-cutout');
+  const background = card.querySelector('.product-stage-bg');
+
+  if (override.title && titleLink) titleLink.textContent = override.title;
+  if (override.description && description) description.textContent = override.description;
+  if (override.cutoutImage && cutout) cutout.src = override.cutoutImage;
+  if (override.backgroundImage && background) {
+    background.src = override.backgroundImage.replace(
+      'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg',
+      'images/FanBackgrounds/top-favorite-stage-scifi.png'
+    );
+  }
+  if (override.originalHeight) {
+    const overrideHeight = parseHeightToInches(String(override.originalHeight)) || parseInt(override.originalHeight, 10);
+    if (overrideHeight) builder.dataset.originalHeight = String(overrideHeight);
+  }
+  if (override.originalPrice) builder.dataset.originalPriceOverride = String(override.originalPrice);
+}
+
+function updateBuilderOriginalDisplay(builder) {
+  const originalHeight = parseInt(builder.dataset.originalHeight || '78', 10);
+  const originalPrice = parseFloat(builder.dataset.originalPriceOverride || '') || calculateCutoutPrice(originalHeight);
+  const originalLabel = builder.querySelector('input[value="original"]')?.closest('label')?.querySelector('span');
+  const customLabel = builder.querySelector('input[value="custom"]')?.closest('label')?.querySelector('span');
+  const priceDisplay = builder.querySelector('.live-size-price');
+  const originalRadio = builder.querySelector('input[value="original"]');
+  const stage = builder.closest('.product-card')?.querySelector('.product-stage-preview');
+  const originalChoice = stage?.querySelector('[data-stage-choice="original"]');
+
+  builder.dataset.originalPrice = originalPrice.toFixed(2);
+
+  if (originalLabel) {
+    originalLabel.textContent = `Original Size - ${formatHeight(originalHeight)} - ${formatMoney(originalPrice)}`;
   }
 
-  if (inches >= 72 && inches <= 95) {
-    return 114.99 + ((inches - 72) * 2.00);
+  if (customLabel && !customLabel.dataset.customPrice) {
+    customLabel.textContent = 'Custom Size';
   }
 
-  return 94.99;
+  if (priceDisplay && originalRadio?.checked) {
+    priceDisplay.textContent = formatMoney(originalPrice);
+  }
+
+  if (originalChoice) {
+    originalChoice.textContent = `Original ${formatHeight(originalHeight)}`;
+  }
+}
+
+function setStageChoice(builder, choice) {
+  const card = builder.closest('.product-card');
+  const stage = card?.querySelector('.product-stage-preview');
+  stage?.querySelectorAll('[data-stage-choice]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.stageChoice === choice);
+  });
+}
+
+function selectSizeMode(builder, mode) {
+  const radio = builder.querySelector(`input[value="${mode}"]`);
+  const priceDisplay = builder.querySelector('.live-size-price');
+  const customInput = builder.querySelector('.custom-height-input');
+
+  if (!radio) return;
+
+  radio.checked = true;
+  setStageChoice(builder, mode);
+
+  if (mode === 'custom') {
+    if (priceDisplay) priceDisplay.textContent = 'Enter a height';
+    builder.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (customInput) customInput.focus();
+    return;
+  }
+
+  updateBuilderOriginalDisplay(builder);
+}
+
+function updateCustomPrice(builder) {
+  const customInput = builder.querySelector('.custom-height-input');
+  const priceDisplay = builder.querySelector('.live-size-price');
+  const customLabel = builder.querySelector('input[value="custom"]')?.closest('label')?.querySelector('span');
+  const inches = parseHeightToInches(customInput?.value || '');
+  const price = calculateCutoutPrice(inches);
+
+  if (!price) {
+    if (priceDisplay) priceDisplay.textContent = 'Enter a valid height';
+    if (customLabel) {
+      customLabel.textContent = 'Custom Size';
+      delete customLabel.dataset.customPrice;
+    }
+    return;
+  }
+
+  if (priceDisplay) priceDisplay.textContent = formatMoney(price);
+  if (customLabel) {
+    customLabel.textContent = `Custom Size - ${formatMoney(price)}`;
+    customLabel.dataset.customPrice = 'true';
+  }
+}
+
+function toggleAdminSizeEditor() {
+  document.body.classList.toggle('show-size-admin');
+}
+
+function renderCouponBanner() {
+  const coupons = getAdminCoupons().filter((coupon) => coupon.code && coupon.discount);
+  const shop = document.getElementById('shop');
+  if (!shop || !coupons.length || document.querySelector('.coupon-banner')) return;
+
+  const coupon = coupons[0];
+  shop.insertAdjacentHTML('afterbegin', `
+    <div class="coupon-banner">
+      Use code <strong>${coupon.code}</strong> for ${coupon.discount}% off eligible orders.
+    </div>
+  `);
+}
+
+function installSizeAdmin(builder) {
+  if (builder.querySelector('.admin-size-tools')) return;
+
+  builder.insertAdjacentHTML('beforeend', `
+    <div class="admin-size-tools">
+      <label>
+        Admin original height
+        <input class="admin-original-height-input" type="text" placeholder="Example: 6'6 or 78">
+      </label>
+      <button type="button" class="admin-save-size">Save height</button>
+    </div>
+  `);
+
+  const input = builder.querySelector('.admin-original-height-input');
+  const saveButton = builder.querySelector('.admin-save-size');
+  if (input) input.value = formatHeight(parseInt(builder.dataset.originalHeight || '78', 10));
+
+  saveButton?.addEventListener('click', () => {
+    const inches = parseHeightToInches(input?.value || '');
+    if (!inches) {
+      alert("Enter a height like 6'6 or 78.");
+      return;
+    }
+
+    builder.dataset.originalHeight = String(inches);
+    localStorage.setItem(getProductAdminKey(builder), String(inches));
+    updateBuilderOriginalDisplay(builder);
+    setStageChoice(builder, 'original');
+  });
 }
 
 function getSelectedProduct(button) {
@@ -307,7 +494,7 @@ function getSelectedProduct(button) {
 
   if (!builder) {
     const productName = card.querySelector('.product-title-link')?.textContent || 'Custom Cutout';
-    return { card, builder: null, productName, price: 80.99, valid: true };
+    return { card, builder: null, productName, price: 50.00, valid: true };
   }
 
   const priceEl = builder.querySelector('.live-size-price');
@@ -350,12 +537,30 @@ function buySelectedNow(button) {
 document.addEventListener('DOMContentLoaded', function () {
   updateCart();
   showInfoSlide(0);
+  renderCouponBanner();
 
   document.querySelectorAll('img').forEach((image) => {
     image.setAttribute('draggable', 'false');
     image.addEventListener('dragstart', (event) => event.preventDefault());
     image.addEventListener('contextmenu', (event) => event.preventDefault());
   });
+
+  document.querySelectorAll('.product-stage-preview').forEach((stage) => {
+    if (stage.querySelector('.stage-option-boxes')) return;
+
+    stage.insertAdjacentHTML('beforeend', `
+      <div class="stage-option-boxes">
+        <span class="active" data-stage-choice="original" role="button" tabindex="0">Original 6'6</span>
+        <span data-stage-choice="custom" role="button" tabindex="0">Custom Size</span>
+      </div>
+    `);
+  });
+
+  const shopTools = document.querySelector('#shop .shop-tools');
+  if (shopTools && !document.getElementById('adminSizeToggle')) {
+    shopTools.insertAdjacentHTML('beforeend', '<button id="adminSizeToggle" class="admin-size-toggle" type="button">Admin Edit Sizes</button>');
+    document.getElementById('adminSizeToggle')?.addEventListener('click', toggleAdminSizeEditor);
+  }
 
   const fanVotes = getFanVoteStore();
   document.querySelectorAll('[data-vote-id]').forEach((button) => {
@@ -368,35 +573,48 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   document.querySelectorAll('.size-builder').forEach((builder) => {
-    const originalPrice = parseFloat(builder.dataset.originalPrice || '119.99');
+    applyAdminProductOverrides(builder);
+
+    const savedOriginalHeight = localStorage.getItem(getProductAdminKey(builder));
+    if (savedOriginalHeight) builder.dataset.originalHeight = savedOriginalHeight;
+
     const priceDisplay = builder.querySelector('.live-size-price');
     const customInput = builder.querySelector('.custom-height-input');
     const radios = builder.querySelectorAll('input[type="radio"]');
+    const card = builder.closest('.product-card');
+    const stage = card?.querySelector('.product-stage-preview');
+
+    installSizeAdmin(builder);
+    updateBuilderOriginalDisplay(builder);
 
     radios.forEach((radio) => {
       radio.addEventListener('change', function () {
         if (this.value === 'custom') {
-          priceDisplay.textContent = 'Enter a height';
-          if (customInput) customInput.focus();
+          selectSizeMode(builder, 'custom');
           return;
         }
 
-        priceDisplay.textContent = '$' + originalPrice.toFixed(2);
+        selectSizeMode(builder, 'original');
       });
     });
 
     if (customInput) {
       customInput.addEventListener('input', function () {
-        const inches = parseHeightToInches(this.value);
-        const price = calculateCutoutPrice(inches);
-
-        if (!price) {
-        priceDisplay.textContent = 'Enter a valid height';
-        return;
-    }
-
-        priceDisplay.textContent = '$' + price.toFixed(2);
+        updateCustomPrice(builder);
       });
     }
+
+    stage?.querySelectorAll('[data-stage-choice]').forEach((choiceButton) => {
+      const choose = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectSizeMode(builder, choiceButton.dataset.stageChoice);
+      };
+
+      choiceButton.addEventListener('click', choose);
+      choiceButton.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') choose(event);
+      });
+    });
   });
 });

@@ -377,9 +377,8 @@ img {
 #shop {
   position: relative;
   background:
-    radial-gradient(circle at 18% 0%, rgba(244,208,111,0.18), transparent 28%),
-    radial-gradient(circle at 82% 5%, rgba(177,18,38,0.18), transparent 26%),
-    linear-gradient(180deg, #070707 0%, #14100a 48%, #070707 100%);
+    radial-gradient(circle at 50% 0%, rgba(244,208,111,0.14), transparent 30%),
+    linear-gradient(180deg, #070707 0%, #0d0a08 48%, #070707 100%);
   border: 1px solid rgba(212, 175, 55, 0.55);
   margin-top: 20px;
   border-radius: 28px;
@@ -446,6 +445,16 @@ img {
   flex: 1;
 }
 
+.admin-size-toggle {
+  flex: 0 0 auto;
+  border: 1px solid rgba(244,208,111,0.55);
+  background: rgba(244,208,111,0.12);
+  color: #f8e7aa;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 12px;
+}
+
 /* PRODUCT GRID */
 .product-grid {
   display: grid;
@@ -465,7 +474,7 @@ img {
   padding: 16px;
   box-shadow: 0 20px 42px rgba(0,0,0,0.46), inset 0 0 26px rgba(244,208,111,0.045);
   color: #fff;
-  min-height: 100%;
+  min-height: 820px;
   transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
 }
 
@@ -523,8 +532,8 @@ img {
 #shop .size-builder {
   position: relative;
   display: block;
-  margin: 0 0 10px;
-  padding: 8px;
+  margin: 0 0 12px;
+  padding: 10px;
   border: 1px solid rgba(244,208,111,0.28);
   border-radius: 10px;
   background:
@@ -533,19 +542,19 @@ img {
 }
 
 #shop .size-builder::before {
-  content: "Need help? Pick Original for 6\'6, or Custom and type your height. Buy Now is the main checkout button.";
+  content: "Pick Original for 6\'6, or Custom and type your height. Buy Now checks out right away.";
   position: absolute;
-  left: 10px;
-  right: 10px;
-  top: -34px;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 8px);
   z-index: 5;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border: 1px solid rgba(244,208,111,0.42);
   border-radius: 8px;
   background: rgba(0,0,0,0.88);
   color: #f8e7aa;
-  font-size: 10px;
-  line-height: 1.25;
+  font-size: 11px;
+  line-height: 1.3;
   text-align: center;
   opacity: 0;
   pointer-events: none;
@@ -560,17 +569,17 @@ img {
 }
 
 #shop .size-option {
-  padding: 6px 7px;
+  padding: 8px 9px;
   border-color: rgba(244,208,111,0.22);
   border-radius: 8px;
   background: rgba(255,255,255,0.055);
-  margin-bottom: 5px;
+  margin-bottom: 7px;
 }
 
 #shop .size-option label {
   color: #fff;
   gap: 7px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.15;
 }
 
@@ -604,12 +613,12 @@ img {
 }
 
 #shop .live-price-line {
-  margin: 7px 0 0;
-  padding: 7px 8px;
+  margin: 8px 0 0;
+  padding: 9px 10px;
   background: rgba(0,0,0,0.68);
   border: 1px solid rgba(244,208,111,0.28);
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.2;
 }
 
@@ -629,8 +638,10 @@ img {
 }
 
 #shop .button-row {
-  grid-template-columns: 2fr 1fr;
-  gap: 7px;
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) minmax(92px, 0.52fr);
+  gap: 8px;
+  padding-top: 8px;
 }
 
 #shop .button-row .button-link,
@@ -654,8 +665,8 @@ button,
 }
 
 #shop .button-row button {
-  min-height: 34px;
-  padding: 8px 10px;
+  min-height: 38px;
+  padding: 9px 10px;
   border-radius: 7px;
   font-size: 13px;
   line-height: 1.05;
@@ -664,11 +675,12 @@ button,
 #shop .button-row button:nth-child(2) {
   order: 1;
   grid-column: 1 / -1;
-  min-height: 42px;
+  min-height: 50px;
   background: linear-gradient(180deg, #df222b, #9e0d13);
   color: #fff;
-  font-size: 14px;
-  box-shadow: 0 10px 20px rgba(177,18,38,0.25);
+  font-size: 17px;
+  letter-spacing: 0;
+  box-shadow: 0 12px 24px rgba(177,18,38,0.34);
 }
 
 #shop .button-row button:nth-child(1) {
@@ -678,10 +690,13 @@ button,
 #shop .button-row .offer-btn {
   order: 3;
   grid-column: auto;
-  min-height: 30px;
+  min-height: 34px;
   padding: 7px 8px;
+  border: 1px solid rgba(244,208,111,0.42);
+  background: rgba(244,208,111,0.14) !important;
+  color: #f8e7aa !important;
   font-size: 11px;
-  opacity: 0.9;
+  opacity: 0.88;
 }
 
 .button-row .button-link,
@@ -727,7 +742,7 @@ button:hover,
 .product-stage-preview {
   position: relative;
   width: 100%;
-  aspect-ratio: 3 / 5;
+  aspect-ratio: 4 / 5;
   overflow: hidden;
   border-radius: 16px;
   cursor: pointer;
@@ -738,16 +753,19 @@ button:hover,
 
 .product-stage-bg {
   position: absolute;
+  z-index: 0;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center center;
+  transform: scale(1.01);
 }
 
 .product-stage-logo {
   position: absolute;
-  z-index: 3;
-  top: -1%;
+  z-index: 1;
+  top: -4%;
   left: 50%;
   width: 82%;
   height: auto;
@@ -759,12 +777,12 @@ button:hover,
 
 .product-cutout {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   left: 50%;
-  bottom: 22%;
+  bottom: 21%;
   transform: translateX(-50%);
   width: auto;
-  height: 61%;
+  height: 63%;
   max-width: 82%;
   object-fit: contain;
   display: block;
@@ -776,19 +794,113 @@ button:hover,
   height: auto;
   width: 88%;
   max-width: 90%;
-  bottom: 24%;
+  bottom: 19%;
+}
+
+.product-stage-preview::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 36%;
+  background:
+    radial-gradient(ellipse at center top, rgba(244,208,111,0.34), transparent 58%),
+    linear-gradient(180deg, rgba(0,0,0,0), rgba(0,0,0,0.82));
+  pointer-events: none;
 }
 
 .product-stage-preview::after {
   content: "";
   position: absolute;
-  z-index: 1;
-  left: 18%;
-  right: 18%;
-  bottom: 24%;
-  height: 10px;
+  z-index: 2;
+  left: 12%;
+  right: 12%;
+  bottom: 8%;
+  height: 14px;
   border-radius: 999px;
-  background: radial-gradient(ellipse at center, rgba(0,0,0,0.62), transparent 70%);
+  background: radial-gradient(ellipse at center, rgba(244,208,111,0.44), rgba(0,0,0,0.66) 48%, transparent 72%);
+}
+
+.stage-option-boxes {
+  position: absolute;
+  z-index: 4;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.stage-option-boxes span {
+  display: grid;
+  min-height: 36px;
+  place-items: center;
+  padding: 6px 5px;
+  border: 1px solid rgba(244,208,111,0.58);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.72);
+  color: #f8e7aa;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.1;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.72);
+  box-shadow: 0 8px 18px rgba(0,0,0,0.36);
+  cursor: pointer;
+  user-select: none;
+}
+
+.stage-option-boxes span.active {
+  border-color: rgba(255,224,131,0.92);
+  background: linear-gradient(180deg, #df222b, #9e0d13);
+  color: #fff;
+  box-shadow: 0 10px 20px rgba(177,18,38,0.34);
+}
+
+.admin-size-tools {
+  display: none;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  margin-top: 9px;
+  padding: 9px;
+  border: 1px dashed rgba(244,208,111,0.48);
+  border-radius: 9px;
+  background: rgba(244,208,111,0.08);
+}
+
+body.show-size-admin .admin-size-tools {
+  display: grid;
+}
+
+.admin-size-tools label {
+  display: grid;
+  gap: 5px;
+  color: #f8e7aa;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.admin-size-tools input {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(244,208,111,0.5);
+  border-radius: 7px;
+  background: rgba(0,0,0,0.62);
+  color: #fff;
+}
+
+.admin-size-tools button {
+  align-self: end;
+  min-height: 34px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: #f4d06f;
+  color: #111;
+  font-size: 11px;
 }
 
 .bg-options-btn {
@@ -836,8 +948,8 @@ button:hover,
 .info-panel-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-  max-width: 980px;
+  gap: 22px;
+  max-width: 1240px;
   margin: 18px auto 0;
 }
 
@@ -860,24 +972,48 @@ button:hover,
 .info-panel-card img {
   display: block;
   width: 100%;
-  max-height: 380px;
+  max-height: 560px;
   object-fit: contain;
   border-radius: 12px;
 }
 
 .info-expand-btn {
   position: absolute;
-  right: 14px;
-  bottom: 14px;
-  width: 34px;
+  right: 12px;
+  bottom: 12px;
+  min-width: 58px;
   height: 34px;
+  padding: 0 12px;
   border-radius: 999px;
   border: 1px solid rgba(244,208,111,0.78);
   background: rgba(0,0,0,0.78);
   color: #f4d06f;
-  font-size: 22px;
+  font-size: 12px;
   line-height: 1;
   font-weight: 900;
+}
+
+.info-panel-card::after {
+  content: "Click to enlarge";
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.76);
+  color: #f8e7aa;
+  font-size: 12px;
+  font-weight: 800;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+
+.info-panel-card:hover::after,
+.info-panel-card:focus::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .info-expand-btn:hover {
@@ -892,8 +1028,8 @@ button:hover,
   align-items: center;
   justify-content: center;
   z-index: 5000;
-  padding: 24px;
-  background: rgba(0,0,0,0.82);
+  padding: 18px;
+  background: rgba(0,0,0,0.88);
 }
 
 .info-preview-modal.show {
@@ -902,11 +1038,11 @@ button:hover,
 
 .info-preview-content {
   position: relative;
-  width: min(94vw, 1100px);
-  max-height: 92vh;
-  padding: 14px;
+  width: min(98vw, 1500px);
+  max-height: 96vh;
+  padding: 12px;
   border: 1px solid rgba(244,208,111,0.72);
-  border-radius: 18px;
+  border-radius: 14px;
   background: #050505;
   box-shadow: 0 24px 70px rgba(0,0,0,0.75);
 }
@@ -914,7 +1050,7 @@ button:hover,
 .info-preview-content img {
   display: block;
   width: 100%;
-  max-height: 86vh;
+  max-height: 92vh;
   object-fit: contain;
   border-radius: 12px;
 }
@@ -1094,6 +1230,15 @@ button:hover,
   .info-carousel-section {
     margin: 35px 12px;
     padding: 20px;
+  }
+
+  .info-panel-grid {
+    grid-template-columns: 1fr;
+    max-width: 680px;
+  }
+
+  .info-panel-card img {
+    max-height: 520px;
   }
 
   .info-carousel-header h2 {
@@ -2297,6 +2442,18 @@ footer {
   .product-grid,
   .why-grid {
     grid-template-columns: 1fr;
+  }
+
+  .product-card {
+    min-height: 0;
+  }
+
+  #shop .button-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  #shop .button-row button:nth-child(2) {
+    min-height: 48px;
   }
 
   .product-image-link {
