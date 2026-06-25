@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MVPLUXCREATIONS | Life-Size Cutouts</title>
-  <link rel="stylesheet" href="style.css?v=20260625-card-compact-bg" />
+  <link rel="stylesheet" href="style.css?v=20260625-edge-resize" />
 </head>
 <body>
 
@@ -19,7 +19,6 @@
 	      <a href="#fan-requests">Fan Requests</a>
 		      <a href="#why-customers">Why Us</a>
 	      <a href="#contact">Contact</a>
-	      <a href="admin.html">Admin</a>
 	    </nav>
 
 	    <div class="auth-links">
@@ -104,8 +103,8 @@
       <div class="fan-vote-grid" id="fanVoteTrack">
         <article class="fan-vote-card">
           <div class="fan-card-stage">
-            <img class="fan-card-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
-            <img class="fan-card-cutout" src="images/FrontPageWeb/Sports-Kobe-KB1forprint.png" alt="Basketball legend cutout">
+            <img class="fan-card-bg" data-admin-image="wanted-basketball-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
+            <img class="fan-card-cutout" data-admin-image="wanted-basketball-cutout" src="images/FrontPageWeb/Sports-Kobe-KB1forprint.png" alt="Basketball legend cutout">
             <div class="fan-vote-meter">
               <strong>78%</strong>
               <span>78 / 100 votes</span>
@@ -116,15 +115,15 @@
             <button class="fan-vote-action" data-vote-id="wanted-basketball" onclick="registerFanVote('wanted-basketball', this)">Vote <span class="fan-vote-count">78</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button onclick="addToCart('Basketball Legend Cutout', 129.99)">Cart</button>
+              <button data-wanted-cart="Basketball Legend Cutout" onclick="addToCart('Basketball Legend Cutout', getCurrentBasePrice())">Cart</button>
             </div>
           </div>
         </article>
 
         <article class="fan-vote-card">
           <div class="fan-card-stage">
-            <img class="fan-card-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
-            <img class="fan-card-cutout" src="images/FrontPageWeb/MovieCharacters-Endorskeleton-Endordarkinsideshouldercutout.png" alt="Movie inspired cutout">
+            <img class="fan-card-bg" data-admin-image="wanted-movie-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
+            <img class="fan-card-cutout" data-admin-image="wanted-movie-cutout" src="images/FrontPageWeb/MovieCharacters-Endorskeleton-Endordarkinsideshouldercutout.png" alt="Movie inspired cutout">
             <div class="fan-vote-meter">
               <strong>62%</strong>
               <span>62 / 100 votes</span>
@@ -135,15 +134,15 @@
             <button class="fan-vote-action" data-vote-id="wanted-movie" onclick="registerFanVote('wanted-movie', this)">Vote <span class="fan-vote-count">62</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button onclick="addToCart('Movie Inspired Cutout', 129.99)">Cart</button>
+              <button data-wanted-cart="Movie Inspired Cutout" onclick="addToCart('Movie Inspired Cutout', getCurrentBasePrice())">Cart</button>
             </div>
           </div>
         </article>
 
         <article class="fan-vote-card">
           <div class="fan-card-stage">
-            <img class="fan-card-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
-            <img class="fan-card-cutout" src="images/FrontPageWeb/Music-MJackson-MJTR.png" alt="Music artist cutout">
+            <img class="fan-card-bg" data-admin-image="wanted-music-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
+            <img class="fan-card-cutout" data-admin-image="wanted-music-cutout" src="images/FrontPageWeb/Music-MJackson-MJTR.png" alt="Music artist cutout">
             <div class="fan-vote-meter">
               <strong>45%</strong>
               <span>45 / 100 votes</span>
@@ -154,15 +153,15 @@
             <button class="fan-vote-action" data-vote-id="wanted-music" onclick="registerFanVote('wanted-music', this)">Vote <span class="fan-vote-count">45</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button onclick="addToCart('Music Artist Cutout', 129.99)">Cart</button>
+              <button data-wanted-cart="Music Artist Cutout" onclick="addToCart('Music Artist Cutout', getCurrentBasePrice())">Cart</button>
             </div>
           </div>
         </article>
 
         <article class="fan-vote-card">
           <div class="fan-card-stage">
-            <img class="fan-card-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
-            <img class="fan-card-cutout fan-card-cutout-wide" src="images/FrontPageWeb/Dinosaurs-JPRex.png" alt="Dinosaur movie cutout">
+            <img class="fan-card-bg" data-admin-image="wanted-dinosaur-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
+            <img class="fan-card-cutout fan-card-cutout-wide" data-admin-image="wanted-dinosaur-cutout" src="images/FrontPageWeb/Dinosaurs-JPRex.png" alt="Dinosaur movie cutout">
             <div class="fan-vote-meter">
               <strong>39%</strong>
               <span>39 / 100 votes</span>
@@ -173,15 +172,15 @@
             <button class="fan-vote-action" data-vote-id="wanted-dinosaur-party" onclick="registerFanVote('wanted-dinosaur-party', this)">Vote <span class="fan-vote-count">39</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button onclick="addToCart('Dinosaur Movie Cutout', 129.99)">Cart</button>
+              <button data-wanted-cart="Dinosaur Movie Cutout" onclick="addToCart('Dinosaur Movie Cutout', getCurrentBasePrice())">Cart</button>
             </div>
           </div>
         </article>
 
         <article class="fan-vote-card">
           <div class="fan-card-stage">
-            <img class="fan-card-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
-            <img class="fan-card-cutout" src="images/FrontPageWeb/Music-MJackson-MJzombie.png" alt="Custom mashup cutout">
+            <img class="fan-card-bg" data-admin-image="wanted-custom-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
+            <img class="fan-card-cutout" data-admin-image="wanted-custom-cutout" src="images/FrontPageWeb/Music-MJackson-MJzombie.png" alt="Custom mashup cutout">
             <div class="fan-vote-meter">
               <strong>32%</strong>
               <span>32 / 100 votes</span>
@@ -192,7 +191,7 @@
             <button class="fan-vote-action" data-vote-id="wanted-custom-mashup" onclick="registerFanVote('wanted-custom-mashup', this)">Vote <span class="fan-vote-count">32</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button onclick="addToCart('Custom Mashup Cutout', 129.99)">Cart</button>
+              <button data-wanted-cart="Custom Mashup Cutout" onclick="addToCart('Custom Mashup Cutout', getCurrentBasePrice())">Cart</button>
             </div>
           </div>
         </article>
@@ -297,8 +296,8 @@
   <!-- SPORTS -->
   <div class="product-card" data-category="sports" data-name="sports legends cutouts basketball football baseball">
     <a href="sports-legends.html" class="product-image-link">
-      <div class="product-stage-preview">
-        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
+      <div class="product-stage-preview" style="background-image: url('images/FanBackgrounds/top-favorite-stage-gold.png');">
+        <img class="product-stage-bg" src="images/FanBackgrounds/top-favorite-stage-gold.png" alt="">
         <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
         <img class="product-cutout" src="images/FrontPageWeb/Sports-Kobe-KB1forprint.png" alt="">
       </div>
@@ -664,8 +663,8 @@
       <div class="fan-gallery-grid">
         <article class="fan-gallery-card">
           <div class="fan-gallery-stage">
-            <img class="fan-gallery-bg" src="images/FrontPageWeb/FanBackgrounds-gallery-poster-heroic.jpg" alt="Heroic fan request background">
-            <img class="fan-gallery-cutout" src="images/FrontPageWeb/Religious-J13D.png" alt="Golden hero standee cutout">
+            <img class="fan-gallery-bg" data-admin-image="gallery-hero-bg" src="images/FrontPageWeb/FanBackgrounds-gallery-poster-heroic.jpg" alt="Heroic fan request background">
+            <img class="fan-gallery-cutout" data-admin-image="gallery-hero-cutout" src="images/FrontPageWeb/Religious-J13D.png" alt="Golden hero standee cutout">
           </div>
           <div class="fan-gallery-info">
             <span class="fan-gallery-label">Golden Hero Standee</span>
@@ -674,8 +673,8 @@
         </article>
         <article class="fan-gallery-card">
           <div class="fan-gallery-stage">
-            <img class="fan-gallery-bg" src="images/FrontPageWeb/FanBackgrounds-gallery-poster-adventure.jpg" alt="Adventure fan request background">
-            <img class="fan-gallery-cutout fan-gallery-cutout-wide" src="images/FrontPageWeb/Dinosaurs-JPRex.png" alt="Dinosaur movie night cutout">
+            <img class="fan-gallery-bg" data-admin-image="gallery-adventure-bg" src="images/FrontPageWeb/FanBackgrounds-gallery-poster-adventure.jpg" alt="Adventure fan request background">
+            <img class="fan-gallery-cutout fan-gallery-cutout-wide" data-admin-image="gallery-adventure-cutout" src="images/FrontPageWeb/Dinosaurs-JPRex.png" alt="Dinosaur movie night cutout">
           </div>
           <div class="fan-gallery-info">
             <span class="fan-gallery-label">Dinosaur Movie Night</span>
@@ -684,8 +683,8 @@
         </article>
         <article class="fan-gallery-card">
           <div class="fan-gallery-stage">
-            <img class="fan-gallery-bg" src="images/FrontPageWeb/FanBackgrounds-gallery-poster-premium.jpg" alt="Premium fan request background">
-            <img class="fan-gallery-cutout" src="images/FrontPageWeb/Music-TS-TSfinal.png" alt="VIP spotlight stage cutout">
+            <img class="fan-gallery-bg" data-admin-image="gallery-vip-bg" src="images/FrontPageWeb/FanBackgrounds-gallery-poster-premium.jpg" alt="Premium fan request background">
+            <img class="fan-gallery-cutout" data-admin-image="gallery-vip-cutout" src="images/FrontPageWeb/Music-TS-TSfinal.png" alt="VIP spotlight stage cutout">
           </div>
           <div class="fan-gallery-info">
             <span class="fan-gallery-label">VIP Spotlight Stage</span>
@@ -874,6 +873,6 @@
 
   
 
-  <script src="script.js?v=20260625-card-compact-bg"></script>
+  <script src="script.js?v=20260625-edge-resize"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260625-admin-preview-price2ft" />
+  <link rel="stylesheet" href="style.css?v=20260625-edge-resize" />
 </head>
 <body>
   <header class="top-nav">
@@ -31,10 +31,54 @@
     <section class="admin-panel">
       <div class="admin-panel-header">
         <h2>Product Cards</h2>
-        <button id="resetAdminProducts" type="button">Reset Product Edits</button>
+        <div class="admin-panel-actions">
+          <button id="enableAdminAnywhere" type="button">Edit From Any Page</button>
+          <button id="disableAdminAnywhere" type="button">Turn Off Page Editing</button>
+          <button id="createAdminProduct" type="button">Create New Card</button>
+          <button id="resetAdminProducts" type="button">Reset Product Edits</button>
+        </div>
       </div>
-      <p class="admin-note">Image placement controls affect the main Shop cards. Use percentages: bigger standee size makes the cutout taller, left/right moves it across the card, and up/down changes how high it sits.</p>
+      <p class="admin-note">Use Edit From Any Page to click text, double-click images to replace them, drag images to move them, scroll over images to resize, and hold Shift while scrolling to rotate.</p>
+      <div id="savedProducts" class="admin-saved-products"></div>
       <div id="adminProducts" class="admin-product-list"></div>
+    </section>
+
+    <section class="admin-panel">
+      <div class="admin-panel-header">
+        <h2>Price Rules</h2>
+      </div>
+      <form id="priceRulesForm" class="admin-coupon-form admin-price-form">
+        <label>
+          2ft price
+          <input id="twoFootPrice" type="number" min="0" step="0.01" placeholder="35.00" />
+        </label>
+        <label>
+          3ft price
+          <input id="threeFootPrice" type="number" min="0" step="0.01" placeholder="50.00" />
+        </label>
+        <label>
+          Full-size height
+          <input id="fullHeight" type="text" placeholder="6'6 or 78" />
+        </label>
+        <label>
+          Full-size price
+          <input id="fullPrice" type="number" min="0" step="0.01" placeholder="129.99" />
+        </label>
+        <label>
+          Extra inch price
+          <input id="extraInchPrice" type="number" min="0" step="0.01" placeholder="2.00" />
+        </label>
+        <button type="submit">Save Price Rules</button>
+      </form>
+    </section>
+
+    <section class="admin-panel">
+      <div class="admin-panel-header">
+        <h2>Most Wanted + Gallery Images</h2>
+        <button id="resetExtraImages" type="button">Reset Images</button>
+      </div>
+      <p class="admin-note">Upload images for the Most Wanted Cutouts and Fan Showcase Gallery sections.</p>
+      <div id="adminExtraImages" class="admin-extra-image-list"></div>
     </section>
 
     <section class="admin-panel">
@@ -57,6 +101,6 @@
     </section>
   </main>
 
-  <script src="admin.js?v=20260625-admin-preview-price2ft"></script>
+  <script src="admin.js?v=20260625-admin-images-prices2"></script>
 </body>
 </html>

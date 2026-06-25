@@ -6,7 +6,7 @@ const adminProducts = [
     originalHeight: 78,
     originalPrice: 129.99,
     cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-gold.png'
   },
   {
     slug: 'movie-character-standee',
@@ -82,6 +82,29 @@ const adminProducts = [
   }
 ];
 
+if (localStorage.getItem('mvpluxAdminSignedIn') !== 'true') {
+  window.location.href = 'signin.html';
+}
+
+const extraImageItems = [
+  { key: 'wanted-basketball-cutout', group: 'Most Wanted', label: 'Basketball Legend standee', fallback: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png' },
+  { key: 'wanted-basketball-bg', group: 'Most Wanted', label: 'Basketball Legend background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'wanted-movie-cutout', group: 'Most Wanted', label: 'Movie Inspired standee', fallback: 'images/FrontPageWeb/MovieCharacters-Endorskeleton-Endordarkinsideshouldercutout.png' },
+  { key: 'wanted-movie-bg', group: 'Most Wanted', label: 'Movie Inspired background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'wanted-music-cutout', group: 'Most Wanted', label: 'Music Artist standee', fallback: 'images/FrontPageWeb/Music-MJackson-MJTR.png' },
+  { key: 'wanted-music-bg', group: 'Most Wanted', label: 'Music Artist background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'wanted-dinosaur-cutout', group: 'Most Wanted', label: 'Dinosaur Movie standee', fallback: 'images/FrontPageWeb/Dinosaurs-JPRex.png' },
+  { key: 'wanted-dinosaur-bg', group: 'Most Wanted', label: 'Dinosaur Movie background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'wanted-custom-cutout', group: 'Most Wanted', label: 'Custom Mashup standee', fallback: 'images/FrontPageWeb/Music-MJackson-MJzombie.png' },
+  { key: 'wanted-custom-bg', group: 'Most Wanted', label: 'Custom Mashup background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'gallery-hero-cutout', group: 'Gallery', label: 'Golden Hero standee', fallback: 'images/FrontPageWeb/Religious-J13D.png' },
+  { key: 'gallery-hero-bg', group: 'Gallery', label: 'Golden Hero background', fallback: 'images/FrontPageWeb/FanBackgrounds-gallery-poster-heroic.jpg' },
+  { key: 'gallery-adventure-cutout', group: 'Gallery', label: 'Dinosaur Movie Night standee', fallback: 'images/FrontPageWeb/Dinosaurs-JPRex.png' },
+  { key: 'gallery-adventure-bg', group: 'Gallery', label: 'Dinosaur Movie Night background', fallback: 'images/FrontPageWeb/FanBackgrounds-gallery-poster-adventure.jpg' },
+  { key: 'gallery-vip-cutout', group: 'Gallery', label: 'VIP Spotlight standee', fallback: 'images/FrontPageWeb/Music-TS-TSfinal.png' },
+  { key: 'gallery-vip-bg', group: 'Gallery', label: 'VIP Spotlight background', fallback: 'images/FrontPageWeb/FanBackgrounds-gallery-poster-premium.jpg' }
+];
+
 function readAdminProducts() {
   try {
     return JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
@@ -92,6 +115,54 @@ function readAdminProducts() {
 
 function writeAdminProducts(products) {
   localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
+}
+
+function readCustomProducts() {
+  try {
+    return JSON.parse(localStorage.getItem('mvpluxAdminCustomProducts') || '[]');
+  } catch (error) {
+    return [];
+  }
+}
+
+function writeCustomProducts(products) {
+  localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(products));
+}
+
+function readArchivedProducts() {
+  try {
+    return JSON.parse(localStorage.getItem('mvpluxAdminArchivedProducts') || '[]');
+  } catch (error) {
+    return [];
+  }
+}
+
+function writeArchivedProducts(slugs) {
+  localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(slugs));
+}
+
+function readPriceSettings() {
+  try {
+    return JSON.parse(localStorage.getItem('mvpluxAdminPriceSettings') || '{}');
+  } catch (error) {
+    return {};
+  }
+}
+
+function writePriceSettings(settings) {
+  localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(settings));
+}
+
+function readExtraImages() {
+  try {
+    return JSON.parse(localStorage.getItem('mvpluxAdminExtraImages') || '{}');
+  } catch (error) {
+    return {};
+  }
+}
+
+function writeExtraImages(images) {
+  localStorage.setItem('mvpluxAdminExtraImages', JSON.stringify(images));
 }
 
 function readCoupons() {
@@ -105,6 +176,76 @@ function readCoupons() {
 function setStatus(message) {
   const status = document.getElementById('adminStatus');
   if (status) status.textContent = message;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function parseAdminHeight(value) {
+  if (!value) return null;
+  const raw = String(value).trim().toLowerCase();
+  const feetMatch = raw.match(/^(\d+)\s*'\s*(\d+)?$/);
+  if (feetMatch) {
+    return (parseInt(feetMatch[1], 10) * 12) + parseInt(feetMatch[2] || '0', 10);
+  }
+  if (/^\d+$/.test(raw)) {
+    const number = parseInt(raw, 10);
+    if (number >= 2 && number <= 8) return number * 12;
+    if (number >= 24) return number;
+  }
+  return null;
+}
+
+function allAdminProducts() {
+  return [...adminProducts, ...readCustomProducts()];
+}
+
+function makeSlug(title) {
+  return (title || 'custom-card').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'custom-card';
+}
+
+function createCustomProduct() {
+  const products = readCustomProducts();
+  const nextNumber = products.length + 1;
+  const slug = `custom-card-${Date.now()}`;
+  products.push({
+    slug,
+    custom: true,
+    title: `New Custom Card ${nextNumber}`,
+    description: 'Edit this card from Admin.',
+    originalHeight: 78,
+    originalPrice: 129.99,
+    cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+  });
+  writeCustomProducts(products);
+  renderAdminProducts();
+  setStatus('Created a new card. Edit it, then save.');
+}
+
+function archiveProduct(slug) {
+  const archived = new Set(readArchivedProducts());
+  archived.add(slug);
+  writeArchivedProducts([...archived]);
+  renderAdminProducts();
+  setStatus('Saved card for later. It will not show on the Shop page.');
+}
+
+function restoreProduct(slug) {
+  writeArchivedProducts(readArchivedProducts().filter((item) => item !== slug));
+  renderAdminProducts();
+  setStatus('Restored card.');
+}
+
+function deleteCustomProduct(slug) {
+  writeCustomProducts(readCustomProducts().filter((product) => product.slug !== slug));
+  const products = readAdminProducts();
+  delete products[slug];
+  writeAdminProducts(products);
+  writeArchivedProducts(readArchivedProducts().filter((item) => item !== slug));
+  renderAdminProducts();
+  setStatus('Deleted custom card.');
 }
 
 function productPreviewMarkup(value) {
@@ -126,6 +267,8 @@ function productPreviewMarkup(value) {
       <div class="admin-preview-stage" style="background-image: url('${backgroundImage}'); background-position: ${backgroundPosition};">
         <img class="admin-preview-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="" style="width: ${logoWidth}%; top: ${logoTop}%;">
         <img class="admin-preview-cutout" src="${cutoutImage}" alt="" style="height: ${cutoutHeight}%; left: ${cutoutLeft}%; bottom: ${cutoutBottom}%;">
+        <button class="admin-resize-handle admin-cutout-resize" type="button" aria-label="Resize standee"></button>
+        <button class="admin-resize-handle admin-logo-resize" type="button" aria-label="Resize logo"></button>
         <div class="admin-preview-choice-row">
           <span>Original</span>
           <span>Custom Size</span>
@@ -152,20 +295,351 @@ function updateProductPreview(form) {
     logoTop: formData.get('logoTop').trim(),
     stageBackgroundPosition: formData.get('stageBackgroundPosition').trim()
   });
+  attachPreviewControls(form);
+}
+
+function updateFieldValue(form, name, value) {
+  const field = form.querySelector(`[name="${name}"]`);
+  if (!field) return;
+  field.value = String(Math.round(value));
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function syncPreviewFromFields(form) {
+  const stage = form.querySelector('.admin-preview-stage');
+  const cutout = form.querySelector('.admin-preview-cutout');
+  const logo = form.querySelector('.admin-preview-logo');
+  const cutoutHandle = form.querySelector('.admin-cutout-resize');
+  const logoHandle = form.querySelector('.admin-logo-resize');
+  const backgroundImage = form.querySelector('[name="backgroundImage"]')?.value.trim();
+  const cutoutImage = form.querySelector('[name="cutoutImage"]')?.value.trim();
+  const backgroundPosition = form.querySelector('[name="stageBackgroundPosition"]')?.value.trim() || 'center center';
+  const cutoutHeight = form.querySelector('[name="cutoutHeight"]')?.value || '63';
+  const cutoutLeft = form.querySelector('[name="cutoutLeft"]')?.value || '50';
+  const cutoutBottom = form.querySelector('[name="cutoutBottom"]')?.value || '21';
+  const logoWidth = form.querySelector('[name="logoWidth"]')?.value || '82';
+  const logoTop = form.querySelector('[name="logoTop"]')?.value || '-4';
+
+  if (stage && backgroundImage) {
+    stage.style.backgroundImage = `url("${backgroundImage}")`;
+    stage.style.backgroundPosition = backgroundPosition;
+  }
+
+  if (cutout && cutoutImage) {
+    cutout.src = cutoutImage;
+    cutout.style.height = `${cutoutHeight}%`;
+    cutout.style.left = `${cutoutLeft}%`;
+    cutout.style.bottom = `${cutoutBottom}%`;
+  }
+
+  if (logo) {
+    logo.style.width = `${logoWidth}%`;
+    logo.style.top = `${logoTop}%`;
+  }
+
+  if (cutoutHandle) {
+    cutoutHandle.style.left = `${clamp(Number(cutoutLeft) + 15, 8, 94)}%`;
+    cutoutHandle.style.bottom = `${clamp(Number(cutoutBottom) + Number(cutoutHeight) * 0.18, 8, 84)}%`;
+  }
+
+  if (logoHandle) {
+    logoHandle.style.left = `${clamp(50 + Number(logoWidth) / 2 - 4, 12, 94)}%`;
+    logoHandle.style.top = `${clamp(Number(logoTop) + 7, 2, 40)}%`;
+  }
+}
+
+function attachPreviewControls(form) {
+  const preview = form.querySelector('.admin-preview-stage');
+  const cutout = form.querySelector('.admin-preview-cutout');
+  const logo = form.querySelector('.admin-preview-logo');
+  const cutoutHandle = form.querySelector('.admin-cutout-resize');
+  const logoHandle = form.querySelector('.admin-logo-resize');
+  if (!preview || !cutout || cutout.dataset.controlsReady) return;
+
+  cutout.dataset.controlsReady = 'true';
+  cutout.title = 'Drag to move. Drag gold corner to resize.';
+  logo.title = 'Drag logo to move. Drag gold corner to resize.';
+  if (cutoutHandle) cutoutHandle.title = 'Drag to resize standee.';
+  if (logoHandle) logoHandle.title = 'Drag to resize logo.';
+
+  syncPreviewFromFields(form);
+
+  const dragTarget = (event, target) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const move = (moveEvent) => {
+      const rect = preview.getBoundingClientRect();
+      const xPercent = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      const bottomPercent = ((rect.bottom - moveEvent.clientY) / rect.height) * 100;
+
+      if (target === 'cutout') {
+        updateFieldValue(form, 'cutoutLeft', clamp(xPercent, 0, 100));
+        updateFieldValue(form, 'cutoutBottom', clamp(bottomPercent, 0, 60));
+      } else {
+        updateFieldValue(form, 'logoTop', clamp(((moveEvent.clientY - rect.top) / rect.height) * 100, -20, 40));
+      }
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  };
+
+  cutout.addEventListener('pointerdown', (event) => dragTarget(event, 'cutout'));
+  logo.addEventListener('pointerdown', (event) => dragTarget(event, 'logo'));
+
+  const resizeTarget = (event, name, min, max, baseValue, direction = 1) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const startY = event.clientY;
+    const field = form.querySelector(`[name="${name}"]`);
+    const startValue = parseFloat(field?.value || baseValue);
+    const move = (moveEvent) => {
+      const delta = ((startY - moveEvent.clientY) / preview.getBoundingClientRect().height) * 100 * direction;
+      updateFieldValue(form, name, clamp(startValue + delta, min, max));
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  };
+
+  cutoutHandle?.addEventListener('pointerdown', (event) => resizeTarget(event, 'cutoutHeight', 30, 100, 63));
+  logoHandle?.addEventListener('pointerdown', (event) => resizeTarget(event, 'logoWidth', 30, 100, 82));
+
+  cutout.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const field = form.querySelector('[name="cutoutHeight"]');
+    const current = parseFloat(field.value || '63');
+    updateFieldValue(form, 'cutoutHeight', clamp(current + (event.deltaY < 0 ? 2 : -2), 30, 100));
+  });
+
+  logo.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const field = form.querySelector('[name="logoWidth"]');
+    const current = parseFloat(field.value || '82');
+    updateFieldValue(form, 'logoWidth', clamp(current + (event.deltaY < 0 ? 2 : -2), 30, 100));
+  });
+}
+
+function resizeImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener('error', () => reject(new Error('Could not read image.')));
+    reader.addEventListener('load', () => {
+      const image = new Image();
+      image.addEventListener('error', () => reject(new Error('Could not load image.')));
+      image.addEventListener('load', () => {
+        const maxSide = 1800;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const keepTransparency = file.type === 'image/png' || file.type === 'image/webp';
+        resolve(canvas.toDataURL(keepTransparency ? 'image/png' : 'image/jpeg', 0.86));
+      });
+      image.src = reader.result;
+    });
+    reader.readAsDataURL(file);
+  });
+}
+
+function collectProductFormData(form) {
+  const formData = new FormData(form);
+  const current = allAdminProducts().find((product) => product.slug === form.dataset.slug);
+  return {
+    custom: Boolean(current?.custom),
+    title: formData.get('title').trim(),
+    description: formData.get('description').trim(),
+    cutoutImage: formData.get('cutoutImage').trim(),
+    backgroundImage: formData.get('backgroundImage').trim(),
+    originalHeight: formData.get('originalHeight').trim(),
+    originalPrice: formData.get('originalPrice').trim(),
+    cutoutHeight: formData.get('cutoutHeight').trim(),
+    cutoutLeft: formData.get('cutoutLeft').trim(),
+    cutoutBottom: formData.get('cutoutBottom').trim(),
+    logoWidth: formData.get('logoWidth').trim(),
+    logoTop: formData.get('logoTop').trim(),
+    stageBackgroundPosition: formData.get('stageBackgroundPosition').trim()
+  };
+}
+
+function saveProductForm(form, message = 'Saved product changes. Go back to Shop to see them.') {
+  try {
+    const productData = collectProductFormData(form);
+    const products = readAdminProducts();
+    products[form.dataset.slug] = productData;
+    writeAdminProducts(products);
+    syncPriceSettingsFromProduct(productData);
+    setStatus(message);
+    return true;
+  } catch (error) {
+    setStatus('The image is too large to save here. Try a smaller image or crop it first.');
+    return false;
+  }
+}
+
+function syncPriceSettingsFromProduct(productData) {
+  const price = parseFloat(productData.originalPrice || '');
+  const height = parseAdminHeight(productData.originalHeight || '');
+  if (!price || !height) return;
+
+  const settings = readPriceSettings();
+
+  if (height <= 24) {
+    settings.twoFootPrice = price.toFixed(2);
+  } else if (height === 36) {
+    settings.threeFootPrice = price.toFixed(2);
+  } else if (height >= 60) {
+    settings.fullHeight = String(height);
+    settings.fullPrice = price.toFixed(2);
+  }
+
+  writePriceSettings(settings);
+  fillPriceSettingsForm();
+}
+
+function schedulePlacementSave(form) {
+  clearTimeout(form._placementSaveTimer);
+  form._placementSaveTimer = setTimeout(() => {
+    saveProductForm(form, 'Placement saved.');
+  }, 550);
+}
+
+async function handleImageUpload(fileInput, targetInput, form) {
+  const file = fileInput.files?.[0];
+  if (!file || !targetInput) return;
+
+  setStatus('Loading image...');
+
+  try {
+    targetInput.value = await resizeImageFile(file);
+    syncPreviewFromFields(form);
+    saveProductForm(form, 'Image changed and saved for this browser.');
+  } catch (error) {
+    setStatus('That image could not be loaded. Try another image file.');
+  }
+}
+
+function renderExtraImages() {
+  const container = document.getElementById('adminExtraImages');
+  if (!container) return;
+
+  const saved = readExtraImages();
+  const grouped = extraImageItems.reduce((groups, item) => {
+    groups[item.group] = groups[item.group] || [];
+    groups[item.group].push(item);
+    return groups;
+  }, {});
+
+  container.innerHTML = Object.entries(grouped).map(([group, items]) => `
+    <div class="admin-extra-image-group">
+      <h3>${group}</h3>
+      <div class="admin-extra-image-grid">
+        ${items.map((item) => {
+          const src = saved[item.key] || item.fallback;
+          return `
+            <div class="admin-extra-image-card" data-extra-image="${item.key}">
+              <img src="${src}" alt="">
+              <strong>${item.label}</strong>
+              <input class="admin-long-path" type="text" value="${src}" readonly>
+              <input type="file" accept="image/*">
+              <button type="button" data-reset-extra-image="${item.key}">Reset</button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.admin-extra-image-card').forEach((card) => {
+    const key = card.dataset.extraImage;
+    const input = card.querySelector('input[type="file"]');
+    input?.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      setStatus('Loading image...');
+      try {
+        const dataUrl = await resizeImageFile(file);
+        const images = readExtraImages();
+        images[key] = dataUrl;
+        writeExtraImages(images);
+        card.querySelector('img').src = dataUrl;
+        card.querySelector('.admin-long-path').value = dataUrl;
+        setStatus('Image changed and saved.');
+      } catch (error) {
+        setStatus('That image could not be loaded. Try another image file.');
+      }
+    });
+  });
+
+  container.querySelectorAll('[data-reset-extra-image]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const images = readExtraImages();
+      delete images[button.dataset.resetExtraImage];
+      writeExtraImages(images);
+      renderExtraImages();
+      setStatus('Image reset.');
+    });
+  });
+}
+
+function renderSavedProducts() {
+  const container = document.getElementById('savedProducts');
+  if (!container) return;
+
+  const archived = readArchivedProducts();
+  if (!archived.length) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const bySlug = Object.fromEntries(allAdminProducts().map((product) => [product.slug, product]));
+  container.innerHTML = `
+    <div class="admin-saved-box">
+      <h3>Saved for Later</h3>
+      <div class="admin-saved-list">
+        ${archived.map((slug) => `
+          <button type="button" data-restore-slug="${slug}">Restore ${bySlug[slug]?.title || slug}</button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  container.querySelectorAll('[data-restore-slug]').forEach((button) => {
+    button.addEventListener('click', () => restoreProduct(button.dataset.restoreSlug));
+  });
 }
 
 function renderAdminProducts() {
   const container = document.getElementById('adminProducts');
   const saved = readAdminProducts();
+  const archived = new Set(readArchivedProducts());
   if (!container) return;
 
-  container.innerHTML = adminProducts.map((product) => {
+  renderSavedProducts();
+
+  container.innerHTML = allAdminProducts().filter((product) => !archived.has(product.slug)).map((product) => {
     const value = { ...product, ...(saved[product.slug] || {}) };
     return `
       <form class="admin-product-card" data-slug="${product.slug}">
         <div class="admin-product-heading">
           <h3>${product.title}</h3>
-          <button type="submit">Save Product</button>
+          <div class="admin-card-actions">
+            <button type="submit">Save Product</button>
+            <button type="button" data-archive-product="${product.slug}">Save for Later</button>
+            ${product.custom ? `<button type="button" data-delete-product="${product.slug}">Delete</button>` : ''}
+          </div>
         </div>
         <div class="admin-product-layout">
           <div class="admin-card-preview-wrap">
@@ -187,11 +661,19 @@ function renderAdminProducts() {
               <legend>Images</legend>
               <label>
                 Standee image path
-                <input name="cutoutImage" type="text" value="${value.cutoutImage || ''}">
+                <input name="cutoutImage" class="admin-long-path" type="text" value="${value.cutoutImage || ''}" readonly>
+              </label>
+              <label>
+                Upload standee image
+                <input name="cutoutUpload" type="file" accept="image/*">
               </label>
               <label>
                 Background image path
-                <input name="backgroundImage" type="text" value="${value.backgroundImage || ''}">
+                <input name="backgroundImage" class="admin-long-path" type="text" value="${value.backgroundImage || ''}" readonly>
+              </label>
+              <label>
+                Upload background image
+                <input name="backgroundUpload" type="file" accept="image/*">
               </label>
             </fieldset>
             <fieldset>
@@ -212,25 +694,25 @@ function renderAdminProducts() {
               <div class="admin-form-row admin-placement-row">
                 <label>
                   Standee size %
-                  <input name="cutoutHeight" type="number" min="30" max="100" step="1" value="${value.cutoutHeight || ''}" placeholder="63">
+                  <input name="cutoutHeight" type="range" min="30" max="100" step="1" value="${value.cutoutHeight || '63'}">
                 </label>
                 <label>
                   Left / right %
-                  <input name="cutoutLeft" type="number" min="0" max="100" step="1" value="${value.cutoutLeft || ''}" placeholder="50">
+                  <input name="cutoutLeft" type="range" min="0" max="100" step="1" value="${value.cutoutLeft || '50'}">
                 </label>
                 <label>
                   Up / down %
-                  <input name="cutoutBottom" type="number" min="0" max="60" step="1" value="${value.cutoutBottom || ''}" placeholder="21">
+                  <input name="cutoutBottom" type="range" min="0" max="60" step="1" value="${value.cutoutBottom || '21'}">
                 </label>
               </div>
               <div class="admin-form-row admin-placement-row">
                 <label>
                   Logo size %
-                  <input name="logoWidth" type="number" min="30" max="100" step="1" value="${value.logoWidth || ''}" placeholder="82">
+                  <input name="logoWidth" type="range" min="30" max="100" step="1" value="${value.logoWidth || '82'}">
                 </label>
                 <label>
                   Logo up / down %
-                  <input name="logoTop" type="number" min="-20" max="40" step="1" value="${value.logoTop || ''}" placeholder="-4">
+                  <input name="logoTop" type="range" min="-20" max="40" step="1" value="${value.logoTop || '-4'}">
                 </label>
                 <label>
                   Background position
@@ -246,30 +728,75 @@ function renderAdminProducts() {
 
   container.querySelectorAll('.admin-product-card').forEach((form) => {
     form.querySelectorAll('input, textarea').forEach((field) => {
-      field.addEventListener('input', () => updateProductPreview(form));
+      field.addEventListener('input', () => {
+        if (field.matches('[type="range"], .admin-long-path, [name="stageBackgroundPosition"]')) {
+          syncPreviewFromFields(form);
+          if (field.matches('[type="range"], [name="stageBackgroundPosition"]')) {
+            schedulePlacementSave(form);
+          }
+        } else if (!field.matches('[type="file"]')) {
+          updateProductPreview(form);
+        }
+      });
+    });
+    attachPreviewControls(form);
+
+    form.querySelector('[name="cutoutUpload"]')?.addEventListener('change', (event) => {
+      handleImageUpload(event.target, form.querySelector('[name="cutoutImage"]'), form);
+    });
+
+    form.querySelector('[name="backgroundUpload"]')?.addEventListener('change', (event) => {
+      handleImageUpload(event.target, form.querySelector('[name="backgroundImage"]'), form);
+    });
+
+    form.querySelector('[data-archive-product]')?.addEventListener('click', (event) => {
+      archiveProduct(event.target.dataset.archiveProduct);
+    });
+
+    form.querySelector('[data-delete-product]')?.addEventListener('click', (event) => {
+      deleteCustomProduct(event.target.dataset.deleteProduct);
     });
 
     form.addEventListener('submit', (event) => {
       event.preventDefault();
-      const formData = new FormData(form);
-      const products = readAdminProducts();
-      products[form.dataset.slug] = {
-        title: formData.get('title').trim(),
-        description: formData.get('description').trim(),
-        cutoutImage: formData.get('cutoutImage').trim(),
-        backgroundImage: formData.get('backgroundImage').trim(),
-        originalHeight: formData.get('originalHeight').trim(),
-        originalPrice: formData.get('originalPrice').trim(),
-        cutoutHeight: formData.get('cutoutHeight').trim(),
-        cutoutLeft: formData.get('cutoutLeft').trim(),
-        cutoutBottom: formData.get('cutoutBottom').trim(),
-        logoWidth: formData.get('logoWidth').trim(),
-        logoTop: formData.get('logoTop').trim(),
-        stageBackgroundPosition: formData.get('stageBackgroundPosition').trim()
-      };
-      writeAdminProducts(products);
-      setStatus('Saved product changes. Go back to Shop to see them.');
+      saveProductForm(form);
     });
+  });
+}
+
+function fillPriceSettingsForm() {
+  const settings = readPriceSettings();
+  const twoFootPrice = document.getElementById('twoFootPrice');
+  const threeFootPrice = document.getElementById('threeFootPrice');
+  const fullHeight = document.getElementById('fullHeight');
+  const fullPrice = document.getElementById('fullPrice');
+  const extraInchPrice = document.getElementById('extraInchPrice');
+
+  if (twoFootPrice) twoFootPrice.value = settings.twoFootPrice || '35.00';
+  if (threeFootPrice) threeFootPrice.value = settings.threeFootPrice || '50.00';
+  if (fullHeight) fullHeight.value = settings.fullHeight || '78';
+  if (fullPrice) fullPrice.value = settings.fullPrice || '129.99';
+  if (extraInchPrice) extraInchPrice.value = settings.extraInchPrice || '2.00';
+}
+
+function setupPriceRules() {
+  const form = document.getElementById('priceRulesForm');
+  if (!form) return;
+
+  fillPriceSettingsForm();
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const settings = {
+      twoFootPrice: document.getElementById('twoFootPrice')?.value.trim() || '35.00',
+      threeFootPrice: document.getElementById('threeFootPrice')?.value.trim() || '50.00',
+      fullHeight: String(parseAdminHeight(document.getElementById('fullHeight')?.value || '78') || 78),
+      fullPrice: document.getElementById('fullPrice')?.value.trim() || '129.99',
+      extraInchPrice: document.getElementById('extraInchPrice')?.value.trim() || '2.00'
+    };
+    writePriceSettings(settings);
+    fillPriceSettingsForm();
+    setStatus('Price rules saved. Shop prices will use these numbers.');
   });
 }
 
@@ -303,11 +830,34 @@ function setupCoupons() {
 
 document.addEventListener('DOMContentLoaded', () => {
   renderAdminProducts();
+  setupPriceRules();
+  renderExtraImages();
   setupCoupons();
 
   document.getElementById('resetAdminProducts')?.addEventListener('click', () => {
     localStorage.removeItem('mvpluxAdminProducts');
+    localStorage.removeItem('mvpluxAdminArchivedProducts');
     renderAdminProducts();
     setStatus('Product edits reset.');
+  });
+
+  document.getElementById('createAdminProduct')?.addEventListener('click', createCustomProduct);
+
+  document.getElementById('enableAdminAnywhere')?.addEventListener('click', () => {
+    localStorage.setItem('mvpluxAdminSignedIn', 'true');
+    localStorage.setItem('mvpluxAdminAnywhere', 'true');
+    setStatus('Page editing is on. Open any website page and edit directly there.');
+  });
+
+  document.getElementById('disableAdminAnywhere')?.addEventListener('click', () => {
+    localStorage.removeItem('mvpluxAdminSignedIn');
+    localStorage.setItem('mvpluxAdminAnywhere', 'false');
+    setStatus('Page editing is off.');
+  });
+
+  document.getElementById('resetExtraImages')?.addEventListener('click', () => {
+    localStorage.removeItem('mvpluxAdminExtraImages');
+    renderExtraImages();
+    setStatus('Most Wanted and Gallery images reset.');
   });
 });

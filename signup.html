@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sign Up | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260624-premium-shop" />
+  <link rel="stylesheet" href="style.css?v=20260625-edge-resize" />
 </head>
 <body>
   <main class="auth-page">
@@ -13,28 +13,28 @@
       <h1>Create Account</h1>
       <p>Create a screen name for fan votes, request ideas, comments, and future discounts.</p>
 
-      <form class="auth-form">
+      <form class="auth-form" id="signupForm">
         <label>
           Screen Name
-          <input type="text" placeholder="Your screen name" />
+          <input id="signupScreenName" type="text" placeholder="Your screen name" />
         </label>
         <label>
           Email
-          <input type="email" placeholder="you@example.com" />
+          <input id="signupEmail" type="email" placeholder="you@example.com" />
         </label>
         <label>
           Password
           <span class="password-field">
-            <input type="password" placeholder="Password" />
+            <input id="signupPassword" type="password" placeholder="Password" />
             <button class="password-toggle" type="button" aria-label="Show password" onclick="togglePasswordVisibility(this)">Show</button>
           </span>
         </label>
-        <button type="button">Create Account</button>
+        <button type="submit">Create Account</button>
       </form>
 
       <p class="auth-switch">Already have an account? <a href="signin.html">Sign in</a></p>
     </section>
   </main>
-  <script src="script.js?v=20260624-premium-shop"></script>
+  <script src="script.js?v=20260625-edge-resize"></script>
 </body>
 </html>
