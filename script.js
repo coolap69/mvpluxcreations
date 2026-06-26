@@ -731,6 +731,11 @@ let inlineAdminUndoStack = [];
 let inlineAdminRedoStack = [];
 let inlineAdminDirty = false;
 let inlineAdminLastToolbarAction = { action: '', time: 0 };
+let inlineAdminResizeActive = false;
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
 
 function readInlineAdminEdits() {
   try {
@@ -894,21 +899,29 @@ function updateInlineAdminToolbarState(message = '') {
   const activeImage = inlineAdminSelectedImage || document.querySelector('.admin-image-selected');
 
   if (status) status.textContent = message || (inlineAdminDirty ? 'Unsaved changes' : 'Saved');
+  if (undo) undo.classList.toggle('disabled', !inlineAdminUndoStack.length);
+  if (redo) redo.classList.toggle('disabled', !inlineAdminRedoStack.length);
   if (undo) undo.disabled = !inlineAdminUndoStack.length;
   if (redo) redo.disabled = !inlineAdminRedoStack.length;
   if (selected) selected.textContent = activeImage ? 'Image selected' : 'Select an image';
   imageControls.forEach((control) => {
-    control.disabled = false;
+    control.classList.remove('disabled');
   });
   updateInlineAdminResizeHandle();
 }
 
 function renderInlineAdminImageState(image) {
   const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
+  if (!image.style.getPropertyValue('--admin-base-transform')) {
+    image.style.setProperty('--admin-base-transform', 'translate(0, 0)');
+  }
+  const baseTransform = image.style.getPropertyValue('--admin-base-transform') || 'translate(0, 0)';
+  const transform = `${baseTransform} translate(${state.x}px, ${state.y}px) scale(${state.scale}) rotate(${state.rotate}deg)`;
   image.style.setProperty('--admin-x', `${state.x}px`);
   image.style.setProperty('--admin-y', `${state.y}px`);
   image.style.setProperty('--admin-scale', state.scale);
   image.style.setProperty('--admin-rotate', `${state.rotate}deg`);
+  image.style.setProperty('transform', transform, 'important');
   if (image === inlineAdminSelectedImage) updateInlineAdminResizeHandle();
 }
 
@@ -919,7 +932,10 @@ function selectInlineAdminImage(image) {
 
   inlineAdminSelectedImage = image;
   image?.classList.add('admin-image-selected');
-  updateInlineAdminToolbarState();
+  const label = image?.classList.contains('fan-card-bg') || image?.classList.contains('product-stage-bg')
+    ? 'Background selected'
+    : 'Image selected';
+  updateInlineAdminToolbarState(label);
   updateInlineAdminResizeHandle();
 }
 
@@ -934,12 +950,13 @@ function getInlineAdminResizeHandle() {
   handle.setAttribute('aria-label', 'Resize selected image proportionally');
   document.body.appendChild(handle);
 
-  handle.addEventListener('pointerdown', (event) => {
+  const startResize = (event) => {
     const image = getActiveInlineAdminImage();
-    if (!image) return;
+    if (!image || inlineAdminResizeActive) return;
 
     event.preventDefault();
     event.stopPropagation();
+    inlineAdminResizeActive = true;
     handle.setPointerCapture?.(event.pointerId);
 
     const before = getInlineAdminSnapshot(image);
@@ -962,13 +979,21 @@ function getInlineAdminResizeHandle() {
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', stop);
+      inlineAdminResizeActive = false;
       pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
       updateInlineAdminResizeHandle();
     };
 
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
-  });
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+  };
+
+  handle.addEventListener('pointerdown', startResize);
+  handle.addEventListener('mousedown', startResize);
 
   return handle;
 }
@@ -985,17 +1010,19 @@ function updateInlineAdminResizeHandle() {
 
   const rect = image.getBoundingClientRect();
   handle.style.display = 'block';
-  handle.style.left = `${rect.right - 9}px`;
-  handle.style.top = `${rect.bottom - 9}px`;
+  handle.style.left = `${rect.right - 12}px`;
+  handle.style.top = `${rect.bottom - 12}px`;
 }
 
 function getActiveInlineAdminImage(showMessage = true) {
-  const image = inlineAdminSelectedImage || document.querySelector('.admin-image-selected');
+  const selectedInPage = document.querySelector('img.admin-image-selected');
+  const image = selectedInPage || (inlineAdminSelectedImage?.isConnected ? inlineAdminSelectedImage : null);
   if (!image) {
     if (showMessage) updateInlineAdminToolbarState('Select an image first');
     return null;
   }
 
+  inlineAdminSelectedImage = image;
   if (!image._adminImageState) {
     const styles = getComputedStyle(image);
     image._adminImageState = {
@@ -1006,7 +1033,6 @@ function getActiveInlineAdminImage(showMessage = true) {
     };
   }
 
-  if (inlineAdminSelectedImage !== image) selectInlineAdminImage(image);
   return image;
 }
 
@@ -1035,14 +1061,71 @@ function changeSelectedInlineAdminImage(patch) {
   pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
 }
 
+function readInlineHiddenCards() {
+  try {
+    return JSON.parse(localStorage.getItem('mvpluxInlineHiddenCards') || '{}');
+  } catch (error) {
+    return {};
+  }
+}
+
+function writeInlineHiddenCards(cards) {
+  localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(cards));
+}
+
+function getInlineAdminSelectedCard() {
+  const image = getActiveInlineAdminImage(false);
+  return image?.closest('.fan-vote-card, .fan-gallery-card, .product-card, .category-card');
+}
+
+function hideSelectedInlineAdminCard() {
+  const card = getInlineAdminSelectedCard();
+  if (!card) {
+    updateInlineAdminToolbarState('Select a card image first');
+    return;
+  }
+
+  const key = card.dataset.adminCardKey || `card-${[...document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card')].indexOf(card)}`;
+  card.dataset.adminCardKey = key;
+  const hidden = readInlineHiddenCards();
+  const page = inlineAdminPageKey();
+  hidden[page] = hidden[page] || {};
+  hidden[page][key] = true;
+  writeInlineHiddenCards(hidden);
+  card.style.display = 'none';
+  inlineAdminSelectedImage = null;
+  updateInlineAdminToolbarState('Saved card for later');
+}
+
+function restoreInlineHiddenCards() {
+  const hidden = readInlineHiddenCards();
+  delete hidden[inlineAdminPageKey()];
+  writeInlineHiddenCards(hidden);
+  document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card').forEach((card) => {
+    card.style.display = '';
+  });
+  updateInlineAdminToolbarState('Saved cards shown');
+}
+
+function applyInlineHiddenCards() {
+  const hidden = readInlineHiddenCards()[inlineAdminPageKey()] || {};
+  document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card').forEach((card, index) => {
+    const key = card.dataset.adminCardKey || `card-${index}`;
+    card.dataset.adminCardKey = key;
+    if (hidden[key]) card.style.display = 'none';
+  });
+}
+
 var runInlineAdminToolbarAction = function (action) {
   const now = Date.now();
-  if (inlineAdminLastToolbarAction.action === action && now - inlineAdminLastToolbarAction.time < 120) return;
+  if (inlineAdminLastToolbarAction.action === action && now - inlineAdminLastToolbarAction.time < 250) return;
   inlineAdminLastToolbarAction = { action, time: now };
 
   if (action === 'undo') undoInlineAdminEdit();
   if (action === 'redo') redoInlineAdminEdit();
   if (action === 'save') commitInlineAdminEdits();
+  if (action === 'hide-card') hideSelectedInlineAdminCard();
+  if (action === 'restore-cards') restoreInlineHiddenCards();
   if (action === 'center') {
     changeSelectedInlineAdminImage({ x: 0, y: 0 });
   }
@@ -1072,6 +1155,50 @@ var runInlineAdminToolbarAction = function (action) {
 window.runInlineAdminToolbarAction = runInlineAdminToolbarAction;
 globalThis.runInlineAdminToolbarAction = runInlineAdminToolbarAction;
 
+function handleInlineAdminToolbarPress(event) {
+  if (!document.body.classList.contains('admin-anywhere-on')) return;
+  const control = event.target.closest?.('[data-admin-toolbar-action]');
+  if (!control) return;
+  if (control.classList.contains('disabled')) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+  runInlineAdminToolbarAction(control.dataset.adminToolbarAction);
+}
+
+function bindInlineAdminToolbarControls() {
+  document.querySelectorAll('.admin-anywhere-toolbar [data-admin-toolbar-action]').forEach((control) => {
+    if (control.dataset.adminToolbarReady) return;
+    control.dataset.adminToolbarReady = 'true';
+
+    const activate = (event) => {
+      if (control.classList.contains('disabled')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+      runInlineAdminToolbarAction(control.dataset.adminToolbarAction);
+    };
+
+    control.addEventListener('pointerdown', activate);
+    control.addEventListener('click', activate);
+  });
+}
+
+function handleInlineAdminToolbarKey(event) {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  handleInlineAdminToolbarPress(event);
+}
+
+function handleInlineAdminImageSelect(event) {
+  if (!document.body.classList.contains('admin-anywhere-on')) return;
+  if (event.target.closest?.('.admin-anywhere-toolbar, #adminImageResizeHandle')) return;
+  const image = event.target.closest?.('img.admin-editable-image');
+  if (!image) return;
+
+  selectInlineAdminImage(image);
+}
+
 function fileToSmallDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1090,35 +1217,32 @@ function installInlineAdminMode() {
     <div class="admin-anywhere-toolbar">
       <strong>Admin Editing</strong>
       <span id="adminInlineStatus">Saved</span>
-      <button type="button" data-admin-toolbar-action="undo" id="adminInlineUndo" title="Undo" onclick="runInlineAdminToolbarAction('undo')" onmousedown="runInlineAdminToolbarAction('undo')" onpointerdown="runInlineAdminToolbarAction('undo')">Undo</button>
-      <button type="button" data-admin-toolbar-action="redo" id="adminInlineRedo" title="Redo" onclick="runInlineAdminToolbarAction('redo')" onmousedown="runInlineAdminToolbarAction('redo')" onpointerdown="runInlineAdminToolbarAction('redo')">Redo</button>
-      <button type="button" data-admin-toolbar-action="save" id="adminInlineSave" title="Save changes" onclick="runInlineAdminToolbarAction('save')" onmousedown="runInlineAdminToolbarAction('save')" onpointerdown="runInlineAdminToolbarAction('save')">Save</button>
+      <button type="button" class="admin-tool-control" data-admin-toolbar-action="undo" id="adminInlineUndo" title="Undo" onpointerdown="runInlineAdminToolbarAction('undo'); return false;" onclick="runInlineAdminToolbarAction('undo'); return false;">Undo</button>
+      <button type="button" class="admin-tool-control" data-admin-toolbar-action="redo" id="adminInlineRedo" title="Redo" onpointerdown="runInlineAdminToolbarAction('redo'); return false;" onclick="runInlineAdminToolbarAction('redo'); return false;">Redo</button>
+      <button type="button" class="admin-tool-control" data-admin-toolbar-action="save" id="adminInlineSave" title="Save changes" onpointerdown="runInlineAdminToolbarAction('save'); return false;" onclick="runInlineAdminToolbarAction('save'); return false;">Save</button>
+      <button type="button" class="admin-tool-control admin-tool-danger" data-admin-toolbar-action="hide-card" id="adminInlineHideCard" title="Save selected card for later" onpointerdown="runInlineAdminToolbarAction('hide-card'); return false;" onclick="runInlineAdminToolbarAction('hide-card'); return false;">Save Later</button>
+      <button type="button" class="admin-tool-control" data-admin-toolbar-action="restore-cards" id="adminInlineRestoreCards" title="Show cards saved for later" onpointerdown="runInlineAdminToolbarAction('restore-cards'); return false;" onclick="runInlineAdminToolbarAction('restore-cards'); return false;">Show Saved</button>
       <span id="adminInlineSelected">Select an image</span>
-      <button type="button" data-admin-image-control data-admin-toolbar-action="center" id="adminInlineCenter" title="Center selected image" onclick="runInlineAdminToolbarAction('center')" onmousedown="runInlineAdminToolbarAction('center')" onpointerdown="runInlineAdminToolbarAction('center')">Center</button>
-      <button type="button" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller" onclick="runInlineAdminToolbarAction('size-down')" onmousedown="runInlineAdminToolbarAction('size-down')" onpointerdown="runInlineAdminToolbarAction('size-down')">Size -</button>
-      <button type="button" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger" onclick="runInlineAdminToolbarAction('size-up')" onmousedown="runInlineAdminToolbarAction('size-up')" onpointerdown="runInlineAdminToolbarAction('size-up')">Size +</button>
-      <button type="button" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left" onclick="runInlineAdminToolbarAction('rotate-left')" onmousedown="runInlineAdminToolbarAction('rotate-left')" onpointerdown="runInlineAdminToolbarAction('rotate-left')">Rotate -</button>
-      <button type="button" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onclick="runInlineAdminToolbarAction('rotate-right')" onmousedown="runInlineAdminToolbarAction('rotate-right')" onpointerdown="runInlineAdminToolbarAction('rotate-right')">Rotate +</button>
+      <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="center" id="adminInlineCenter" title="Center selected image" onpointerdown="runInlineAdminToolbarAction('center'); return false;" onclick="runInlineAdminToolbarAction('center'); return false;">Center</button>
+      <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller" onpointerdown="runInlineAdminToolbarAction('size-down'); return false;" onclick="runInlineAdminToolbarAction('size-down'); return false;">Size -</button>
+      <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger" onpointerdown="runInlineAdminToolbarAction('size-up'); return false;" onclick="runInlineAdminToolbarAction('size-up'); return false;">Size +</button>
+      <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left" onpointerdown="runInlineAdminToolbarAction('rotate-left'); return false;" onclick="runInlineAdminToolbarAction('rotate-left'); return false;">Rotate -</button>
+      <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onpointerdown="runInlineAdminToolbarAction('rotate-right'); return false;" onclick="runInlineAdminToolbarAction('rotate-right'); return false;">Rotate +</button>
       <a href="admin.html">Admin Page</a>
-      <button type="button" data-admin-toolbar-action="sign-out" id="adminAnywhereOff" onclick="runInlineAdminToolbarAction('sign-out')" onmousedown="runInlineAdminToolbarAction('sign-out')" onpointerdown="runInlineAdminToolbarAction('sign-out')">Log Out</button>
+      <button type="button" class="admin-tool-control" data-admin-toolbar-action="sign-out" id="adminAnywhereOff" onpointerdown="runInlineAdminToolbarAction('sign-out'); return false;" onclick="runInlineAdminToolbarAction('sign-out'); return false;">Log Out</button>
     </div>
   `);
+  bindInlineAdminToolbarControls();
 
-  document.getElementById('adminAnywhereOff')?.addEventListener('click', () => {
-    signOutAdmin();
-  });
+  applyInlineHiddenCards();
 
-  document.querySelectorAll('[data-admin-toolbar-action]').forEach((button) => {
-    const runToolbarAction = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      runInlineAdminToolbarAction(button.dataset.adminToolbarAction);
-    };
-
-    button.addEventListener('click', runToolbarAction);
-    button.addEventListener('pointerdown', runToolbarAction);
-    button.addEventListener('mousedown', runToolbarAction);
-  });
+  document.addEventListener('pointerdown', handleInlineAdminToolbarPress, true);
+  document.addEventListener('pointerup', handleInlineAdminToolbarPress, true);
+  document.addEventListener('mousedown', handleInlineAdminToolbarPress, true);
+  document.addEventListener('mouseup', handleInlineAdminToolbarPress, true);
+  document.addEventListener('click', handleInlineAdminToolbarPress, true);
+  document.addEventListener('keydown', handleInlineAdminToolbarKey, true);
+  document.addEventListener('click', handleInlineAdminImageSelect, true);
 
   window.addEventListener('keydown', (event) => {
     if (!document.body.classList.contains('admin-anywhere-on')) return;
@@ -1142,6 +1266,7 @@ function installInlineAdminMode() {
 
   document.querySelectorAll('h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
     if (element.closest('.admin-anywhere-toolbar, .cart-panel, script, style, .password-field')) return;
+    if (element.closest('.fan-vote-meter, .fan-carousel-dots, .stage-option-boxes')) return;
     inlineAdminKey(element);
     element.contentEditable = 'true';
     element.spellcheck = false;
@@ -1163,7 +1288,13 @@ function installInlineAdminMode() {
 
   document.querySelectorAll('img').forEach((image) => {
     if (image.closest('.admin-anywhere-toolbar')) return;
+    if (!image.closest('.hero-stage')) {
+      image.loading = 'lazy';
+      image.decoding = 'async';
+    }
     inlineAdminKey(image);
+    const computedTransform = getComputedStyle(image).transform;
+    image.style.setProperty('--admin-base-transform', computedTransform && computedTransform !== 'none' ? computedTransform : 'translate(0, 0)');
     image.classList.add('admin-editable-image', 'admin-transformable-image');
     const saved = readInlineAdminEdits()[inlineAdminPageKey()]?.[inlineAdminKey(image)] || {};
     image._adminImageState = {
@@ -1319,12 +1450,6 @@ document.addEventListener('DOMContentLoaded', function () {
     `);
   });
 
-  const shopTools = document.querySelector('#shop .shop-tools');
-  if (shopTools && !document.getElementById('adminSizeToggle')) {
-    shopTools.insertAdjacentHTML('beforeend', '<button id="adminSizeToggle" class="admin-size-toggle" type="button">Admin Edit Sizes</button>');
-    document.getElementById('adminSizeToggle')?.addEventListener('click', toggleAdminSizeEditor);
-  }
-
   const fanVotes = getFanVoteStore();
   document.querySelectorAll('[data-vote-id]').forEach((button) => {
     setFanVoteButtonState(button, Boolean(fanVotes[button.dataset.voteId]));
@@ -1347,7 +1472,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const card = builder.closest('.product-card');
     const stage = card?.querySelector('.product-stage-preview');
 
-    installSizeAdmin(builder);
     updateBuilderOriginalDisplay(builder);
 
     radios.forEach((radio) => {
