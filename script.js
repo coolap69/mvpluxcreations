@@ -736,6 +736,87 @@ function getSignedInName() {
   return '';
 }
 
+function getSupabaseClient() {
+  return typeof window.getMvpluxSupabaseClient === 'function' ? window.getMvpluxSupabaseClient() : null;
+}
+
+function showSupabaseConnectionAlert(actionLabel = 'connect to Supabase') {
+  const projectUrl = window.MVPLUX_SUPABASE?.url || 'your Supabase project URL';
+  alert(`Could not ${actionLabel} yet.\n\nThe site tried to reach:\n${projectUrl}\n\nThis usually means the new Supabase project is still finishing setup, Supabase is having a temporary issue, or the Project URL / publishable key needs to be re-copied from Supabase settings.`);
+}
+
+async function syncSupabaseAuthState() {
+  const client = getSupabaseClient();
+  if (!client?.auth || isAdminSignedIn()) return;
+
+  try {
+    const { data } = await client.auth.getSession();
+    const user = data?.session?.user;
+    if (!user) return;
+
+    const screenName = user.user_metadata?.screen_name || user.email?.split('@')[0] || 'Guest';
+    localStorage.setItem('mvpluxCustomerSignedIn', 'true');
+    localStorage.setItem('mvpluxSignedInName', screenName);
+  } catch (error) {
+    console.warn('Supabase session check failed:', error);
+  }
+}
+
+async function signInCustomerWithSupabase(email, password) {
+  const client = getSupabaseClient();
+  if (!client?.auth) return false;
+
+  try {
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
+    if (error) {
+      alert(error.message || 'Could not sign in. Please check your email and password.');
+      return true;
+    }
+
+    const user = data?.user;
+    const screenName = user?.user_metadata?.screen_name || email.split('@')[0] || 'Guest';
+    localStorage.setItem('mvpluxCustomerSignedIn', 'true');
+    localStorage.setItem('mvpluxSignedInName', screenName);
+    window.location.href = 'index.html';
+  } catch (error) {
+    console.warn('Supabase sign-in failed:', error);
+    showSupabaseConnectionAlert('sign in');
+  }
+  return true;
+}
+
+async function signUpCustomerWithSupabase(screenName, email, password) {
+  const client = getSupabaseClient();
+  if (!client?.auth) return false;
+
+  try {
+    const { data, error } = await client.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          screen_name: screenName
+        }
+      }
+    });
+
+    if (error) {
+      alert(error.message || 'Could not create the account.');
+      return true;
+    }
+
+    const pendingConfirmation = !data?.session;
+    localStorage.setItem('mvpluxCustomerSignedIn', 'true');
+    localStorage.setItem('mvpluxSignedInName', screenName);
+    alert(pendingConfirmation ? 'Account created. Please check your email if Supabase asks you to confirm it.' : 'Account created.');
+    window.location.href = 'index.html';
+  } catch (error) {
+    console.warn('Supabase sign-up failed:', error);
+    showSupabaseConnectionAlert('create the account');
+  }
+  return true;
+}
+
 function setupAuthState() {
   cleanStaleAdminState();
 
@@ -755,7 +836,7 @@ function setupAuthState() {
     window.location.href = 'index.html';
   });
 
-  signinForm?.addEventListener('submit', (event) => {
+  signinForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const email = document.getElementById('signinEmail')?.value.trim().toLowerCase() || '';
     const password = document.getElementById('signinPassword')?.value.trim() || '';
@@ -769,14 +850,21 @@ function setupAuthState() {
       return;
     }
 
+    if (await signInCustomerWithSupabase(email, password)) return;
+
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', email.split('@')[0] || 'Guest');
     window.location.href = 'index.html';
   });
 
-  signupForm?.addEventListener('submit', (event) => {
+  signupForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const screenName = document.getElementById('signupScreenName')?.value.trim() || 'Guest';
+    const email = document.getElementById('signupEmail')?.value.trim().toLowerCase() || '';
+    const password = document.getElementById('signupPassword')?.value.trim() || '';
+
+    if (await signUpCustomerWithSupabase(screenName, email, password)) return;
+
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', screenName);
     window.location.href = 'index.html';
@@ -3306,6 +3394,7 @@ function openSelectedOffer(button) {
 /* ---------------- PAGE INIT ---------------- */
 document.addEventListener('DOMContentLoaded', function () {
   clearLegacyAdminBrowserStorage();
+  syncSupabaseAuthState().catch(() => {});
   setupAuthState();
   updateCart();
   showInfoSlide(0);
