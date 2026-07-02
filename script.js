@@ -701,7 +701,7 @@ function togglePasswordVisibility(button) {
 
   const showing = input.type === 'text';
   input.type = showing ? 'password' : 'text';
-  button.textContent = showing ? 'Show' : 'Hide';
+  button.textContent = showing ? '👁' : '🙈';
   button.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
 }
 
@@ -822,33 +822,16 @@ function setupAuthState() {
 
   const signinForm = document.getElementById('signinForm');
   const signupForm = document.getElementById('signupForm');
-  const adminQuickSignIn = document.getElementById('adminQuickSignIn');
   const signedInNotice = document.getElementById('signedInNotice');
 
   if (signedInNotice && isAdminSignedIn()) {
     signedInNotice.innerHTML = `You are signed in as <strong>${getSignedInName()}</strong>. <button type="button" class="admin-inline-signout" data-admin-signout>Log Out</button>`;
   }
 
-  adminQuickSignIn?.addEventListener('click', () => {
-    localStorage.setItem('mvpluxAdminSignedIn', 'true');
-    localStorage.setItem('mvpluxAdminAnywhere', 'true');
-    localStorage.setItem('mvpluxSignedInName', 'Admin');
-    window.location.href = 'index.html';
-  });
-
   signinForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const email = document.getElementById('signinEmail')?.value.trim().toLowerCase() || '';
     const password = document.getElementById('signinPassword')?.value.trim() || '';
-    const adminLogin = email === 'admin@mvpluxcreations.com' || password.toLowerCase() === 'admin';
-
-    if (adminLogin) {
-      localStorage.setItem('mvpluxAdminSignedIn', 'true');
-      localStorage.setItem('mvpluxAdminAnywhere', 'true');
-      localStorage.setItem('mvpluxSignedInName', 'Admin');
-      window.location.href = 'index.html';
-      return;
-    }
 
     if (await signInCustomerWithSupabase(email, password)) return;
 

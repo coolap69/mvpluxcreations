@@ -2848,7 +2848,7 @@ footer {
 }
 
 .password-field input {
-  padding-right: 82px !important;
+  padding-right: 58px !important;
 }
 
 .password-toggle {
@@ -2856,13 +2856,14 @@ footer {
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
+  width: 38px;
   min-height: 34px;
-  padding: 7px 10px;
-  border-radius: 8px;
+  padding: 4px;
+  border-radius: 50%;
   border: 1px solid rgba(244,208,111,0.42);
   background: rgba(244,208,111,0.12);
   color: #f8e7aa;
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 900;
 }
 
@@ -2875,13 +2876,6 @@ footer {
   margin-top: 6px;
   background: linear-gradient(180deg, #ffe083, #b88918);
   color: #111;
-}
-
-.auth-form .admin-login-shortcut {
-  margin-top: 0;
-  border: 1px solid rgba(244,208,111,0.5);
-  background: rgba(244,208,111,0.12);
-  color: #f4d06f;
 }
 
 .auth-form input:focus {
