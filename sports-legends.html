@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sports Star Standees | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260625-admin-final-controls" />
+  <title>Sport Legend Standees | MVPLUXCREATIONS</title>
+  <link rel="stylesheet" href="style.css?v=20260701-cart-icon-same-size" />
 </head>
 <body>
   <header class="top-nav">
@@ -14,68 +14,146 @@
       <a href="index.html#shop">Shop</a>
     </nav>
     <div class="auth-links">
-      <a href="index.html#shop" class="sign-up-link">Back to Shop</a>
+      <a href="signin.html" class="sign-in-link">Sign In</a>
+      <a href="signup.html" class="sign-up-link">Sign Up</a>
     </div>
   </header>
 
   <main class="category-page">
     <section class="category-hero">
-      <h1>Sports Star Standees</h1>
-      <p>Choose a sports standee, compare available poses, then preview display backgrounds.</p>
+      <h1>Sport Legend Standees</h1>
+      <p>Choose from basketball, soccer, and football standees, then pick the image style you want to see in the main preview.</p>
     </section>
 
-    <section class="category-featured-stage">
-      <div class="category-featured-art" style="background-image: url('images/FanBackgrounds/top-favorite-stage-gold.png');">
-        <img src="images/Sports/Kobe/KB1forprint.png" alt="Kobe Bryant life-size standee preview">
+    <section class="sport-type-carousel" aria-label="Choose a sport">
+      <a class="sport-type-card" href="#basketball-players" data-sport-jump="basketball-players" data-sports-player="kobe-bryant">
+        <img src="images/SportLegendStandees/Kobe/KB1nobackground.png" alt="Basketball standees">
+        <span>Basketball</span>
+        <p>Legends, big men, and action poses for court-ready displays.</p>
+      </a>
+      <a class="sport-type-card" href="#soccer-players" data-sport-jump="soccer-players" data-sports-player="lionel-messi">
+        <img src="images/SportLegendStandees/Messi/Messi2nobackground.png" alt="Soccer standees">
+        <span>Soccer</span>
+        <p>Clean and field-style soccer standees for fan rooms and parties.</p>
+      </a>
+      <a class="sport-type-card" href="#football-players" data-sport-jump="football-players" data-sports-player="tom-brady">
+        <img src="images/SportLegendStandees/TomBrady/TB12Nobackground.png" alt="Football standees">
+        <span>Football</span>
+        <p>Football star displays with clean and background image choices.</p>
+      </a>
+    </section>
+
+    <section class="sports-showroom" aria-label="Selected sports standee">
+      <div id="sportsMainStage" class="category-featured-art sports-main-stage" style="background-image: url('images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg');">
+        <img id="sportsMainImage" class="product-cutout" src="images/SportLegendStandees/Kobe/KB1nobackground.png" alt="Kobe Bryant life-size standee preview">
       </div>
-      <div class="category-featured-info">
-        <span class="category-kicker">Featured Sports Legend</span>
-        <h2>Kobe Bryant Options</h2>
-        <p>Pick the main Kobe standee or choose one of the printed background versions for a court-style display.</p>
-        <div class="category-fact-grid">
-          <span>Real height: 6'6"</span>
-          <span>Position: Shooting Guard</span>
-          <span>Team colors: purple and gold</span>
+      <div class="category-featured-info sports-selected-panel showroom-purchase-card">
+        <span id="sportsSelectedSport" class="category-kicker">Basketball Standee</span>
+        <h2 id="sportsSelectedName">Kobe Bryant</h2>
+        <p id="sportsSelectedDescription">Original clean cutout with optional printed court background versions.</p>
+        <div id="sportsSelectedFacts" class="category-fact-grid">
+          <span>Original size: 6'6"</span>
+          <span>Basketball</span>
+          <span>Options: 4 images</span>
         </div>
-        <div class="category-option-strip" aria-label="Kobe Bryant standee options">
-          <img src="images/Sports/Kobe/KB1forprint.png" alt="Kobe Bryant standee option 1">
-          <img src="images/Sports/Kobe/KB1toprintbackground.png" alt="Kobe Bryant print background option 2">
-          <img src="images/Sports/Kobe/KB1toprintbackgroundcourt.png" alt="Kobe Bryant court background option 3">
-          <img src="images/Sports/Kobe/KB1toprintbackgroundcourtsmaller.png" alt="Kobe Bryant smaller court background option 4">
+        <div>
+          <h3 class="sports-choice-title">Image Choices For Selected Standee</h3>
+          <div id="sportsOptionStrip" class="category-option-strip sports-option-strip" aria-label="Selected sports standee image choices">
+            <button type="button" class="active" onclick="selectSportsOption(0)">
+              <img src="images/SportLegendStandees/Kobe/KB1nobackground.png" alt="Kobe Bryant original cutout">
+              <span>No Background</span>
+            </button>
+            <button type="button" onclick="selectSportsOption(1)">
+              <img src="images/SportLegendStandees/Kobe/KB1yellowcourtbackground.png" alt="Kobe Bryant yellow court background">
+              <span>Yellow Court</span>
+            </button>
+            <button type="button" onclick="selectSportsOption(2)">
+              <img src="images/SportLegendStandees/Kobe/KB1bigcourtbackground.png" alt="Kobe Bryant big court background">
+              <span>Big Court</span>
+            </button>
+            <button type="button" onclick="selectSportsOption(3)">
+              <img src="images/SportLegendStandees/Kobe/KB1smallcourtbackground.png" alt="Kobe Bryant small court background">
+              <span>Small Court</span>
+            </button>
+          </div>
+        </div>
+        <div id="sportsSizeBuilder" class="showroom-size-builder size-builder" data-product-name="Kobe Bryant" data-admin-slug="kobe-bryant" data-original-price="129.99" data-original-height="78">
+          <div class="showroom-size-buttons">
+            <label class="showroom-size-button active">
+              <input type="radio" name="kobeBryantShowroomSizeMode" value="original" checked>
+              <span>Original 6'6"</span>
+            </label>
+            <label class="showroom-size-button">
+              <input type="radio" name="kobeBryantShowroomSizeMode" value="custom">
+              <span>Custom Size</span>
+            </label>
+          </div>
+          <div class="custom-size-box">
+            <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+          </div>
+          <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
+        </div>
+        <div class="showroom-action-row standee-action-row">
+          <button type="button" onclick="buySelectedNow(this)">Buy Now</button>
+          <button type="button" onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
+          <button type="button" class="offer-btn" onclick="openSelectedOffer(this)">Offer Now</button>
         </div>
       </div>
     </section>
 
-    <section class="category-panel">
-      <h2>Choose a Sports Standee</h2>
-      <div class="category-grid">
-        <article class="category-card">
-          <img src="images/Sports/Kobe/KB1forprint.png" alt="Kobe Bryant standee">
+    <section id="basketball-players" class="category-panel sports-roster-panel">
+      <h2>Basketball Players</h2>
+      <div class="category-grid sports-player-grid">
+        <article class="category-card sports-player-card active" data-sports-player="kobe-bryant">
+          <img src="images/SportLegendStandees/Kobe/KB1nobackground.png" alt="Kobe Bryant standee">
           <h3>Kobe Bryant</h3>
-          <button type="button">Select Standee</button>
+          <button type="button" onclick="selectSportsStandee('kobe-bryant')">Select Standee</button>
         </article>
-        <article class="category-card">
-          <img src="images/Sports/Shaq/shaqNEW.png" alt="Shaq standee">
-          <h3>Basketball Center</h3>
-          <button type="button">Select Standee</button>
+        <article class="category-card sports-player-card" data-sports-player="shaq">
+          <img src="images/SportLegendStandees/Shaq/shaqNEW.png" alt="Shaq standee">
+          <h3>Shaquille O'Neal</h3>
+          <button type="button" onclick="selectSportsStandee('shaq')">Select Standee</button>
         </article>
-        <article class="category-card">
-          <img src="images/Sports/Shaq/shaqDarker.png" alt="Alternate sports standee">
-          <h3>Alternate Sports Pose</h3>
-          <button type="button">Select Standee</button>
+        <article class="category-card sports-player-card" data-sports-player="michael-jordan">
+          <img src="images/SportLegendStandees/MJordan/MJLAYUP1/Jordanemptybackground.png" alt="Michael Jordan standee">
+          <h3>Michael Jordan</h3>
+          <button type="button" onclick="selectSportsStandee('michael-jordan')">Select Standee</button>
+        </article>
+        <article class="category-card sports-player-card" data-sports-player="michael-jordan-layup">
+          <img src="images/SportLegendStandees/MJordan/MJLAYUP/Jordantofixlblueightlowres.png" alt="Michael Jordan layup standee">
+          <h3>Michael Jordan Layup</h3>
+          <button type="button" onclick="selectSportsStandee('michael-jordan-layup')">Select Standee</button>
         </article>
       </div>
     </section>
 
-    <section class="category-panel">
-      <h2>Backing Options</h2>
-      <div class="background-carousel">
-        <img src="images/Sports/Kobe/KB1toprintbackground.png" alt="Kobe standee with print backing">
-        <img src="images/Sports/Kobe/KB1toprintbackgroundcourt.png" alt="Kobe standee with court backing">
-        <img src="images/Sports/Kobe/KB1toprintbackgroundcourtsmaller.png" alt="Kobe standee with smaller court backing">
+    <section id="soccer-players" class="category-panel sports-roster-panel">
+      <h2>Soccer Players</h2>
+      <div class="category-grid sports-player-grid">
+        <article class="category-card sports-player-card" data-sports-player="lionel-messi">
+          <img src="images/SportLegendStandees/Messi/Messi2nobackground.png" alt="Lionel Messi standee">
+          <h3>Lionel Messi</h3>
+          <button type="button" onclick="selectSportsStandee('lionel-messi')">Select Standee</button>
+        </article>
+        <article class="category-card sports-player-card" data-sports-player="lionel-messi-classic">
+          <img src="images/SportLegendStandees/Messi/Messinnone.png" alt="Lionel Messi classic standee">
+          <h3>Lionel Messi Classic</h3>
+          <button type="button" onclick="selectSportsStandee('lionel-messi-classic')">Select Standee</button>
+        </article>
+      </div>
+    </section>
+
+    <section id="football-players" class="category-panel sports-roster-panel">
+      <h2>Football Players</h2>
+      <div class="category-grid sports-player-grid">
+        <article class="category-card sports-player-card" data-sports-player="tom-brady">
+          <img src="images/SportLegendStandees/TomBrady/TB12Nobackground.png" alt="Tom Brady standee">
+          <h3>Tom Brady</h3>
+          <button type="button" onclick="selectSportsStandee('tom-brady')">Select Standee</button>
+        </article>
       </div>
     </section>
   </main>
-  <script src="script.js?v=20260625-admin-final-controls"></script>
+  <script src="script.js?v=20260701-cart-icon-same-size"></script>
 </body>
 </html>

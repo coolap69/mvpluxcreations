@@ -1,15 +1,83 @@
 let cart = [];
 let cartTotal = 0;
 let infoSlideIndex = 0;
+let currentBuyNowItem = null;
+let activeOfferState = null;
+
+const checkoutPaymentMethods = {
+  zelle: {
+    label: 'Zelle',
+    feePercent: 0,
+    fixedFee: 0,
+    note: 'Usually no platform fee from Zelle, but the customer is responsible for any bank fee.'
+  },
+  paypal: {
+    label: 'PayPal',
+    feePercent: 0.0349,
+    fixedFee: 0.49,
+    note: 'Customer pays the estimated PayPal processing fee.'
+  },
+  cashapp: {
+    label: 'Cash App',
+    feePercent: 0.0275,
+    fixedFee: 0,
+    note: 'Customer pays any Cash App or instant-transfer fee that applies.'
+  },
+  applepay: {
+    label: 'Apple Pay / Card',
+    feePercent: 0.035,
+    fixedFee: 0.49,
+    note: 'Customer pays the estimated card processing fee.'
+  },
+  venmo: {
+    label: 'Venmo',
+    feePercent: 0.0299,
+    fixedFee: 0.49,
+    note: 'Customer pays the estimated Venmo/payment processing fee.'
+  },
+  crypto: {
+    label: 'Crypto Wallet',
+    feePercent: 0,
+    fixedFee: 0,
+    note: 'Customer pays the crypto network/gas fee and must send enough for MVPLUXCREATIONS to receive the order total.'
+  }
+};
 
 /* ---------------- CART ---------------- */
+function ensureCartShell() {
+  if (!document.querySelector('.cart-button')) {
+    const header = document.querySelector('.top-nav') || document.body;
+    header.insertAdjacentHTML('beforeend', `
+      <button class="cart-button" onclick="toggleCart()" aria-label="Open cart">
+        <span class="cart-icon">🛒</span>
+        <span id="cartCount" class="cart-count">0</span>
+      </button>
+    `);
+  }
+
+  if (!document.getElementById('cartPanel')) {
+    document.body.insertAdjacentHTML('afterbegin', `
+      <aside id="cartPanel" class="cart-panel">
+        <button class="close-cart" onclick="toggleCart()">x</button>
+        <h2>Your Cart</h2>
+        <div id="cartItems"></div>
+        <p class="cart-total">Total: $<span id="cartTotal">0.00</span></p>
+        <p class="cart-free-shipping">Shipping: Free</p>
+        <button class="checkout-btn" onclick="openCheckout()">Checkout / Pay</button>
+      </aside>
+    `);
+  }
+}
+
 function addToCart(name, price) {
+  ensureCartShell();
   cart.push({ name, price });
   cartTotal += price;
   updateCart();
 }
 
 function updateCart() {
+  ensureCartShell();
   const cartCount = document.getElementById('cartCount');
   const cartTotalEl = document.getElementById('cartTotal');
   const cartItems = document.getElementById('cartItems');
@@ -20,12 +88,26 @@ function updateCart() {
   cartTotalEl.textContent = cartTotal.toFixed(2);
   cartItems.innerHTML = '';
 
-  cart.forEach((item) => {
+  cart.forEach((item, index) => {
     const div = document.createElement('div');
     div.className = 'cart-item';
-    div.innerHTML = `<strong>${item.name}</strong><br>$${item.price.toFixed(2)}`;
+    div.innerHTML = `
+      <div class="cart-item-info">
+        <strong>${item.name}</strong>
+        <span>$${item.price.toFixed(2)}</span>
+      </div>
+      <button class="cart-remove-btn" type="button" onclick="removeFromCart(${index})" aria-label="Remove ${item.name} from cart">x</button>
+    `;
     cartItems.appendChild(div);
   });
+}
+
+function removeFromCart(index) {
+  const removed = cart.splice(index, 1)[0];
+  if (removed) {
+    cartTotal = Math.max(0, cartTotal - removed.price);
+    updateCart();
+  }
 }
 
 function toggleCart() {
@@ -35,10 +117,12 @@ function toggleCart() {
 
 /* ---------------- BUY / OFFER MODALS ---------------- */
 function openBuyNow(title, price, image) {
+  ensureCommerceModals();
   const modalTitle = document.getElementById('modalTitle');
   const modalPrice = document.getElementById('modalPrice');
   const modalImage = document.getElementById('modalImage');
   const buyModal = document.getElementById('buyModal');
+  currentBuyNowItem = { name: title, price: Number(price) || 0, image: image || '' };
 
   if (modalTitle) modalTitle.textContent = title;
   if (modalPrice) modalPrice.textContent = '$' + price.toFixed(2);
@@ -47,28 +131,349 @@ function openBuyNow(title, price, image) {
 }
 
 function openOffer(productName) {
+  ensureCommerceModals();
   const offerProduct = document.getElementById('offerProduct');
   const offerModal = document.getElementById('offerModal');
+  const signedInName = getSignedInName();
+  activeOfferState = {
+    productName,
+    buyerOffer: null,
+    sellerCounter: null,
+    buyerCounterUsed: false,
+    status: 'open'
+  };
 
   if (offerProduct) offerProduct.textContent = productName;
+  updateOfferBoard(productName, signedInName);
   if (offerModal) offerModal.style.display = 'flex';
 }
 
 function closeModals() {
   const buyModal = document.getElementById('buyModal');
   const offerModal = document.getElementById('offerModal');
+  const checkoutModal = document.getElementById('checkoutModal');
 
   if (buyModal) buyModal.style.display = 'none';
   if (offerModal) offerModal.style.display = 'none';
+  if (checkoutModal) checkoutModal.style.display = 'none';
 }
 
-/* ---------------- PLACEHOLDER ACTIONS ---------------- */
+/* ---------------- CHECKOUT / PAYMENT ---------------- */
+function calculateCustomerPaidTotal(subtotal, methodKey) {
+  const method = checkoutPaymentMethods[methodKey] || checkoutPaymentMethods.zelle;
+  const amount = Number(subtotal) || 0;
+  if (!amount) return { subtotal: 0, fee: 0, total: 0, method };
+  if (!method.feePercent && !method.fixedFee) {
+    return { subtotal: amount, fee: 0, total: amount, method };
+  }
+
+  const total = (amount + method.fixedFee) / (1 - method.feePercent);
+  return {
+    subtotal: amount,
+    fee: Math.max(0, total - amount),
+    total,
+    method
+  };
+}
+
+function getCheckoutItems() {
+  if (cart.length) return cart;
+  if (currentBuyNowItem?.price) return [currentBuyNowItem];
+  return [];
+}
+
+function getCheckoutSubtotal() {
+  return getCheckoutItems().reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+}
+
+function paymentMethodButtonMarkup(key, method) {
+  return `
+    <label class="payment-method-card">
+      <input type="radio" name="checkoutPaymentMethod" value="${key}" ${key === 'zelle' ? 'checked' : ''}>
+      <span>${method.label}</span>
+      <small>${method.note}</small>
+    </label>
+  `;
+}
+
+function checkoutModalMarkup() {
+  const paymentMethods = Object.entries(checkoutPaymentMethods)
+    .map(([key, method]) => paymentMethodButtonMarkup(key, method))
+    .join('');
+
+  return `
+    <div id="checkoutModal" class="modal">
+      <div class="modal-content checkout-modal-content">
+        <button class="close-modal" onclick="closeModals()">x</button>
+        <h2>Checkout / Pay</h2>
+        <p class="checkout-intro">Choose how you want to pay. Any transaction, processing, card, app, bank, crypto network, or gas fee is paid by the customer.</p>
+        <div id="checkoutOrderSummary" class="checkout-order-summary"></div>
+        <div class="payment-method-grid">${paymentMethods}</div>
+        <div id="checkoutFeeSummary" class="checkout-fee-summary"></div>
+        <form class="checkout-form" onsubmit="submitCheckoutRequest(event)">
+          <input type="text" name="name" autocomplete="name" placeholder="Your name" required>
+          <input type="email" name="email" autocomplete="email" placeholder="Your email" required>
+          <input type="tel" name="phone" autocomplete="tel" placeholder="Phone number">
+          <fieldset class="checkout-address-fields">
+            <legend>Shipping address</legend>
+            <input type="text" name="address1" autocomplete="shipping address-line1" placeholder="Street address" required>
+            <input type="text" name="address2" autocomplete="shipping address-line2" placeholder="Apt, suite, unit (optional)">
+            <div class="checkout-address-row">
+              <input type="text" name="city" autocomplete="shipping address-level2" placeholder="City" required>
+              <input type="text" name="state" autocomplete="shipping address-level1" placeholder="State" required>
+              <input type="text" name="zip" autocomplete="shipping postal-code" placeholder="ZIP" required>
+            </div>
+            <input type="text" name="country" autocomplete="shipping country-name" placeholder="Country" value="United States">
+          </fieldset>
+          <textarea name="notes" placeholder="Order notes: size, deadline, special request"></textarea>
+          <label class="policy-check">
+            <input type="checkbox" required>
+            <span>I understand this is a custom-made item, customer pays all payment/transaction fees, and production starts after payment and design/order details are confirmed.</span>
+          </label>
+          <button type="submit" class="submit-btn">Submit Order Request</button>
+        </form>
+        <div class="checkout-policy-box">
+          <strong>Returns & disclaimers</strong>
+          <p>Custom/life-size standees are made to order. Returns or cancellations are not accepted after production begins unless MVPLUXCREATIONS made an error or the item arrives damaged. Report shipping damage quickly with photos of the package and product.</p>
+          <p>Product images may be restored, enhanced, composited, or recreated for print. MVPLUXCREATIONS is not affiliated with any person, brand, team, league, studio, or rights holder unless clearly stated.</p>
+          <p>Crypto payments are final once sent. The customer is responsible for sending the correct network and amount, including network/gas fees.</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function offerModalMarkup() {
+  return `
+    <div id="offerModal" class="modal">
+      <div class="modal-content checkout-modal-content">
+        <button class="close-modal" onclick="closeModals()">x</button>
+        <h2>Make an Offer</h2>
+        <p id="offerProduct"></p>
+        <div id="offerAccountNotice" class="offer-account-notice"></div>
+        <div id="offerMessageBoard" class="offer-message-board"></div>
+        <form id="offerForm" class="checkout-form offer-form" onsubmit="submitOfferRequest(event)">
+          <div class="offer-guest-fields">
+            <input type="text" name="name" placeholder="Your name">
+            <input type="email" name="email" placeholder="Your email">
+            <input type="tel" name="phone" placeholder="Phone number">
+          </div>
+          <input type="text" name="amount" placeholder="Your offer amount" required>
+          <textarea name="message" placeholder="Message / size wanted / payment method"></textarea>
+          <label class="policy-check">
+            <input type="checkbox" required>
+            <span>I understand I can send one offer. If MVPLUXCREATIONS sends a counteroffer, I can accept it or send one final counteroffer. Customer pays all transaction fees if accepted.</span>
+          </label>
+          <button class="submit-btn" type="submit">Send Offer Request</button>
+        </form>
+        <div id="sellerCounterTools" class="seller-counter-tools">
+          <h3>Seller Counteroffer</h3>
+          <input type="text" id="sellerCounterAmount" placeholder="Counteroffer amount">
+          <textarea id="sellerCounterMessage" placeholder="Counteroffer message"></textarea>
+          <button type="button" class="submit-btn" onclick="sendSellerCounterOffer()">Send Counteroffer</button>
+        </div>
+        <div id="buyerCounterTools" class="buyer-counter-tools">
+          <button type="button" class="checkout-btn" onclick="acceptSellerCounterOffer()">Accept Counteroffer</button>
+          <button type="button" class="submit-btn" onclick="showBuyerFinalCounter()">Send Final Counteroffer</button>
+          <div id="buyerFinalCounterBox" class="buyer-final-counter-box">
+            <input type="text" id="buyerFinalCounterAmount" placeholder="Final counter amount">
+            <textarea id="buyerFinalCounterMessage" placeholder="Final counter message"></textarea>
+            <button type="button" class="submit-btn" onclick="sendBuyerFinalCounterOffer()">Send Final Counter</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buyModalMarkup() {
+  return `
+    <div id="buyModal" class="modal">
+      <div class="modal-content">
+        <button class="close-modal" onclick="closeModals()">x</button>
+        <img id="modalImage" src="" alt="Product preview">
+        <h2 id="modalTitle">Standee</h2>
+        <p id="modalPrice">$0.00</p>
+        <button class="checkout-btn" onclick="openCheckout()">Continue to Checkout</button>
+      </div>
+    </div>
+  `;
+}
+
+function ensureCommerceModals() {
+  if (!document.getElementById('buyModal')) {
+    document.body.insertAdjacentHTML('beforeend', buyModalMarkup());
+  }
+  if (!document.getElementById('checkoutModal')) {
+    document.body.insertAdjacentHTML('beforeend', checkoutModalMarkup());
+  }
+  if (!document.getElementById('offerModal')) {
+    document.body.insertAdjacentHTML('beforeend', offerModalMarkup());
+  }
+}
+
+function updateCheckoutDisplay() {
+  const summary = document.getElementById('checkoutOrderSummary');
+  const feeSummary = document.getElementById('checkoutFeeSummary');
+  const selectedMethod = document.querySelector('input[name="checkoutPaymentMethod"]:checked')?.value || 'zelle';
+  const items = getCheckoutItems();
+  const subtotal = getCheckoutSubtotal();
+  const totals = calculateCustomerPaidTotal(subtotal, selectedMethod);
+
+  if (summary) {
+    summary.innerHTML = items.length
+      ? items.map((item) => `<div><span>${item.name}</span><strong>${formatMoney(Number(item.price) || 0)}</strong></div>`).join('')
+      : '<p>No item selected yet.</p>';
+  }
+
+  if (feeSummary) {
+    feeSummary.innerHTML = `
+      <div><span>Item total</span><strong>${formatMoney(totals.subtotal)}</strong></div>
+      <div><span>Shipping</span><strong>Free</strong></div>
+      <div><span>Customer-paid fees</span><strong>${totals.method.label === 'Crypto Wallet' ? 'Network fee paid separately' : formatMoney(totals.fee)}</strong></div>
+      <div class="checkout-total-line"><span>Total to pay</span><strong>${formatMoney(totals.total)}</strong></div>
+      <p>${totals.method.note}</p>
+    `;
+  }
+}
+
 function openCheckout() {
-  alert('Checkout payment links will be added here.');
+  ensureCommerceModals();
+  const checkoutModal = document.getElementById('checkoutModal');
+  updateCheckoutDisplay();
+  if (checkoutModal) checkoutModal.style.display = 'flex';
+}
+
+function submitCheckoutRequest(event) {
+  event.preventDefault();
+  updateCheckoutDisplay();
+  alert('Order request is ready. Next step is connecting this form to email or a payment processor so it goes directly to you.');
+}
+
+function moneyFromText(value) {
+  const amount = parseFloat(String(value || '').replace(/[^0-9.]/g, ''));
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function offerMessageMarkup(type, title, body) {
+  return `
+    <div class="offer-message offer-message-${type}">
+      <strong>${title}</strong>
+      <p>${body}</p>
+    </div>
+  `;
+}
+
+function updateOfferBoard(productName = activeOfferState?.productName || '', signedInName = getSignedInName()) {
+  const notice = document.getElementById('offerAccountNotice');
+  const board = document.getElementById('offerMessageBoard');
+  const form = document.getElementById('offerForm');
+  const guestFields = form?.querySelector('.offer-guest-fields');
+  const sellerTools = document.getElementById('sellerCounterTools');
+  const buyerTools = document.getElementById('buyerCounterTools');
+
+  if (notice) {
+    notice.textContent = signedInName
+      ? `Signed in as ${signedInName}. You can send this offer without filling out contact fields again.`
+      : 'Sign in first to skip name and email next time, or fill out the quick offer form below.';
+  }
+
+  if (guestFields) {
+    guestFields.style.display = signedInName ? 'none' : 'grid';
+    guestFields.querySelectorAll('input').forEach((input) => {
+      input.required = !signedInName && (input.name === 'name' || input.name === 'email');
+    });
+  }
+
+  if (board) {
+    const messages = [
+      offerMessageMarkup('system', productName || 'Selected item', 'Send one offer. MVPLUXCREATIONS can accept it or send one counteroffer.')
+    ];
+    if (activeOfferState?.buyerOffer) {
+      messages.push(offerMessageMarkup('buyer', 'Buyer offer', `${formatMoney(activeOfferState.buyerOffer.amount)}${activeOfferState.buyerOffer.message ? ` - ${activeOfferState.buyerOffer.message}` : ''}`));
+    }
+    if (activeOfferState?.sellerCounter) {
+      messages.push(offerMessageMarkup('seller', 'MVPLUXCREATIONS counteroffer', `${formatMoney(activeOfferState.sellerCounter.amount)}${activeOfferState.sellerCounter.message ? ` - ${activeOfferState.sellerCounter.message}` : ''}`));
+    }
+    if (activeOfferState?.buyerCounterUsed) {
+      messages.push(offerMessageMarkup('buyer', 'Buyer final counteroffer', `${formatMoney(activeOfferState.buyerFinalCounter.amount)}${activeOfferState.buyerFinalCounter.message ? ` - ${activeOfferState.buyerFinalCounter.message}` : ''}`));
+    }
+    if (activeOfferState?.status === 'accepted') {
+      messages.push(offerMessageMarkup('system', 'Offer accepted', 'Continue to checkout when payment details are ready. Customer pays any transaction fees.'));
+    }
+    board.innerHTML = messages.join('');
+  }
+
+  if (form) form.style.display = activeOfferState?.buyerOffer ? 'none' : 'grid';
+  if (sellerTools) sellerTools.style.display = activeOfferState?.buyerOffer && !activeOfferState?.sellerCounter ? 'grid' : 'none';
+  if (buyerTools) buyerTools.style.display = activeOfferState?.sellerCounter && !activeOfferState?.buyerCounterUsed && activeOfferState?.status !== 'accepted' ? 'grid' : 'none';
+}
+
+function submitOfferRequest(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const amount = moneyFromText(form.amount?.value);
+  if (!amount) {
+    alert('Please enter a valid offer amount.');
+    return;
+  }
+
+  activeOfferState = activeOfferState || { productName: document.getElementById('offerProduct')?.textContent || 'Selected item' };
+  activeOfferState.buyerOffer = {
+    amount,
+    message: form.message?.value?.trim() || ''
+  };
+  activeOfferState.status = 'pending';
+  updateOfferBoard();
+  alert('Offer saved on this board. Next step is connecting offers to accounts/email so you and the buyer can message for real.');
+}
+
+function sendSellerCounterOffer() {
+  const amount = moneyFromText(document.getElementById('sellerCounterAmount')?.value);
+  const message = document.getElementById('sellerCounterMessage')?.value?.trim() || '';
+  if (!amount) {
+    alert('Enter a valid counteroffer amount.');
+    return;
+  }
+
+  activeOfferState.sellerCounter = { amount, message };
+  activeOfferState.status = 'countered';
+  updateOfferBoard();
+}
+
+function acceptSellerCounterOffer() {
+  if (!activeOfferState?.sellerCounter) return;
+  activeOfferState.status = 'accepted';
+  currentBuyNowItem = {
+    name: `${activeOfferState.productName} - Accepted Offer`,
+    price: activeOfferState.sellerCounter.amount,
+    image: ''
+  };
+  updateOfferBoard();
+  openCheckout();
+}
+
+function showBuyerFinalCounter() {
+  const box = document.getElementById('buyerFinalCounterBox');
+  if (box) box.style.display = 'grid';
+}
+
+function sendBuyerFinalCounterOffer() {
+  const amount = moneyFromText(document.getElementById('buyerFinalCounterAmount')?.value);
+  const message = document.getElementById('buyerFinalCounterMessage')?.value?.trim() || '';
+  if (!amount) {
+    alert('Enter a valid final counter amount.');
+    return;
+  }
+
+  activeOfferState.buyerFinalCounter = { amount, message };
+  activeOfferState.buyerCounterUsed = true;
+  activeOfferState.status = 'final-counter';
+  updateOfferBoard();
 }
 
 function openCustomForm() {
-  alert('Custom order form will be added here.');
+  alert('Custom standee order form will be added here.');
 }
 
 function openFanRequest() {
@@ -180,7 +585,39 @@ function filterProducts() {
     const matchesSearch = name.includes(search);
     const matchesCategory = category === 'all' || productCategory === category;
 
-    product.style.display = matchesSearch && matchesCategory ? 'block' : 'none';
+    product.style.display = matchesSearch && matchesCategory ? '' : 'none';
+  });
+}
+
+function bindProductCarouselDragGuard() {
+  document.querySelectorAll('.product-carousel-row').forEach((row) => {
+    if (row.dataset.dragGuardReady) return;
+    row.dataset.dragGuardReady = 'true';
+
+    let startX = 0;
+    let startY = 0;
+    let dragged = false;
+
+    row.addEventListener('pointerdown', (event) => {
+      startX = event.clientX;
+      startY = event.clientY;
+      dragged = false;
+    });
+
+    row.addEventListener('pointermove', (event) => {
+      if (Math.abs(event.clientX - startX) > 8 || Math.abs(event.clientY - startY) > 8) {
+        dragged = true;
+      }
+    });
+
+    row.addEventListener('click', (event) => {
+      if (!dragged) return;
+      const link = event.target.closest('a');
+      if (!link) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dragged = false;
+    }, true);
   });
 }
 
@@ -272,6 +709,19 @@ function isAdminSignedIn() {
   return localStorage.getItem('mvpluxAdminSignedIn') === 'true';
 }
 
+function isCustomerSignedIn() {
+  return localStorage.getItem('mvpluxCustomerSignedIn') === 'true';
+}
+
+function cleanStaleAdminState() {
+  if (isAdminSignedIn()) return;
+
+  localStorage.removeItem('mvpluxAdminAnywhere');
+  if (!isCustomerSignedIn() && localStorage.getItem('mvpluxSignedInName') === 'Admin') {
+    localStorage.removeItem('mvpluxSignedInName');
+  }
+}
+
 function signOutAdmin() {
   localStorage.removeItem('mvpluxAdminSignedIn');
   localStorage.removeItem('mvpluxAdminAnywhere');
@@ -281,10 +731,14 @@ function signOutAdmin() {
 }
 
 function getSignedInName() {
-  return localStorage.getItem('mvpluxSignedInName') || (isAdminSignedIn() ? 'Admin' : '');
+  if (isAdminSignedIn()) return localStorage.getItem('mvpluxSignedInName') || 'Admin';
+  if (isCustomerSignedIn()) return localStorage.getItem('mvpluxSignedInName') || 'Guest';
+  return '';
 }
 
 function setupAuthState() {
+  cleanStaleAdminState();
+
   const signinForm = document.getElementById('signinForm');
   const signupForm = document.getElementById('signupForm');
   const adminQuickSignIn = document.getElementById('adminQuickSignIn');
@@ -329,7 +783,7 @@ function setupAuthState() {
   });
 
   const signedInName = getSignedInName();
-  const isSignedIn = Boolean(signedInName || localStorage.getItem('mvpluxCustomerSignedIn') === 'true');
+  const isSignedIn = Boolean(isAdminSignedIn() || isCustomerSignedIn());
 
   if (isSignedIn) {
     document.querySelectorAll('.sign-in-link').forEach((link) => {
@@ -355,7 +809,7 @@ function setupAuthState() {
 
   document.querySelectorAll('.auth-links').forEach((links) => {
     if (links.querySelector('[data-admin-signout]')) return;
-    links.insertAdjacentHTML('beforeend', `<span class="signed-in-name">${getSignedInName()}</span><button type="button" class="admin-inline-signout" data-admin-signout>Log Out</button>`);
+    links.insertAdjacentHTML('beforeend', `<button type="button" class="admin-inline-signout" data-admin-signout>Log Out</button>`);
   });
 
   document.querySelectorAll('[data-admin-signout]').forEach((button) => {
@@ -403,14 +857,14 @@ function getAdminPriceSettings() {
 
 function getPriceSettingsForBuilder(builder = null) {
   const settings = getAdminPriceSettings();
-  const builderHeight = parseInt(builder?.dataset.originalHeight || '', 10);
   const overridePrice = parseFloat(builder?.dataset.originalPriceOverride || '');
+  const configuredFullHeight = parseInt(settings.fullHeight || '78', 10) || 78;
 
   return {
     twoFootPrice: parseFloat(settings.twoFootPrice || '') || 35.00,
     threeFootPrice: parseFloat(settings.threeFootPrice || '') || 50.00,
-    fullHeight: builderHeight || parseInt(settings.fullHeight || '78', 10) || 78,
-    fullPrice: overridePrice || parseFloat(settings.fullPrice || '') || parseFloat(builder?.dataset.originalPrice || '') || 129.99,
+    fullHeight: configuredFullHeight,
+    fullPrice: overridePrice || parseFloat(settings.fullPrice || '') || 129.99,
     extraInchPrice: parseFloat(settings.extraInchPrice || '') || 2.00
   };
 }
@@ -434,6 +888,104 @@ function calculateCutoutPrice(inches, builder = null) {
   return settings.fullPrice + ((inches - settings.fullHeight) * settings.extraInchPrice);
 }
 
+const finishChoices = [
+  {
+    value: 'back-stand-included',
+    label: 'Back Stand Included',
+    extra: 0,
+    description: "Standard standee backing is included. Exact support placement may be printer's choice."
+  },
+  {
+    value: 'white-triangle',
+    label: 'White Triangle',
+    extra: 0,
+    requiresWhiteTriangle: true,
+    description: 'Switches to the white-triangle image when this item has one.'
+  },
+  {
+    value: 'garden-stakes',
+    label: 'Garden Stakes',
+    extra: 0,
+    warning: true,
+    description: 'Stakes instead of the back stand. Best for yard/garden use.'
+  },
+  {
+    value: 'cutout-only',
+    label: 'Cutout Only',
+    extra: 0,
+    warning: true,
+    description: 'No back stand. Made for taping, pasting, or mounting yourself.'
+  }
+];
+
+function getAvailableFinishChoices(builder) {
+  const hasWhiteTriangle = Boolean(builder?.dataset.whiteTriangleImage);
+  return finishChoices.filter((choice) => !choice.requiresWhiteTriangle || hasWhiteTriangle);
+}
+
+function finishChoiceMarkup(radioNamePrefix = 'finishChoice', builder = null) {
+  const choices = getAvailableFinishChoices(builder);
+  return `
+    <div class="finish-builder" aria-label="Finish and support choices">
+      <h4>Finish / Support Choice</h4>
+      <p class="finish-note">Back stand is included by default. Extra/replacement back stands are separate orders and shipping is not free for back-stand-only orders.</p>
+      <div class="finish-choice-grid">
+        ${choices.map((choice, index) => `
+          <label class="finish-choice ${index === 0 ? 'active' : ''}">
+            <input type="radio" name="${radioNamePrefix}FinishChoice" value="${choice.value}" data-finish-extra="${choice.extra}" data-finish-warning="${choice.warning ? 'true' : ''}" ${index === 0 ? 'checked' : ''}>
+            <span>${choice.label}${choice.extra ? ` +${formatMoney(choice.extra)}` : ''}</span>
+            <small>${choice.description}</small>
+          </label>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function getFinishExtra(builder) {
+  const selected = builder?.querySelector('.finish-choice input:checked');
+  return parseFloat(selected?.dataset.finishExtra || '0') || 0;
+}
+
+function getFinishLabel(builder) {
+  return builder?.querySelector('.finish-choice input:checked')?.closest('.finish-choice')?.querySelector('span')?.textContent || 'Back Stand Included';
+}
+
+function addFinishToPrice(price, builder) {
+  return (Number(price) || 0) + getFinishExtra(builder);
+}
+
+function applyFinishSelection(builder, selectedInput) {
+  if (!builder || !selectedInput) return;
+
+  if (selectedInput.dataset.finishWarning === 'true') {
+    alert('Back stand will not be included with this choice. The standee will be prepared/cut for the finish you selected.');
+  }
+
+  if (selectedInput.value === 'white-triangle' && builder.dataset.whiteTriangleImage) {
+    const showroom = builder.closest('.sports-showroom, .generic-showroom, .standee-detail-page');
+    const image = showroom?.querySelector('#sportsMainImage, .generic-main-image, .standee-main-cutout');
+    if (image) image.src = builder.dataset.whiteTriangleImage;
+  }
+}
+
+function ensureFinishChoices(root = document) {
+  const builders = root.matches?.('.size-builder')
+    ? [root]
+    : [...(root.querySelectorAll?.('.size-builder') || [])];
+
+  builders.forEach((builder) => {
+    if (builder.querySelector('.finish-builder')) return;
+    const slug = builder.dataset.adminSlug || getProductSlug(builder.dataset.productName || 'product');
+    const priceLine = builder.querySelector('.live-price-line');
+    if (priceLine) {
+      priceLine.insertAdjacentHTML('beforebegin', finishChoiceMarkup(slug, builder));
+    } else {
+      builder.insertAdjacentHTML('beforeend', finishChoiceMarkup(slug, builder));
+    }
+  });
+}
+
 function formatHeight(inches) {
   const feet = Math.floor(inches / 12);
   const remainder = inches % 12;
@@ -446,6 +998,10 @@ function formatMoney(price) {
 
 function getProductAdminKey(builder) {
   return 'mvpluxOriginalHeight:' + (builder.dataset.productName || 'product').replace(/\W+/g, '-').toLowerCase();
+}
+
+function clearLegacyAdminBrowserStorage() {
+  localStorage.removeItem('mvpluxAdminAnywhereLegacy');
 }
 
 function getProductSlug(productName) {
@@ -492,6 +1048,754 @@ function getAdminExtraImages() {
   }
 }
 
+const standeeCatalog = {
+  'kobe-bryant': {
+    title: 'Kobe Bryant Standee',
+    category: 'Sport Legend Standees',
+    image: 'images/SportLegendStandees/Kobe/KB1nobackground.png',
+    originalHeight: 78,
+    originalPrice: 129.99,
+    description: 'A court-ready life-size sports display with optional printed background styles.',
+    backgrounds: [
+      { name: 'No Background', image: 'images/SportLegendStandees/Kobe/KB1nobackground.png', stage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg' },
+      { name: 'Yellow Court', image: 'images/SportLegendStandees/Kobe/KB1yellowcourtbackground.png', stage: 'images/SportLegendStandees/Kobe/KB1yellowcourtbackground.png' },
+      { name: 'Big Court', image: 'images/SportLegendStandees/Kobe/KB1bigcourtbackground.png', stage: 'images/SportLegendStandees/Kobe/KB1bigcourtbackground.png' },
+      { name: 'Small Court', image: 'images/SportLegendStandees/Kobe/KB1smallcourtbackground.png', stage: 'images/SportLegendStandees/Kobe/KB1smallcourtbackground.png' }
+    ],
+    facts: ['Original height reference: 6\'6".', 'Great for sports rooms, parties, and themed displays.', 'Purple and gold background options are available.', 'Custom sizes use the original height to calculate pricing.']
+  },
+  'basketball-center': {
+    title: 'Basketball Center Standee',
+    category: 'Sport Legend Standees',
+    image: 'images/SportLegendStandees/Shaq/shaqNEW.png',
+    originalHeight: 85,
+    originalPrice: 143.99,
+    description: 'A larger-than-life basketball display sized from a 7-foot-plus original reference.',
+    backgrounds: [
+      { name: 'No Background', image: 'images/SportLegendStandees/Shaq/shaqNEW.png', stage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg' },
+      { name: 'Light/Dark Court', image: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png', stage: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png' },
+      { name: 'Darker Look', image: 'images/SportLegendStandees/Shaq/shaqDarker.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' }
+    ],
+    facts: ['Original height reference: 7\'1".', 'Oversize displays price from the extra-inch calculator.', 'Best for sports bars, fan rooms, and entrance displays.', 'Choose a printed background or keep the cutout clean.']
+  },
+  'alternate-sports-pose': {
+    title: 'Alternate Sports Pose Standee',
+    category: 'Sport Legend Standees',
+    image: 'images/SportLegendStandees/Shaq/shaqDarker.png',
+    originalHeight: 85,
+    originalPrice: 143.99,
+    description: 'A bold alternate pose for fans who want a darker showcase style.',
+    backgrounds: [
+      { name: 'Darker Look', image: 'images/SportLegendStandees/Shaq/shaqDarker.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
+      { name: 'Light/Dark Court', image: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png', stage: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png' }
+    ],
+    facts: ['Original height reference: 7\'1".', 'Custom sizes are available from 2 feet and up.', 'A dramatic background makes the pose feel more collectible.', 'Useful for wall-side or corner displays.']
+  },
+  'endoskeleton-dark': {
+    title: 'Endoskeleton Dark Standee',
+    category: 'Movie Character Standees',
+    image: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png',
+    originalHeight: 78,
+    originalPrice: 129.99,
+    description: 'A sci-fi inspired display with darker background options.',
+    backgrounds: [
+      { name: 'Dark Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' },
+      { name: 'No Background', image: 'images/MovieCharacterStandees/Endorskeleton/Endornobackground.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
+      { name: 'White Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' }
+    ],
+    facts: ['Original height reference: 6\'6".', 'Sci-fi stage options work well for theater rooms.', 'Choose clean or printed versions.', 'Custom sizing follows the same live price calculator.']
+  },
+  'endoskeleton-white': {
+    title: 'Endoskeleton White Standee',
+    category: 'Movie Character Standees',
+    image: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png',
+    originalHeight: 78,
+    originalPrice: 129.99,
+    description: 'A brighter sci-fi display option with clean contrast.',
+    backgrounds: [
+      { name: 'White Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
+      { name: 'Dark Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' }
+    ],
+    facts: ['Original height reference: 6\'6".', 'White-backed art helps details stand out.', 'Good for bright rooms and event spaces.', 'Pick original size or enter a custom height.']
+  },
+  'classic-horror-host': {
+    title: 'Classic Horror Host Standee',
+    category: 'Movie Character Standees',
+    image: 'images/MovieCharacterStandees/Elvira/elviranew.png',
+    originalHeight: 67,
+    originalPrice: 108.49,
+    description: 'A classic horror-host style cutout for spooky rooms, events, and collectors.',
+    backgrounds: [
+      { name: 'Classic Cutout', image: 'images/MovieCharacterStandees/Elvira/elviranew.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
+      { name: 'Alternate Cutout', image: 'images/MovieCharacterStandees/Elvira/elviraforother.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' }
+    ],
+    facts: ['Original height reference: 5\'7".', 'Great for Halloween displays and movie rooms.', 'Background choices can shift the mood quickly.', 'Smaller custom sizes are available for tables and shelves.']
+  },
+  'red-jacket-performer': {
+    title: 'Red Jacket Performer Standee',
+    category: 'Music Artist Standees',
+    image: 'images/MusicArtistStandees/MJackson/MJTR.png',
+    originalHeight: 69,
+    originalPrice: 112.99,
+    description: 'A performance-style music standee with concert and premium background options.',
+    backgrounds: [
+      { name: 'Clean Performer', image: 'images/MusicArtistStandees/MJackson/MJTR.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' },
+      { name: 'Triangle Stage', image: 'images/MusicArtistStandees/MJackson/MJTRTrianglehalf.png', stage: 'images/FanBackgrounds/top-favorite-stage-concert.png' },
+      { name: 'White Stage', image: 'images/MusicArtistStandees/MJackson/MJTRTrianglehalfblank.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' }
+    ],
+    facts: ['Original height reference: 5\'9".', 'Concert backgrounds make this feel like a mini stage.', 'Works well for music rooms and birthday setups.', 'Custom size pricing comes from the entered height.']
+  },
+  'zombie-dance-look': {
+    title: 'Zombie Dance Look Standee',
+    category: 'Music Artist Standees',
+    image: 'images/MusicArtistStandees/MJackson/MJzombie.png',
+    originalHeight: 69,
+    originalPrice: 112.99,
+    description: 'A dance-inspired music display with spooky performance energy.',
+    backgrounds: [
+      { name: 'Zombie Look', image: 'images/MusicArtistStandees/MJackson/MJzombie.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' },
+      { name: 'Alternate Zombie', image: 'images/MusicArtistStandees/MJackson/MJzombie1.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' }
+    ],
+    facts: ['Original height reference: 5\'9".', 'A strong pick for music and Halloween themes.', 'Choose a darker or concert-style background.', 'The size picker can make mini versions too.']
+  },
+  'pop-star-look': {
+    title: 'Pop Star Look Standee',
+    category: 'Music Artist Standees',
+    image: 'images/MusicArtistStandees/TS/TSfinal.png',
+    originalHeight: 71,
+    originalPrice: 117.49,
+    description: 'A pop performance display with colorful, pink, and clean background choices.',
+    backgrounds: [
+      { name: 'Clean Pop Look', image: 'images/MusicArtistStandees/TS/TSfinal.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' },
+      { name: 'Colorful', image: 'images/MusicArtistStandees/TS/TSfinalcolorfulbackground.png', stage: 'images/MusicArtistStandees/TS/TSfinalcolorfulbackground.png' },
+      { name: 'Off White', image: 'images/MusicArtistStandees/TS/TSfinaloffwhitebackground.png', stage: 'images/MusicArtistStandees/TS/TSfinaloffwhitebackground.png' },
+      { name: 'Pink', image: 'images/MusicArtistStandees/TS/Taylor12pink.png', stage: 'images/MusicArtistStandees/TS/Taylor12pink.png' }
+    ],
+    facts: ['Original height reference: 5\'11".', 'Colorful backgrounds work well for party photos.', 'Original and custom sizes update live.', 'A clean cutout version is available for simple displays.']
+  },
+  'celebration-display': {
+    title: 'Celebration Display Standee',
+    category: 'Faith & Celebration Standees',
+    image: 'images/FaithCelebrationStandees/Jesus/J13D.png',
+    originalHeight: 72,
+    originalPrice: 119.99,
+    description: 'A warm celebration display for faith events, holidays, and family gatherings.',
+    backgrounds: [
+      { name: 'Celebration', image: 'images/FaithCelebrationStandees/Jesus/J13D.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
+      { name: 'Light', image: 'images/FaithCelebrationStandees/Jesus/J13LN.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
+      { name: 'Print', image: 'images/FaithCelebrationStandees/Jesus/JesusPrint.png', stage: 'images/FanBackgrounds/gallery-poster-premium.png' }
+    ],
+    facts: ['Original height reference: 6\'.', 'Good for church events and home displays.', 'Gold and premium backgrounds are available.', 'Custom sizes help fit smaller rooms.']
+  },
+  't-rex': {
+    title: 'T-Rex Standee',
+    category: 'Dinosaur & Animal Standees',
+    image: 'images/DinosaurCreatureStandees/JPRex.png',
+    originalHeight: 72,
+    originalPrice: 119.99,
+    description: 'A dinosaur or animal-style display with adventure background options.',
+    backgrounds: [
+      { name: 'T-Rex', image: 'images/DinosaurCreatureStandees/JPRex.png', stage: 'images/FanBackgrounds/gallery-poster-adventure.png' },
+      { name: 'Clean T-Rex', image: 'images/FrontPageWeb/Dinosaurs-JPRex-clean.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
+      { name: 'Dinosaur Group', image: 'images/DinosaurCreatureStandees/JPall.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' }
+    ],
+    facts: ['Original height reference: 6\'.', 'Popular for birthdays and adventure rooms.', 'Group dinosaur art is available as another option.', 'Custom sizing can make a smaller party version.']
+  }
+};
+
+const sportsStandeeCatalog = {
+  'kobe-bryant': {
+    name: 'Kobe Bryant',
+    sport: 'Basketball Standee',
+    description: 'Original clean cutout with optional printed court background versions.',
+    originalHeight: 78,
+    displayFit: { imageHeight: '80%', imageBottom: '13%' },
+    facts: ['Original size: 6\'6"', 'Basketball', 'Options: 4 images'],
+    options: [
+      { label: 'No Background', image: 'images/SportLegendStandees/Kobe/KB1nobackground.png' },
+      { label: 'Yellow Court', image: 'images/SportLegendStandees/Kobe/KB1yellowcourtbackground.png' },
+      { label: 'Big Court', image: 'images/SportLegendStandees/Kobe/KB1bigcourtbackground.png' },
+      { label: 'Small Court', image: 'images/SportLegendStandees/Kobe/KB1smallcourtbackground.png' }
+    ]
+  },
+  shaq: {
+    name: 'Shaquille O\'Neal',
+    sport: 'Basketball Standee',
+    description: 'Large basketball standee with clean and court-style display choices.',
+    originalHeight: 85,
+    displayFit: { imageHeight: '88%', imageBottom: '5%' },
+    facts: ['Original size: 7\'1"', 'Basketball', 'Options: 3 images'],
+    options: [
+      { label: 'No Background', image: 'images/SportLegendStandees/Shaq/shaqNEW.png' },
+      { label: 'Light/Dark Court', image: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png' },
+      { label: 'Darker Style', image: 'images/SportLegendStandees/Shaq/shaqDarker.png' }
+    ]
+  },
+  'michael-jordan': {
+    name: 'Michael Jordan',
+    sport: 'Basketball Standee',
+    description: 'Jump pose standee with clean, crowd, and light crowd image choices.',
+    originalHeight: 78,
+    displayFit: { imageHeight: '86%', imageBottom: '5%' },
+    facts: ['Original size: 6\'6"', 'Basketball', 'Options: 3 images'],
+    options: [
+      { label: 'No Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP1/Jordanemptybackground.png' },
+      { label: 'Crowd', image: 'images/SportLegendStandees/MJordan/MJLAYUP1/Jordanregularcrowd.png' },
+      { label: 'Light Crowd', image: 'images/SportLegendStandees/MJordan/MJLAYUP1/Jordanregularlightcrowd.png' }
+    ]
+  },
+  'michael-jordan-layup': {
+    name: 'Michael Jordan Layup',
+    sport: 'Basketball Standee',
+    description: 'Second Jordan image set with blue, white, light, and image-background choices.',
+    originalHeight: 78,
+    displayFit: { imageHeight: '86%', imageBottom: '5%' },
+    facts: ['Original size: 6\'6"', 'Basketball', 'Options: 4 images'],
+    options: [
+      { label: 'No Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordantofixlblueightlowres.png' },
+      { label: 'Image Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordanonimagebackground.png' },
+      { label: 'Light Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordanonlightbackground.png' },
+      { label: 'White Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordanonwhitebackground.png' }
+    ]
+  },
+  'lionel-messi': {
+    name: 'Lionel Messi',
+    sport: 'Soccer Standee',
+    description: 'Soccer standee set with no-background, grass, and white image choices.',
+    originalHeight: 67,
+    displayFit: { imageHeight: '94%' },
+    facts: ['Original size: 5\'7"', 'Soccer', 'Options: 3 images'],
+    options: [
+      { label: 'No Background', image: 'images/SportLegendStandees/Messi/Messi2nobackground.png' },
+      { label: 'Grass', image: 'images/SportLegendStandees/Messi/Messi2Grass.png' },
+      { label: 'White', image: 'images/SportLegendStandees/Messi/Messi2white.png' }
+    ]
+  },
+  'lionel-messi-classic': {
+    name: 'Lionel Messi Classic',
+    sport: 'Soccer Standee',
+    description: 'Second Messi image set with clean, grass, smaller grass, and white choices.',
+    originalHeight: 67,
+    displayFit: { imageHeight: '94%' },
+    facts: ['Original size: 5\'7"', 'Soccer', 'Options: 4 images'],
+    options: [
+      { label: 'No Background', image: 'images/SportLegendStandees/Messi/Messinnone.png' },
+      { label: 'Grass', image: 'images/SportLegendStandees/Messi/MessiGrass.png' },
+      { label: 'Smaller Grass', image: 'images/SportLegendStandees/Messi/MessiGrasssmaller.png' },
+      { label: 'White', image: 'images/SportLegendStandees/Messi/Messiwhite.png' }
+    ]
+  },
+  'tom-brady': {
+    name: 'Tom Brady',
+    sport: 'Football Standee',
+    description: 'Football standee with no-background, green background, and white background choices.',
+    originalHeight: 76,
+    displayFit: { imageHeight: '88%', imageBottom: '5%' },
+    facts: ['Original size: 6\'4"', 'Football', 'Options: 3 images'],
+    options: [
+      { label: 'No Background', image: 'images/SportLegendStandees/TomBrady/TB12Nobackground.png' },
+      { label: 'Green Background', image: 'images/SportLegendStandees/TomBrady/TB12Greenbackground.png' },
+      { label: 'White Background', image: 'images/SportLegendStandees/TomBrady/TB12Whitebackground.png' }
+    ]
+  }
+};
+
+let selectedSportsStandeeKey = 'kobe-bryant';
+
+function getShowroomStageBackground() {
+  return 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg';
+}
+
+function getShowroomOriginalPrice(originalHeight) {
+  return calculateCutoutPrice(parseInt(originalHeight || '78', 10) || 78);
+}
+
+function findWhiteTriangleImage(options = []) {
+  const match = options.find((option) => {
+    const value = `${option?.label || option?.name || ''} ${option?.image || ''}`.toLowerCase();
+    return value.includes('triangle') && value.includes('white');
+  }) || options.find((option) => {
+    const value = `${option?.label || option?.name || ''} ${option?.image || ''}`.toLowerCase();
+    return value.includes('triangle');
+  });
+
+  return match?.image || '';
+}
+
+function showroomPurchaseMarkup(productName = 'Selected Standee', originalHeight = 78, slug = '') {
+  const height = parseInt(originalHeight || '78', 10) || 78;
+  const price = getShowroomOriginalPrice(height);
+  const radioName = `${getStandeeSlug(slug || productName) || 'selected'}ShowroomSizeMode`;
+  return `
+    <div class="showroom-size-builder size-builder" data-product-name="${productName}" data-admin-slug="${getStandeeSlug(slug || productName)}" data-original-price="${price}" data-original-height="${height}">
+      <div class="showroom-size-buttons">
+        <label class="showroom-size-button active">
+          <input type="radio" name="${radioName}" value="original" checked>
+          <span>Original ${formatHeight(height)}</span>
+        </label>
+        <label class="showroom-size-button">
+          <input type="radio" name="${radioName}" value="custom">
+          <span>Custom Size</span>
+        </label>
+      </div>
+      <div class="custom-size-box">
+        <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+      </div>
+      <p class="live-price-line">Price: <span class="live-size-price">${formatMoney(price)}</span></p>
+    </div>
+    <div class="showroom-action-row standee-action-row">
+      <button type="button" onclick="buySelectedNow(this)">Buy Now</button>
+      <button type="button" onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
+      <button type="button" class="offer-btn" onclick="openSelectedOffer(this)">Offer Now</button>
+    </div>
+  `;
+}
+
+function updateShowroomPurchase(state, productName, originalHeight, slug) {
+  if (!state?.builder) return;
+  const height = parseInt(originalHeight || '78', 10) || 78;
+  const price = getShowroomOriginalPrice(height);
+  const productSlug = getStandeeSlug(slug || productName);
+  state.builder.dataset.productName = productName;
+  state.builder.dataset.adminSlug = productSlug;
+  state.builder.dataset.originalHeight = String(height);
+  state.builder.dataset.originalPrice = String(price);
+  delete state.builder.dataset.originalPriceOverride;
+
+  const radios = state.builder.querySelectorAll('.showroom-size-buttons input[type="radio"]');
+  radios.forEach((radio) => {
+    radio.name = `${productSlug || 'selected'}ShowroomSizeMode`;
+    radio.checked = radio.value === 'original';
+    radio.closest('.showroom-size-button')?.classList.toggle('active', radio.value === 'original');
+  });
+  state.builder.classList.remove('custom-active');
+  const input = state.builder.querySelector('.custom-height-input');
+  if (input) input.value = '';
+  const customLabel = state.builder.querySelector('input[value="custom"]')?.closest('label')?.querySelector('span');
+  if (customLabel) {
+    customLabel.textContent = 'Custom Size';
+    delete customLabel.dataset.customPrice;
+  }
+  const finishInputs = state.builder.querySelectorAll('.finish-choice input');
+  finishInputs.forEach((input, index) => {
+    input.checked = index === 0;
+    input.closest('.finish-choice')?.classList.toggle('active', index === 0);
+  });
+  state.builder.querySelector('.finish-builder')?.remove();
+  ensureFinishChoices(state.builder);
+  updateBuilderOriginalDisplay(state.builder);
+}
+
+function selectSportsOption(index) {
+  const product = sportsStandeeCatalog[selectedSportsStandeeKey];
+  const option = product?.options?.[index];
+  const mainStage = document.getElementById('sportsMainStage');
+  const mainImage = document.getElementById('sportsMainImage');
+
+  if (!product || !option || !mainStage || !mainImage) return;
+
+  mainStage.style.backgroundImage = `url('${getShowroomStageBackground()}')`;
+  mainStage.style.setProperty('--showroom-image-height', product.displayFit?.imageHeight || '80%');
+  mainImage.src = option.image;
+  mainImage.alt = `${product.name} ${option.label} standee preview`;
+  mainImage.onload = () => {
+    const isWideImage = mainImage.naturalWidth / Math.max(mainImage.naturalHeight, 1) > 0.62;
+    mainStage.classList.toggle('wide-standee-image', isWideImage);
+  };
+  if (mainImage.complete) mainImage.onload();
+
+  document.querySelectorAll('#sportsOptionStrip button').forEach((button, buttonIndex) => {
+    button.classList.toggle('active', buttonIndex === index);
+  });
+}
+
+function selectSportsStandee(key, shouldScroll = true) {
+  const product = sportsStandeeCatalog[key];
+  const optionStrip = document.getElementById('sportsOptionStrip');
+  if (!product || !optionStrip) return;
+
+  selectedSportsStandeeKey = key;
+
+  const sport = document.getElementById('sportsSelectedSport');
+  const name = document.getElementById('sportsSelectedName');
+  const description = document.getElementById('sportsSelectedDescription');
+  const facts = document.getElementById('sportsSelectedFacts');
+  const builder = document.getElementById('sportsSizeBuilder');
+
+  if (sport) sport.textContent = product.sport;
+  if (name) name.textContent = product.name;
+  if (description) description.textContent = product.description;
+  if (facts) facts.innerHTML = product.facts.map((fact) => `<span>${fact}</span>`).join('');
+  if (builder) {
+    builder.dataset.whiteTriangleImage = findWhiteTriangleImage(product.options);
+    if (!builder.dataset.whiteTriangleImage) delete builder.dataset.whiteTriangleImage;
+    updateShowroomPurchase({ builder }, product.name, product.originalHeight, key);
+  }
+
+  optionStrip.innerHTML = product.options.map((option, index) => `
+    <button type="button" class="${index === 0 ? 'active' : ''}" onclick="selectSportsOption(${index})">
+      <img src="${option.image}" alt="${product.name} ${option.label} option">
+      <span>${option.label}</span>
+    </button>
+  `).join('');
+
+  document.querySelectorAll('[data-sports-player]').forEach((card) => {
+    card.classList.toggle('active', card.dataset.sportsPlayer === key);
+  });
+
+  selectSportsOption(0);
+  if (document.body.classList.contains('admin-anywhere-on')) {
+    applyInlineAdminEdits();
+  }
+  if (shouldScroll) document.querySelector('.sports-showroom')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function bindSportsShowroomClicks() {
+  if (!document.querySelector('.sports-showroom') || document.body.dataset.sportsShowroomClicksReady) return;
+  document.body.dataset.sportsShowroomClicksReady = 'true';
+
+  document.addEventListener('click', (event) => {
+    if (event.target.closest?.('.admin-anywhere-toolbar')) return;
+    const sportJump = event.target.closest?.('[data-sport-jump]');
+    if (sportJump) {
+      event.preventDefault();
+      const section = document.getElementById(sportJump.dataset.sportJump);
+      selectSportsStandee(sportJump.dataset.sportsPlayer, false);
+      section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    const playerCard = event.target.closest?.('[data-sports-player]');
+    if (playerCard && !playerCard.matches('[data-sport-jump]') && !event.target.closest?.('button')) {
+      event.preventDefault();
+      selectSportsStandee(playerCard.dataset.sportsPlayer);
+    }
+  });
+}
+
+function initSportsShowroom() {
+  if (!document.getElementById('sportsOptionStrip')) return;
+  selectSportsStandee(selectedSportsStandeeKey, false);
+}
+
+function getGenericCategoryFallbackStage() {
+  return getShowroomStageBackground();
+}
+
+function getGenericCategoryOptionLabel(index, src) {
+  if (index === 0) return 'No Background';
+  const file = String(src || '').split('/').pop()?.replace(/\.[^.]+$/, '') || `Option ${index + 1}`;
+  return file
+    .replace(/[-_]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function isNoBackgroundOption(option) {
+  const value = `${option?.label || option?.name || ''} ${option?.image || ''}`.toLowerCase();
+  return /no\s*background|nobackground|\bnone\b|\bclean\b/.test(value);
+}
+
+function getKnownStandeeForCard(card) {
+  const title = card.querySelector('h3')?.textContent.trim() || '';
+  return standeeCatalog[getStandeeSlug(title)] || null;
+}
+
+function renderGenericCategoryOptions(state, options) {
+  state.optionStrip.innerHTML = options.map((option, index) => `
+    <button type="button" class="${index === 0 ? 'active' : ''}" data-generic-option-index="${index}">
+      <img src="${option.image}" alt="${option.label}">
+      <span>${option.label}</span>
+    </button>
+  `).join('');
+}
+
+function selectGenericCategoryOption(state, options, index) {
+  const option = options[index];
+  if (!option) return;
+
+  state.stage.style.backgroundImage = `url('${getGenericCategoryFallbackStage()}')`;
+  state.image.src = option.image;
+  state.image.alt = `${state.name.textContent} ${option.label} preview`;
+
+  state.optionStrip.querySelectorAll('[data-generic-option-index]').forEach((button) => {
+    button.classList.toggle('active', Number(button.dataset.genericOptionIndex) === index);
+  });
+}
+
+function buildGenericCategoryOptions(card, backgroundImages) {
+  const product = getKnownStandeeForCard(card);
+  if (product?.backgrounds?.length) {
+    return [...product.backgrounds]
+      .map((background) => ({
+        label: background.name,
+        image: background.image,
+        stage: getGenericCategoryFallbackStage()
+      }))
+      .sort((a, b) => Number(isNoBackgroundOption(b)) - Number(isNoBackgroundOption(a)));
+  }
+
+  const cardImage = card.querySelector('img')?.getAttribute('src') || '';
+  const options = [{ label: 'No Background', image: cardImage, stage: getGenericCategoryFallbackStage() }];
+
+  backgroundImages.forEach((image, index) => {
+    const src = image.getAttribute('src') || '';
+    if (!src || options.some((option) => option.image === src)) return;
+    options.push({
+      label: getGenericCategoryOptionLabel(index + 1, src),
+      image: src,
+      stage: getGenericCategoryFallbackStage()
+    });
+  });
+
+  return options;
+}
+
+function setupGenericCategoryShowroom() {
+  const page = document.querySelector('.category-page');
+  if (!page || document.querySelector('.sports-showroom') || document.querySelector('.generic-showroom')) return;
+
+  const cards = [...page.querySelectorAll('.category-card')];
+  if (!cards.length) return;
+
+  const backgroundPanel = [...page.querySelectorAll('.category-panel')].find((panel) => {
+    return panel.querySelector('.background-carousel') || /Background Options/i.test(panel.textContent || '');
+  });
+  const backgroundImages = [...(backgroundPanel?.querySelectorAll('.background-carousel img') || [])];
+  if (backgroundPanel) backgroundPanel.remove();
+
+  const firstCard = cards[0];
+  const firstTitle = firstCard.querySelector('h3')?.textContent.trim() || 'Standee';
+  const firstImage = firstCard.querySelector('img')?.getAttribute('src') || '';
+
+  const showroom = document.createElement('section');
+  showroom.className = 'sports-showroom generic-showroom';
+  showroom.setAttribute('aria-label', 'Selected category standee');
+  showroom.innerHTML = `
+    <div class="category-featured-art generic-main-stage" style="background-image: url('${getGenericCategoryFallbackStage()}');">
+      <img class="generic-main-image product-cutout" src="${firstImage}" alt="${firstTitle} preview">
+    </div>
+    <div class="category-featured-info generic-selected-panel showroom-purchase-card">
+      <span class="category-kicker">Selected Standee</span>
+      <h2 class="generic-selected-name">${firstTitle}</h2>
+      <p class="generic-selected-description">Pick any card below, then choose the image option you want to preview.</p>
+      <div class="category-fact-grid generic-selected-facts">
+        <span>Original size varies</span>
+        <span>Preview choices below</span>
+        <span>Options update by card</span>
+      </div>
+      <div>
+        <h3 class="sports-choice-title">Image Choices For Selected Standee</h3>
+        <div class="category-option-strip sports-option-strip generic-option-strip" aria-label="Selected standee image choices"></div>
+      </div>
+      ${showroomPurchaseMarkup(firstTitle, 78, firstTitle)}
+    </div>
+  `;
+
+  page.querySelector('.category-hero')?.insertAdjacentElement('afterend', showroom);
+
+  const state = {
+    stage: showroom.querySelector('.generic-main-stage'),
+    image: showroom.querySelector('.generic-main-image'),
+    name: showroom.querySelector('.generic-selected-name'),
+    description: showroom.querySelector('.generic-selected-description'),
+    optionStrip: showroom.querySelector('.generic-option-strip'),
+    facts: showroom.querySelector('.generic-selected-facts'),
+    builder: showroom.querySelector('.showroom-size-builder')
+  };
+
+  const selectCard = (card) => {
+    const title = card.querySelector('h3')?.textContent.trim() || 'Standee';
+    const product = getKnownStandeeForCard(card);
+    const options = buildGenericCategoryOptions(card, backgroundImages);
+    const originalSize = product?.originalHeight ? `Original: ${formatHeight(product.originalHeight)}` : 'Original size varies';
+    const description = product?.description || `Preview ${title} with the available image choices for this category.`;
+    state.name.textContent = title;
+    if (state.description) state.description.textContent = description;
+    state.facts.innerHTML = `
+      <span>${originalSize}</span>
+      <span>Selected card</span>
+      <span>Options: ${options.length} image${options.length === 1 ? '' : 's'}</span>
+    `;
+    state.builder.dataset.whiteTriangleImage = findWhiteTriangleImage(options);
+    if (!state.builder.dataset.whiteTriangleImage) delete state.builder.dataset.whiteTriangleImage;
+    updateShowroomPurchase(state, product?.title || title, product?.originalHeight || 78, title);
+    renderGenericCategoryOptions(state, options);
+    selectGenericCategoryOption(state, options, 0);
+
+    cards.forEach((item) => item.classList.toggle('active', item === card));
+    state.optionStrip.querySelectorAll('[data-generic-option-index]').forEach((button) => {
+      button.addEventListener('click', () => selectGenericCategoryOption(state, options, Number(button.dataset.genericOptionIndex)));
+    });
+
+    if (document.body.classList.contains('admin-anywhere-on')) {
+      applyInlineAdminEdits();
+    }
+  };
+
+  cards.forEach((card, index) => {
+    card.classList.add('sports-player-card');
+    if (index === 0) card.classList.add('active');
+    card.querySelector('button')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      selectCard(card);
+      showroom.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    card.querySelector('img')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      selectCard(card);
+      showroom.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  selectCard(firstCard);
+}
+
+function getStandeeSlug(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function getStandeeBySlug(slug) {
+  return standeeCatalog[slug] || {
+    title: (slug || 'Custom Standee').replace(/-/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
+    category: 'MVPLUXCREATIONS Standee',
+    image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
+    originalHeight: 78,
+    originalPrice: 129.99,
+    description: 'Choose the original size, pick your own custom size, and select from available display backgrounds.',
+    backgrounds: [
+      { name: 'Premium Stage', image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
+      { name: 'Gold Stage', image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
+      { name: 'Clean White', image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png', stage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg' }
+    ],
+    facts: ['Original size is used as the starting point for custom pricing.', 'Choose a background when options are offered.', 'Use Buy It Now for fast checkout.', 'Enter a height like 5\'8 or 68 for custom sizing.']
+  };
+}
+
+function setStandeeBackground(index) {
+  const root = document.getElementById('standeeDetailRoot');
+  const selected = window.currentStandeeProduct?.backgrounds?.[index];
+  if (!root || !selected) return;
+
+  const hero = root.querySelector('.standee-hero-art');
+  const image = root.querySelector('.standee-main-cutout');
+  if (hero) {
+    const stage = selected.stage && selected.stage !== selected.image
+      ? selected.stage
+      : getShowroomStageBackground();
+    hero.style.backgroundImage = `url("${stage}")`;
+  }
+  if (image) {
+    image.src = selected.image;
+    image.alt = selected.name;
+  }
+
+  root.querySelectorAll('[data-standee-bg-index]').forEach((button) => {
+    button.classList.toggle('active', Number(button.dataset.standeeBgIndex) === index);
+  });
+}
+
+function renderStandeeDetailPage() {
+  const root = document.getElementById('standeeDetailRoot');
+  if (!root) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const product = getStandeeBySlug(params.get('item') || 'kobe-bryant');
+  const slug = getStandeeSlug(product.title);
+  const originalHeight = parseInt(product.originalHeight || '78', 10);
+  const originalPrice = Number(product.originalPrice || calculateCutoutPrice(originalHeight) || 129.99);
+  window.currentStandeeProduct = product;
+  document.title = `${product.title} | MVPLUXCREATIONS`;
+
+  const backgroundButtons = product.backgrounds.map((background, index) => `
+    <button type="button" class="${index === 0 ? 'active' : ''}" data-standee-bg-index="${index}" onclick="setStandeeBackground(${index})">
+      <img src="${background.image}" alt="">
+      <span>${background.name}</span>
+    </button>
+  `).join('');
+
+  const factItems = [...product.facts, ...product.facts].map((fact) => `<span>${fact}</span>`).join('');
+  const firstBackground = product.backgrounds[0];
+  const firstStage = firstBackground?.stage && firstBackground.stage !== firstBackground.image
+    ? firstBackground.stage
+    : getShowroomStageBackground();
+  const whiteTriangleImage = findWhiteTriangleImage(product.backgrounds);
+
+  root.innerHTML = `
+    <section class="standee-detail-hero">
+      <div class="standee-hero-art" style="background-image: url('${firstStage}');">
+        <img class="standee-main-cutout product-cutout" src="${product.image}" alt="${product.title}">
+      </div>
+      <div class="standee-purchase-panel product-card">
+        <a class="standee-back-link" href="javascript:history.back()">Back to category</a>
+        <span class="category-kicker">${product.category}</span>
+        <h1>${product.title}</h1>
+        <p>${product.description}</p>
+        <div class="category-fact-grid">
+          <span>Original: ${formatHeight(originalHeight)}</span>
+          <span>Starting: ${formatMoney(originalPrice)}</span>
+          <span>Custom sizes available</span>
+        </div>
+        <div class="size-builder" data-product-name="${product.title}" data-admin-slug="${slug}" data-original-price="${originalPrice}" data-original-height="${originalHeight}" ${whiteTriangleImage ? `data-white-triangle-image="${whiteTriangleImage}"` : ''}>
+          <div class="size-option active">
+            <label>
+              <input type="radio" name="${slug}SizeMode" value="original" checked>
+              <span>Original Size - ${formatHeight(originalHeight)} - ${formatMoney(originalPrice)}</span>
+            </label>
+          </div>
+          <div class="size-option">
+            <label>
+              <input type="radio" name="${slug}SizeMode" value="custom">
+              <span>Custom Size</span>
+            </label>
+            <div class="custom-size-box">
+              <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+            </div>
+          </div>
+          <p class="live-price-line">Price: <span class="live-size-price">${formatMoney(originalPrice)}</span></p>
+        </div>
+        <div class="standee-action-row">
+          <button type="button" onclick="buySelectedNow(this)">Buy It Now</button>
+          <button type="button" onclick="selectSizeMode(getSizeBuilderFromElement(this), 'custom')">Pick Your Own Size</button>
+          <button type="button" onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
+        </div>
+      </div>
+    </section>
+    <section class="standee-detail-section">
+      <h2>Background Choices</h2>
+      <div class="standee-background-picker">${backgroundButtons}</div>
+    </section>
+    <section class="standee-facts-strip" aria-label="Cool facts">
+      <div class="standee-facts-track">${factItems}</div>
+    </section>
+  `;
+
+  bindUniversalSizeBuilderEvents();
+  updateBuilderOriginalDisplay(root.querySelector('.size-builder'));
+}
+
+function bindCategoryStandeeCards() {
+  if (document.querySelector('.category-page')) return;
+
+  document.querySelectorAll('.category-card').forEach((card) => {
+    if (card.dataset.sportsPlayer) return;
+    const title = card.querySelector('h3')?.textContent || '';
+    const slug = getStandeeSlug(title);
+    const button = card.querySelector('button');
+    if (!button || button.dataset.standeeLinked) return;
+    button.dataset.standeeLinked = 'true';
+    button.addEventListener('click', () => {
+      window.location.href = `standee.html?item=${encodeURIComponent(slug)}`;
+    });
+  });
+}
+
 function applyAdminExtraImages() {
   const images = getAdminExtraImages();
   document.querySelectorAll('[data-admin-image]').forEach((image) => {
@@ -536,7 +1840,7 @@ function productCardMarkup(product) {
         <p class="live-price-line">Price: <span class="live-size-price">${formatMoney(Number(originalPrice))}</span></p>
       </div>
       <div class="button-row">
-        <button onclick="addSelectedToCart(this)">Add to Cart</button>
+        <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
         <button onclick="buySelectedNow(this)">Buy Now</button>
         <button class="offer-btn" onclick="openOffer('${product.title || 'Custom Standee'}')">Make Offer</button>
       </div>
@@ -582,11 +1886,6 @@ function applyAdminProductOverrides(builder) {
     stage.style.backgroundImage = `url("${override.backgroundImage}")`;
   }
   if (override.stageBackgroundPosition && stage) stage.style.backgroundPosition = override.stageBackgroundPosition;
-  if (override.cutoutHeight && cutout) cutout.style.height = `${override.cutoutHeight}%`;
-  if (override.cutoutLeft && cutout) cutout.style.left = `${override.cutoutLeft}%`;
-  if (override.cutoutBottom && cutout) cutout.style.bottom = `${override.cutoutBottom}%`;
-  if (override.logoWidth && logo) logo.style.width = `${override.logoWidth}%`;
-  if (override.logoTop && logo) logo.style.top = `${override.logoTop}%`;
   if (override.originalHeight) {
     const overrideHeight = parseHeightToInches(String(override.originalHeight)) || parseInt(override.originalHeight, 10);
     if (overrideHeight) builder.dataset.originalHeight = String(overrideHeight);
@@ -597,7 +1896,8 @@ function applyAdminProductOverrides(builder) {
 function updateBuilderOriginalDisplay(builder) {
   const originalHeight = parseInt(builder.dataset.originalHeight || '78', 10);
   const explicitPrice = parseFloat(builder.dataset.originalPriceOverride || '');
-  const originalPrice = explicitPrice || calculateCutoutPrice(originalHeight, builder);
+  const baseOriginalPrice = explicitPrice || calculateCutoutPrice(originalHeight, builder);
+  const originalPrice = addFinishToPrice(baseOriginalPrice, builder);
   const originalLabel = builder.querySelector('input[value="original"]')?.closest('label')?.querySelector('span');
   const customLabel = builder.querySelector('input[value="custom"]')?.closest('label')?.querySelector('span');
   const priceDisplay = builder.querySelector('.live-size-price');
@@ -608,7 +1908,9 @@ function updateBuilderOriginalDisplay(builder) {
   builder.dataset.originalPrice = originalPrice.toFixed(2);
 
   if (originalLabel) {
-    originalLabel.textContent = `Original Size - ${formatHeight(originalHeight)} - ${formatMoney(originalPrice)}`;
+    originalLabel.textContent = builder.classList.contains('showroom-size-builder')
+      ? `Original ${formatHeight(originalHeight)}`
+      : `Original Size - ${formatHeight(originalHeight)} - ${formatMoney(originalPrice)}`;
   }
 
   if (customLabel && !customLabel.dataset.customPrice) {
@@ -641,6 +1943,10 @@ function selectSizeMode(builder, mode) {
 
   radio.checked = true;
   builder.classList.toggle('custom-active', mode === 'custom');
+  builder.querySelectorAll('.showroom-size-button').forEach((button) => {
+    const input = button.querySelector('input[type="radio"]');
+    button.classList.toggle('active', input?.value === mode);
+  });
   setStageChoice(builder, mode);
 
   if (mode === 'custom') {
@@ -659,6 +1965,7 @@ function updateCustomPrice(builder) {
   const customLabel = builder.querySelector('input[value="custom"]')?.closest('label')?.querySelector('span');
   const inches = parseHeightToInches(customInput?.value || '');
   const price = calculateCutoutPrice(inches, builder);
+  const priceWithFinish = addFinishToPrice(price, builder);
 
   if (!price) {
     if (priceDisplay) priceDisplay.textContent = 'Enter a valid height';
@@ -669,11 +1976,83 @@ function updateCustomPrice(builder) {
     return;
   }
 
-  if (priceDisplay) priceDisplay.textContent = formatMoney(price);
+  if (priceDisplay) priceDisplay.textContent = formatMoney(priceWithFinish);
   if (customLabel) {
-    customLabel.textContent = `Custom Size - ${formatMoney(price)}`;
+    customLabel.textContent = builder.classList.contains('showroom-size-builder')
+      ? 'Custom Size'
+      : `Custom Size - ${formatMoney(priceWithFinish)}`;
     customLabel.dataset.customPrice = 'true';
   }
+}
+
+function getSizeBuilderFromElement(element) {
+  const card = element?.closest?.('.product-card, .showroom-purchase-card, .standee-purchase-panel, .category-featured-info');
+  return element?.closest?.('.size-builder') || card?.querySelector('.size-builder') || null;
+}
+
+function ensureStageOptionBoxes(root = document) {
+  root.querySelectorAll?.('.product-stage-preview')?.forEach((stage) => {
+    if (stage.querySelector('.stage-option-boxes')) return;
+
+    stage.insertAdjacentHTML('beforeend', `
+      <div class="stage-option-boxes">
+        <span class="active" data-stage-choice="original" role="button" tabindex="0">Original 6'6</span>
+        <span data-stage-choice="custom" role="button" tabindex="0">Custom Size</span>
+      </div>
+    `);
+  });
+}
+
+function bindUniversalSizeBuilderEvents() {
+  if (document.body.dataset.sizeBuilderEventsReady) return;
+  document.body.dataset.sizeBuilderEventsReady = 'true';
+
+  document.addEventListener('change', (event) => {
+    const radio = event.target.closest?.('.size-builder input[type="radio"]');
+    if (!radio) return;
+    if (radio.closest('.finish-choice')) {
+      const builder = getSizeBuilderFromElement(radio);
+      builder?.querySelectorAll('.finish-choice').forEach((choice) => {
+        choice.classList.toggle('active', choice.contains(radio) && radio.checked);
+      });
+      if (builder?.querySelector('input[value="custom"]')?.checked) {
+        updateCustomPrice(builder);
+      } else if (builder) {
+        updateBuilderOriginalDisplay(builder);
+      }
+      applyFinishSelection(builder, radio);
+      return;
+    }
+    const builder = getSizeBuilderFromElement(radio);
+    if (builder) selectSizeMode(builder, radio.value);
+  });
+
+  document.addEventListener('input', (event) => {
+    const input = event.target.closest?.('.custom-height-input');
+    if (!input) return;
+    const builder = getSizeBuilderFromElement(input);
+    if (builder) updateCustomPrice(builder);
+  });
+
+  document.addEventListener('click', (event) => {
+    const choiceButton = event.target.closest?.('[data-stage-choice]');
+    if (!choiceButton) return;
+    const builder = getSizeBuilderFromElement(choiceButton);
+    if (!builder) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectSizeMode(builder, choiceButton.dataset.stageChoice);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const choiceButton = event.target.closest?.('[data-stage-choice]');
+    if (!choiceButton) return;
+    const builder = getSizeBuilderFromElement(choiceButton);
+    if (!builder) return;
+    event.preventDefault();
+    selectSizeMode(builder, choiceButton.dataset.stageChoice);
+  });
 }
 
 function toggleAdminSizeEditor() {
@@ -718,9 +2097,9 @@ function installSizeAdmin(builder) {
     }
 
     builder.dataset.originalHeight = String(inches);
-    localStorage.setItem(getProductAdminKey(builder), String(inches));
     updateBuilderOriginalDisplay(builder);
     setStageChoice(builder, 'original');
+    alert('Height changed only on this screen. To make it permanent now, edit the code. Backend saving will come later.');
   });
 }
 
@@ -746,7 +2125,8 @@ function readInlineAdminEdits() {
 }
 
 function writeInlineAdminEdits(edits) {
-  localStorage.setItem('mvpluxInlineAdminEdits', JSON.stringify(edits));
+  inlineAdminDraftEdits = edits || {};
+  localStorage.setItem('mvpluxInlineAdminEdits', JSON.stringify(inlineAdminDraftEdits));
 }
 
 function getInlineAdminDraft() {
@@ -759,8 +2139,32 @@ function inlineAdminPageKey() {
   return file.toLowerCase();
 }
 
+function inlineAdminStableSlug(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120);
+}
+
 function inlineAdminKey(element) {
   if (element.dataset.adminEdit) return element.dataset.adminEdit;
+
+  if (element.tagName === 'IMG') {
+    const namedImage = element.dataset.adminImage;
+    if (namedImage) {
+      element.dataset.adminEdit = `img-${inlineAdminStableSlug(namedImage)}`;
+      return element.dataset.adminEdit;
+    }
+
+    const originalSrc = element.dataset.adminOriginalSrc || element.getAttribute('src') || '';
+    if (originalSrc && !originalSrc.startsWith('data:')) {
+      element.dataset.adminOriginalSrc = originalSrc;
+      element.dataset.adminEdit = `img-src-${inlineAdminStableSlug(originalSrc)}`;
+      return element.dataset.adminEdit;
+    }
+  }
 
   const selector = element.tagName === 'IMG'
     ? 'img'
@@ -771,8 +2175,17 @@ function inlineAdminKey(element) {
   return element.dataset.adminEdit;
 }
 
+function isInlineAdminBackgroundImage(image) {
+  return image?.matches?.('.hero-bg, .fan-card-bg, .fan-gallery-bg, .product-stage-bg, .background-carousel img');
+}
+
+function isCodeControlledShopImage(image) {
+  return image?.matches?.('.hero-group');
+}
+
 function applyInlineAdminEdits() {
   document.querySelectorAll('img,h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
+    if (element.closest('.auth-form')) return;
     if (!element.closest('.admin-anywhere-toolbar')) inlineAdminKey(element);
   });
 
@@ -781,10 +2194,12 @@ function applyInlineAdminEdits() {
   Object.entries(pageEdits).forEach(([key, edit]) => {
     const element = document.querySelector(`[data-admin-edit="${key}"]`);
     if (!element) return;
+    if (element.closest('.auth-form')) return;
+    if (element.tagName === 'IMG' && isCodeControlledShopImage(element)) return;
 
     if (edit.text && element.tagName !== 'IMG') element.textContent = edit.text;
     if (edit.src && element.tagName === 'IMG') element.src = edit.src;
-    if (element.tagName === 'IMG') {
+    if (element.tagName === 'IMG' && !isInlineAdminBackgroundImage(element)) {
       element.style.setProperty('--admin-x', `${edit.x || 0}px`);
       element.style.setProperty('--admin-y', `${edit.y || 0}px`);
       element.style.setProperty('--admin-scale', edit.scale || 1);
@@ -800,14 +2215,15 @@ function saveInlineAdminEdit(element, patch) {
   const key = inlineAdminKey(element);
   edits[page] = edits[page] || {};
   edits[page][key] = { ...(edits[page][key] || {}), ...patch };
-  inlineAdminDirty = true;
+  writeInlineAdminEdits(edits);
+  inlineAdminDirty = false;
   updateInlineAdminToolbarState();
 }
 
 function commitInlineAdminEdits() {
   writeInlineAdminEdits(getInlineAdminDraft());
   inlineAdminDirty = false;
-  updateInlineAdminToolbarState('Saved');
+  updateInlineAdminToolbarState('Saved in browser');
 }
 
 function getInlineAdminSnapshot(element) {
@@ -823,7 +2239,8 @@ function getInlineAdminSnapshot(element) {
       x: Number(state.x || 0),
       y: Number(state.y || 0),
       scale: Number(state.scale || 1),
-      rotate: Number(state.rotate || 0)
+      rotate: Number(state.rotate || 0),
+      locked: !!state.locked
     };
   }
 
@@ -845,7 +2262,8 @@ function applyInlineAdminSnapshot(snapshot) {
       x: Number(snapshot.x || 0),
       y: Number(snapshot.y || 0),
       scale: Number(snapshot.scale || 1),
-      rotate: Number(snapshot.rotate || 0)
+      rotate: Number(snapshot.rotate || 0),
+      locked: !!snapshot.locked
     };
     renderInlineAdminImageState(element);
     saveInlineAdminEdit(element, {
@@ -853,7 +2271,8 @@ function applyInlineAdminSnapshot(snapshot) {
       x: element._adminImageState.x,
       y: element._adminImageState.y,
       scale: element._adminImageState.scale,
-      rotate: element._adminImageState.rotate
+      rotate: element._adminImageState.rotate,
+      locked: !!element._adminImageState.locked
     });
     selectInlineAdminImage(element);
     return;
@@ -898,22 +2317,41 @@ function updateInlineAdminToolbarState(message = '') {
   const imageControls = document.querySelectorAll('[data-admin-image-control]');
   const activeImage = inlineAdminSelectedImage || document.querySelector('.admin-image-selected');
 
-  if (status) status.textContent = message || (inlineAdminDirty ? 'Unsaved changes' : 'Saved');
+  if (status) status.textContent = message || (inlineAdminDirty ? 'Unsaved preview' : 'Saved in browser');
   if (undo) undo.classList.toggle('disabled', !inlineAdminUndoStack.length);
   if (redo) redo.classList.toggle('disabled', !inlineAdminRedoStack.length);
   if (undo) undo.disabled = !inlineAdminUndoStack.length;
   if (redo) redo.disabled = !inlineAdminRedoStack.length;
-  if (selected) selected.textContent = activeImage ? 'Image selected' : 'Select an image';
+  if (selected) {
+    selected.textContent = activeImage
+      ? (activeImage._adminImageState?.locked ? 'Image locked' : 'Image selected')
+      : 'Select an image';
+  }
   imageControls.forEach((control) => {
     control.classList.remove('disabled');
   });
   updateInlineAdminResizeHandle();
+  updateInlineAdminLockButtons();
 }
 
 function renderInlineAdminImageState(image) {
+  if (isInlineAdminBackgroundImage(image)) {
+    image.style.removeProperty('--admin-x');
+    image.style.removeProperty('--admin-y');
+    image.style.removeProperty('--admin-scale');
+    image.style.removeProperty('--admin-rotate');
+    image.style.removeProperty('transform');
+    image.classList.remove('admin-transformable-image');
+    if (image === inlineAdminSelectedImage) updateInlineAdminResizeHandle();
+    return;
+  }
+
   const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
   if (!image.style.getPropertyValue('--admin-base-transform')) {
-    image.style.setProperty('--admin-base-transform', 'translate(0, 0)');
+    const baseTransform = image.closest('.category-featured-art, .standee-hero-art')
+      ? 'translateX(-50%)'
+      : 'translate(0, 0)';
+    image.style.setProperty('--admin-base-transform', baseTransform);
   }
   const baseTransform = image.style.getPropertyValue('--admin-base-transform') || 'translate(0, 0)';
   const transform = `${baseTransform} translate(${state.x}px, ${state.y}px) scale(${state.scale}) rotate(${state.rotate}deg)`;
@@ -922,7 +2360,9 @@ function renderInlineAdminImageState(image) {
   image.style.setProperty('--admin-scale', state.scale);
   image.style.setProperty('--admin-rotate', `${state.rotate}deg`);
   image.style.setProperty('transform', transform, 'important');
+  image.classList.toggle('admin-image-locked', !!state.locked);
   if (image === inlineAdminSelectedImage) updateInlineAdminResizeHandle();
+  updateInlineAdminLockButtons();
 }
 
 function selectInlineAdminImage(image) {
@@ -932,8 +2372,10 @@ function selectInlineAdminImage(image) {
 
   inlineAdminSelectedImage = image;
   image?.classList.add('admin-image-selected');
-  const label = image?.classList.contains('fan-card-bg') || image?.classList.contains('product-stage-bg')
+  const label = isInlineAdminBackgroundImage(image)
     ? 'Background selected'
+    : image?._adminImageState?.locked
+      ? 'Image locked'
     : 'Image selected';
   updateInlineAdminToolbarState(label);
   updateInlineAdminResizeHandle();
@@ -998,12 +2440,66 @@ function getInlineAdminResizeHandle() {
   return handle;
 }
 
+function getInlineAdminLockButton(image) {
+  if (!image || isInlineAdminBackgroundImage(image)) return null;
+  const key = inlineAdminKey(image);
+  const existing = document.querySelector(`.admin-image-lock-button[data-admin-lock-for="${key}"]`);
+  if (existing) {
+    image._adminLockButton = existing;
+    return existing;
+  }
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'admin-image-lock-button';
+  button.dataset.adminLockFor = key;
+  button.title = 'Lock or unlock this image';
+  button.setAttribute('aria-label', 'Lock or unlock selected image');
+  document.body.appendChild(button);
+  image._adminLockButton = button;
+
+  const toggle = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    toggleSelectedInlineAdminImageLock(image);
+  };
+
+  button.addEventListener('pointerdown', toggle);
+  button.addEventListener('click', toggle);
+  return button;
+}
+
+function updateInlineAdminLockButtons() {
+  if (!document.body.classList.contains('admin-anywhere-on')) return;
+
+  document.querySelectorAll('img.admin-editable-image').forEach((image) => {
+    if (isInlineAdminBackgroundImage(image)) return;
+    const locked = !!image._adminImageState?.locked;
+    const selected = image === inlineAdminSelectedImage || image.classList.contains('admin-image-selected');
+    const button = image._adminLockButton || (locked || selected ? getInlineAdminLockButton(image) : null);
+    if (!button) return;
+
+    if (!locked && !selected) {
+      button.style.display = 'none';
+      return;
+    }
+
+    const rect = image.getBoundingClientRect();
+    button.textContent = locked ? 'Unlock' : 'Lock here';
+    button.classList.toggle('is-locked', locked);
+    button.style.display = 'inline-flex';
+    button.style.left = `${rect.right + 8}px`;
+    button.style.top = `${Math.max(8, rect.top + rect.height / 2 - 15)}px`;
+  });
+}
+
 function updateInlineAdminResizeHandle() {
   const handle = document.getElementById('adminImageResizeHandle') || (inlineAdminSelectedImage ? getInlineAdminResizeHandle() : null);
   if (!handle) return;
 
   const image = inlineAdminSelectedImage || document.querySelector('.admin-image-selected');
-  if (!image || !document.body.classList.contains('admin-anywhere-on')) {
+  if (!image || image._adminImageState?.locked || isInlineAdminBackgroundImage(image) || !document.body.classList.contains('admin-anywhere-on')) {
     handle.style.display = 'none';
     return;
   }
@@ -1029,7 +2525,8 @@ function getActiveInlineAdminImage(showMessage = true) {
       x: parseFloat(styles.getPropertyValue('--admin-x')) || 0,
       y: parseFloat(styles.getPropertyValue('--admin-y')) || 0,
       scale: parseFloat(styles.getPropertyValue('--admin-scale')) || 1,
-      rotate: parseFloat(styles.getPropertyValue('--admin-rotate')) || 0
+      rotate: parseFloat(styles.getPropertyValue('--admin-rotate')) || 0,
+      locked: image.classList.contains('admin-image-locked')
     };
   }
 
@@ -1039,6 +2536,14 @@ function getActiveInlineAdminImage(showMessage = true) {
 function changeSelectedInlineAdminImage(patch) {
   const image = getActiveInlineAdminImage();
   if (!image) return;
+  if (image._adminImageState?.locked) {
+    updateInlineAdminToolbarState('Image locked');
+    return;
+  }
+  if (isInlineAdminBackgroundImage(image)) {
+    updateInlineAdminToolbarState('Backgrounds stay full size');
+    return;
+  }
 
   const before = getInlineAdminSnapshot(image);
   const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
@@ -1056,9 +2561,122 @@ function changeSelectedInlineAdminImage(patch) {
     x: next.x,
     y: next.y,
     scale: next.scale,
-    rotate: next.rotate
+    rotate: next.rotate,
+    locked: !!next.locked
   });
   pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
+}
+
+function getInlineAdminImageFrame(image) {
+  return image.closest(
+    '.fan-card-stage, .fan-gallery-stage, .product-stage-preview, .category-featured-art, .category-option-strip, .category-card, .hero-stage'
+  ) || image.parentElement;
+}
+
+function centerSelectedInlineAdminImage() {
+  const image = getActiveInlineAdminImage();
+  if (!image) return;
+  if (image._adminImageState?.locked) {
+    updateInlineAdminToolbarState('Image locked');
+    return;
+  }
+  if (isInlineAdminBackgroundImage(image)) {
+    updateInlineAdminToolbarState('Backgrounds already fill the box');
+    return;
+  }
+
+  const frame = getInlineAdminImageFrame(image);
+  if (!frame) {
+    updateInlineAdminToolbarState('No box found');
+    return;
+  }
+
+  const before = getInlineAdminSnapshot(image);
+  const imageRect = image.getBoundingClientRect();
+  const frameRect = frame.getBoundingClientRect();
+  const deltaX = (frameRect.left + frameRect.width / 2) - (imageRect.left + imageRect.width / 2);
+  const deltaY = (frameRect.top + frameRect.height / 2) - (imageRect.top + imageRect.height / 2);
+  const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
+  const next = {
+    ...state,
+    x: Number(state.x || 0) + deltaX,
+    y: Number(state.y || 0) + deltaY
+  };
+
+  image._adminImageState = next;
+  renderInlineAdminImageState(image);
+  saveInlineAdminEdit(image, {
+    src: image.getAttribute('src') || '',
+    x: next.x,
+    y: next.y,
+    scale: next.scale,
+    rotate: next.rotate,
+    locked: !!next.locked
+  });
+  pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
+  updateInlineAdminToolbarState('Centered in box');
+}
+
+function nudgeSelectedInlineAdminImage(dx, dy) {
+  const image = getActiveInlineAdminImage(false);
+  if (!image || image._adminImageState?.locked || isInlineAdminBackgroundImage(image)) return;
+
+  const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
+  changeSelectedInlineAdminImage({
+    x: Number(state.x || 0) + dx,
+    y: Number(state.y || 0) + dy
+  });
+}
+
+function resetSelectedInlineAdminImage() {
+  const image = getActiveInlineAdminImage();
+  if (!image) return;
+
+  changeSelectedInlineAdminImage({
+    x: 0,
+    y: 0,
+    scale: 1,
+    rotate: 0
+  });
+  updateInlineAdminToolbarState('Back to normal');
+}
+
+function toggleSelectedInlineAdminImageLock(targetImage = null) {
+  const image = targetImage || getActiveInlineAdminImage();
+  if (!image || isInlineAdminBackgroundImage(image)) return;
+
+  if (!image._adminImageState) {
+    image._adminImageState = { x: 0, y: 0, scale: 1, rotate: 0, locked: false };
+  }
+
+  image._adminImageState.locked = !image._adminImageState.locked;
+  image.classList.toggle('admin-image-locked', image._adminImageState.locked);
+  saveInlineAdminEdit(image, {
+    src: image.getAttribute('src') || '',
+    ...image._adminImageState
+  });
+  updateInlineAdminToolbarState(image._adminImageState.locked ? 'Image locked' : 'Image unlocked');
+  updateInlineAdminResizeHandle();
+  updateInlineAdminLockButtons();
+}
+
+function unlockAllInlineAdminImages() {
+  let count = 0;
+
+  document.querySelectorAll('img.admin-editable-image.admin-image-locked').forEach((image) => {
+    if (!image._adminImageState) return;
+    image._adminImageState.locked = false;
+    image.classList.remove('admin-image-locked');
+    saveInlineAdminEdit(image, {
+      src: image.getAttribute('src') || '',
+      ...image._adminImageState
+    });
+    count += 1;
+  });
+
+  updateInlineAdminToolbarState(count ? 'All images unlocked' : 'No locked images');
+  updateInlineAdminResizeHandle();
+  updateInlineAdminLockButtons();
 }
 
 function readInlineHiddenCards() {
@@ -1070,7 +2688,8 @@ function readInlineHiddenCards() {
 }
 
 function writeInlineHiddenCards(cards) {
-  localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(cards));
+  localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(cards || {}));
+  return cards;
 }
 
 function getInlineAdminSelectedCard() {
@@ -1079,6 +2698,11 @@ function getInlineAdminSelectedCard() {
 }
 
 function hideSelectedInlineAdminCard() {
+  if (!window.confirm('Save this card for later? Use Bring Back Cards to show it again.')) {
+    updateInlineAdminToolbarState('Card kept');
+    return;
+  }
+
   const card = getInlineAdminSelectedCard();
   if (!card) {
     updateInlineAdminToolbarState('Select a card image first');
@@ -1094,7 +2718,7 @@ function hideSelectedInlineAdminCard() {
   writeInlineHiddenCards(hidden);
   card.style.display = 'none';
   inlineAdminSelectedImage = null;
-  updateInlineAdminToolbarState('Saved card for later');
+  updateInlineAdminToolbarState('Hidden only until refresh');
 }
 
 function restoreInlineHiddenCards() {
@@ -1105,6 +2729,209 @@ function restoreInlineHiddenCards() {
     card.style.display = '';
   });
   updateInlineAdminToolbarState('Saved cards shown');
+}
+
+function readInlineAdminToolbarPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem('mvpluxInlineAdminToolbar') || '{}');
+  } catch (error) {
+    return {};
+  }
+}
+
+function writeInlineAdminToolbarPrefs(prefs) {
+  window.mvpluxInlineToolbarPrefs = { ...(prefs || {}) };
+  localStorage.setItem('mvpluxInlineAdminToolbar', JSON.stringify(window.mvpluxInlineToolbarPrefs));
+}
+
+function applyInlineAdminToolbarPrefs() {
+  const toolbar = document.querySelector('.admin-anywhere-toolbar');
+  if (!toolbar) return;
+
+  const prefs = readInlineAdminToolbarPrefs();
+  ['left', 'right', 'top', 'bottom', 'width', 'height', 'maxHeight', 'transform'].forEach((prop) => {
+    toolbar.style.removeProperty(prop);
+  });
+
+  toolbar.classList.toggle('admin-toolbar-side', prefs.layout === 'side');
+  toolbar.classList.toggle('admin-toolbar-free', prefs.layout === 'free');
+  toolbar.classList.toggle('admin-toolbar-small', prefs.size === 'small');
+  toolbar.classList.toggle('admin-toolbar-collapsed', prefs.collapsed === true);
+
+  if (prefs.layout === 'free') {
+    const width = Math.min(Math.max(Number(prefs.width) || 360, 160), window.innerWidth - 16);
+    const height = Math.min(Math.max(Number(prefs.height) || 78, 42), window.innerHeight - 16);
+    const x = Math.min(Math.max(Number(prefs.x) || 16, 8), window.innerWidth - 60);
+    const y = Math.min(Math.max(Number(prefs.y) || 120, 8), window.innerHeight - 42);
+    toolbar.style.setProperty('left', `${x}px`, 'important');
+    toolbar.style.setProperty('top', `${y}px`, 'important');
+    toolbar.style.setProperty('right', 'auto', 'important');
+    toolbar.style.setProperty('bottom', 'auto', 'important');
+    toolbar.style.setProperty('width', `${width}px`, 'important');
+    toolbar.style.setProperty('height', `${height}px`, 'important');
+    toolbar.style.setProperty('transform', 'none', 'important');
+  } else if (prefs.width && prefs.layout === 'side') {
+    toolbar.style.setProperty('width', `${Math.min(Math.max(Number(prefs.width), 140), 360)}px`, 'important');
+  }
+
+  const layout = document.getElementById('adminInlineLayout');
+  const size = document.getElementById('adminInlineToolSize');
+  const hide = document.getElementById('adminInlineHideTools');
+  if (layout) layout.textContent = prefs.layout === 'side' ? 'Bottom' : 'Side';
+  if (size) size.textContent = prefs.size === 'small' ? 'Normal' : 'Small';
+  if (hide) hide.textContent = prefs.collapsed === true ? 'Show Tools' : 'Hide Tools';
+}
+
+function toggleInlineAdminToolbarLayout() {
+  const prefs = readInlineAdminToolbarPrefs();
+  prefs.layout = prefs.layout === 'side' ? 'bottom' : 'side';
+  delete prefs.x;
+  delete prefs.y;
+  delete prefs.height;
+  writeInlineAdminToolbarPrefs(prefs);
+  applyInlineAdminToolbarPrefs();
+}
+
+function toggleInlineAdminToolbarSize() {
+  const prefs = readInlineAdminToolbarPrefs();
+  prefs.size = prefs.size === 'small' ? 'normal' : 'small';
+  writeInlineAdminToolbarPrefs(prefs);
+  applyInlineAdminToolbarPrefs();
+}
+
+function toggleInlineAdminToolbarCollapsed() {
+  const prefs = readInlineAdminToolbarPrefs();
+  prefs.collapsed = prefs.collapsed !== true;
+  writeInlineAdminToolbarPrefs(prefs);
+  applyInlineAdminToolbarPrefs();
+}
+
+function getInlineAdminCssSelector(image) {
+  if (!image) return '';
+
+  if (image.classList.contains('hero-logo-words')) return '.hero-logo-words';
+  if (image.classList.contains('hero-middle')) return '.hero-middle';
+  if (image.classList.contains('hero-left')) return '.hero-left';
+  if (image.classList.contains('hero-right')) return '.hero-right';
+  if (image.classList.contains('hero-bg')) return '.hero-bg';
+
+  const productCard = image.closest('#shop .product-card');
+  if (productCard) {
+    const cardIndex = [...document.querySelectorAll('#shop .product-grid .product-card')].indexOf(productCard) + 1;
+    const imageClass = image.classList.contains('product-stage-logo') ? 'product-stage-logo' : 'product-cutout';
+    return `#shop .product-grid .product-card:nth-child(${cardIndex}) .${imageClass}`;
+  }
+
+  const categoryCard = image.closest('.category-card');
+  if (categoryCard) {
+    const cardIndex = [...document.querySelectorAll('.category-card')].indexOf(categoryCard) + 1;
+    return `.category-card:nth-of-type(${cardIndex}) img`;
+  }
+
+  const editableKey = image.dataset.adminEdit || inlineAdminKey(image);
+  return `[data-admin-edit="${editableKey}"]`;
+}
+
+function getInlineAdminBaseTransform(image) {
+  if (!image) return '';
+  if (
+    image.classList.contains('product-cutout') ||
+    image.classList.contains('product-stage-logo') ||
+    image.classList.contains('hero-logo-words')
+  ) {
+    return 'translateX(-50%) ';
+  }
+  return '';
+}
+
+function copySelectedInlineAdminCode() {
+  const image = getActiveInlineAdminImage();
+  if (!image || isInlineAdminBackgroundImage(image)) {
+    updateInlineAdminToolbarState('Select a movable image');
+    return;
+  }
+
+  const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
+  const selector = getInlineAdminCssSelector(image);
+  const code = `${selector} {
+  transform: ${getInlineAdminBaseTransform(image)}translate(${Math.round(state.x || 0)}px, ${Math.round(state.y || 0)}px) scale(${Number(state.scale || 1).toFixed(3)}) rotate(${Math.round(state.rotate || 0)}deg) !important;
+}`;
+
+  const copied = navigator.clipboard?.writeText(code);
+  if (copied) {
+    copied.then(
+      () => updateInlineAdminToolbarState('Code copied'),
+      () => updateInlineAdminToolbarState(code)
+    );
+  } else {
+    updateInlineAdminToolbarState(code);
+  }
+}
+
+function bindInlineAdminToolbarDragResize() {
+  const toolbar = document.querySelector('.admin-anywhere-toolbar');
+  const mover = document.getElementById('adminToolbarDragHandle');
+  const resizer = document.getElementById('adminToolbarResizeHandle');
+  if (!toolbar || toolbar.dataset.dragResizeReady) return;
+  toolbar.dataset.dragResizeReady = 'true';
+
+  mover?.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = toolbar.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+
+    const move = (moveEvent) => {
+      const prefs = readInlineAdminToolbarPrefs();
+      prefs.layout = 'free';
+      prefs.collapsed = false;
+      prefs.x = Math.min(Math.max(moveEvent.clientX - offsetX, 8), window.innerWidth - 60);
+      prefs.y = Math.min(Math.max(moveEvent.clientY - offsetY, 8), window.innerHeight - 42);
+      prefs.width = rect.width;
+      prefs.height = rect.height;
+      writeInlineAdminToolbarPrefs(prefs);
+      applyInlineAdminToolbarPrefs();
+    };
+
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop, { once: true });
+  });
+
+  resizer?.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = toolbar.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+
+    const resize = (moveEvent) => {
+      const prefs = readInlineAdminToolbarPrefs();
+      prefs.layout = prefs.layout === 'side' ? 'side' : 'free';
+      prefs.collapsed = false;
+      if (prefs.layout === 'free') {
+        prefs.x = rect.left;
+        prefs.y = rect.top;
+        prefs.height = Math.min(Math.max(rect.height + (moveEvent.clientY - startY), 42), window.innerHeight - 16);
+      }
+      prefs.width = Math.min(Math.max(rect.width + (moveEvent.clientX - startX), 140), window.innerWidth - 16);
+      writeInlineAdminToolbarPrefs(prefs);
+      applyInlineAdminToolbarPrefs();
+    };
+
+    const stop = () => {
+      window.removeEventListener('pointermove', resize);
+      window.removeEventListener('pointerup', stop);
+    };
+
+    window.addEventListener('pointermove', resize);
+    window.addEventListener('pointerup', stop, { once: true });
+  });
 }
 
 function applyInlineHiddenCards() {
@@ -1126,8 +2953,15 @@ var runInlineAdminToolbarAction = function (action) {
   if (action === 'save') commitInlineAdminEdits();
   if (action === 'hide-card') hideSelectedInlineAdminCard();
   if (action === 'restore-cards') restoreInlineHiddenCards();
+  if (action === 'toggle-toolbar-layout') toggleInlineAdminToolbarLayout();
+  if (action === 'toggle-toolbar-size') toggleInlineAdminToolbarSize();
+  if (action === 'toggle-toolbar-collapsed') toggleInlineAdminToolbarCollapsed();
+  if (action === 'copy-code') copySelectedInlineAdminCode();
+  if (action === 'reset-image') resetSelectedInlineAdminImage();
+  if (action === 'lock-image') toggleSelectedInlineAdminImageLock();
+  if (action === 'unlock-all-images') unlockAllInlineAdminImages();
   if (action === 'center') {
-    changeSelectedInlineAdminImage({ x: 0, y: 0 });
+    centerSelectedInlineAdminImage();
   }
   if (action === 'size-down') {
     const image = getActiveInlineAdminImage();
@@ -1203,7 +3037,22 @@ function fileToSmallDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener('error', reject);
-    reader.addEventListener('load', () => resolve(reader.result));
+    reader.addEventListener('load', () => {
+      const image = new Image();
+      image.addEventListener('error', () => resolve(reader.result));
+      image.addEventListener('load', () => {
+        const maxSide = 1600;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const keepTransparency = file.type === 'image/png' || file.type === 'image/webp';
+        resolve(canvas.toDataURL(keepTransparency ? 'image/png' : 'image/jpeg', 0.86));
+      });
+      image.src = reader.result;
+    });
     reader.readAsDataURL(file);
   });
 }
@@ -1216,23 +3065,35 @@ function installInlineAdminMode() {
   document.body.insertAdjacentHTML('beforeend', `
     <div class="admin-anywhere-toolbar">
       <strong>Admin Editing</strong>
-      <span id="adminInlineStatus">Saved</span>
+      <button type="button" class="admin-toolbar-drag-handle" id="adminToolbarDragHandle" title="Drag admin tools">Move</button>
+      <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-layout" id="adminInlineLayout" title="Move tools to side or bottom" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-layout'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-layout'); return false;">Side</button>
+      <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-size" id="adminInlineToolSize" title="Make tools smaller or normal size" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-size'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-size'); return false;">Small</button>
+      <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-collapsed" id="adminInlineHideTools" title="Hide or show admin tools" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-collapsed'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-collapsed'); return false;">Hide Tools</button>
+      <span id="adminInlineStatus">Saved in browser</span>
       <button type="button" class="admin-tool-control" data-admin-toolbar-action="undo" id="adminInlineUndo" title="Undo" onpointerdown="runInlineAdminToolbarAction('undo'); return false;" onclick="runInlineAdminToolbarAction('undo'); return false;">Undo</button>
       <button type="button" class="admin-tool-control" data-admin-toolbar-action="redo" id="adminInlineRedo" title="Redo" onpointerdown="runInlineAdminToolbarAction('redo'); return false;" onclick="runInlineAdminToolbarAction('redo'); return false;">Redo</button>
       <button type="button" class="admin-tool-control" data-admin-toolbar-action="save" id="adminInlineSave" title="Save changes" onpointerdown="runInlineAdminToolbarAction('save'); return false;" onclick="runInlineAdminToolbarAction('save'); return false;">Save</button>
-      <button type="button" class="admin-tool-control admin-tool-danger" data-admin-toolbar-action="hide-card" id="adminInlineHideCard" title="Save selected card for later" onpointerdown="runInlineAdminToolbarAction('hide-card'); return false;" onclick="runInlineAdminToolbarAction('hide-card'); return false;">Save Later</button>
-      <button type="button" class="admin-tool-control" data-admin-toolbar-action="restore-cards" id="adminInlineRestoreCards" title="Show cards saved for later" onpointerdown="runInlineAdminToolbarAction('restore-cards'); return false;" onclick="runInlineAdminToolbarAction('restore-cards'); return false;">Show Saved</button>
+      <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image" onpointerdown="runInlineAdminToolbarAction('copy-code'); return false;" onclick="runInlineAdminToolbarAction('copy-code'); return false;">Copy Code</button>
+      <button type="button" class="admin-tool-control" data-admin-toolbar-action="restore-cards" id="adminInlineRestoreCards" title="Bring back cards saved for later" onpointerdown="runInlineAdminToolbarAction('restore-cards'); return false;" onclick="runInlineAdminToolbarAction('restore-cards'); return false;">Bring Back Cards</button>
       <span id="adminInlineSelected">Select an image</span>
       <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="center" id="adminInlineCenter" title="Center selected image" onpointerdown="runInlineAdminToolbarAction('center'); return false;" onclick="runInlineAdminToolbarAction('center'); return false;">Center</button>
+      <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="reset-image" id="adminInlineResetImage" title="Back to normal" onpointerdown="runInlineAdminToolbarAction('reset-image'); return false;" onclick="runInlineAdminToolbarAction('reset-image'); return false;">Normal</button>
+      <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="lock-image" id="adminInlineLockImage" title="Lock selected image in place" onpointerdown="runInlineAdminToolbarAction('lock-image'); return false;" onclick="runInlineAdminToolbarAction('lock-image'); return false;">Lock</button>
+      <button type="button" class="admin-tool-control" data-admin-toolbar-action="unlock-all-images" id="adminInlineUnlockAll" title="Unlock all locked images" onpointerdown="runInlineAdminToolbarAction('unlock-all-images'); return false;" onclick="runInlineAdminToolbarAction('unlock-all-images'); return false;">Unlock All</button>
       <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller" onpointerdown="runInlineAdminToolbarAction('size-down'); return false;" onclick="runInlineAdminToolbarAction('size-down'); return false;">Size -</button>
       <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger" onpointerdown="runInlineAdminToolbarAction('size-up'); return false;" onclick="runInlineAdminToolbarAction('size-up'); return false;">Size +</button>
       <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left" onpointerdown="runInlineAdminToolbarAction('rotate-left'); return false;" onclick="runInlineAdminToolbarAction('rotate-left'); return false;">Rotate -</button>
       <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onpointerdown="runInlineAdminToolbarAction('rotate-right'); return false;" onclick="runInlineAdminToolbarAction('rotate-right'); return false;">Rotate +</button>
+      <a href="admin.html#create-card">Add Card</a>
       <a href="admin.html">Admin Page</a>
+      <button type="button" class="admin-tool-control admin-tool-danger" data-admin-toolbar-action="hide-card" id="adminInlineHideCard" title="Save selected card for later" onpointerdown="runInlineAdminToolbarAction('hide-card'); return false;" onclick="runInlineAdminToolbarAction('hide-card'); return false;">Save for Later</button>
       <button type="button" class="admin-tool-control" data-admin-toolbar-action="sign-out" id="adminAnywhereOff" onpointerdown="runInlineAdminToolbarAction('sign-out'); return false;" onclick="runInlineAdminToolbarAction('sign-out'); return false;">Log Out</button>
+      <button type="button" class="admin-toolbar-resize-handle" id="adminToolbarResizeHandle" title="Resize admin tools" aria-label="Resize admin tools"></button>
     </div>
   `);
   bindInlineAdminToolbarControls();
+  bindInlineAdminToolbarDragResize();
+  applyInlineAdminToolbarPrefs();
 
   applyInlineHiddenCards();
 
@@ -1247,6 +3108,8 @@ function installInlineAdminMode() {
   window.addEventListener('keydown', (event) => {
     if (!document.body.classList.contains('admin-anywhere-on')) return;
     const key = event.key.toLowerCase();
+    const active = document.activeElement;
+    const typing = active?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(active?.tagName);
 
     if ((event.metaKey || event.ctrlKey) && key === 's') {
       event.preventDefault();
@@ -1262,10 +3125,19 @@ function installInlineAdminMode() {
       event.preventDefault();
       redoInlineAdminEdit();
     }
+
+    if (!typing && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key)) {
+      const step = event.altKey ? 1 : 2;
+      event.preventDefault();
+      if (key === 'arrowleft') nudgeSelectedInlineAdminImage(-step, 0);
+      if (key === 'arrowright') nudgeSelectedInlineAdminImage(step, 0);
+      if (key === 'arrowup') nudgeSelectedInlineAdminImage(0, -step);
+      if (key === 'arrowdown') nudgeSelectedInlineAdminImage(0, step);
+    }
   });
 
   document.querySelectorAll('h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
-    if (element.closest('.admin-anywhere-toolbar, .cart-panel, script, style, .password-field')) return;
+    if (element.closest('.admin-anywhere-toolbar, .cart-panel, .auth-form, script, style, .password-field')) return;
     if (element.closest('.fan-vote-meter, .fan-carousel-dots, .stage-option-boxes')) return;
     inlineAdminKey(element);
     element.contentEditable = 'true';
@@ -1288,6 +3160,21 @@ function installInlineAdminMode() {
 
   document.querySelectorAll('img').forEach((image) => {
     if (image.closest('.admin-anywhere-toolbar')) return;
+    if (isCodeControlledShopImage(image)) {
+      image.classList.remove('admin-transformable-image', 'admin-editable-image', 'admin-image-selected');
+      image.style.removeProperty('--admin-x');
+      image.style.removeProperty('--admin-y');
+      image.style.removeProperty('--admin-scale');
+      image.style.removeProperty('--admin-rotate');
+      image.style.removeProperty('--admin-base-transform');
+      image.style.removeProperty('transform');
+      image.style.removeProperty('left');
+      image.style.removeProperty('bottom');
+      image.style.removeProperty('height');
+      image.style.removeProperty('width');
+      image.style.removeProperty('top');
+      return;
+    }
     if (!image.closest('.hero-stage')) {
       image.loading = 'lazy';
       image.decoding = 'async';
@@ -1295,18 +3182,21 @@ function installInlineAdminMode() {
     inlineAdminKey(image);
     const computedTransform = getComputedStyle(image).transform;
     image.style.setProperty('--admin-base-transform', computedTransform && computedTransform !== 'none' ? computedTransform : 'translate(0, 0)');
-    image.classList.add('admin-editable-image', 'admin-transformable-image');
+    image.classList.add('admin-editable-image');
+    if (!isInlineAdminBackgroundImage(image)) image.classList.add('admin-transformable-image');
     const saved = readInlineAdminEdits()[inlineAdminPageKey()]?.[inlineAdminKey(image)] || {};
     image._adminImageState = {
       x: Number(saved.x || 0),
       y: Number(saved.y || 0),
       scale: Number(saved.scale || 1),
-      rotate: Number(saved.rotate || 0)
+      rotate: Number(saved.rotate || 0),
+      locked: !!saved.locked
     };
     renderInlineAdminImageState(image);
 
     image.addEventListener('pointerdown', (event) => {
       if (event.target?.id === 'adminImageResizeHandle') return;
+      if (image._adminImageState?.locked) return;
       if (event.altKey) return;
       event.preventDefault();
       event.stopPropagation();
@@ -1336,23 +3226,6 @@ function installInlineAdminMode() {
       window.addEventListener('pointerup', stop);
     });
 
-    image.addEventListener('wheel', (event) => {
-      event.preventDefault();
-      selectInlineAdminImage(image);
-      const before = getInlineAdminSnapshot(image);
-      if (event.shiftKey) {
-        image._adminImageState.rotate += event.deltaY < 0 ? -3 : 3;
-      } else {
-        image._adminImageState.scale = clamp(image._adminImageState.scale + (event.deltaY < 0 ? 0.04 : -0.04), 0.25, 3);
-      }
-      renderInlineAdminImageState(image);
-      saveInlineAdminEdit(image, {
-        src: image.getAttribute('src') || '',
-        ...image._adminImageState
-      });
-      pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
-    });
-
     image.addEventListener('dblclick', async (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -1373,21 +3246,24 @@ function installInlineAdminMode() {
   });
 
   window.addEventListener('scroll', updateInlineAdminResizeHandle, { passive: true });
+  window.addEventListener('scroll', updateInlineAdminLockButtons, { passive: true });
   window.addEventListener('resize', updateInlineAdminResizeHandle);
+  window.addEventListener('resize', updateInlineAdminLockButtons);
   updateInlineAdminToolbarState();
 }
 
 function getSelectedProduct(button) {
-  const card = button.closest('.product-card');
-  const builder = card.querySelector('.size-builder');
+  const card = button.closest('.product-card, .showroom-purchase-card, .standee-purchase-panel, .category-featured-info');
+  const builder = card?.querySelector('.size-builder');
 
   if (!builder) {
-    const productName = card.querySelector('.product-title-link')?.textContent || 'Custom Cutout';
+    const productName = card?.querySelector('.product-title-link, h1, h2, .generic-selected-name, #sportsSelectedName')?.textContent || 'Custom Standee';
     return { card, builder: null, productName, price: 50.00, valid: true };
   }
 
   const priceEl = builder.querySelector('.live-size-price');
-  const productName = builder.dataset.productName || 'Custom Cutout';
+  const baseProductName = builder.dataset.productName || 'Custom Standee';
+  const productName = `${baseProductName} - ${getFinishLabel(builder)}`;
   const rawPrice = priceEl ? priceEl.textContent.replace('$', '').trim() : '';
   const price = parseFloat(rawPrice);
 
@@ -1418,16 +3294,23 @@ function buySelectedNow(button) {
     return;
   }
 
-  const img = selected.card.querySelector('.product-cutout')?.src || '';
+  const img = selected.card?.querySelector('.product-cutout, #sportsMainImage, .generic-main-image, .standee-main-cutout')?.src || document.querySelector('.standee-main-cutout')?.src || '';
   openBuyNow(selected.productName, selected.price, img);
+}
+
+function openSelectedOffer(button) {
+  const selected = getSelectedProduct(button);
+  openOffer(selected.productName || 'Selected Standee');
 }
 
 /* ---------------- PAGE INIT ---------------- */
 document.addEventListener('DOMContentLoaded', function () {
+  clearLegacyAdminBrowserStorage();
   setupAuthState();
   updateCart();
   showInfoSlide(0);
   renderCouponBanner();
+  bindProductCarouselDragGuard();
 
   document.querySelectorAll('img').forEach((image) => {
     image.setAttribute('draggable', 'false');
@@ -1435,20 +3318,24 @@ document.addEventListener('DOMContentLoaded', function () {
     image.addEventListener('contextmenu', (event) => event.preventDefault());
   });
 
+  document.addEventListener('change', (event) => {
+    if (event.target.closest?.('input[name="checkoutPaymentMethod"]')) {
+      updateCheckoutDisplay();
+    }
+  });
+
   applyAdminExtraImages();
   applyInlineAdminEdits();
   renderAdminManagedCards();
+  renderStandeeDetailPage();
+  setupGenericCategoryShowroom();
+  initSportsShowroom();
+  bindSportsShowroomClicks();
+  bindCategoryStandeeCards();
 
-  document.querySelectorAll('.product-stage-preview').forEach((stage) => {
-    if (stage.querySelector('.stage-option-boxes')) return;
-
-    stage.insertAdjacentHTML('beforeend', `
-      <div class="stage-option-boxes">
-        <span class="active" data-stage-choice="original" role="button" tabindex="0">Original 6'6</span>
-        <span data-stage-choice="custom" role="button" tabindex="0">Custom Size</span>
-      </div>
-    `);
-  });
+  ensureStageOptionBoxes();
+  ensureFinishChoices();
+  bindUniversalSizeBuilderEvents();
 
   const fanVotes = getFanVoteStore();
   document.querySelectorAll('[data-vote-id]').forEach((button) => {
@@ -1463,52 +3350,13 @@ document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('.size-builder').forEach((builder) => {
     applyAdminProductOverrides(builder);
 
-    const savedOriginalHeight = localStorage.getItem(getProductAdminKey(builder));
-    if (savedOriginalHeight) builder.dataset.originalHeight = savedOriginalHeight;
-
-    const priceDisplay = builder.querySelector('.live-size-price');
-    const customInput = builder.querySelector('.custom-height-input');
-    const radios = builder.querySelectorAll('input[type="radio"]');
-    const card = builder.closest('.product-card');
-    const stage = card?.querySelector('.product-stage-preview');
-
     updateBuilderOriginalDisplay(builder);
-
-    radios.forEach((radio) => {
-      radio.addEventListener('change', function () {
-        if (this.value === 'custom') {
-          selectSizeMode(builder, 'custom');
-          return;
-        }
-
-        selectSizeMode(builder, 'original');
-      });
-    });
-
-    if (customInput) {
-      customInput.addEventListener('input', function () {
-        updateCustomPrice(builder);
-      });
-    }
-
-    stage?.querySelectorAll('[data-stage-choice]').forEach((choiceButton) => {
-      const choose = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        selectSizeMode(builder, choiceButton.dataset.stageChoice);
-      };
-
-      choiceButton.addEventListener('click', choose);
-      choiceButton.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') choose(event);
-      });
-    });
   });
 
   applyInlineAdminEdits();
 
   const isAuthPage = Boolean(document.querySelector('.auth-page'));
-  if (!isAuthPage && (isAdminSignedIn() || localStorage.getItem('mvpluxAdminAnywhere') === 'true')) {
+  if (!isAuthPage && isAdminSignedIn()) {
     installInlineAdminMode();
   }
 });

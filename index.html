@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MVPLUXCREATIONS | Life-Size Cutouts</title>
-  <link rel="stylesheet" href="style.css?v=20260625-admin-final-controls" />
+  <title>MVPLUXCREATIONS | Life-Size Standees</title>
+  <link rel="stylesheet" href="style.css?v=20260701-cart-icon-same-size" />
 </head>
 <body>
 
@@ -52,9 +52,9 @@
   <img class="hero-logo-words" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="MVPLUXCREATIONS">
 
   <!-- 3 animated cutout groups -->
-  <img class="hero-group hero-middle" src="images/FrontPageWeb/Herobackgroundparts-hero-middle.png" alt="">
-  <img class="hero-group hero-left" src="images/FrontPageWeb/Herobackgroundparts-hero-left.png" alt="">
-  <img class="hero-group hero-right" src="images/FrontPageWeb/Herobackgroundparts-hero-right.png" alt="">
+  <img class="hero-group group1 hero-middle" src="images/FrontPageWeb/Herobackgroundparts-hero-middle.png" alt="">
+  <img class="hero-group group2 hero-left" src="images/FrontPageWeb/Herobackgroundparts-hero-left.png" alt="">
+  <img class="hero-group group3 hero-right" src="images/FrontPageWeb/Herobackgroundparts-hero-right.png" alt="">
 
   <!-- flash effect -->
   <div class="hero-flash"></div>
@@ -63,7 +63,7 @@
   <img class="hero-mvp-small" src="images/FrontPageWeb/Herobackgroundparts-logogold.png" alt="MVP logo">
 
   <!-- hero buttons -->
-  <a href="#shop" class="lux-hero-btn shop-btn">Shop Cutouts</a>
+  <a href="#shop" class="lux-hero-btn shop-btn">Shop Standees</a>
   <a href="#custom" class="lux-hero-btn custom-btn">Custom Order</a>
 
 </section>
@@ -74,20 +74,20 @@
   <div class="fan-board-header">
     <h2>Fan Request Board</h2>
     <p>
-      Vote for future cutout ideas, see what fans are asking for, and suggest what we should create next.
+      Vote for future standee ideas, see what fans are asking for, and suggest what we should create next.
     </p>
   </div>
 
   <div class="fan-board-block fan-top-block">
     <div class="fan-block-title fan-title-row">
       <div>
-        <h3>Most Wanted Cutouts</h3>
+        <h3>Most Wanted Standees</h3>
       </div>
       <span class="fan-goal-pill">Vote goal: 100 votes</span>
     </div>
 
     <p class="fan-block-intro">
-      Vote for the future cutouts fans want us to make. The top spots can come from any category.
+      Vote for the future standees fans want us to make. The top spots can come from any category.
     </p>
 
     <div class="fan-rule-grid" aria-label="Fan request rewards and limits">
@@ -101,29 +101,29 @@
       <button class="fan-carousel-btn" onclick="scrollFanVotes(-1)" aria-label="Previous fan favorite">‹</button>
 
       <div class="fan-vote-grid" id="fanVoteTrack">
-        <article class="fan-vote-card">
+        <article class="fan-vote-card wanted-card-1">
           <div class="fan-card-stage">
             <img class="fan-card-bg" data-admin-image="wanted-basketball-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
-            <img class="fan-card-cutout" data-admin-image="wanted-basketball-cutout" src="images/FrontPageWeb/Sports-Kobe-KB1forprint.png" alt="Basketball legend cutout">
+            <img class="fan-card-cutout" data-admin-image="wanted-basketball-cutout" src="images/SportLegendStandees/Kobe/KB1nobackground.png" alt="Sport Legend cutout">
             <div class="fan-vote-meter">
               <strong>78%</strong>
               <span>78 / 100 votes</span>
             </div>
           </div>
           <div class="fan-card-footer">
-            <h4>Basketball Legend</h4>
+            <h4>Sport Legend</h4>
             <button class="fan-vote-action" data-vote-id="wanted-basketball" onclick="registerFanVote('wanted-basketball', this)">Vote <span class="fan-vote-count">78</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button data-wanted-cart="Basketball Legend Cutout" onclick="addToCart('Basketball Legend Cutout', getCurrentBasePrice())">Cart</button>
+              <button data-wanted-cart="Sport Legend Standee" onclick="addToCart('Sport Legend Standee', getCurrentBasePrice())" aria-label="Add to cart" title="Add to cart">🛒</button>
             </div>
           </div>
         </article>
 
-        <article class="fan-vote-card">
+        <article class="fan-vote-card wanted-card-2">
           <div class="fan-card-stage">
             <img class="fan-card-bg" data-admin-image="wanted-movie-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
-            <img class="fan-card-cutout" data-admin-image="wanted-movie-cutout" src="images/FrontPageWeb/MovieCharacters-Endorskeleton-Endordarkinsideshouldercutout.png" alt="Movie inspired cutout">
+            <img class="fan-card-cutout" data-admin-image="wanted-movie-cutout" src="images/MovieCharacterStandees/Endorskeleton/Endornobackground.png" alt="Movie inspired cutout">
             <div class="fan-vote-meter">
               <strong>62%</strong>
               <span>62 / 100 votes</span>
@@ -134,12 +134,12 @@
             <button class="fan-vote-action" data-vote-id="wanted-movie" onclick="registerFanVote('wanted-movie', this)">Vote <span class="fan-vote-count">62</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button data-wanted-cart="Movie Inspired Cutout" onclick="addToCart('Movie Inspired Cutout', getCurrentBasePrice())">Cart</button>
+              <button data-wanted-cart="Movie Inspired Standee" onclick="addToCart('Movie Inspired Standee', getCurrentBasePrice())" aria-label="Add to cart" title="Add to cart">🛒</button>
             </div>
           </div>
         </article>
 
-        <article class="fan-vote-card">
+        <article class="fan-vote-card wanted-card-3">
           <div class="fan-card-stage">
             <img class="fan-card-bg" data-admin-image="wanted-music-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
             <img class="fan-card-cutout" data-admin-image="wanted-music-cutout" src="images/FrontPageWeb/Music-MJackson-MJTR.png" alt="Music artist cutout">
@@ -153,15 +153,15 @@
             <button class="fan-vote-action" data-vote-id="wanted-music" onclick="registerFanVote('wanted-music', this)">Vote <span class="fan-vote-count">45</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button data-wanted-cart="Music Artist Cutout" onclick="addToCart('Music Artist Cutout', getCurrentBasePrice())">Cart</button>
+              <button data-wanted-cart="Music Artist Standee" onclick="addToCart('Music Artist Standee', getCurrentBasePrice())" aria-label="Add to cart" title="Add to cart">🛒</button>
             </div>
           </div>
         </article>
 
-        <article class="fan-vote-card">
+        <article class="fan-vote-card wanted-card-4">
           <div class="fan-card-stage">
             <img class="fan-card-bg" data-admin-image="wanted-dinosaur-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
-            <img class="fan-card-cutout fan-card-cutout-wide" data-admin-image="wanted-dinosaur-cutout" src="images/FrontPageWeb/Dinosaurs-JPRex.png" alt="Dinosaur movie cutout">
+            <img class="fan-card-cutout" data-admin-image="wanted-dinosaur-cutout" src="images/FrontPageWeb/Dinosaurs-JPRex.png" alt="Dinosaur movie cutout">
             <div class="fan-vote-meter">
               <strong>39%</strong>
               <span>39 / 100 votes</span>
@@ -172,12 +172,12 @@
             <button class="fan-vote-action" data-vote-id="wanted-dinosaur-party" onclick="registerFanVote('wanted-dinosaur-party', this)">Vote <span class="fan-vote-count">39</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button data-wanted-cart="Dinosaur Movie Cutout" onclick="addToCart('Dinosaur Movie Cutout', getCurrentBasePrice())">Cart</button>
+              <button data-wanted-cart="Dinosaur Movie Standee" onclick="addToCart('Dinosaur Movie Standee', getCurrentBasePrice())" aria-label="Add to cart" title="Add to cart">🛒</button>
             </div>
           </div>
         </article>
 
-        <article class="fan-vote-card">
+        <article class="fan-vote-card wanted-card-5">
           <div class="fan-card-stage">
             <img class="fan-card-bg" data-admin-image="wanted-custom-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg" alt="">
             <img class="fan-card-cutout" data-admin-image="wanted-custom-cutout" src="images/FrontPageWeb/Music-MJackson-MJzombie.png" alt="Custom mashup cutout">
@@ -191,7 +191,7 @@
             <button class="fan-vote-action" data-vote-id="wanted-custom-mashup" onclick="registerFanVote('wanted-custom-mashup', this)">Vote <span class="fan-vote-count">32</span></button>
             <div class="fan-card-actions">
               <button onclick="openFanRequest()">Buy</button>
-              <button data-wanted-cart="Custom Mashup Cutout" onclick="addToCart('Custom Mashup Cutout', getCurrentBasePrice())">Cart</button>
+              <button data-wanted-cart="Custom Mashup Standee" onclick="addToCart('Custom Mashup Standee', getCurrentBasePrice())" aria-label="Add to cart" title="Add to cart">🛒</button>
             </div>
           </div>
         </article>
@@ -212,8 +212,8 @@
   <div class="fan-board-layout">
     <div class="fan-board-block fan-suggest-block">
       <div class="fan-block-title">
-        <h3>Suggest the Next Cutout</h3>
-        <p>Have an idea for the next cutout? We want to hear it.</p>
+        <h3>Suggest the Next Standee</h3>
+        <p>Have an idea for the next standee? We want to hear it.</p>
       </div>
 
       <div class="fan-steps-grid">
@@ -243,11 +243,11 @@
           <button class="fan-vote-action" data-vote-id="wanted-zombie-comedy" onclick="registerFanVote('wanted-zombie-comedy', this)">Vote <span class="fan-vote-count">24</span></button>
         </div>
         <div class="fan-mini-idea">
-          <span>Birthday Entrance Cutout</span>
+          <span>Birthday Entrance Standee</span>
           <button class="fan-vote-action" data-vote-id="wanted-birthday-entrance" onclick="registerFanVote('wanted-birthday-entrance', this)">Vote <span class="fan-vote-count">18</span></button>
         </div>
         <div class="fan-mini-idea">
-          <span>Funny Mascot Cutout</span>
+          <span>Funny Mascot Standee</span>
           <button class="fan-vote-action" data-vote-id="wanted-funny-mascot" onclick="registerFanVote('wanted-funny-mascot', this)">Vote <span class="fan-vote-count">15</span></button>
         </div>
       </div>
@@ -268,7 +268,7 @@
   <!-- FEATURED PRODUCTS -->
 	  <section id="shop" class="section">
 	    <h2>Featured Standee Categories</h2>
-	    <p class="section-subtitle">Choose a category first, then explore players, characterssizes and custom standee options inside.</p>
+	    <p class="section-subtitle">Choose a category first, then explore players, characters, sizes, and custom standee options inside.</p>
     <div class="shop-tools">
 
   <input type="text" id="searchInput" placeholder="Search standees..." onkeyup="filterProducts()">
@@ -281,9 +281,17 @@
 
     <option value="movies">Movies</option>
 
+    <option value="people">People & Public Figures</option>
+
     <option value="music">Music</option>
 
+    <option value="religious">Faith & Celebration</option>
+
+    <option value="holiday">Holiday</option>
+
     <option value="dinosaurs">Dinosaurs</option>
+
+    <option value="videogames">Games & Fantasy</option>
 
     <option value="custom">Custom</option>
 
@@ -291,22 +299,28 @@
 
 </div>
 
-<div class="product-grid">
+<div class="featured-category-carousels">
+  <div class="featured-category-row">
+    <div class="featured-row-heading">
+      <h3>Main Categories</h3>
+      <span>Sports, movies, actors, creators, public figures, music, games</span>
+    </div>
+    <div class="product-grid product-carousel-row">
 
   <!-- SPORTS -->
-  <div class="product-card" data-category="sports" data-name="sports legends cutouts basketball football baseball">
+  <div class="product-card category-sports" data-category="sports" data-name="sports legends cutouts basketball football baseball">
     <a href="sports-legends.html" class="product-image-link">
-      <div class="product-stage-preview" style="background-image: url('images/FanBackgrounds/top-favorite-stage-gold.png');">
-        <img class="product-stage-bg" src="images/FanBackgrounds/top-favorite-stage-gold.png" alt="">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
         <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
         <img class="product-cutout" src="images/FrontPageWeb/Sports-Kobe-KB1forprint.png" alt="">
       </div>
     </a>
 
-    <h3><a href="sports-legends.html" class="product-title-link">Sports Star Standees</a></h3>
+    <h3><a href="sports-legends.html" class="product-title-link">Sport Legend Standees</a></h3>
 	    <p class="product-description">Shop sports-inspired standee styles, then choose different players and sizes inside the category.</p>
 
-    <div class="size-builder" data-product-name="Sports Star Standee" data-original-price="129.99" data-original-height="78">
+    <div class="size-builder" data-product-name="Sport Legend Standee" data-original-price="129.99" data-original-height="78">
   <div class="size-option active">
     <label>
       <input type="radio" name="sportsSizeMode" value="original" checked>
@@ -331,26 +345,26 @@
 </div>
 
 	<div class="button-row">
-	  <button onclick="addSelectedToCart(this)">Add to Cart</button>
+	  <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
 	  <button onclick="buySelectedNow(this)">Buy Now</button>
-	  <button class="offer-btn" onclick="openOffer('Sports Star Standee')">Make Offer</button>
+	  <button class="offer-btn" onclick="openOffer('Sport Legend Standee')">Make Offer</button>
 	</div>
 </div>
 
   <!-- MOVIES -->
-  <div class="product-card" data-category="movies" data-name="movie inspired characters cutouts">
+  <div class="product-card category-movies" data-category="movies" data-name="movie inspired characters cutouts">
     <a href="movie-inspired.html" class="product-image-link">
       <div class="product-stage-preview">
         <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
         <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
-        <img class="product-cutout" src="images/FrontPageWeb/MovieCharacters-Endorskeleton-Endordarkinsideshouldercutout.png" alt="">
+        <img class="product-cutout" src="images/MovieCharacterStandees/Endorskeleton/Endornobackground.png" alt="">
       </div>
     </a>
 
     <h3><a href="movie-inspired.html" class="product-title-link">Movie Character Standees</a></h3>
 		    <p class="product-description">Browse movie-style standee categories and see more character looks, poses, inside the categories.</p>
 
-    <div class="size-builder" data-product-name="Movie Character Standee" data-original-price="129.99" data-original-height="74">
+    <div class="size-builder" data-product-name="Movie Character Standee" data-original-price="129.99" data-original-height="78">
       <div class="size-option active">
         <label>
           <input type="radio" name="movieSizeMode" value="original" checked>
@@ -370,14 +384,53 @@
     </div>
 
 	    <div class="button-row">
-	      <button onclick="addSelectedToCart(this)">Add to Cart</button>
+	      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
 	      <button onclick="buySelectedNow(this)">Buy Now</button>
 		      <button class="offer-btn" onclick="openOffer('Movie Character Standee')">Make Offer</button>
 	    </div>
   </div>
 
+  <!-- PEOPLE & PUBLIC FIGURES -->
+  <div class="product-card category-people" data-category="people" data-name="movie actors actresses youtubers creators historical figures politicians public figures cutouts">
+    <a href="fan-inspired.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
+        <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
+        <img class="product-cutout" src="images/FrontPageWeb/Music-TS-TSfinal.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="fan-inspired.html" class="product-title-link">People & Public Figure Standees</a></h3>
+    <p class="product-description">Plan actor, creator, historical figure, public speaker, or lookalike-style display ideas.</p>
+
+    <div class="size-builder" data-product-name="People & Public Figure Standee" data-original-price="129.99" data-original-height="78">
+      <div class="size-option active">
+        <label>
+          <input type="radio" name="peopleSizeMode" value="original" checked>
+          <span>Original Size - 6'6" - $129.99</span>
+        </label>
+      </div>
+      <div class="size-option">
+        <label>
+          <input type="radio" name="peopleSizeMode" value="custom">
+          <span>Custom Size</span>
+        </label>
+        <div class="custom-size-box">
+          <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+        </div>
+      </div>
+      <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
+    </div>
+
+    <div class="button-row">
+      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
+      <button onclick="buySelectedNow(this)">Buy Now</button>
+      <button class="offer-btn" onclick="openOffer('People & Public Figure Standee')">Make Offer</button>
+    </div>
+  </div>
+
   <!-- MUSIC -->
-  <div class="product-card" data-category="music" data-name="music artist cutouts">
+  <div class="product-card category-music" data-category="music" data-name="music artist cutouts">
     <a href="music-artists.html" class="product-image-link">
       <div class="product-stage-preview">
         <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
@@ -389,7 +442,7 @@
     <h3><a href="music-artists.html" class="product-title-link">Music Artist Standees</a></h3>
 		    <p class="product-description">Explore concert-style standee categories with different performers, sizes, and custom display choices.</p>
 
-    <div class="size-builder" data-product-name="Music Artist Standee" data-original-price="129.99" data-original-height="69">
+    <div class="size-builder" data-product-name="Music Artist Standee" data-original-price="129.99" data-original-height="78">
       <div class="size-option active">
         <label>
           <input type="radio" name="musicSizeMode" value="original" checked>
@@ -409,131 +462,14 @@
     </div>
 
 	    <div class="button-row">
-	      <button onclick="addSelectedToCart(this)">Add to Cart</button>
+	      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
 	      <button onclick="buySelectedNow(this)">Buy Now</button>
 		      <button class="offer-btn" onclick="openOffer('Music Artist Standee')">Make Offer</button>
 	    </div>
   </div>
 
-  <!-- RELIGIOUS -->
-  <div class="product-card" data-category="religious" data-name="religious cutouts jesus church holiday">
-    <a href="religious-cutouts.html" class="product-image-link">
-      <div class="product-stage-preview">
-        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
-        <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
-        <img class="product-cutout" src="images/FrontPageWeb/Religious-J13D.png" alt="">
-      </div>
-    </a>
-
-    <h3><a href="religious-cutouts.html" class="product-title-link">Faith & Celebration Standees</a></h3>
-	    <p class="product-description">View inspirational and celebration display categories for churches, holidays, events, rooms, and plays.</p>
-
-    <div class="size-builder" data-product-name="Faith & Celebration Standee" data-original-price="129.99" data-original-height="72">
-      <div class="size-option active">
-        <label>
-          <input type="radio" name="religiousSizeMode" value="original" checked>
-          <span>Original Size - 6'6" - $129.99</span>
-        </label>
-      </div>
-      <div class="size-option">
-        <label>
-          <input type="radio" name="religiousSizeMode" value="custom">
-          <span>Custom Size</span>
-        </label>
-        <div class="custom-size-box">
-          <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
-        </div>
-      </div>
-      <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
-    </div>
-
-	    <div class="button-row">
-	      <button onclick="addSelectedToCart(this)">Add to Cart</button>
-	      <button onclick="buySelectedNow(this)">Buy Now</button>
-		      <button class="offer-btn" onclick="openOffer('Faith & Celebration Standee')">Make Offer</button>
-	    </div>
-  </div>
-
-  <!-- FAN INSPIRED -->
-  <div class="product-card" data-category="custom" data-name="fan inspired custom cutouts">
-    <a href="fan-inspired.html" class="product-image-link">
-      <div class="product-stage-preview">
-        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
-        <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
-        <img class="product-cutout" src="images/FrontPageWeb/Music-MJackson-MJzombie.png" alt="">
-      </div>
-    </a>
-
-    <h3><a href="fan-inspired.html" class="product-title-link">Fan Request Standees</a></h3>
-	    <p class="product-description">See fan-inspired ideas, mashups, and custom concepts that can become full-size display pieces.</p>
-
-    <div class="size-builder" data-product-name="Fan Request Standee" data-original-price="129.99" data-original-height="69">
-      <div class="size-option active">
-        <label>
-          <input type="radio" name="fanInspiredSizeMode" value="original" checked>
-          <span>Original Size - 6'6" - $129.99</span>
-        </label>
-      </div>
-      <div class="size-option">
-        <label>
-          <input type="radio" name="fanInspiredSizeMode" value="custom">
-          <span>Custom Size</span>
-        </label>
-        <div class="custom-size-box">
-          <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
-        </div>
-      </div>
-      <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
-    </div>
-
-	    <div class="button-row">
-		      <button onclick="addSelectedToCart(this)">Add to Cart</button>
-	      <button onclick="buySelectedNow(this)">Buy Now</button>
-		      <button class="offer-btn" onclick="openOffer('Fan Request Standee')">Make Offer</button>
-	    </div>
-  </div>
-
-  <!-- DINOSAURS -->
-  <div class="product-card" data-category="dinosaurs" data-name="dinosaur party cutouts">
-    <a href="dinosaur-cutouts.html" class="product-image-link">
-      <div class="product-stage-preview">
-        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
-        <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
-        <img class="product-cutout product-cutout-wide" src="images/FrontPageWeb/Dinosaurs-JPRex.png" alt="">
-      </div>
-    </a>
-
-    <h3><a href="dinosaur-cutouts.html" class="product-title-link">Dinosaur & Creature Standees</a></h3>
-	    <p class="product-description">Shop dinosaur and creature-style displays for birthdays, rooms, outdoor setups, and big party moments.</p>
-
-    <div class="size-builder" data-product-name="Dinosaur Party Standee" data-original-price="129.99" data-original-height="96">
-      <div class="size-option active">
-        <label>
-          <input type="radio" name="dinosaurSizeMode" value="original" checked>
-          <span>Original Size - 6'6" - $129.99</span>
-        </label>
-      </div>
-      <div class="size-option">
-        <label>
-          <input type="radio" name="dinosaurSizeMode" value="custom">
-          <span>Custom Size</span>
-        </label>
-        <div class="custom-size-box">
-          <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
-        </div>
-      </div>
-      <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
-    </div>
-
-	    <div class="button-row">
-		      <button onclick="addSelectedToCart(this)">Add to Cart</button>
-	      <button onclick="buySelectedNow(this)">Buy Now</button>
-		      <button class="offer-btn" onclick="openOffer('Dinosaur Party Standee')">Make Offer</button>
-	    </div>
-  </div>
-
   <!-- VIDEO GAMES -->
-  <div class="product-card" data-category="videogames" data-name="video game inspired cutouts gaming birthday">
+  <div class="product-card category-videogames" data-category="videogames" data-name="video game inspired cutouts gaming birthday">
     <a href="videogame-cutouts.html" class="product-image-link">
       <div class="product-stage-preview">
         <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
@@ -545,7 +481,7 @@
     <h3><a href="videogame-cutouts.html" class="product-title-link">Game & Fantasy Standees</a></h3>
 		    <p class="product-description">Browse game-room, fantasy, stream, and themed-event standee categories with custom scene options.</p>
 
-    <div class="size-builder" data-product-name="Game & Fantasy Standee" data-original-price="129.99" data-original-height="72">
+    <div class="size-builder" data-product-name="Game & Fantasy Standee" data-original-price="129.99" data-original-height="78">
       <div class="size-option active">
         <label>
           <input type="radio" name="videoGameSizeMode" value="original" checked>
@@ -565,14 +501,180 @@
     </div>
 
 	    <div class="button-row">
-		      <button onclick="addSelectedToCart(this)">Add to Cart</button>
+		      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
 	      <button onclick="buySelectedNow(this)">Buy Now</button>
 		      <button class="offer-btn" onclick="openOffer('Game & Fantasy Standee')">Make Offer</button>
 	    </div>
   </div>
 
+    </div>
+  </div>
+
+  <div class="featured-category-row">
+    <div class="featured-row-heading">
+      <h3>Celebrations & Custom</h3>
+      <span>Faith, holiday, dinosaur, fan picks, party packs, custom photo</span>
+    </div>
+    <div class="product-grid product-carousel-row">
+
+  <!-- RELIGIOUS -->
+  <div class="product-card category-religious" data-category="religious" data-name="religious cutouts jesus church holiday">
+    <a href="religious-cutouts.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
+        <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
+        <img class="product-cutout" src="images/FrontPageWeb/Religious-J13D.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="religious-cutouts.html" class="product-title-link">Faith & Celebration Standees</a></h3>
+	    <p class="product-description">View inspirational and celebration display categories for churches, holidays, events, rooms, and plays.</p>
+
+    <div class="size-builder" data-product-name="Faith & Celebration Standee" data-original-price="129.99" data-original-height="78">
+      <div class="size-option active">
+        <label>
+          <input type="radio" name="religiousSizeMode" value="original" checked>
+          <span>Original Size - 6'6" - $129.99</span>
+        </label>
+      </div>
+      <div class="size-option">
+        <label>
+          <input type="radio" name="religiousSizeMode" value="custom">
+          <span>Custom Size</span>
+        </label>
+        <div class="custom-size-box">
+          <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+        </div>
+      </div>
+      <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
+    </div>
+
+	    <div class="button-row">
+	      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
+	      <button onclick="buySelectedNow(this)">Buy Now</button>
+		      <button class="offer-btn" onclick="openOffer('Faith & Celebration Standee')">Make Offer</button>
+	    </div>
+  </div>
+
+  <!-- HOLIDAY -->
+  <div class="product-card category-holiday" data-category="holiday" data-name="holiday christmas halloween easter valentine seasonal cutouts">
+    <a href="religious-cutouts.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
+        <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
+        <img class="product-cutout" src="images/FrontPageWeb/Herobackgroundparts-hero8T.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="religious-cutouts.html" class="product-title-link">Holiday Standees</a></h3>
+    <p class="product-description">Seasonal displays for Christmas, Halloween, Easter, Valentine events, parties, and storefronts.</p>
+
+    <div class="size-builder" data-product-name="Holiday Standee" data-original-price="129.99" data-original-height="78">
+      <div class="size-option active">
+        <label>
+          <input type="radio" name="holidaySizeMode" value="original" checked>
+          <span>Original Size - 6'6" - $129.99</span>
+        </label>
+      </div>
+      <div class="size-option">
+        <label>
+          <input type="radio" name="holidaySizeMode" value="custom">
+          <span>Custom Size</span>
+        </label>
+        <div class="custom-size-box">
+          <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+        </div>
+      </div>
+      <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
+    </div>
+
+    <div class="button-row">
+      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
+      <button onclick="buySelectedNow(this)">Buy Now</button>
+      <button class="offer-btn" onclick="openOffer('Holiday Standee')">Make Offer</button>
+    </div>
+  </div>
+
+  <!-- DINOSAURS -->
+  <div class="product-card category-dinosaurs" data-category="dinosaurs" data-name="dinosaur party cutouts">
+    <a href="dinosaur-cutouts.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
+        <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
+        <img class="product-cutout product-cutout-wide" src="images/FrontPageWeb/Dinosaurs-JPRex.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="dinosaur-cutouts.html" class="product-title-link">Dinosaur & Animal Standees</a></h3>
+	    <p class="product-description">Shop dinosaur and animal-style displays for birthdays, rooms, outdoor setups, and big party moments.</p>
+
+    <div class="size-builder" data-product-name="Dinosaur & Animal Standee" data-original-price="129.99" data-original-height="78">
+      <div class="size-option active">
+        <label>
+          <input type="radio" name="dinosaurSizeMode" value="original" checked>
+          <span>Original Size - 6'6" - $129.99</span>
+        </label>
+      </div>
+      <div class="size-option">
+        <label>
+          <input type="radio" name="dinosaurSizeMode" value="custom">
+          <span>Custom Size</span>
+        </label>
+        <div class="custom-size-box">
+          <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+        </div>
+      </div>
+      <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
+    </div>
+
+	    <div class="button-row">
+		      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
+	      <button onclick="buySelectedNow(this)">Buy Now</button>
+		      <button class="offer-btn" onclick="openOffer('Dinosaur & Animal Standee')">Make Offer</button>
+	    </div>
+  </div>
+
+  <!-- FAN PICKS -->
+  <div class="product-card category-fan-picks" data-category="custom" data-name="fan inspired custom cutouts">
+    <a href="fan-inspired.html" class="product-image-link">
+      <div class="product-stage-preview">
+        <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
+        <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
+        <img class="product-cutout" src="images/FrontPageWeb/Music-MJackson-MJzombie.png" alt="">
+      </div>
+    </a>
+
+    <h3><a href="fan-inspired.html" class="product-title-link">Fan Request Standees</a></h3>
+	    <p class="product-description">See fan-inspired ideas, mashups, and custom concepts that can become full-size display pieces.</p>
+
+    <div class="size-builder" data-product-name="Fan Request Standee" data-original-price="129.99" data-original-height="78">
+      <div class="size-option active">
+        <label>
+          <input type="radio" name="fanInspiredSizeMode" value="original" checked>
+          <span>Original Size - 6'6" - $129.99</span>
+        </label>
+      </div>
+      <div class="size-option">
+        <label>
+          <input type="radio" name="fanInspiredSizeMode" value="custom">
+          <span>Custom Size</span>
+        </label>
+        <div class="custom-size-box">
+          <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+        </div>
+      </div>
+      <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
+    </div>
+
+	    <div class="button-row">
+		      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
+	      <button onclick="buySelectedNow(this)">Buy Now</button>
+		      <button class="offer-btn" onclick="openOffer('Fan Request Standee')">Make Offer</button>
+	    </div>
+  </div>
+
   <!-- CUSTOM PHOTO -->
-  <div class="product-card" data-category="custom" data-name="custom photo cutout yourself family kid birthday">
+  <div class="product-card category-custom-photo" data-category="custom" data-name="custom photo cutout yourself family kid birthday">
     <a href="custom-photo-cutouts.html" class="product-image-link">
       <div class="product-stage-preview">
         <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
@@ -584,7 +686,7 @@
     <h3><a href="custom-photo-cutouts.html" class="product-title-link">Custom Photo Standees</a></h3>
 		    <p class="product-description">Turn your own photo, family member, athlete, or guest of honor into a custom standee display.</p>
 
-    <div class="size-builder" data-product-name="Custom Photo Standee" data-original-price="129.99" data-original-height="66">
+    <div class="size-builder" data-product-name="Custom Photo Standee" data-original-price="129.99" data-original-height="78">
       <div class="size-option active">
         <label>
           <input type="radio" name="customPhotoSizeMode" value="original" checked>
@@ -604,14 +706,14 @@
     </div>
 
 	    <div class="button-row">
-		      <button onclick="addSelectedToCart(this)">Add to Cart</button>
+		      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
 	      <button onclick="buySelectedNow(this)">Buy Now</button>
 		      <button class="offer-btn" onclick="openOffer('Custom Photo Standee')">Make Offer</button>
 	    </div>
   </div>
 
   <!-- SMALL CUTOUTS -->
-  <div class="product-card" data-category="custom" data-name="small cutouts party packs 1ft 2ft 3ft 4ft">
+  <div class="product-card category-party-packs" data-category="custom" data-name="small cutouts party packs 1ft 2ft 3ft 4ft">
     <a href="small-cutout-party-packs.html" class="product-image-link">
       <div class="product-stage-preview">
         <img class="product-stage-bg" src="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" alt="">
@@ -643,12 +745,14 @@
     </div>
 
 	    <div class="button-row">
-		      <button onclick="addSelectedToCart(this)">Add to Cart</button>
+		      <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
 	      <button onclick="buySelectedNow(this)">Buy Now</button>
 		      <button class="offer-btn" onclick="openOffer('Small Standee Party Pack')">Make Offer</button>
 	    </div>
   </div>
 
+    </div>
+  </div>
 </div>
 
   </section>
@@ -669,6 +773,7 @@
           <div class="fan-gallery-info">
             <span class="fan-gallery-label">Golden Hero Standee</span>
             <button class="fan-vote-action fan-gallery-vote" data-vote-id="showcase-hero" onclick="registerFanVote('showcase-hero', this)">Vote <span class="fan-vote-count">34</span></button>
+            <button class="fan-gallery-cart" onclick="addToCart('Golden Hero Standee', getCurrentBasePrice())" aria-label="Add to cart" title="Add to cart">🛒</button>
           </div>
         </article>
         <article class="fan-gallery-card">
@@ -679,6 +784,7 @@
           <div class="fan-gallery-info">
             <span class="fan-gallery-label">Dinosaur Movie Night</span>
             <button class="fan-vote-action fan-gallery-vote" data-vote-id="showcase-adventure" onclick="registerFanVote('showcase-adventure', this)">Vote <span class="fan-vote-count">29</span></button>
+            <button class="fan-gallery-cart" onclick="addToCart('Dinosaur Movie Night', getCurrentBasePrice())" aria-label="Add to cart" title="Add to cart">🛒</button>
           </div>
         </article>
         <article class="fan-gallery-card">
@@ -689,6 +795,7 @@
           <div class="fan-gallery-info">
             <span class="fan-gallery-label">VIP Spotlight Stage</span>
             <button class="fan-vote-action fan-gallery-vote" data-vote-id="showcase-vip" onclick="registerFanVote('showcase-vip', this)">Vote <span class="fan-vote-count">41</span></button>
+            <button class="fan-gallery-cart" onclick="addToCart('VIP Spotlight Stage', getCurrentBasePrice())" aria-label="Add to cart" title="Add to cart">🛒</button>
           </div>
         </article>
       </div>
@@ -768,12 +875,12 @@
 
   <!-- CUSTOM ORDERS -->
   <section id="custom" class="section dark-section">
-    <h2>Custom Cutouts Made for You</h2>
+    <h2>Custom Standees Made for You</h2>
     <p>
       Have an idea? Send us your photo, character idea, event theme, or custom request.
-      We can create custom life-size cutouts for parties, fan rooms, gifts, events, and displays.
+      We can create custom life-size standees for parties, fan rooms, gifts, events, and displays.
     </p>
-    <button onclick="openCustomForm()">Request a Custom Cutout</button>
+    <button onclick="openCustomForm()">Request a Custom Standee</button>
   </section>
 
   <!-- WHY US -->
@@ -820,25 +927,48 @@
       <h2 id="modalTitle"></h2>
       <p id="modalPrice"></p>
 
-      <a href="#" class="pay-link">Pay with PayPal</a>
-      <a href="#" class="pay-link">Pay with Venmo</a>
-      <a href="#" class="pay-link">Pay with Cash App</a>
+      <p class="modal-fee-note">Customer pays all transaction, app, card, bank, crypto network, and gas fees.</p>
+      <button class="checkout-btn" onclick="openCheckout()">Continue to Checkout</button>
     </div>
   </div>
 
     <!-- OFFER MODAL -->
   <div id="offerModal" class="modal">
-    <div class="modal-content">
+    <div class="modal-content checkout-modal-content">
       <button class="close-modal" onclick="closeModals()">×</button>
       <h2>Make an Offer</h2>
       <p id="offerProduct"></p>
-
-      <input type="text" placeholder="Your name" />
-      <input type="email" placeholder="Your email" />
-      <input type="text" placeholder="Your offer amount" />
-      <textarea placeholder="Message / size wanted"></textarea>
-
-      <button class="submit-btn">Send Offer</button>
+      <div id="offerAccountNotice" class="offer-account-notice"></div>
+      <div id="offerMessageBoard" class="offer-message-board"></div>
+      <form id="offerForm" class="checkout-form offer-form" onsubmit="submitOfferRequest(event)">
+        <div class="offer-guest-fields">
+          <input type="text" name="name" placeholder="Your name" />
+          <input type="email" name="email" placeholder="Your email" />
+          <input type="tel" name="phone" placeholder="Phone number" />
+        </div>
+        <input type="text" name="amount" placeholder="Your offer amount" required />
+        <textarea name="message" placeholder="Message / size wanted / payment method"></textarea>
+        <label class="policy-check">
+          <input type="checkbox" required />
+          <span>I understand I can send one offer. If MVPLUXCREATIONS sends a counteroffer, I can accept it or send one final counteroffer. Customer pays all transaction fees if accepted.</span>
+        </label>
+        <button class="submit-btn" type="submit">Send Offer Request</button>
+      </form>
+      <div id="sellerCounterTools" class="seller-counter-tools">
+        <h3>Seller Counteroffer</h3>
+        <input type="text" id="sellerCounterAmount" placeholder="Counteroffer amount" />
+        <textarea id="sellerCounterMessage" placeholder="Counteroffer message"></textarea>
+        <button type="button" class="submit-btn" onclick="sendSellerCounterOffer()">Send Counteroffer</button>
+      </div>
+      <div id="buyerCounterTools" class="buyer-counter-tools">
+        <button type="button" class="checkout-btn" onclick="acceptSellerCounterOffer()">Accept Counteroffer</button>
+        <button type="button" class="submit-btn" onclick="showBuyerFinalCounter()">Send Final Counteroffer</button>
+        <div id="buyerFinalCounterBox" class="buyer-final-counter-box">
+          <input type="text" id="buyerFinalCounterAmount" placeholder="Final counter amount" />
+          <textarea id="buyerFinalCounterMessage" placeholder="Final counter message"></textarea>
+          <button type="button" class="submit-btn" onclick="sendBuyerFinalCounterOffer()">Send Final Counter</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -847,7 +977,7 @@
     <div class="bg-modal-box">
       <button class="bg-close" onclick="closeBgModal()">&times;</button>
       <h3 id="bgModalTitle">Background Options</h3>
-      <p class="bg-modal-subtitle">Choose a display style for your cutout.</p>
+      <p class="bg-modal-subtitle">Choose a display style for your standee.</p>
 
       <div class="bg-option-grid">
         <div class="bg-option-card">
@@ -873,6 +1003,6 @@
 
   
 
-  <script src="script.js?v=20260625-admin-final-controls"></script>
+  <script src="script.js?v=20260701-cart-icon-same-size"></script>
 </body>
 </html>

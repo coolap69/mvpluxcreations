@@ -1,7 +1,7 @@
 const adminProducts = [
   {
-    slug: 'sports-star-standee',
-    title: 'Sports Star Standees',
+    slug: 'sport-legend-standee',
+    title: 'Sport Legend Standees',
     description: 'Shop sports-inspired standee styles, then choose different players, sizes, and background options inside the category.',
     originalHeight: 78,
     originalPrice: 129.99,
@@ -14,7 +14,7 @@ const adminProducts = [
     description: 'Browse movie-style standee categories and see more character looks, poses, and display backgrounds inside.',
     originalHeight: 74,
     originalPrice: '',
-    cutoutImage: 'images/FrontPageWeb/MovieCharacters-Endorskeleton-Endordarkinsideshouldercutout.png',
+    cutoutImage: 'images/MovieCharacterStandees/Endorskeleton/Endornobackground.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
@@ -86,10 +86,14 @@ if (localStorage.getItem('mvpluxAdminSignedIn') !== 'true') {
   window.location.href = 'signin.html';
 }
 
+function clearLegacyAdminBrowserStorage() {
+  localStorage.removeItem('mvpluxAdminAnywhereLegacy');
+}
+
 const extraImageItems = [
-  { key: 'wanted-basketball-cutout', group: 'Most Wanted', label: 'Basketball Legend standee', fallback: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png' },
+  { key: 'wanted-basketball-cutout', group: 'Most Wanted', label: 'Sport Legend standee', fallback: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png' },
   { key: 'wanted-basketball-bg', group: 'Most Wanted', label: 'Basketball Legend background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
-  { key: 'wanted-movie-cutout', group: 'Most Wanted', label: 'Movie Inspired standee', fallback: 'images/FrontPageWeb/MovieCharacters-Endorskeleton-Endordarkinsideshouldercutout.png' },
+  { key: 'wanted-movie-cutout', group: 'Most Wanted', label: 'Movie Inspired standee', fallback: 'images/MovieCharacterStandees/Endorskeleton/Endornobackground.png' },
   { key: 'wanted-movie-bg', group: 'Most Wanted', label: 'Movie Inspired background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
   { key: 'wanted-music-cutout', group: 'Most Wanted', label: 'Music Artist standee', fallback: 'images/FrontPageWeb/Music-MJackson-MJTR.png' },
   { key: 'wanted-music-bg', group: 'Most Wanted', label: 'Music Artist background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
@@ -106,76 +110,150 @@ const extraImageItems = [
 ];
 
 function readAdminProducts() {
-  try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
-  } catch (error) {
-    return {};
-  }
+  return readJsonStorage('mvpluxAdminProducts', {});
 }
 
 function writeAdminProducts(products) {
-  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products || {}));
+  return products;
 }
 
 function readCustomProducts() {
-  try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminCustomProducts') || '[]');
-  } catch (error) {
-    return [];
-  }
+  return readJsonStorage('mvpluxAdminCustomProducts', []);
 }
 
 function writeCustomProducts(products) {
-  localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(products));
+  localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(products || []));
+  return products;
 }
 
 function readArchivedProducts() {
-  try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminArchivedProducts') || '[]');
-  } catch (error) {
-    return [];
-  }
+  return readJsonStorage('mvpluxAdminArchivedProducts', []);
 }
 
 function writeArchivedProducts(slugs) {
-  localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(slugs));
+  localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(slugs || []));
+  return slugs;
 }
 
 function readPriceSettings() {
-  try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminPriceSettings') || '{}');
-  } catch (error) {
-    return {};
-  }
+  return readJsonStorage('mvpluxAdminPriceSettings', {});
 }
 
 function writePriceSettings(settings) {
-  localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(settings));
+  localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(settings || {}));
+  return settings;
 }
 
 function readExtraImages() {
-  try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminExtraImages') || '{}');
-  } catch (error) {
-    return {};
-  }
+  return readJsonStorage('mvpluxAdminExtraImages', {});
 }
 
 function writeExtraImages(images) {
-  localStorage.setItem('mvpluxAdminExtraImages', JSON.stringify(images));
+  localStorage.setItem('mvpluxAdminExtraImages', JSON.stringify(images || {}));
+  return images;
 }
 
 function readCoupons() {
+  return readJsonStorage('mvpluxAdminCoupons', []);
+}
+
+function readJsonStorage(key, fallback) {
   try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminCoupons') || '[]');
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
   } catch (error) {
-    return [];
+    return fallback;
+  }
+}
+
+function buildAdminExport() {
+  return {
+    exportedAt: new Date().toISOString(),
+    note: 'These edits are saved in this browser. Export this file before clearing browser data or moving to another computer.',
+    products: readAdminProducts(),
+    customProducts: readCustomProducts(),
+    savedForLaterProducts: readArchivedProducts(),
+    priceSettings: readPriceSettings(),
+    extraImages: readExtraImages(),
+    coupons: readCoupons(),
+    pageEdits: readJsonStorage('mvpluxInlineAdminEdits', {}),
+    cardsSavedForLater: readJsonStorage('mvpluxInlineHiddenCards', {})
+  };
+}
+
+function renderAdminExportPreview(exportData = buildAdminExport()) {
+  const preview = document.getElementById('adminExportPreview');
+  const json = JSON.stringify(exportData, null, 2);
+  if (preview) preview.value = json;
+  return json;
+}
+
+function applyAdminExport(data) {
+  if (!data || typeof data !== 'object') throw new Error('Invalid export');
+
+  writeAdminProducts(data.products || {});
+  writeCustomProducts(data.customProducts || []);
+  writeArchivedProducts(data.savedForLaterProducts || []);
+  writePriceSettings(data.priceSettings || {});
+  writeExtraImages(data.extraImages || {});
+  localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(data.coupons || []));
+  localStorage.setItem('mvpluxInlineAdminEdits', JSON.stringify(data.pageEdits || {}));
+  localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(data.cardsSavedForLater || {}));
+  renderAdminProducts();
+  fillPriceSettingsForm();
+  renderExtraImages();
+  renderAdminExportPreview();
+  setStatus('Imported changes into this browser.');
+}
+
+function importAdminChangesFromFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+
+  reader.addEventListener('load', () => {
+    try {
+      applyAdminExport(JSON.parse(reader.result));
+    } catch (error) {
+      setStatus('That export file could not be restored.');
+    }
+  });
+
+  reader.addEventListener('error', () => {
+    setStatus('That export file could not be opened.');
+  });
+
+  reader.readAsText(file);
+}
+
+function downloadAdminChanges() {
+  const json = renderAdminExportPreview();
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const date = new Date().toISOString().slice(0, 10);
+  link.href = url;
+  link.download = `mvplux-admin-changes-${date}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setStatus('Exported changes file. This is the file to use when making edits permanent.');
+}
+
+async function copyAdminChanges() {
+  const json = renderAdminExportPreview();
+  try {
+    await navigator.clipboard.writeText(json);
+    setStatus('Copied changes. You can paste them when making the website permanent.');
+  } catch (error) {
+    setStatus('Changes are shown in the box. Select the box and copy them.');
   }
 }
 
 function setStatus(message) {
   const status = document.getElementById('adminStatus');
   if (status) status.textContent = message;
+  if (document.getElementById('adminExportPreview')) renderAdminExportPreview();
 }
 
 function clamp(value, min, max) {
@@ -206,22 +284,27 @@ function makeSlug(title) {
 }
 
 function createCustomProduct() {
+  const title = document.getElementById('newProductTitle')?.value.trim() || 'Custom Standee';
   const products = readCustomProducts();
-  const nextNumber = products.length + 1;
-  const slug = `custom-card-${Date.now()}`;
+  const slug = makeSlug(title);
+  if (products.some((product) => product.slug === slug) || adminProducts.some((product) => product.slug === slug)) {
+    setStatus('A card with that name already exists.');
+    return;
+  }
+
   products.push({
     slug,
     custom: true,
-    title: `New Custom Card ${nextNumber}`,
-    description: 'Edit this card from Admin.',
-    originalHeight: 78,
+    title,
+    description: 'New custom standee card.',
+    originalHeight: 72,
     originalPrice: 129.99,
     cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   });
   writeCustomProducts(products);
   renderAdminProducts();
-  setStatus('Created a new card. Edit it, then save.');
+  setStatus('Card created and saved in this browser.');
 }
 
 function archiveProduct(slug) {
@@ -229,23 +312,23 @@ function archiveProduct(slug) {
   archived.add(slug);
   writeArchivedProducts([...archived]);
   renderAdminProducts();
-  setStatus('Saved card for later. It will not show on the Shop page.');
+  setStatus('Card saved for later in this browser.');
 }
 
 function restoreProduct(slug) {
   writeArchivedProducts(readArchivedProducts().filter((item) => item !== slug));
   renderAdminProducts();
-  setStatus('Restored card.');
+  setStatus('Card restored.');
 }
 
 function deleteCustomProduct(slug) {
+  if (!window.confirm('Delete this custom card from browser storage?')) return;
   writeCustomProducts(readCustomProducts().filter((product) => product.slug !== slug));
   const products = readAdminProducts();
   delete products[slug];
   writeAdminProducts(products);
-  writeArchivedProducts(readArchivedProducts().filter((item) => item !== slug));
   renderAdminProducts();
-  setStatus('Deleted custom card.');
+  setStatus('Custom card deleted from this browser.');
 }
 
 function productPreviewMarkup(value) {
@@ -474,18 +557,13 @@ function collectProductFormData(form) {
 }
 
 function saveProductForm(form, message = 'Saved product changes. Go back to Shop to see them.') {
-  try {
-    const productData = collectProductFormData(form);
-    const products = readAdminProducts();
-    products[form.dataset.slug] = productData;
-    writeAdminProducts(products);
-    syncPriceSettingsFromProduct(productData);
-    setStatus(message);
-    return true;
-  } catch (error) {
-    setStatus('The image is too large to save here. Try a smaller image or crop it first.');
-    return false;
-  }
+  const products = readAdminProducts();
+  products[form.dataset.slug] = collectProductFormData(form);
+  writeAdminProducts(products);
+  syncPriceSettingsFromProduct(products[form.dataset.slug]);
+  renderAdminExportPreview();
+  setStatus(message);
+  return false;
 }
 
 function syncPriceSettingsFromProduct(productData) {
@@ -511,7 +589,7 @@ function syncPriceSettingsFromProduct(productData) {
 function schedulePlacementSave(form) {
   clearTimeout(form._placementSaveTimer);
   form._placementSaveTimer = setTimeout(() => {
-    saveProductForm(form, 'Placement saved.');
+    saveProductForm(form, 'Placement preview changed.');
   }, 550);
 }
 
@@ -524,7 +602,7 @@ async function handleImageUpload(fileInput, targetInput, form) {
   try {
     targetInput.value = await resizeImageFile(file);
     syncPreviewFromFields(form);
-    saveProductForm(form, 'Image changed and saved for this browser.');
+    saveProductForm(form, 'Image changed on this screen.');
   } catch (error) {
     setStatus('That image could not be loaded. Try another image file.');
   }
@@ -576,7 +654,7 @@ function renderExtraImages() {
         writeExtraImages(images);
         card.querySelector('img').src = dataUrl;
         card.querySelector('.admin-long-path').value = dataUrl;
-        setStatus('Image changed and saved.');
+        setStatus('Image saved in this browser.');
       } catch (error) {
         setStatus('That image could not be loaded. Try another image file.');
       }
@@ -585,11 +663,12 @@ function renderExtraImages() {
 
   container.querySelectorAll('[data-reset-extra-image]').forEach((button) => {
     button.addEventListener('click', () => {
+      if (!window.confirm('Clear this image edit and go back to the original image?')) return;
       const images = readExtraImages();
       delete images[button.dataset.resetExtraImage];
       writeExtraImages(images);
       renderExtraImages();
-      setStatus('Image reset.');
+      setStatus('Image reset in this browser.');
     });
   });
 }
@@ -796,7 +875,7 @@ function setupPriceRules() {
     };
     writePriceSettings(settings);
     fillPriceSettingsForm();
-    setStatus('Price rules saved. Shop prices will use these numbers.');
+    setStatus('Prices saved in this browser.');
   });
 }
 
@@ -813,32 +892,40 @@ function setupCoupons() {
 
   form?.addEventListener('submit', (event) => {
     event.preventDefault();
-    localStorage.setItem('mvpluxAdminCoupons', JSON.stringify([{
-      code: codeInput.value.trim().toUpperCase(),
-      discount: discountInput.value.trim()
-    }]));
-    setStatus('Saved coupon. It will show at the top of the Shop section.');
+    const coupon = {
+      code: codeInput?.value.trim() || '',
+      discount: discountInput?.value.trim() || ''
+    };
+    localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(coupon.code && coupon.discount ? [coupon] : []));
+    setStatus('Coupon saved in this browser.');
   });
 
   document.getElementById('clearCoupons')?.addEventListener('click', () => {
-    localStorage.removeItem('mvpluxAdminCoupons');
     codeInput.value = '';
     discountInput.value = '';
-    setStatus('Coupon cleared.');
+    localStorage.setItem('mvpluxAdminCoupons', '[]');
+    setStatus('Coupon cleared in this browser.');
   });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  clearLegacyAdminBrowserStorage();
   renderAdminProducts();
   setupPriceRules();
   renderExtraImages();
   setupCoupons();
 
+  if (window.location.hash === '#create-card') {
+    createCustomProduct();
+    history.replaceState(null, '', 'admin.html');
+  }
+
   document.getElementById('resetAdminProducts')?.addEventListener('click', () => {
     localStorage.removeItem('mvpluxAdminProducts');
+    localStorage.removeItem('mvpluxAdminCustomProducts');
     localStorage.removeItem('mvpluxAdminArchivedProducts');
     renderAdminProducts();
-    setStatus('Product edits reset.');
+    setStatus('Product card saves cleared in this browser.');
   });
 
   document.getElementById('createAdminProduct')?.addEventListener('click', createCustomProduct);
@@ -858,6 +945,17 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('resetExtraImages')?.addEventListener('click', () => {
     localStorage.removeItem('mvpluxAdminExtraImages');
     renderExtraImages();
-    setStatus('Most Wanted and Gallery images reset.');
+    setStatus('Extra image saves cleared in this browser.');
   });
+
+  document.getElementById('exportAdminChanges')?.addEventListener('click', downloadAdminChanges);
+  document.getElementById('copyAdminChanges')?.addEventListener('click', copyAdminChanges);
+  document.getElementById('importAdminChanges')?.addEventListener('click', () => {
+    document.getElementById('importAdminChangesFile')?.click();
+  });
+  document.getElementById('importAdminChangesFile')?.addEventListener('change', (event) => {
+    importAdminChangesFromFile(event.target.files?.[0]);
+    event.target.value = '';
+  });
+  renderAdminExportPreview();
 });

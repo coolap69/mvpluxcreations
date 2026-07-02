@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260625-admin-final-controls" />
+  <link rel="stylesheet" href="style.css?v=20260701-cart-icon-same-size" />
 </head>
 <body>
   <header class="top-nav">
@@ -35,10 +35,10 @@
           <button id="enableAdminAnywhere" type="button">Edit From Any Page</button>
           <button id="disableAdminAnywhere" type="button">Turn Off Page Editing</button>
           <button id="createAdminProduct" type="button">Create New Card</button>
-          <button id="resetAdminProducts" type="button">Reset Product Edits</button>
+          <button id="resetAdminProducts" type="button">Clear Product Edits</button>
         </div>
       </div>
-      <p class="admin-note">Use Edit From Any Page to click text, double-click images to replace them, drag images to move them, scroll over images to resize, and hold Shift while scrolling to rotate.</p>
+      <p class="admin-note">Use Edit From Any Page to click text, double-click images to replace them, drag images to move them, resize from the gold corner, rotate from the toolbar, and save cards for later without deleting them.</p>
       <div id="savedProducts" class="admin-saved-products"></div>
       <div id="adminProducts" class="admin-product-list"></div>
     </section>
@@ -75,7 +75,7 @@
     <section class="admin-panel">
       <div class="admin-panel-header">
         <h2>Most Wanted + Gallery Images</h2>
-        <button id="resetExtraImages" type="button">Reset Images</button>
+        <button id="resetExtraImages" type="button">Clear Image Edits</button>
       </div>
       <p class="admin-note">Upload images for the Most Wanted Cutouts and Fan Showcase Gallery sections.</p>
       <div id="adminExtraImages" class="admin-extra-image-list"></div>
@@ -99,8 +99,22 @@
       </form>
       <p id="adminStatus" class="admin-status"></p>
     </section>
+
+    <section class="admin-panel">
+      <div class="admin-panel-header">
+        <h2>Make Changes Permanent</h2>
+        <div class="admin-panel-actions">
+          <button id="exportAdminChanges" type="button">Export Changes</button>
+          <button id="copyAdminChanges" type="button">Copy Changes</button>
+          <button id="importAdminChanges" type="button">Restore Export</button>
+        </div>
+      </div>
+      <p class="admin-note">Export saves your browser edits into one file. Restore Export puts that file back into this browser. Use the export when you want the changes added into the real website files.</p>
+      <input id="importAdminChangesFile" type="file" accept="application/json,.json" hidden>
+      <textarea id="adminExportPreview" class="admin-export-preview" readonly placeholder="Your exported changes will appear here."></textarea>
+    </section>
   </main>
 
-  <script src="admin.js?v=20260625-admin-images-prices2"></script>
+  <script src="admin.js?v=20260630-custom-size-baseline-final"></script>
 </body>
 </html>
