@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clear Local Test Data | MVPLUXCREATIONS</title>
+  <link rel="stylesheet" href="style.css?v=20260701-cart-icon-same-size" />
+</head>
+<body>
+  <main class="auth-page">
+    <section class="auth-card">
+      <h1>Clearing Test Data</h1>
+      <p id="clearStatus">Cleaning saved browser data for this local test site...</p>
+    </section>
+  </main>
+
+  <script>
+    async function clearMvpluxLocalData() {
+      localStorage.clear();
+      sessionStorage.clear();
+
+      if (window.indexedDB?.databases) {
+        const databases = await indexedDB.databases();
+        await Promise.all(databases.map((database) => {
+          if (!database.name) return Promise.resolve();
+          return new Promise((resolve) => {
+            const request = indexedDB.deleteDatabase(database.name);
+            request.onsuccess = request.onerror = request.onblocked = resolve;
+          });
+        }));
+      }
+
+      document.getElementById('clearStatus').textContent = 'Done. Sending you back to Create Account...';
+      setTimeout(() => {
+        window.location.href = 'signup.html';
+      }, 900);
+    }
+
+    clearMvpluxLocalData().catch(() => {
+      document.getElementById('clearStatus').textContent = 'Local storage cleared. Please go back to Create Account.';
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+  </script>
+</body>
+</html>

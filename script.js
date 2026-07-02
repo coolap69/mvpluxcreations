@@ -745,6 +745,11 @@ function showSupabaseConnectionAlert(actionLabel = 'connect to Supabase') {
   alert(`Could not ${actionLabel} yet.\n\nThe site tried to reach:\n${projectUrl}\n\nThis usually means the new Supabase project is still finishing setup, Supabase is having a temporary issue, or the Project URL / publishable key needs to be re-copied from Supabase settings.`);
 }
 
+function isSupabaseNetworkError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('failed to fetch') || message.includes('load failed') || message.includes('network');
+}
+
 async function syncSupabaseAuthState() {
   const client = getSupabaseClient();
   if (!client?.auth || isAdminSignedIn()) return;
@@ -769,6 +774,10 @@ async function signInCustomerWithSupabase(email, password) {
   try {
     const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error) {
+      if (isSupabaseNetworkError(error)) {
+        showSupabaseConnectionAlert('sign in');
+        return true;
+      }
       alert(error.message || 'Could not sign in. Please check your email and password.');
       return true;
     }
@@ -801,6 +810,10 @@ async function signUpCustomerWithSupabase(screenName, email, password) {
     });
 
     if (error) {
+      if (isSupabaseNetworkError(error)) {
+        showSupabaseConnectionAlert('create the account');
+        return true;
+      }
       alert(error.message || 'Could not create the account.');
       return true;
     }
