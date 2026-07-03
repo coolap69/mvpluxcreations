@@ -2646,7 +2646,7 @@ footer {
 
 .payment-action-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
   gap: 8px;
 }
 
@@ -2663,6 +2663,21 @@ footer {
 
 .payment-action-btn:hover {
   background: rgba(255,255,255,0.72);
+}
+
+.payment-completed-btn {
+  min-height: 44px;
+  border: 1px solid rgba(255, 217, 106, 0.58);
+  border-radius: 8px;
+  color: #111;
+  background: linear-gradient(180deg, #ffe589, #d3a819);
+  font-size: 14px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.payment-completed-btn:hover {
+  filter: brightness(1.06);
 }
 
 .checkout-success-notice .checkout-btn {
@@ -2745,6 +2760,18 @@ footer {
   font-weight: 900;
 }
 
+.payment-method-card span b {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #111;
+  background: #ffd96a;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
 .payment-method-card em {
   color: #ffd96a;
   font-size: 11px;
@@ -2801,6 +2828,12 @@ footer {
   display: block;
   margin-top: 8px;
   font-size: 12px;
+}
+
+.payment-option-qr strong {
+  color: #ffd96a;
+  font-size: 24px;
+  font-weight: 950;
 }
 
 .payment-order-note {

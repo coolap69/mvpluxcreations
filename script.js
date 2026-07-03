@@ -4,7 +4,7 @@ let infoSlideIndex = 0;
 let currentBuyNowItem = null;
 let activeOfferState = null;
 const supportEmail = 'support@mvpluxcreations.com';
-let currentCheckoutPaymentMethod = 'paypal';
+let currentCheckoutPaymentMethod = 'zelle';
 let currentCheckoutOrderNumber = '';
 
 function showSiteMessage(message, type = 'info') {
@@ -30,56 +30,44 @@ function showSiteMessage(message, type = 'info') {
 }
 
 const checkoutPaymentMethods = {
-  // ADMIN: Update these placeholder links and QR image paths when payment accounts are ready.
-  // PayPal example: payUrl: 'https://paypal.me/yourname'
-  // Venmo example: payUrl: 'https://venmo.com/u/yourname'
-  // Cash App example: payUrl: 'https://cash.app/$YourCashtag'
-  // QR images can be added to images/payment/ and referenced below.
+  // ADMIN: Edit payment details here. Stripe / Apple Pay / Google Pay can be added later.
+  zelle: {
+    label: 'Zelle',
+    buttonLabel: 'Zelle Instructions',
+    note: 'Preferred - No Processing Fee',
+    phone: '(508) 463-5910',
+    active: true,
+    preferred: true
+  },
   paypal: {
     label: 'PayPal',
     buttonLabel: 'Pay with PayPal',
-    note: 'May redirect to PayPal to complete payment securely.',
-    payUrl: '#PAYPAL_LINK_HERE',
-    qrImage: 'images/payment/paypal-qr-placeholder.png',
+    note: 'Accepted for convenience. Opens PayPal in a secure new tab.',
+    payUrl: 'https://paypal.me/louispazos',
+    qrImage: '',
     active: true
   },
   venmo: {
     label: 'Venmo',
     buttonLabel: 'Pay with Venmo',
-    note: 'May open Venmo or a secure Venmo payment page.',
-    payUrl: '#VENMO_LINK_HERE',
-    qrImage: 'images/payment/venmo-qr-placeholder.png',
+    note: 'Accepted for convenience. Opens Venmo in a secure new tab.',
+    payUrl: 'https://venmo.com/u/Lap27',
+    qrImage: '',
     active: true
   },
   cashapp: {
     label: 'Cash App',
     buttonLabel: 'Pay with Cash App',
-    note: 'May open Cash App or a secure Cash App payment page.',
-    payUrl: '#CASHAPP_CASHTAG_LINK_HERE',
-    qrImage: 'images/payment/cashapp-qr-placeholder.png',
-    active: true
-  },
-  zelle: {
-    label: 'Zelle',
-    buttonLabel: 'Zelle Later',
-    note: 'Optional later. Not the main payment method right now.',
-    payUrl: '#ZELLE_OPTIONAL_LATER',
+    note: 'Accepted for convenience. Opens Cash App in a secure new tab.',
+    payUrl: 'https://cash.app/$Watawonderfulworld',
     qrImage: '',
-    active: false
+    active: true
   },
   stripe: {
     label: 'Card / Apple Pay / Google Pay',
     buttonLabel: 'Card Pay Later',
-    note: 'Stripe, Apple Pay, and Google Pay can be added later.',
+    note: 'Placeholder for Stripe, Apple Pay, and Google Pay later.',
     payUrl: '#STRIPE_APPLE_GOOGLE_PAY_LATER',
-    qrImage: '',
-    active: false
-  },
-  crypto: {
-    label: 'Crypto Wallet',
-    buttonLabel: 'Crypto Later',
-    note: 'Optional later if you want wallet payments.',
-    payUrl: '#CRYPTO_WALLET_LATER',
     qrImage: '',
     active: false
   }
@@ -333,7 +321,7 @@ function paymentMethodButtonMarkup(key, method) {
   const disabled = method.active ? '' : ' disabled';
   return `
     <button type="button" class="payment-method-card ${key === currentCheckoutPaymentMethod ? 'active' : ''}" data-payment-method="${key}" onclick="selectCheckoutPaymentMethod('${key}')"${disabled}>
-      <span>${method.label}</span>
+      <span>${method.label}${method.preferred ? ' <b>Preferred</b>' : ''}</span>
       <small>${method.note}</small>
       <em>${method.active ? 'Open payment instructions' : 'Coming later'}</em>
     </button>
@@ -357,10 +345,10 @@ function paymentModalMarkup() {
         <div id="paymentOptionQr" class="payment-option-qr"></div>
         <div class="payment-order-note">
           <strong>Payment note</strong>
-          <span id="paymentOrderNoteText">Submit the order request first so we can create your order number.</span>
+          <span id="paymentOrderNoteText">Please include your order number in the payment note. Your order will be processed after payment is confirmed.</span>
         </div>
         <button id="paymentOptionLink" type="button" class="submit-btn">Open Secure Payment Page</button>
-        <p class="payment-option-disclaimer">You may be redirected to the selected payment provider to complete payment securely. Processing or financing fees may apply depending on the payment method and your account.</p>
+        <p class="payment-option-disclaimer">Zelle is preferred because there are no processing fees. PayPal, Venmo, and Cash App are accepted for convenience.</p>
       </div>
     </div>
   `;
@@ -391,9 +379,24 @@ function isPlaceholderPaymentLink(url) {
   return !url || url.startsWith('#');
 }
 
+async function copyZellePhoneNumber() {
+  const phone = checkoutPaymentMethods.zelle.phone;
+  try {
+    await navigator.clipboard.writeText(phone);
+    showSiteMessage('Zelle phone number copied.', 'success');
+  } catch (error) {
+    showSiteMessage(`Zelle phone number: ${phone}`, 'info');
+  }
+}
+
+function markPaymentCompleted() {
+  const orderNumber = currentCheckoutOrderNumber || 'your order number';
+  showSiteMessage(`Thank you. Payment marked as completed for ${orderNumber}. MVPLUXCREATIONS will confirm it soon.`, 'success');
+}
+
 function openPaymentOption(key = currentCheckoutPaymentMethod) {
   ensureCommerceModals();
-  const method = checkoutPaymentMethods[key] || checkoutPaymentMethods.paypal;
+  const method = checkoutPaymentMethods[key] || checkoutPaymentMethods.zelle;
   if (!method.active) {
     showSiteMessage(`${method.label} can be added later.`, 'info');
     return;
@@ -411,19 +414,25 @@ function openPaymentOption(key = currentCheckoutPaymentMethod) {
   if (title) title.textContent = method.label;
   if (intro) intro.textContent = method.note;
   if (qr) {
-    qr.innerHTML = method.qrImage
+    qr.innerHTML = method.phone
+      ? `<strong>${method.phone}</strong><span>Use this phone number for Zelle.</span>`
+      : method.qrImage
       ? `<img src="${method.qrImage}" alt="${method.label} QR code placeholder"><span>QR code placeholder</span>`
-      : '<span>QR code can be added later.</span>';
+      : '<span>You may be redirected to complete payment securely.</span>';
   }
   if (note) {
     note.textContent = orderNumber
-      ? `Please include order number ${orderNumber} in the payment note.`
-      : 'Submit the order request first so we can create your order number.';
+      ? `Please include order number ${orderNumber} in the payment note. Your order will be processed after payment is confirmed.`
+      : 'Please include your order number in the payment note. Submit the order request first if you do not have one yet.';
   }
   if (link) {
-    link.textContent = isPlaceholderPaymentLink(method.payUrl) ? 'Payment Link Placeholder' : `Open ${method.label}`;
-    link.disabled = isPlaceholderPaymentLink(method.payUrl);
+    link.textContent = method.phone ? 'Copy Zelle Phone Number' : `Open ${method.label}`;
+    link.disabled = !method.phone && isPlaceholderPaymentLink(method.payUrl);
     link.onclick = () => {
+      if (method.phone) {
+        copyZellePhoneNumber();
+        return;
+      }
       if (isPlaceholderPaymentLink(method.payUrl)) {
         showSiteMessage(`${method.label} payment link is a placeholder for now.`, 'info');
         return;
@@ -437,6 +446,7 @@ function openPaymentOption(key = currentCheckoutPaymentMethod) {
 
 function checkoutModalMarkup() {
   const paymentMethods = Object.entries(checkoutPaymentMethods)
+    .filter(([, method]) => method.active)
     .map(([key, method]) => paymentMethodButtonMarkup(key, method))
     .join('');
   const paymentActions = paymentActionButtonsMarkup();
@@ -446,14 +456,15 @@ function checkoutModalMarkup() {
       <div class="modal-content checkout-modal-content">
         <button class="close-modal" onclick="closeModals()">x</button>
         <h2>Checkout / Pay</h2>
-        <p class="checkout-intro">Choose how you want to pay. MVPLUXCREATIONS will confirm the order details and send payment instructions.</p>
-        <p class="checkout-email-note">Your order request is sent to MVPLUXCREATIONS. You will receive payment instructions after the details are confirmed.</p>
+        <p class="checkout-intro">Choose how you want to pay. Zelle is preferred because there are no processing fees. PayPal, Venmo, and Cash App are accepted for convenience.</p>
+        <p class="checkout-email-note">Please include your order number in the payment note. Your order will be processed after payment is confirmed.</p>
         <div id="checkoutAcceptedOfferNotice" class="checkout-accepted-offer-notice"></div>
         <div id="checkoutSuccessNotice" class="checkout-success-notice">
           <strong>Order request sent</strong>
-          <span>Thank you. MVPLUXCREATIONS received your request and will confirm the details with payment instructions.</span>
+          <span>Thank you. MVPLUXCREATIONS received your request. Use one of the payment options below and include your order number in the payment note.</span>
           <div id="checkoutOrderNumber" class="checkout-order-number"></div>
           <div class="payment-action-row">${paymentActions}</div>
+          <button type="button" class="payment-completed-btn" onclick="markPaymentCompleted()">I've Completed Payment</button>
           <button type="button" class="checkout-btn" onclick="closeModals()">Close</button>
         </div>
         <div id="checkoutOrderSummary" class="checkout-order-summary"></div>
@@ -485,7 +496,7 @@ function checkoutModalMarkup() {
           <strong>Returns & disclaimers</strong>
           <p>Custom/life-size standees are made to order. Returns or cancellations are not accepted after production begins unless MVPLUXCREATIONS made an error or the item arrives damaged. Report shipping damage quickly with photos of the package and product.</p>
           <p>Product images may be restored, enhanced, composited, or recreated for print. MVPLUXCREATIONS is not affiliated with any person, brand, team, league, studio, or rights holder unless clearly stated.</p>
-          <p>Crypto payments are final once sent. The customer is responsible for using the correct wallet network and confirmed amount.</p>
+          <p>Payment is confirmed manually. Keep your payment receipt until MVPLUXCREATIONS confirms the order.</p>
         </div>
       </div>
     </div>
@@ -509,6 +520,16 @@ function offerModalMarkup() {
             <input type="text" name="name" placeholder="Your name">
             <input type="email" name="email" placeholder="Your email">
             <input type="tel" name="phone" placeholder="Phone number">
+            <fieldset class="checkout-address-fields">
+              <legend>Shipping address if offer is accepted</legend>
+              <input type="text" name="address1" autocomplete="shipping address-line1" placeholder="Street address">
+              <input type="text" name="address2" autocomplete="shipping address-line2" placeholder="Apt, suite, unit (optional)">
+              <div class="checkout-address-row">
+                <input type="text" name="city" autocomplete="shipping address-level2" placeholder="City">
+                <input type="text" name="state" autocomplete="shipping address-level1" placeholder="State">
+                <input type="text" name="zip" autocomplete="shipping postal-code" placeholder="ZIP">
+              </div>
+            </fieldset>
           </div>
           <input type="text" name="amount" inputmode="decimal" placeholder="$ Offer amount" required>
           <select name="message">
@@ -578,7 +599,7 @@ function updateCheckoutDisplay() {
   const feeSummary = document.getElementById('checkoutFeeSummary');
   const acceptedNotice = document.getElementById('checkoutAcceptedOfferNotice');
   const successNotice = document.getElementById('checkoutSuccessNotice');
-  const selectedMethod = currentCheckoutPaymentMethod || 'paypal';
+  const selectedMethod = currentCheckoutPaymentMethod || 'zelle';
   const items = getCheckoutItems();
   const subtotal = getCheckoutSubtotal();
   const totals = calculateCustomerPaidTotal(subtotal, selectedMethod);
@@ -635,7 +656,7 @@ async function submitCheckoutRequest(event) {
   submitButton.disabled = true;
   submitButton.textContent = 'Sending...';
 
-  const methodKey = currentCheckoutPaymentMethod || 'paypal';
+  const methodKey = currentCheckoutPaymentMethod || 'zelle';
   const totals = calculateCustomerPaidTotal(getCheckoutSubtotal(), methodKey);
   const user = await getCommerceUser(client);
   const orderNumber = createOrderNumber();
@@ -718,15 +739,14 @@ function updateOfferBoard(productName = activeOfferState?.productName || '', sig
   const sentActions = document.getElementById('offerSentActions');
 
   if (notice) {
-    notice.textContent = signedInName
-      ? `Signed in as ${signedInName}. You can send this offer without filling out contact fields again.`
-      : 'Sign in first to skip name and email next time, or fill out the quick offer form below.';
+    notice.style.display = signedInName ? 'none' : 'block';
+    notice.textContent = signedInName ? '' : 'Fill out your contact and shipping details so we can add them to the order if your offer is accepted.';
   }
 
   if (guestFields) {
     guestFields.style.display = signedInName ? 'none' : 'grid';
     guestFields.querySelectorAll('input').forEach((input) => {
-      input.required = !signedInName && (input.name === 'name' || input.name === 'email');
+      input.required = !signedInName && ['name', 'email', 'phone', 'address1', 'city', 'state', 'zip'].includes(input.name);
     });
   }
 
@@ -781,7 +801,14 @@ async function submitOfferRequest(event) {
     message: form.message?.value?.trim() || '',
     name: formValue(form, 'name') || getSignedInName() || 'Customer',
     email: formValue(form, 'email') || user?.email || '',
-    phone: formValue(form, 'phone') || 'Not provided'
+    phone: formValue(form, 'phone') || 'Not provided',
+    shippingAddress: {
+      address1: formValue(form, 'address1'),
+      address2: formValue(form, 'address2'),
+      city: formValue(form, 'city'),
+      state: formValue(form, 'state'),
+      zip: formValue(form, 'zip')
+    }
   };
   const autoAccept = getAutoAcceptResult(amount, activeOfferState.askingPrice, activeOfferState.selectedHeight);
   activeOfferState.autoAccept = autoAccept;
@@ -792,6 +819,13 @@ async function submitOfferRequest(event) {
     activeOfferState.sizeLabel ? `Selected size: ${activeOfferState.sizeLabel}` : '',
     activeOfferState.askingPrice ? `Asking price: ${formatMoney(activeOfferState.askingPrice)}` : '',
     activeOfferState.buyerOffer.phone && activeOfferState.buyerOffer.phone !== 'Not provided' ? `Phone: ${activeOfferState.buyerOffer.phone}` : '',
+    activeOfferState.buyerOffer.shippingAddress?.address1 ? `Shipping: ${[
+      activeOfferState.buyerOffer.shippingAddress.address1,
+      activeOfferState.buyerOffer.shippingAddress.address2,
+      activeOfferState.buyerOffer.shippingAddress.city,
+      activeOfferState.buyerOffer.shippingAddress.state,
+      activeOfferState.buyerOffer.shippingAddress.zip
+    ].filter(Boolean).join(', ')}` : '',
     activeOfferState.buyerOffer.message ? `Message: ${activeOfferState.buyerOffer.message}` : ''
   ].filter(Boolean).join('\n');
 
@@ -1160,12 +1194,25 @@ function cleanStaleAdminState() {
   }
 }
 
-function signOutAdmin() {
+async function signOutCurrentUser() {
+  const client = getSupabaseClient();
+  if (client?.auth && !isAdminSignedIn()) {
+    try {
+      await client.auth.signOut();
+    } catch (error) {
+      console.warn('Supabase sign-out failed:', error);
+    }
+  }
+
   localStorage.removeItem('mvpluxAdminSignedIn');
   localStorage.removeItem('mvpluxAdminAnywhere');
   localStorage.removeItem('mvpluxSignedInName');
   localStorage.removeItem('mvpluxCustomerSignedIn');
   window.location.href = 'index.html';
+}
+
+function signOutAdmin() {
+  signOutCurrentUser();
 }
 
 function getSignedInName() {
@@ -1181,6 +1228,10 @@ function getSupabaseClient() {
 function showSupabaseConnectionAlert(actionLabel = 'connect to Supabase') {
   const projectUrl = window.MVPLUX_SUPABASE?.url || 'your Supabase project URL';
   showSiteMessage(`Could not ${actionLabel} yet. The site tried to reach ${projectUrl}. Please try again or check the Supabase project settings.`, 'error');
+}
+
+function getAuthRedirectUrl() {
+  return 'https://mvpluxcreations.com/signin.html';
 }
 
 function isSupabaseNetworkError(error) {
@@ -1241,6 +1292,7 @@ async function signUpCustomerWithSupabase(screenName, email, password) {
       email,
       password,
       options: {
+        emailRedirectTo: getAuthRedirectUrl(),
         data: {
           screen_name: screenName
         }
@@ -1318,26 +1370,15 @@ function setupAuthState() {
     document.querySelectorAll('.sign-up-link').forEach((link) => {
       link.style.display = 'none';
     });
+
+    document.querySelectorAll('.auth-links').forEach((links) => {
+      if (links.querySelector('[data-auth-signout]')) return;
+      links.insertAdjacentHTML('beforeend', `<button type="button" class="admin-inline-signout" data-auth-signout>Log Out</button>`);
+    });
   }
 
-  if (!isAdminSignedIn()) return;
-
-  document.querySelectorAll('.sign-in-link').forEach((link) => {
-    link.textContent = getSignedInName();
-    link.href = 'admin.html';
-  });
-
-  document.querySelectorAll('.sign-up-link').forEach((link) => {
-    link.style.display = 'none';
-  });
-
-  document.querySelectorAll('.auth-links').forEach((links) => {
-    if (links.querySelector('[data-admin-signout]')) return;
-    links.insertAdjacentHTML('beforeend', `<button type="button" class="admin-inline-signout" data-admin-signout>Log Out</button>`);
-  });
-
-  document.querySelectorAll('[data-admin-signout]').forEach((button) => {
-    button.addEventListener('click', signOutAdmin);
+  document.querySelectorAll('[data-auth-signout], [data-admin-signout]').forEach((button) => {
+    button.addEventListener('click', signOutCurrentUser);
   });
 }
 

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MVPLUXCREATIONS | Life-Size Standees</title>
-  <link rel="stylesheet" href="style.css?v=20260703-daily-votes" />
+  <link rel="stylesheet" href="style.css?v=20260703-domain-redirect" />
 </head>
 <body>
 
@@ -948,6 +948,16 @@
           <input type="text" name="name" placeholder="Your name" />
           <input type="email" name="email" placeholder="Your email" />
           <input type="tel" name="phone" placeholder="Phone number" />
+          <fieldset class="checkout-address-fields">
+            <legend>Shipping address if offer is accepted</legend>
+            <input type="text" name="address1" autocomplete="shipping address-line1" placeholder="Street address" />
+            <input type="text" name="address2" autocomplete="shipping address-line2" placeholder="Apt, suite, unit (optional)" />
+            <div class="checkout-address-row">
+              <input type="text" name="city" autocomplete="shipping address-level2" placeholder="City" />
+              <input type="text" name="state" autocomplete="shipping address-level1" placeholder="State" />
+              <input type="text" name="zip" autocomplete="shipping postal-code" placeholder="ZIP" />
+            </div>
+          </fieldset>
         </div>
         <input type="text" name="amount" inputmode="decimal" placeholder="$ Offer amount" required />
         <select name="message">
@@ -1013,7 +1023,7 @@
   
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="supabase-config.js?v=20260703-daily-votes"></script>
-  <script src="script.js?v=20260703-daily-votes"></script>
+  <script src="supabase-config.js?v=20260703-domain-redirect"></script>
+  <script src="script.js?v=20260703-domain-redirect"></script>
 </body>
 </html>
