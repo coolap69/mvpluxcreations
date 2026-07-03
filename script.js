@@ -177,7 +177,7 @@ function getAutoAcceptResult(offerAmount, askingPrice, heightInches) {
     };
   }
 
-  const minimumOffer = Math.round((asking * rule.minimumMultiplier) * 100) / 100;
+  const minimumOffer = Math.floor(asking * rule.minimumMultiplier);
   return {
     accepted: offer >= minimumOffer,
     rule,
