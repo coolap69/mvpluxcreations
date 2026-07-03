@@ -2754,6 +2754,7 @@ footer {
 }
 
 .modal-content input,
+.modal-content select,
 .modal-content textarea {
   width: 100%;
   margin: 8px 0;

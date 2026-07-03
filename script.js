@@ -171,6 +171,44 @@ function getAutoAcceptResult(offerAmount, askingPrice, heightInches) {
   };
 }
 
+function getOfferChoices(askingPrice, heightInches) {
+  const asking = Number(askingPrice) || 0;
+  if (!asking) return [];
+
+  const choices = [
+    { label: `Full asking price - ${formatMoney(asking)}`, value: asking, note: 'Fastest approval' },
+    { label: `5% off - ${formatMoney(Math.round((asking * 0.95) * 100) / 100)}`, value: Math.round((asking * 0.95) * 100) / 100, note: 'Offer request' }
+  ];
+
+  const autoRule = getAutoAcceptRule(heightInches);
+  if (autoRule) {
+    const maxDiscountValue = Math.round((asking * autoRule.minimumMultiplier) * 100) / 100;
+    choices.push({
+      label: `${autoRule.discountPercent}% off - ${formatMoney(maxDiscountValue)}`,
+      value: maxDiscountValue,
+      note: 'Lowest auto-accept offer'
+    });
+  } else {
+    choices.push({
+      label: `10% off - ${formatMoney(Math.round((asking * 0.9) * 100) / 100)}`,
+      value: Math.round((asking * 0.9) * 100) / 100,
+      note: 'Manual review'
+    });
+  }
+
+  return choices;
+}
+
+function updateOfferAmountChoices() {
+  const select = document.getElementById('offerAmountChoice');
+  if (!select) return;
+
+  const choices = getOfferChoices(activeOfferState?.askingPrice, activeOfferState?.selectedHeight);
+  select.innerHTML = choices.length
+    ? choices.map((choice) => `<option value="${choice.value.toFixed(2)}">${choice.label} (${choice.note})</option>`).join('')
+    : '<option value="">Choose offer amount</option>';
+}
+
 function openOffer(productName, offerMeta = {}) {
   ensureCommerceModals();
   const offerProduct = document.getElementById('offerProduct');
@@ -188,6 +226,7 @@ function openOffer(productName, offerMeta = {}) {
   };
 
   if (offerProduct) offerProduct.textContent = productName;
+  updateOfferAmountChoices();
   updateOfferBoard(productName, signedInName);
   if (offerModal) offerModal.style.display = 'flex';
 }
@@ -324,8 +363,13 @@ function offerModalMarkup() {
             <input type="email" name="email" placeholder="Your email">
             <input type="tel" name="phone" placeholder="Phone number">
           </div>
-          <input type="text" name="amount" placeholder="Your offer amount" required>
-          <textarea name="message" placeholder="Message / size wanted / payment method"></textarea>
+          <select id="offerAmountChoice" name="amount" required></select>
+          <select name="message">
+            <option value="">No extra note</option>
+            <option value="I want this as soon as possible.">Need it fast</option>
+            <option value="Please confirm design details before payment.">Confirm design first</option>
+            <option value="I may want a different payment method.">Discuss payment method</option>
+          </select>
           <label class="policy-check">
             <input type="checkbox" required>
             <span>I understand I can send one offer. If MVPLUXCREATIONS sends a counteroffer, I can accept it or send one final counteroffer. Customer pays all transaction fees if accepted.</span>
@@ -508,7 +552,7 @@ function updateOfferBoard(productName = activeOfferState?.productName || '', sig
   }
 
   if (form) form.style.display = activeOfferState?.buyerOffer ? 'none' : 'grid';
-  if (sellerTools) sellerTools.style.display = activeOfferState?.buyerOffer && !activeOfferState?.sellerCounter ? 'grid' : 'none';
+  if (sellerTools) sellerTools.style.display = 'none';
   if (buyerTools) buyerTools.style.display = activeOfferState?.sellerCounter && !activeOfferState?.buyerCounterUsed && activeOfferState?.status !== 'accepted' ? 'grid' : 'none';
 }
 
