@@ -1364,7 +1364,9 @@ function setupAuthState() {
   if (isSignedIn) {
     document.querySelectorAll('.sign-in-link').forEach((link) => {
       link.textContent = signedInName || 'Signed In';
-      link.href = isAdminSignedIn() ? 'admin.html' : 'signin.html';
+      link.removeAttribute('href');
+      link.setAttribute('aria-current', 'true');
+      link.setAttribute('role', 'button');
     });
 
     document.querySelectorAll('.sign-up-link').forEach((link) => {

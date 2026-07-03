@@ -82,12 +82,40 @@ const adminProducts = [
   }
 ];
 
-if (localStorage.getItem('mvpluxAdminSignedIn') !== 'true') {
-  window.location.href = 'signin.html';
-}
-
 function clearLegacyAdminBrowserStorage() {
   localStorage.removeItem('mvpluxAdminAnywhereLegacy');
+}
+
+async function requireSupabaseAdminAccess() {
+  const client = window.getMvpluxSupabaseClient?.();
+  if (!client?.auth) {
+    setCommerceStatus('Supabase is not loaded yet.');
+    return false;
+  }
+
+  const { data: sessionData } = await client.auth.getSession();
+  const user = sessionData?.session?.user;
+  if (!user) {
+    window.location.href = 'signin.html';
+    return false;
+  }
+
+  const { data, error } = await client
+    .from('admin_profiles')
+    .select('user_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    localStorage.removeItem('mvpluxAdminSignedIn');
+    setCommerceStatus('This signed-in account is not admin yet. Add this Supabase user ID to admin_profiles: ' + user.id);
+    return false;
+  }
+
+  localStorage.setItem('mvpluxAdminSignedIn', 'true');
+  localStorage.setItem('mvpluxCustomerSignedIn', 'true');
+  localStorage.setItem('mvpluxSignedInName', user.user_metadata?.screen_name || user.email?.split('@')[0] || 'Admin');
+  return true;
 }
 
 const extraImageItems = [
@@ -1018,13 +1046,16 @@ function setupCoupons() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   clearLegacyAdminBrowserStorage();
+  const hasAdminAccess = await requireSupabaseAdminAccess();
   renderAdminProducts();
   setupPriceRules();
   renderExtraImages();
   setupCoupons();
-  refreshCommerceAdmin();
+  if (hasAdminAccess) {
+    refreshCommerceAdmin();
+  }
 
   if (window.location.hash === '#create-card') {
     createCustomProduct();
