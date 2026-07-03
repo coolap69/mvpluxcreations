@@ -185,34 +185,6 @@ function getAutoAcceptResult(offerAmount, askingPrice, heightInches) {
   };
 }
 
-function getOfferChoices(askingPrice, heightInches) {
-  const asking = Number(askingPrice) || 0;
-  if (!asking) return [];
-
-  const rounded = (amount) => Math.round(amount * 100) / 100;
-  const rule = getAutoAcceptRule(heightInches);
-  const valueOffer = rule ? rounded(asking * rule.minimumMultiplier) : rounded(asking * 0.9);
-  const choices = [
-    { label: 'Original price', value: rounded(asking) },
-    { label: 'Strong offer', value: rounded(asking * 0.95) },
-    { label: 'Value offer', value: valueOffer }
-  ];
-
-  return choices.filter((choice, index, list) => (
-    choice.value > 0 && list.findIndex((item) => item.value === choice.value) === index
-  ));
-}
-
-function updateOfferAmountChoices() {
-  const select = document.getElementById('offerAmountChoice');
-  if (!select) return;
-
-  const choices = getOfferChoices(activeOfferState?.askingPrice, activeOfferState?.selectedHeight);
-  select.innerHTML = choices.length
-    ? choices.map((choice) => `<option value="${choice.value.toFixed(2)}">${choice.label} - ${formatMoney(choice.value)}</option>`).join('')
-    : '<option value="">Choose offer amount</option>';
-}
-
 function openOffer(productName, offerMeta = {}) {
   ensureCommerceModals();
   const offerProduct = document.getElementById('offerProduct');
@@ -230,7 +202,6 @@ function openOffer(productName, offerMeta = {}) {
   };
 
   if (offerProduct) offerProduct.textContent = productName;
-  updateOfferAmountChoices();
   updateOfferBoard(productName, signedInName);
   if (offerModal) offerModal.style.display = 'flex';
 }
@@ -365,7 +336,7 @@ function offerModalMarkup() {
             <input type="email" name="email" placeholder="Your email">
             <input type="tel" name="phone" placeholder="Phone number">
           </div>
-          <select id="offerAmountChoice" name="amount" required></select>
+          <input type="text" name="amount" inputmode="decimal" placeholder="$ Offer amount" required>
           <select name="message">
             <option value="">No extra note</option>
             <option value="Please confirm design details before payment.">Confirm design first</option>
