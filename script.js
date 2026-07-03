@@ -5,6 +5,28 @@ let currentBuyNowItem = null;
 let activeOfferState = null;
 const supportEmail = 'support@mvpluxcreations.com';
 
+function showSiteMessage(message, type = 'info') {
+  let messageBox = document.getElementById('siteMessageBox');
+  if (!messageBox) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="siteMessageBox" class="site-message-box" role="status" aria-live="polite">
+        <p></p>
+        <button type="button" aria-label="Close message" onclick="this.closest('.site-message-box').classList.remove('show')">x</button>
+      </div>
+    `);
+    messageBox = document.getElementById('siteMessageBox');
+  }
+
+  messageBox.className = `site-message-box site-message-${type}`;
+  messageBox.querySelector('p').textContent = message;
+  messageBox.classList.add('show');
+
+  window.clearTimeout(showSiteMessage.hideTimer);
+  showSiteMessage.hideTimer = window.setTimeout(() => {
+    messageBox.classList.remove('show');
+  }, type === 'error' ? 9000 : 5200);
+}
+
 const checkoutPaymentMethods = {
   zelle: {
     label: 'Zelle',
@@ -255,7 +277,7 @@ function formValue(form, name) {
 function getCommerceClient() {
   const client = window.getMvpluxSupabaseClient?.();
   if (!client) {
-    alert(`The order system is still loading. Please try again in a moment or contact ${supportEmail}.`);
+    showSiteMessage(`The order system is still loading. Please try again in a moment or contact ${supportEmail}.`, 'error');
     return null;
   }
   return client;
@@ -461,7 +483,7 @@ async function submitCheckoutRequest(event) {
   const form = event.currentTarget;
   const items = getCheckoutItems();
   if (!items.length) {
-    alert('Please choose an item before sending an order request.');
+    showSiteMessage('Please choose an item before sending an order request.', 'error');
     return;
   }
 
@@ -507,7 +529,7 @@ async function submitCheckoutRequest(event) {
   submitButton.textContent = 'Submit Order Request';
 
   if (error) {
-    alert(`Could not send the order request yet. Please try again or contact ${supportEmail}.\n\n${error.message || error}`);
+    showSiteMessage(`Could not send the order request yet. Please try again or contact ${supportEmail}. ${error.message || error}`, 'error');
     return;
   }
 
@@ -593,7 +615,7 @@ async function submitOfferRequest(event) {
   const form = event.currentTarget;
   const amount = moneyFromText(form.amount?.value);
   if (!amount) {
-    alert('Please enter a valid offer amount.');
+    showSiteMessage('Please enter a valid offer amount.', 'error');
     return;
   }
 
@@ -639,7 +661,7 @@ async function submitOfferRequest(event) {
   submitButton.textContent = 'Send Offer Request';
 
   if (error) {
-    alert(`Could not send the offer yet. Please try again or contact ${supportEmail}.\n\n${error.message || error}`);
+    showSiteMessage(`Could not send the offer yet. Please try again or contact ${supportEmail}. ${error.message || error}`, 'error');
     activeOfferState.buyerOffer = null;
     activeOfferState.status = 'draft';
     updateOfferBoard();
@@ -659,7 +681,7 @@ function sendSellerCounterOffer() {
   const amount = moneyFromText(document.getElementById('sellerCounterAmount')?.value);
   const message = document.getElementById('sellerCounterMessage')?.value?.trim() || '';
   if (!amount) {
-    alert('Enter a valid counteroffer amount.');
+    showSiteMessage('Enter a valid counteroffer amount.', 'error');
     return;
   }
 
@@ -684,7 +706,7 @@ function sendBuyerFinalCounterOffer() {
   const amount = moneyFromText(document.getElementById('buyerFinalCounterAmount')?.value);
   const message = document.getElementById('buyerFinalCounterMessage')?.value?.trim() || '';
   if (!amount) {
-    alert('Enter a valid final counter amount.');
+    showSiteMessage('Enter a valid final counter amount.', 'error');
     return;
   }
 
@@ -695,11 +717,11 @@ function sendBuyerFinalCounterOffer() {
 }
 
 function openCustomForm() {
-  alert('Custom standee order form will be added here.');
+  showSiteMessage('Custom standee order form will be added here.');
 }
 
 function openFanRequest() {
-  alert('Fan request form will be added here.');
+  showSiteMessage('Fan request form will be added here.');
 }
 
 function scrollFanVotes(direction) {
@@ -774,7 +796,7 @@ function registerFanVote(voteId, button) {
 
   if (votes[voteId]) {
     setFanVoteButtonState(button, true);
-    alert('You already voted for this one.');
+    showSiteMessage('You already voted for this one.');
     return;
   }
 
@@ -786,7 +808,7 @@ function registerFanVote(voteId, button) {
     setFanVoteButtonState(matchingButton, true);
   });
 
-  alert('Vote counted. Thanks for helping choose what comes next.');
+  showSiteMessage('Vote counted. Thanks for helping choose what comes next.', 'success');
 }
 
 /* ---------------- PRODUCT FILTER ---------------- */
@@ -964,7 +986,7 @@ function getSupabaseClient() {
 
 function showSupabaseConnectionAlert(actionLabel = 'connect to Supabase') {
   const projectUrl = window.MVPLUX_SUPABASE?.url || 'your Supabase project URL';
-  alert(`Could not ${actionLabel} yet.\n\nThe site tried to reach:\n${projectUrl}\n\nThis usually means the new Supabase project is still finishing setup, Supabase is having a temporary issue, or the Project URL / publishable key needs to be re-copied from Supabase settings.`);
+  showSiteMessage(`Could not ${actionLabel} yet. The site tried to reach ${projectUrl}. Please try again or check the Supabase project settings.`, 'error');
 }
 
 function isSupabaseNetworkError(error) {
@@ -1000,7 +1022,7 @@ async function signInCustomerWithSupabase(email, password) {
         showSupabaseConnectionAlert('sign in');
         return true;
       }
-      alert(error.message || 'Could not sign in. Please check your email and password.');
+      showSiteMessage(error.message || 'Could not sign in. Please check your email and password.', 'error');
       return true;
     }
 
@@ -1036,15 +1058,17 @@ async function signUpCustomerWithSupabase(screenName, email, password) {
         showSupabaseConnectionAlert('create the account');
         return true;
       }
-      alert(error.message || 'Could not create the account.');
+      showSiteMessage(error.message || 'Could not create the account.', 'error');
       return true;
     }
 
     const pendingConfirmation = !data?.session;
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', screenName);
-    alert(pendingConfirmation ? 'Account created. Please check your email if Supabase asks you to confirm it.' : 'Account created.');
-    window.location.href = 'index.html';
+    showSiteMessage(pendingConfirmation ? 'Account created. Please check your email if Supabase asks you to confirm it.' : 'Account created.', 'success');
+    window.setTimeout(() => {
+      window.location.href = 'index.html';
+    }, 800);
   } catch (error) {
     console.warn('Supabase sign-up failed:', error);
     showSupabaseConnectionAlert('create the account');
@@ -1265,7 +1289,7 @@ function applyFinishSelection(builder, selectedInput) {
   if (!builder || !selectedInput) return;
 
   if (selectedInput.dataset.finishWarning === 'true') {
-    alert('Back stand will not be included with this choice. The standee will be prepared/cut for the finish you selected.');
+    showSiteMessage('Back stand will not be included with this choice. The standee will be prepared/cut for the finish you selected.');
   }
 
   if (selectedInput.value === 'white-triangle' && builder.dataset.whiteTriangleImage) {
@@ -2398,14 +2422,14 @@ function installSizeAdmin(builder) {
   saveButton?.addEventListener('click', () => {
     const inches = parseHeightToInches(input?.value || '');
     if (!inches) {
-      alert("Enter a height like 6'6 or 78.");
+      showSiteMessage("Enter a height like 6'6 or 78.", 'error');
       return;
     }
 
     builder.dataset.originalHeight = String(inches);
     updateBuilderOriginalDisplay(builder);
     setStageChoice(builder, 'original');
-    alert('Height changed only on this screen. To make it permanent now, edit the code. Backend saving will come later.');
+    showSiteMessage('Height changed only on this screen. To make it permanent now, edit the code. Backend saving will come later.');
   });
 }
 
@@ -3591,7 +3615,7 @@ function addSelectedToCart(button) {
   const selected = getSelectedProduct(button);
 
   if (!selected.valid) {
-    alert('Please enter a valid custom height before adding this item to cart.');
+    showSiteMessage('Please enter a valid custom height before adding this item to cart.', 'error');
     return;
   }
 
@@ -3602,7 +3626,7 @@ function buySelectedNow(button) {
   const selected = getSelectedProduct(button);
 
   if (!selected.valid) {
-    alert('Please enter a valid custom height before buying this item.');
+    showSiteMessage('Please enter a valid custom height before buying this item.', 'error');
     return;
   }
 
@@ -3613,7 +3637,7 @@ function buySelectedNow(button) {
 function openSelectedOffer(button) {
   const selected = getSelectedProduct(button);
   if (!selected.valid) {
-    alert('Please enter a valid custom height before making an offer.');
+    showSiteMessage('Please enter a valid custom height before making an offer.', 'error');
     return;
   }
   openOffer(selected.productName || 'Selected Standee', {
