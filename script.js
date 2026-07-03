@@ -3,7 +3,6 @@ let cartTotal = 0;
 let infoSlideIndex = 0;
 let currentBuyNowItem = null;
 let activeOfferState = null;
-const orderRequestEmail = 'orders@mvpluxcreations.com';
 const supportEmail = 'support@mvpluxcreations.com';
 
 const checkoutPaymentMethods = {
@@ -171,44 +170,6 @@ function getAutoAcceptResult(offerAmount, askingPrice, heightInches) {
   };
 }
 
-function getOfferChoices(askingPrice, heightInches) {
-  const asking = Number(askingPrice) || 0;
-  if (!asking) return [];
-
-  const choices = [
-    { label: `Full asking price - ${formatMoney(asking)}`, value: asking, note: 'Fastest approval' },
-    { label: `5% off - ${formatMoney(Math.round((asking * 0.95) * 100) / 100)}`, value: Math.round((asking * 0.95) * 100) / 100, note: 'Offer request' }
-  ];
-
-  const autoRule = getAutoAcceptRule(heightInches);
-  if (autoRule) {
-    const maxDiscountValue = Math.round((asking * autoRule.minimumMultiplier) * 100) / 100;
-    choices.push({
-      label: `${autoRule.discountPercent}% off - ${formatMoney(maxDiscountValue)}`,
-      value: maxDiscountValue,
-      note: 'Lowest auto-accept offer'
-    });
-  } else {
-    choices.push({
-      label: `10% off - ${formatMoney(Math.round((asking * 0.9) * 100) / 100)}`,
-      value: Math.round((asking * 0.9) * 100) / 100,
-      note: 'Manual review'
-    });
-  }
-
-  return choices;
-}
-
-function updateOfferAmountChoices() {
-  const select = document.getElementById('offerAmountChoice');
-  if (!select) return;
-
-  const choices = getOfferChoices(activeOfferState?.askingPrice, activeOfferState?.selectedHeight);
-  select.innerHTML = choices.length
-    ? choices.map((choice) => `<option value="${choice.value.toFixed(2)}">${choice.label} (${choice.note})</option>`).join('')
-    : '<option value="">Choose offer amount</option>';
-}
-
 function openOffer(productName, offerMeta = {}) {
   ensureCommerceModals();
   const offerProduct = document.getElementById('offerProduct');
@@ -226,7 +187,6 @@ function openOffer(productName, offerMeta = {}) {
   };
 
   if (offerProduct) offerProduct.textContent = productName;
-  updateOfferAmountChoices();
   updateOfferBoard(productName, signedInName);
   if (offerModal) offerModal.style.display = 'flex';
 }
@@ -273,21 +233,19 @@ function formValue(form, name) {
   return form?.elements?.[name]?.value?.trim() || '';
 }
 
-function lineItemText(items) {
-  return items.length
-    ? items.map((item, index) => `${index + 1}. ${item.name} - ${formatMoney(Number(item.price) || 0)}`).join('\n')
-    : 'No item selected';
+function getCommerceClient() {
+  const client = window.getMvpluxSupabaseClient?.();
+  if (!client) {
+    alert(`The order system is still loading. Please try again in a moment or contact ${supportEmail}.`);
+    return null;
+  }
+  return client;
 }
 
-function openEmailDraft(subject, body) {
-  const mailto = `mailto:${orderRequestEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-
-  navigator.clipboard?.writeText(body).catch(() => {});
-  window.location.href = mailto;
-
-  setTimeout(() => {
-    alert(`Your email app should open with the request ready.\n\nIf it does not open, the order details were copied so you can paste them into an email to ${orderRequestEmail}.`);
-  }, 350);
+async function getCommerceUser(client) {
+  if (!client?.auth?.getSession) return null;
+  const { data } = await client.auth.getSession();
+  return data?.session?.user || null;
 }
 
 function paymentMethodButtonMarkup(key, method) {
@@ -311,7 +269,7 @@ function checkoutModalMarkup() {
         <button class="close-modal" onclick="closeModals()">x</button>
         <h2>Checkout / Pay</h2>
         <p class="checkout-intro">Choose how you want to pay. Any transaction, processing, card, app, bank, crypto network, or gas fee is paid by the customer.</p>
-        <p class="checkout-email-note">Order requests are sent to ${orderRequestEmail}. You will receive payment instructions after MVPLUXCREATIONS confirms the details.</p>
+        <p class="checkout-email-note">Your order request is sent to MVPLUXCREATIONS. You will receive payment instructions after the details are confirmed.</p>
         <div id="checkoutOrderSummary" class="checkout-order-summary"></div>
         <div class="payment-method-grid">${paymentMethods}</div>
         <div id="checkoutFeeSummary" class="checkout-fee-summary"></div>
@@ -363,13 +321,8 @@ function offerModalMarkup() {
             <input type="email" name="email" placeholder="Your email">
             <input type="tel" name="phone" placeholder="Phone number">
           </div>
-          <select id="offerAmountChoice" name="amount" required></select>
-          <select name="message">
-            <option value="">No extra note</option>
-            <option value="I want this as soon as possible.">Need it fast</option>
-            <option value="Please confirm design details before payment.">Confirm design first</option>
-            <option value="I may want a different payment method.">Discuss payment method</option>
-          </select>
+          <input type="text" name="amount" placeholder="Your offer amount" required>
+          <textarea name="message" placeholder="Message / size wanted / payment method"></textarea>
           <label class="policy-check">
             <input type="checkbox" required>
             <span>I understand I can send one offer. If MVPLUXCREATIONS sends a counteroffer, I can accept it or send one final counteroffer. Customer pays all transaction fees if accepted.</span>
@@ -454,47 +407,69 @@ function openCheckout() {
   if (checkoutModal) checkoutModal.style.display = 'flex';
 }
 
-function submitCheckoutRequest(event) {
+async function submitCheckoutRequest(event) {
   event.preventDefault();
   updateCheckoutDisplay();
   const form = event.currentTarget;
   const items = getCheckoutItems();
+  if (!items.length) {
+    alert('Please choose an item before sending an order request.');
+    return;
+  }
+
+  const client = getCommerceClient();
+  if (!client) return;
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  submitButton.textContent = 'Sending...';
+
   const methodKey = document.querySelector('input[name="checkoutPaymentMethod"]:checked')?.value || 'zelle';
   const totals = calculateCustomerPaidTotal(getCheckoutSubtotal(), methodKey);
-  const address = [
-    formValue(form, 'address1'),
-    formValue(form, 'address2'),
-    [formValue(form, 'city'), formValue(form, 'state'), formValue(form, 'zip')].filter(Boolean).join(', '),
-    formValue(form, 'country')
-  ].filter(Boolean).join('\n');
+  const user = await getCommerceUser(client);
 
-  const customerName = formValue(form, 'name') || 'Customer';
-  const body = [
-    'MVPLUXCREATIONS ORDER REQUEST',
-    '',
-    `Customer name: ${customerName}`,
-    `Email: ${formValue(form, 'email')}`,
-    `Phone: ${formValue(form, 'phone') || 'Not provided'}`,
-    '',
-    'Items:',
-    lineItemText(items),
-    '',
-    `Item total: ${formatMoney(totals.subtotal)}`,
-    'Shipping: Free',
-    `Payment method: ${totals.method.label}`,
-    `Customer-paid fees: ${totals.method.label === 'Crypto Wallet' ? 'Crypto network/gas fee paid separately' : formatMoney(totals.fee)}`,
-    `Total to pay before any separate crypto network/gas fee: ${formatMoney(totals.total)}`,
-    `Fee note: ${totals.method.note}`,
-    '',
-    'Shipping address:',
-    address || 'Not provided',
-    '',
-    `Order notes: ${formValue(form, 'notes') || 'None'}`,
-    '',
-    'Customer understands this is a custom-made item, customer pays all payment/transaction fees, and production starts after payment and design/order details are confirmed.'
-  ].join('\n');
+  const payload = {
+    customer_id: user?.id || null,
+    customer_name: formValue(form, 'name') || 'Customer',
+    customer_email: formValue(form, 'email') || user?.email || '',
+    customer_phone: formValue(form, 'phone') || null,
+    shipping_address: {
+      address1: formValue(form, 'address1'),
+      address2: formValue(form, 'address2'),
+      city: formValue(form, 'city'),
+      state: formValue(form, 'state'),
+      zip: formValue(form, 'zip'),
+      country: formValue(form, 'country') || 'United States'
+    },
+    items: items.map((item) => ({
+      name: item.name,
+      price: Number(item.price) || 0,
+      image: item.image || ''
+    })),
+    payment_method: totals.method.label,
+    subtotal: Number(totals.subtotal.toFixed(2)),
+    customer_fee: totals.method.label === 'Crypto Wallet' ? 0 : Number(totals.fee.toFixed(2)),
+    total: Number(totals.total.toFixed(2)),
+    status: 'new',
+    notes: formValue(form, 'notes') || null
+  };
 
-  openEmailDraft(`Order request - ${customerName}`, body);
+  const { error } = await client.from('order_requests').insert(payload);
+  submitButton.disabled = false;
+  submitButton.textContent = 'Submit Order Request';
+
+  if (error) {
+    alert(`Could not send the order request yet. Please try again or contact ${supportEmail}.\n\n${error.message || error}`);
+    return;
+  }
+
+  alert('Order request sent. MVPLUXCREATIONS will confirm the details and send payment instructions.');
+  form.reset();
+  cart = [];
+  cartTotal = 0;
+  currentBuyNowItem = null;
+  updateCart();
+  closeModals();
 }
 
 function moneyFromText(value) {
@@ -556,7 +531,7 @@ function updateOfferBoard(productName = activeOfferState?.productName || '', sig
   if (buyerTools) buyerTools.style.display = activeOfferState?.sellerCounter && !activeOfferState?.buyerCounterUsed && activeOfferState?.status !== 'accepted' ? 'grid' : 'none';
 }
 
-function submitOfferRequest(event) {
+async function submitOfferRequest(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const amount = moneyFromText(form.amount?.value);
@@ -565,12 +540,20 @@ function submitOfferRequest(event) {
     return;
   }
 
+  const client = getCommerceClient();
+  if (!client) return;
+
+  const submitButton = form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  submitButton.textContent = 'Sending...';
+  const user = await getCommerceUser(client);
+
   activeOfferState = activeOfferState || { productName: document.getElementById('offerProduct')?.textContent || 'Selected item' };
   activeOfferState.buyerOffer = {
     amount,
     message: form.message?.value?.trim() || '',
     name: formValue(form, 'name') || getSignedInName() || 'Customer',
-    email: formValue(form, 'email') || 'Signed-in customer / not provided',
+    email: formValue(form, 'email') || user?.email || '',
     phone: formValue(form, 'phone') || 'Not provided'
   };
   const autoAccept = getAutoAcceptResult(amount, activeOfferState.askingPrice, activeOfferState.selectedHeight);
@@ -578,36 +561,46 @@ function submitOfferRequest(event) {
   activeOfferState.status = autoAccept.accepted ? 'accepted' : 'pending';
   updateOfferBoard();
 
+  const offerDetails = [
+    activeOfferState.sizeLabel ? `Selected size: ${activeOfferState.sizeLabel}` : '',
+    activeOfferState.askingPrice ? `Asking price: ${formatMoney(activeOfferState.askingPrice)}` : '',
+    activeOfferState.buyerOffer.phone && activeOfferState.buyerOffer.phone !== 'Not provided' ? `Phone: ${activeOfferState.buyerOffer.phone}` : '',
+    activeOfferState.buyerOffer.message ? `Message: ${activeOfferState.buyerOffer.message}` : ''
+  ].filter(Boolean).join('\n');
+
+  const { error } = await client.from('offers').insert({
+    product_name: activeOfferState.productName || 'Selected item',
+    customer_id: user?.id || null,
+    customer_name: activeOfferState.buyerOffer.name,
+    customer_email: activeOfferState.buyerOffer.email,
+    amount: Number(amount.toFixed(2)),
+    message: offerDetails || null,
+    status: activeOfferState.status
+  });
+
+  submitButton.disabled = false;
+  submitButton.textContent = 'Send Offer Request';
+
+  if (error) {
+    alert(`Could not send the offer yet. Please try again or contact ${supportEmail}.\n\n${error.message || error}`);
+    activeOfferState.buyerOffer = null;
+    activeOfferState.status = 'draft';
+    updateOfferBoard();
+    return;
+  }
+
   if (autoAccept.accepted) {
     currentBuyNowItem = {
       name: `${activeOfferState.productName} - Accepted Offer`,
       price: amount,
       image: ''
     };
-    alert(`Offer accepted automatically at ${formatMoney(amount)}.\n\nThis size qualifies for the ${autoAccept.rule.label}. Continue to checkout when ready.`);
+    alert(`Offer accepted automatically at ${formatMoney(amount)}.\n\nContinue to checkout when ready.`);
     openCheckout();
     return;
   }
 
-  const body = [
-    'MVPLUXCREATIONS OFFER REQUEST',
-    '',
-    `Product: ${activeOfferState.productName || 'Selected item'}`,
-    `Selected size: ${activeOfferState.sizeLabel || (activeOfferState.selectedHeight ? formatHeight(activeOfferState.selectedHeight) : 'Not provided')}`,
-    `Asking price: ${activeOfferState.askingPrice ? formatMoney(activeOfferState.askingPrice) : 'Not provided'}`,
-    `Offer amount: ${formatMoney(amount)}`,
-    autoAccept.rule ? `Auto-accept minimum: ${formatMoney(autoAccept.minimumOffer)} (${autoAccept.rule.discountPercent}% off max)` : 'Auto-accept: Not available for this size',
-    '',
-    `Customer name: ${activeOfferState.buyerOffer.name}`,
-    `Email: ${activeOfferState.buyerOffer.email}`,
-    `Phone: ${activeOfferState.buyerOffer.phone}`,
-    '',
-    `Message / size wanted / payment method: ${activeOfferState.buyerOffer.message || 'None'}`,
-    '',
-    'Customer understands they can send one offer. If MVPLUXCREATIONS sends a counteroffer, they can accept it or send one final counteroffer. Customer pays all transaction fees if accepted.'
-  ].join('\n');
-
-  openEmailDraft(`Offer request - ${activeOfferState.productName || 'Standee'}`, body);
+  alert('Offer sent for review. MVPLUXCREATIONS will reply after checking the details.');
 }
 
 function sendSellerCounterOffer() {

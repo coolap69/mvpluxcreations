@@ -5004,3 +5004,58 @@ button[aria-label="Add to cart"]::before {
 .admin-preview-logo:active {
   cursor: grabbing;
 }
+
+.fan-rule-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  margin-bottom: 12px !important;
+}
+
+.fan-rule-grid span {
+  min-height: 34px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 6px 10px !important;
+  line-height: 1.05 !important;
+  white-space: nowrap !important;
+}
+
+.fan-steps-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.fan-steps-grid div {
+  min-height: 42px !important;
+  padding: 6px 10px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  border-left: 1px solid rgba(212,175,55,0.34) !important;
+  border-bottom: 0 !important;
+}
+
+.fan-steps-grid div:first-child {
+  border-left: 0 !important;
+}
+
+.fan-steps-grid strong,
+.fan-steps-grid span {
+  display: inline !important;
+  margin: 0 !important;
+  line-height: 1.1 !important;
+}
+
+@media (max-width: 760px) {
+  .fan-rule-grid,
+  .fan-steps-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .fan-steps-grid div {
+    border-left: 0 !important;
+    border-bottom: 1px solid rgba(212,175,55,0.22) !important;
+  }
+}

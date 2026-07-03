@@ -946,13 +946,8 @@
           <input type="email" name="email" placeholder="Your email" />
           <input type="tel" name="phone" placeholder="Phone number" />
         </div>
-        <select id="offerAmountChoice" name="amount" required></select>
-        <select name="message">
-          <option value="">No extra note</option>
-          <option value="I want this as soon as possible.">Need it fast</option>
-          <option value="Please confirm design details before payment.">Confirm design first</option>
-          <option value="I may want a different payment method.">Discuss payment method</option>
-        </select>
+        <input type="text" name="amount" placeholder="Your offer amount" required />
+        <textarea name="message" placeholder="Message / size wanted / payment method"></textarea>
         <label class="policy-check">
           <input type="checkbox" required />
           <span>I understand I can send one offer. If MVPLUXCREATIONS sends a counteroffer, I can accept it or send one final counteroffer. Customer pays all transaction fees if accepted.</span>
@@ -1009,7 +1004,7 @@
   
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="supabase-config.js?v=20260702-supabase-key2"></script>
-  <script src="script.js?v=20260702-supabase-key2"></script>
+  <script src="supabase-config.js?v=20260703-commerce-live"></script>
+  <script src="script.js?v=20260703-commerce-live"></script>
 </body>
 </html>
