@@ -290,6 +290,11 @@ function checkoutModalMarkup() {
         <p class="checkout-intro">Choose how you want to pay. Any transaction, processing, card, app, bank, crypto network, or gas fee is paid by the customer.</p>
         <p class="checkout-email-note">Your order request is sent to MVPLUXCREATIONS. You will receive payment instructions after the details are confirmed.</p>
         <div id="checkoutAcceptedOfferNotice" class="checkout-accepted-offer-notice"></div>
+        <div id="checkoutSuccessNotice" class="checkout-success-notice">
+          <strong>Order request sent</strong>
+          <span>Thank you. MVPLUXCREATIONS received your request and will confirm the details with payment instructions.</span>
+          <button type="button" class="checkout-btn" onclick="closeModals()">Close</button>
+        </div>
         <div id="checkoutOrderSummary" class="checkout-order-summary"></div>
         <div class="payment-method-grid">${paymentMethods}</div>
         <div id="checkoutFeeSummary" class="checkout-fee-summary"></div>
@@ -408,6 +413,7 @@ function updateCheckoutDisplay() {
   const summary = document.getElementById('checkoutOrderSummary');
   const feeSummary = document.getElementById('checkoutFeeSummary');
   const acceptedNotice = document.getElementById('checkoutAcceptedOfferNotice');
+  const successNotice = document.getElementById('checkoutSuccessNotice');
   const selectedMethod = document.querySelector('input[name="checkoutPaymentMethod"]:checked')?.value || 'zelle';
   const items = getCheckoutItems();
   const subtotal = getCheckoutSubtotal();
@@ -419,6 +425,10 @@ function updateCheckoutDisplay() {
     acceptedNotice.innerHTML = acceptedOfferItem
       ? `<strong>Offer accepted</strong><span>Your accepted offer is ready for checkout. Add shipping information and choose how you want to pay.</span>`
       : '';
+  }
+
+  if (successNotice && !successNotice.dataset.sent) {
+    successNotice.style.display = 'none';
   }
 
   if (summary) {
@@ -501,13 +511,17 @@ async function submitCheckoutRequest(event) {
     return;
   }
 
-  alert('Order request sent. MVPLUXCREATIONS will confirm the details and send payment instructions.');
+  const successNotice = document.getElementById('checkoutSuccessNotice');
+  if (successNotice) {
+    successNotice.dataset.sent = 'true';
+    successNotice.style.display = 'grid';
+  }
   form.reset();
   cart = [];
   cartTotal = 0;
   currentBuyNowItem = null;
   updateCart();
-  closeModals();
+  updateCheckoutDisplay();
 }
 
 function moneyFromText(value) {
