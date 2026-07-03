@@ -3,6 +3,8 @@ let cartTotal = 0;
 let infoSlideIndex = 0;
 let currentBuyNowItem = null;
 let activeOfferState = null;
+const orderRequestEmail = 'orders@mvpluxcreations.com';
+const supportEmail = 'support@mvpluxcreations.com';
 
 const checkoutPaymentMethods = {
   zelle: {
@@ -130,13 +132,55 @@ function openBuyNow(title, price, image) {
   if (buyModal) buyModal.style.display = 'flex';
 }
 
-function openOffer(productName) {
+function getAutoAcceptRule(heightInches) {
+  const height = Number(heightInches) || 0;
+  if (height >= 60 && height < 72) {
+    return {
+      discountPercent: 10,
+      minimumMultiplier: 0.9,
+      label: "5 ft to 5'11 auto-accept limit"
+    };
+  }
+  if (height >= 72 && height <= 96) {
+    return {
+      discountPercent: 15,
+      minimumMultiplier: 0.85,
+      label: '6 ft to 8 ft auto-accept limit'
+    };
+  }
+  return null;
+}
+
+function getAutoAcceptResult(offerAmount, askingPrice, heightInches) {
+  const rule = getAutoAcceptRule(heightInches);
+  const asking = Number(askingPrice) || 0;
+  const offer = Number(offerAmount) || 0;
+  if (!rule || !asking || !offer) {
+    return {
+      accepted: false,
+      rule,
+      minimumOffer: 0
+    };
+  }
+
+  const minimumOffer = Math.round((asking * rule.minimumMultiplier) * 100) / 100;
+  return {
+    accepted: offer >= minimumOffer,
+    rule,
+    minimumOffer
+  };
+}
+
+function openOffer(productName, offerMeta = {}) {
   ensureCommerceModals();
   const offerProduct = document.getElementById('offerProduct');
   const offerModal = document.getElementById('offerModal');
   const signedInName = getSignedInName();
   activeOfferState = {
     productName,
+    askingPrice: Number(offerMeta.askingPrice || offerMeta.price || 0),
+    selectedHeight: Number(offerMeta.selectedHeight || 0),
+    sizeLabel: offerMeta.sizeLabel || '',
     buyerOffer: null,
     sellerCounter: null,
     buyerCounterUsed: false,
@@ -186,6 +230,27 @@ function getCheckoutSubtotal() {
   return getCheckoutItems().reduce((sum, item) => sum + (Number(item.price) || 0), 0);
 }
 
+function formValue(form, name) {
+  return form?.elements?.[name]?.value?.trim() || '';
+}
+
+function lineItemText(items) {
+  return items.length
+    ? items.map((item, index) => `${index + 1}. ${item.name} - ${formatMoney(Number(item.price) || 0)}`).join('\n')
+    : 'No item selected';
+}
+
+function openEmailDraft(subject, body) {
+  const mailto = `mailto:${orderRequestEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  navigator.clipboard?.writeText(body).catch(() => {});
+  window.location.href = mailto;
+
+  setTimeout(() => {
+    alert(`Your email app should open with the request ready.\n\nIf it does not open, the order details were copied so you can paste them into an email to ${orderRequestEmail}.`);
+  }, 350);
+}
+
 function paymentMethodButtonMarkup(key, method) {
   return `
     <label class="payment-method-card">
@@ -207,6 +272,7 @@ function checkoutModalMarkup() {
         <button class="close-modal" onclick="closeModals()">x</button>
         <h2>Checkout / Pay</h2>
         <p class="checkout-intro">Choose how you want to pay. Any transaction, processing, card, app, bank, crypto network, or gas fee is paid by the customer.</p>
+        <p class="checkout-email-note">Order requests are sent to ${orderRequestEmail}. You will receive payment instructions after MVPLUXCREATIONS confirms the details.</p>
         <div id="checkoutOrderSummary" class="checkout-order-summary"></div>
         <div class="payment-method-grid">${paymentMethods}</div>
         <div id="checkoutFeeSummary" class="checkout-fee-summary"></div>
@@ -347,7 +413,44 @@ function openCheckout() {
 function submitCheckoutRequest(event) {
   event.preventDefault();
   updateCheckoutDisplay();
-  alert('Order request is ready. Next step is connecting this form to email or a payment processor so it goes directly to you.');
+  const form = event.currentTarget;
+  const items = getCheckoutItems();
+  const methodKey = document.querySelector('input[name="checkoutPaymentMethod"]:checked')?.value || 'zelle';
+  const totals = calculateCustomerPaidTotal(getCheckoutSubtotal(), methodKey);
+  const address = [
+    formValue(form, 'address1'),
+    formValue(form, 'address2'),
+    [formValue(form, 'city'), formValue(form, 'state'), formValue(form, 'zip')].filter(Boolean).join(', '),
+    formValue(form, 'country')
+  ].filter(Boolean).join('\n');
+
+  const customerName = formValue(form, 'name') || 'Customer';
+  const body = [
+    'MVPLUXCREATIONS ORDER REQUEST',
+    '',
+    `Customer name: ${customerName}`,
+    `Email: ${formValue(form, 'email')}`,
+    `Phone: ${formValue(form, 'phone') || 'Not provided'}`,
+    '',
+    'Items:',
+    lineItemText(items),
+    '',
+    `Item total: ${formatMoney(totals.subtotal)}`,
+    'Shipping: Free',
+    `Payment method: ${totals.method.label}`,
+    `Customer-paid fees: ${totals.method.label === 'Crypto Wallet' ? 'Crypto network/gas fee paid separately' : formatMoney(totals.fee)}`,
+    `Total to pay before any separate crypto network/gas fee: ${formatMoney(totals.total)}`,
+    `Fee note: ${totals.method.note}`,
+    '',
+    'Shipping address:',
+    address || 'Not provided',
+    '',
+    `Order notes: ${formValue(form, 'notes') || 'None'}`,
+    '',
+    'Customer understands this is a custom-made item, customer pays all payment/transaction fees, and production starts after payment and design/order details are confirmed.'
+  ].join('\n');
+
+  openEmailDraft(`Order request - ${customerName}`, body);
 }
 
 function moneyFromText(value) {
@@ -421,11 +524,46 @@ function submitOfferRequest(event) {
   activeOfferState = activeOfferState || { productName: document.getElementById('offerProduct')?.textContent || 'Selected item' };
   activeOfferState.buyerOffer = {
     amount,
-    message: form.message?.value?.trim() || ''
+    message: form.message?.value?.trim() || '',
+    name: formValue(form, 'name') || getSignedInName() || 'Customer',
+    email: formValue(form, 'email') || 'Signed-in customer / not provided',
+    phone: formValue(form, 'phone') || 'Not provided'
   };
-  activeOfferState.status = 'pending';
+  const autoAccept = getAutoAcceptResult(amount, activeOfferState.askingPrice, activeOfferState.selectedHeight);
+  activeOfferState.autoAccept = autoAccept;
+  activeOfferState.status = autoAccept.accepted ? 'accepted' : 'pending';
   updateOfferBoard();
-  alert('Offer saved on this board. Next step is connecting offers to accounts/email so you and the buyer can message for real.');
+
+  if (autoAccept.accepted) {
+    currentBuyNowItem = {
+      name: `${activeOfferState.productName} - Accepted Offer`,
+      price: amount,
+      image: ''
+    };
+    alert(`Offer accepted automatically at ${formatMoney(amount)}.\n\nThis size qualifies for the ${autoAccept.rule.label}. Continue to checkout when ready.`);
+    openCheckout();
+    return;
+  }
+
+  const body = [
+    'MVPLUXCREATIONS OFFER REQUEST',
+    '',
+    `Product: ${activeOfferState.productName || 'Selected item'}`,
+    `Selected size: ${activeOfferState.sizeLabel || (activeOfferState.selectedHeight ? formatHeight(activeOfferState.selectedHeight) : 'Not provided')}`,
+    `Asking price: ${activeOfferState.askingPrice ? formatMoney(activeOfferState.askingPrice) : 'Not provided'}`,
+    `Offer amount: ${formatMoney(amount)}`,
+    autoAccept.rule ? `Auto-accept minimum: ${formatMoney(autoAccept.minimumOffer)} (${autoAccept.rule.discountPercent}% off max)` : 'Auto-accept: Not available for this size',
+    '',
+    `Customer name: ${activeOfferState.buyerOffer.name}`,
+    `Email: ${activeOfferState.buyerOffer.email}`,
+    `Phone: ${activeOfferState.buyerOffer.phone}`,
+    '',
+    `Message / size wanted / payment method: ${activeOfferState.buyerOffer.message || 'None'}`,
+    '',
+    'Customer understands they can send one offer. If MVPLUXCREATIONS sends a counteroffer, they can accept it or send one final counteroffer. Customer pays all transaction fees if accepted.'
+  ].join('\n');
+
+  openEmailDraft(`Offer request - ${activeOfferState.productName || 'Standee'}`, body);
 }
 
 function sendSellerCounterOffer() {
@@ -1926,7 +2064,7 @@ function productCardMarkup(product) {
       <div class="button-row">
         <button onclick="addSelectedToCart(this)" aria-label="Add to cart" title="Add to cart">🛒</button>
         <button onclick="buySelectedNow(this)">Buy Now</button>
-        <button class="offer-btn" onclick="openOffer('${product.title || 'Custom Standee'}')">Make Offer</button>
+        <button class="offer-btn" onclick="openSelectedOffer(this)">Make Offer</button>
       </div>
     </div>
   `;
@@ -3347,16 +3485,22 @@ function getSelectedProduct(button) {
 
   const priceEl = builder.querySelector('.live-size-price');
   const baseProductName = builder.dataset.productName || 'Custom Standee';
-  const productName = `${baseProductName} - ${getFinishLabel(builder)}`;
+  const customRadio = builder.querySelector('input[value="custom"]');
+  const isCustom = Boolean(customRadio?.checked);
+  const customHeight = parseHeightToInches(builder.querySelector('.custom-height-input')?.value || '');
+  const originalHeight = parseHeightToInches(builder.dataset.originalHeight || '') || parseInt(builder.dataset.originalHeight || '0', 10);
+  const selectedHeight = isCustom ? customHeight : originalHeight;
+  const sizeLabel = selectedHeight ? formatHeight(selectedHeight) : (isCustom ? 'Custom Size' : 'Original Size');
+  const productName = `${baseProductName} - ${sizeLabel} - ${getFinishLabel(builder)}`;
   const rawPrice = priceEl ? priceEl.textContent.replace('$', '').trim() : '';
   const price = parseFloat(rawPrice);
 
   // If no valid price or zero price, do NOT allow purchase
   if (!price || price <= 0) {
-    return { card, builder, productName, price: 0, valid: false };
+    return { card, builder, productName, price: 0, selectedHeight, sizeLabel, valid: false };
   }
 
-  return { card, builder, productName, price, valid: true };
+  return { card, builder, productName, price, selectedHeight, sizeLabel, valid: true };
 }
 
 function addSelectedToCart(button) {
@@ -3384,7 +3528,15 @@ function buySelectedNow(button) {
 
 function openSelectedOffer(button) {
   const selected = getSelectedProduct(button);
-  openOffer(selected.productName || 'Selected Standee');
+  if (!selected.valid) {
+    alert('Please enter a valid custom height before making an offer.');
+    return;
+  }
+  openOffer(selected.productName || 'Selected Standee', {
+    askingPrice: selected.price,
+    selectedHeight: selected.selectedHeight,
+    sizeLabel: selected.sizeLabel
+  });
 }
 
 /* ---------------- PAGE INIT ---------------- */

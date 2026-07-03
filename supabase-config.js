@@ -1,6 +1,6 @@
 window.MVPLUX_SUPABASE = {
-  url: 'https://cjyksvfvwbjvybmerteww.supabase.co',
-  publishableKey: 'sb_publishable_oX0-HA0E0nmCDeeeTJzSKw_Xhd5xMYy'
+  url: 'https://yykooepksomyeqzyhp.supabase.co',
+  publishableKey: 'sb_publishable_lsEpRbLA7xRdQvRgIObNbA_pyqnz3Yw'
 };
 
 window.getMvpluxSupabaseClient = function getMvpluxSupabaseClient() {

@@ -2499,12 +2499,21 @@ footer {
 }
 
 .checkout-intro,
+.checkout-email-note,
 .modal-fee-note {
   margin: 0 0 14px;
   color: #4a3a22;
   font-size: 13px;
   font-weight: 800;
   line-height: 1.4;
+}
+
+.checkout-email-note {
+  color: #111;
+  background: #fff8df;
+  border: 1px solid rgba(184,137,24,0.24);
+  border-radius: 8px;
+  padding: 10px 12px;
 }
 
 .checkout-order-summary,
