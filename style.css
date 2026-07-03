@@ -2491,29 +2491,61 @@ footer {
   max-height: 92vh;
   overflow-y: auto;
   text-align: left;
+  color: #f7efd8;
+  background: linear-gradient(180deg, #151515 0%, #070707 100%);
+  border: 1px solid rgba(255, 213, 105, 0.55);
+  box-shadow: 0 26px 70px rgba(0,0,0,0.52);
 }
 
 .checkout-modal-content h2 {
   margin: 0 42px 10px 0;
-  color: #111;
+  color: #ffd96a;
 }
 
 .checkout-intro,
 .checkout-email-note,
 .modal-fee-note {
   margin: 0 0 14px;
-  color: #4a3a22;
+  color: #f0e8d6;
   font-size: 13px;
   font-weight: 800;
   line-height: 1.4;
 }
 
 .checkout-email-note {
-  color: #111;
-  background: #fff8df;
-  border: 1px solid rgba(184,137,24,0.24);
+  color: #f7efd8;
+  background: rgba(255, 217, 106, 0.08);
+  border: 1px solid rgba(255, 217, 106, 0.3);
   border-radius: 8px;
   padding: 10px 12px;
+}
+
+.checkout-accepted-offer-notice {
+  display: none;
+  margin: 12px 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 217, 106, 0.48);
+  border-radius: 10px;
+  color: #111;
+  background: linear-gradient(180deg, #ffe589, #d3a819);
+  box-shadow: 0 12px 28px rgba(255, 217, 106, 0.15);
+}
+
+.checkout-accepted-offer-notice strong,
+.checkout-accepted-offer-notice span {
+  display: block;
+}
+
+.checkout-accepted-offer-notice strong {
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.checkout-accepted-offer-notice span {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
 }
 
 .checkout-order-summary,
@@ -2523,9 +2555,9 @@ footer {
   gap: 8px;
   margin: 12px 0;
   padding: 12px;
-  border: 1px solid rgba(177,18,38,0.18);
+  border: 1px solid rgba(255, 217, 106, 0.24);
   border-radius: 10px;
-  background: #fbf7ee;
+  background: rgba(255,255,255,0.045);
 }
 
 .checkout-order-summary div,
@@ -2533,22 +2565,26 @@ footer {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: #111;
+  color: #f7efd8;
   font-size: 14px;
 }
 
 .checkout-total-line {
   padding-top: 8px;
-  border-top: 1px solid rgba(0,0,0,0.12);
+  border-top: 1px solid rgba(255, 217, 106, 0.26);
   font-size: 16px !important;
 }
 
 .checkout-fee-summary p,
 .checkout-policy-box p {
   margin: 0;
-  color: #4f4f4f;
+  color: #d6ccb5;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.checkout-policy-box strong {
+  color: #ffd96a;
 }
 
 .payment-method-grid {
@@ -2562,16 +2598,17 @@ footer {
   display: grid;
   gap: 5px;
   padding: 11px;
-  border: 1px solid rgba(177,18,38,0.24);
+  border: 1px solid rgba(255, 217, 106, 0.24);
   border-radius: 10px;
-  color: #111;
-  background: #fff;
+  color: #f7efd8;
+  background: rgba(255,255,255,0.055);
   cursor: pointer;
 }
 
 .payment-method-card:has(input:checked) {
-  border-color: #b11226;
-  box-shadow: inset 0 0 0 2px rgba(177,18,38,0.1);
+  border-color: #ffd96a;
+  background: rgba(255, 217, 106, 0.12);
+  box-shadow: inset 0 0 0 2px rgba(255, 217, 106, 0.12);
 }
 
 .payment-method-card input {
@@ -2584,7 +2621,7 @@ footer {
 }
 
 .payment-method-card small {
-  color: #555;
+  color: #d6ccb5;
   line-height: 1.3;
 }
 
@@ -2599,14 +2636,14 @@ footer {
   gap: 8px;
   margin: 0;
   padding: 12px;
-  border: 1px solid rgba(177,18,38,0.16);
+  border: 1px solid rgba(255, 217, 106, 0.2);
   border-radius: 10px;
-  background: #fffdf8;
+  background: rgba(255,255,255,0.04);
 }
 
 .checkout-address-fields legend {
   padding: 0 6px;
-  color: #111;
+  color: #ffd96a;
   font-size: 13px;
   font-weight: 900;
 }
@@ -2627,10 +2664,10 @@ footer {
   box-sizing: border-box;
   margin: 2px 0 8px;
   padding: 10px 12px;
-  border: 1px solid rgba(177,18,38,0.16);
+  border: 1px solid rgba(255, 217, 106, 0.2);
   border-radius: 10px;
-  color: #222;
-  background: #fffdf8;
+  color: #f7efd8;
+  background: rgba(255,255,255,0.04);
   font-size: 12px;
   line-height: 1.35;
   text-align: left;
