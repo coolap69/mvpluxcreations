@@ -2703,6 +2703,18 @@ footer {
   border: 1px solid rgba(177,18,38,0.2);
 }
 
+.offer-sent-actions {
+  display: none;
+  justify-content: flex-end;
+  margin: -2px 0 10px;
+}
+
+.offer-sent-actions .checkout-btn {
+  width: auto;
+  min-width: 120px;
+  padding: 10px 22px;
+}
+
 .offer-guest-fields {
   display: grid;
   gap: 8px;

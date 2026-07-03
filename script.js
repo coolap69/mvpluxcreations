@@ -330,6 +330,9 @@ function offerModalMarkup() {
         <p id="offerProduct"></p>
         <div id="offerAccountNotice" class="offer-account-notice"></div>
         <div id="offerMessageBoard" class="offer-message-board"></div>
+        <div id="offerSentActions" class="offer-sent-actions">
+          <button type="button" class="checkout-btn" onclick="closeModals()">Close</button>
+        </div>
         <form id="offerForm" class="checkout-form offer-form" onsubmit="submitOfferRequest(event)">
           <div class="offer-guest-fields">
             <input type="text" name="name" placeholder="Your name">
@@ -514,6 +517,7 @@ function updateOfferBoard(productName = activeOfferState?.productName || '', sig
   const guestFields = form?.querySelector('.offer-guest-fields');
   const sellerTools = document.getElementById('sellerCounterTools');
   const buyerTools = document.getElementById('buyerCounterTools');
+  const sentActions = document.getElementById('offerSentActions');
 
   if (notice) {
     notice.textContent = signedInName
@@ -544,12 +548,16 @@ function updateOfferBoard(productName = activeOfferState?.productName || '', sig
     if (activeOfferState?.status === 'accepted') {
       messages.push(offerMessageMarkup('system', 'Offer accepted', 'Continue to checkout when payment details are ready. Customer pays any transaction fees.'));
     }
+    if (activeOfferState?.status === 'sent' || activeOfferState?.status === 'pending') {
+      messages.push(offerMessageMarkup('system', 'Offer sent', 'Thanks, we received your offer. MVPLUXCREATIONS will review it and reply with an acceptance or counteroffer.'));
+    }
     board.innerHTML = messages.join('');
   }
 
   if (form) form.style.display = activeOfferState?.buyerOffer ? 'none' : 'grid';
   if (sellerTools) sellerTools.style.display = 'none';
   if (buyerTools) buyerTools.style.display = activeOfferState?.sellerCounter && !activeOfferState?.buyerCounterUsed && activeOfferState?.status !== 'accepted' ? 'grid' : 'none';
+  if (sentActions) sentActions.style.display = activeOfferState?.status === 'sent' || activeOfferState?.status === 'pending' ? 'flex' : 'none';
 }
 
 async function submitOfferRequest(event) {
@@ -611,12 +619,12 @@ async function submitOfferRequest(event) {
   }
 
   if (autoAccept.accepted) {
-    alert(`Offer accepted automatically at ${formatMoney(amount)}.\n\nContinue to checkout when ready.`);
     checkoutAcceptedOffer(activeOfferState.productName, amount);
     return;
   }
 
-  alert('Offer sent for review. MVPLUXCREATIONS will reply after checking the details.');
+  activeOfferState.status = 'sent';
+  updateOfferBoard();
 }
 
 function sendSellerCounterOffer() {

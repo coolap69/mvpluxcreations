@@ -940,6 +940,9 @@
       <p id="offerProduct"></p>
       <div id="offerAccountNotice" class="offer-account-notice"></div>
       <div id="offerMessageBoard" class="offer-message-board"></div>
+      <div id="offerSentActions" class="offer-sent-actions">
+        <button type="button" class="checkout-btn" onclick="closeModals()">Close</button>
+      </div>
       <form id="offerForm" class="checkout-form offer-form" onsubmit="submitOfferRequest(event)">
         <div class="offer-guest-fields">
           <input type="text" name="name" placeholder="Your name" />
@@ -1010,7 +1013,7 @@
   
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="supabase-config.js?v=20260703-offer-rounding"></script>
-  <script src="script.js?v=20260703-offer-rounding"></script>
+  <script src="supabase-config.js?v=20260703-friendly-offer-sent"></script>
+  <script src="script.js?v=20260703-friendly-offer-sent"></script>
 </body>
 </html>
