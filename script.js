@@ -77,6 +77,21 @@ function addToCart(name, price) {
   updateCart();
 }
 
+function checkoutAcceptedOffer(name, price) {
+  const acceptedItem = {
+    name: `${name || 'Selected item'} - Accepted Offer`,
+    price: Number(price) || 0,
+    image: ''
+  };
+
+  ensureCartShell();
+  cart = [acceptedItem];
+  cartTotal = acceptedItem.price;
+  currentBuyNowItem = null;
+  updateCart();
+  openCheckout();
+}
+
 function updateCart() {
   ensureCartShell();
   const cartCount = document.getElementById('cartCount');
@@ -625,13 +640,8 @@ async function submitOfferRequest(event) {
   }
 
   if (autoAccept.accepted) {
-    currentBuyNowItem = {
-      name: `${activeOfferState.productName} - Accepted Offer`,
-      price: amount,
-      image: ''
-    };
     alert(`Offer accepted automatically at ${formatMoney(amount)}.\n\nContinue to checkout when ready.`);
-    openCheckout();
+    checkoutAcceptedOffer(activeOfferState.productName, amount);
     return;
   }
 
@@ -654,13 +664,8 @@ function sendSellerCounterOffer() {
 function acceptSellerCounterOffer() {
   if (!activeOfferState?.sellerCounter) return;
   activeOfferState.status = 'accepted';
-  currentBuyNowItem = {
-    name: `${activeOfferState.productName} - Accepted Offer`,
-    price: activeOfferState.sellerCounter.amount,
-    image: ''
-  };
   updateOfferBoard();
-  openCheckout();
+  checkoutAcceptedOffer(activeOfferState.productName, activeOfferState.sellerCounter.amount);
 }
 
 function showBuyerFinalCounter() {
