@@ -4,6 +4,8 @@ let infoSlideIndex = 0;
 let currentBuyNowItem = null;
 let activeOfferState = null;
 const supportEmail = 'support@mvpluxcreations.com';
+let currentCheckoutPaymentMethod = 'paypal';
+let currentCheckoutOrderNumber = '';
 
 function showSiteMessage(message, type = 'info') {
   let messageBox = document.getElementById('siteMessageBox');
@@ -28,29 +30,58 @@ function showSiteMessage(message, type = 'info') {
 }
 
 const checkoutPaymentMethods = {
-  zelle: {
-    label: 'Zelle',
-    note: 'Send payment after MVPLUXCREATIONS confirms the order.'
-  },
+  // ADMIN: Update these placeholder links and QR image paths when payment accounts are ready.
+  // PayPal example: payUrl: 'https://paypal.me/yourname'
+  // Venmo example: payUrl: 'https://venmo.com/u/yourname'
+  // Cash App example: payUrl: 'https://cash.app/$YourCashtag'
+  // QR images can be added to images/payment/ and referenced below.
   paypal: {
     label: 'PayPal',
-    note: 'PayPal instructions are sent after the order is confirmed.'
-  },
-  cashapp: {
-    label: 'Cash App',
-    note: 'Cash App instructions are sent after the order is confirmed.'
-  },
-  applepay: {
-    label: 'Apple Pay',
-    note: 'Apple Pay instructions are sent after the order is confirmed.'
+    buttonLabel: 'Pay with PayPal',
+    note: 'May redirect to PayPal to complete payment securely.',
+    payUrl: '#PAYPAL_LINK_HERE',
+    qrImage: 'images/payment/paypal-qr-placeholder.png',
+    active: true
   },
   venmo: {
     label: 'Venmo',
-    note: 'Venmo instructions are sent after the order is confirmed.'
+    buttonLabel: 'Pay with Venmo',
+    note: 'May open Venmo or a secure Venmo payment page.',
+    payUrl: '#VENMO_LINK_HERE',
+    qrImage: 'images/payment/venmo-qr-placeholder.png',
+    active: true
+  },
+  cashapp: {
+    label: 'Cash App',
+    buttonLabel: 'Pay with Cash App',
+    note: 'May open Cash App or a secure Cash App payment page.',
+    payUrl: '#CASHAPP_CASHTAG_LINK_HERE',
+    qrImage: 'images/payment/cashapp-qr-placeholder.png',
+    active: true
+  },
+  zelle: {
+    label: 'Zelle',
+    buttonLabel: 'Zelle Later',
+    note: 'Optional later. Not the main payment method right now.',
+    payUrl: '#ZELLE_OPTIONAL_LATER',
+    qrImage: '',
+    active: false
+  },
+  stripe: {
+    label: 'Card / Apple Pay / Google Pay',
+    buttonLabel: 'Card Pay Later',
+    note: 'Stripe, Apple Pay, and Google Pay can be added later.',
+    payUrl: '#STRIPE_APPLE_GOOGLE_PAY_LATER',
+    qrImage: '',
+    active: false
   },
   crypto: {
     label: 'Crypto Wallet',
-    note: 'Crypto wallet details are sent after the order is confirmed.'
+    buttonLabel: 'Crypto Later',
+    note: 'Optional later if you want wallet payments.',
+    payUrl: '#CRYPTO_WALLET_LATER',
+    qrImage: '',
+    active: false
   }
 };
 
@@ -82,12 +113,25 @@ function ensureCartShell() {
 
 function addToCart(name, price) {
   ensureCartShell();
+  resetCheckoutSubmissionState();
   cart.push({ name, price });
   cartTotal += price;
   updateCart();
 }
 
+function resetCheckoutSubmissionState() {
+  currentCheckoutOrderNumber = '';
+  const successNotice = document.getElementById('checkoutSuccessNotice');
+  const orderNumberEl = document.getElementById('checkoutOrderNumber');
+  if (successNotice) {
+    delete successNotice.dataset.sent;
+    successNotice.style.display = 'none';
+  }
+  if (orderNumberEl) orderNumberEl.textContent = '';
+}
+
 function checkoutAcceptedOffer(name, price) {
+  resetCheckoutSubmissionState();
   const acceptedItem = {
     name: `${name || 'Selected item'} - Accepted Offer`,
     price: Number(price) || 0,
@@ -148,6 +192,7 @@ function toggleCart() {
 /* ---------------- BUY / OFFER MODALS ---------------- */
 function openBuyNow(title, price, image) {
   ensureCommerceModals();
+  resetCheckoutSubmissionState();
   const modalTitle = document.getElementById('modalTitle');
   const modalPrice = document.getElementById('modalPrice');
   const modalImage = document.getElementById('modalImage');
@@ -224,10 +269,12 @@ function closeModals() {
   const buyModal = document.getElementById('buyModal');
   const offerModal = document.getElementById('offerModal');
   const checkoutModal = document.getElementById('checkoutModal');
+  const paymentOptionModal = document.getElementById('paymentOptionModal');
 
   if (buyModal) buyModal.style.display = 'none';
   if (offerModal) offerModal.style.display = 'none';
   if (checkoutModal) checkoutModal.style.display = 'none';
+  if (paymentOptionModal) paymentOptionModal.style.display = 'none';
 }
 
 /* ---------------- CHECKOUT / PAYMENT ---------------- */
@@ -256,6 +303,17 @@ function formValue(form, name) {
   return form?.elements?.[name]?.value?.trim() || '';
 }
 
+function createOrderNumber() {
+  const date = new Date();
+  const stamp = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('');
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `MVP-${stamp}-${random}`;
+}
+
 function getCommerceClient() {
   const client = window.getMvpluxSupabaseClient?.();
   if (!client) {
@@ -272,19 +330,116 @@ async function getCommerceUser(client) {
 }
 
 function paymentMethodButtonMarkup(key, method) {
+  const disabled = method.active ? '' : ' disabled';
   return `
-    <label class="payment-method-card">
-      <input type="radio" name="checkoutPaymentMethod" value="${key}" ${key === 'zelle' ? 'checked' : ''}>
+    <button type="button" class="payment-method-card ${key === currentCheckoutPaymentMethod ? 'active' : ''}" data-payment-method="${key}" onclick="selectCheckoutPaymentMethod('${key}')"${disabled}>
       <span>${method.label}</span>
       <small>${method.note}</small>
-    </label>
+      <em>${method.active ? 'Open payment instructions' : 'Coming later'}</em>
+    </button>
   `;
+}
+
+function paymentActionButtonsMarkup() {
+  return Object.entries(checkoutPaymentMethods)
+    .filter(([, method]) => method.active)
+    .map(([key, method]) => `<button type="button" class="payment-action-btn" onclick="openPaymentOption('${key}')">${method.buttonLabel || method.label}</button>`)
+    .join('');
+}
+
+function paymentModalMarkup() {
+  return `
+    <div id="paymentOptionModal" class="modal">
+      <div class="modal-content payment-option-modal-content">
+        <button class="close-modal" onclick="closePaymentOption()">x</button>
+        <h2 id="paymentOptionTitle">Payment Option</h2>
+        <p id="paymentOptionIntro"></p>
+        <div id="paymentOptionQr" class="payment-option-qr"></div>
+        <div class="payment-order-note">
+          <strong>Payment note</strong>
+          <span id="paymentOrderNoteText">Submit the order request first so we can create your order number.</span>
+        </div>
+        <button id="paymentOptionLink" type="button" class="submit-btn">Open Secure Payment Page</button>
+        <p class="payment-option-disclaimer">You may be redirected to the selected payment provider to complete payment securely. Processing or financing fees may apply depending on the payment method and your account.</p>
+      </div>
+    </div>
+  `;
+}
+
+function selectCheckoutPaymentMethod(key) {
+  const method = checkoutPaymentMethods[key];
+  if (!method) return;
+  if (!method.active) {
+    showSiteMessage(`${method.label} can be added later.`, 'info');
+    return;
+  }
+
+  currentCheckoutPaymentMethod = key;
+  document.querySelectorAll('.payment-method-card').forEach((button) => {
+    button.classList.toggle('active', button.dataset.paymentMethod === key);
+  });
+  updateCheckoutDisplay();
+  openPaymentOption(key);
+}
+
+function closePaymentOption() {
+  const modal = document.getElementById('paymentOptionModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function isPlaceholderPaymentLink(url) {
+  return !url || url.startsWith('#');
+}
+
+function openPaymentOption(key = currentCheckoutPaymentMethod) {
+  ensureCommerceModals();
+  const method = checkoutPaymentMethods[key] || checkoutPaymentMethods.paypal;
+  if (!method.active) {
+    showSiteMessage(`${method.label} can be added later.`, 'info');
+    return;
+  }
+
+  currentCheckoutPaymentMethod = key;
+  const modal = document.getElementById('paymentOptionModal');
+  const title = document.getElementById('paymentOptionTitle');
+  const intro = document.getElementById('paymentOptionIntro');
+  const qr = document.getElementById('paymentOptionQr');
+  const note = document.getElementById('paymentOrderNoteText');
+  const link = document.getElementById('paymentOptionLink');
+  const orderNumber = currentCheckoutOrderNumber || '';
+
+  if (title) title.textContent = method.label;
+  if (intro) intro.textContent = method.note;
+  if (qr) {
+    qr.innerHTML = method.qrImage
+      ? `<img src="${method.qrImage}" alt="${method.label} QR code placeholder"><span>QR code placeholder</span>`
+      : '<span>QR code can be added later.</span>';
+  }
+  if (note) {
+    note.textContent = orderNumber
+      ? `Please include order number ${orderNumber} in the payment note.`
+      : 'Submit the order request first so we can create your order number.';
+  }
+  if (link) {
+    link.textContent = isPlaceholderPaymentLink(method.payUrl) ? 'Payment Link Placeholder' : `Open ${method.label}`;
+    link.disabled = isPlaceholderPaymentLink(method.payUrl);
+    link.onclick = () => {
+      if (isPlaceholderPaymentLink(method.payUrl)) {
+        showSiteMessage(`${method.label} payment link is a placeholder for now.`, 'info');
+        return;
+      }
+      window.open(method.payUrl, '_blank', 'noopener,noreferrer');
+    };
+  }
+
+  if (modal) modal.style.display = 'flex';
 }
 
 function checkoutModalMarkup() {
   const paymentMethods = Object.entries(checkoutPaymentMethods)
     .map(([key, method]) => paymentMethodButtonMarkup(key, method))
     .join('');
+  const paymentActions = paymentActionButtonsMarkup();
 
   return `
     <div id="checkoutModal" class="modal">
@@ -297,6 +452,8 @@ function checkoutModalMarkup() {
         <div id="checkoutSuccessNotice" class="checkout-success-notice">
           <strong>Order request sent</strong>
           <span>Thank you. MVPLUXCREATIONS received your request and will confirm the details with payment instructions.</span>
+          <div id="checkoutOrderNumber" class="checkout-order-number"></div>
+          <div class="payment-action-row">${paymentActions}</div>
           <button type="button" class="checkout-btn" onclick="closeModals()">Close</button>
         </div>
         <div id="checkoutOrderSummary" class="checkout-order-summary"></div>
@@ -411,6 +568,9 @@ function ensureCommerceModals() {
   if (!document.getElementById('offerModal')) {
     document.body.insertAdjacentHTML('beforeend', offerModalMarkup());
   }
+  if (!document.getElementById('paymentOptionModal')) {
+    document.body.insertAdjacentHTML('beforeend', paymentModalMarkup());
+  }
 }
 
 function updateCheckoutDisplay() {
@@ -418,7 +578,7 @@ function updateCheckoutDisplay() {
   const feeSummary = document.getElementById('checkoutFeeSummary');
   const acceptedNotice = document.getElementById('checkoutAcceptedOfferNotice');
   const successNotice = document.getElementById('checkoutSuccessNotice');
-  const selectedMethod = document.querySelector('input[name="checkoutPaymentMethod"]:checked')?.value || 'zelle';
+  const selectedMethod = currentCheckoutPaymentMethod || 'paypal';
   const items = getCheckoutItems();
   const subtotal = getCheckoutSubtotal();
   const totals = calculateCustomerPaidTotal(subtotal, selectedMethod);
@@ -475,9 +635,11 @@ async function submitCheckoutRequest(event) {
   submitButton.disabled = true;
   submitButton.textContent = 'Sending...';
 
-  const methodKey = document.querySelector('input[name="checkoutPaymentMethod"]:checked')?.value || 'zelle';
+  const methodKey = currentCheckoutPaymentMethod || 'paypal';
   const totals = calculateCustomerPaidTotal(getCheckoutSubtotal(), methodKey);
   const user = await getCommerceUser(client);
+  const orderNumber = createOrderNumber();
+  const customerNotes = formValue(form, 'notes');
 
   const payload = {
     customer_id: user?.id || null,
@@ -502,7 +664,7 @@ async function submitCheckoutRequest(event) {
     customer_fee: 0,
     total: Number(totals.total.toFixed(2)),
     status: 'new',
-    notes: formValue(form, 'notes') || null
+    notes: [`Order number: ${orderNumber}`, customerNotes ? `Customer notes: ${customerNotes}` : ''].filter(Boolean).join('\n')
   };
 
   const { error } = await client.from('order_requests').insert(payload);
@@ -515,9 +677,14 @@ async function submitCheckoutRequest(event) {
   }
 
   const successNotice = document.getElementById('checkoutSuccessNotice');
+  const orderNumberEl = document.getElementById('checkoutOrderNumber');
+  currentCheckoutOrderNumber = orderNumber;
   if (successNotice) {
     successNotice.dataset.sent = 'true';
     successNotice.style.display = 'grid';
+  }
+  if (orderNumberEl) {
+    orderNumberEl.textContent = `Order number: ${orderNumber}. Include this in the payment note.`;
   }
   form.reset();
   cart = [];
