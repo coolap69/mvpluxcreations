@@ -30,39 +30,27 @@ function showSiteMessage(message, type = 'info') {
 const checkoutPaymentMethods = {
   zelle: {
     label: 'Zelle',
-    feePercent: 0,
-    fixedFee: 0,
-    note: 'Usually no platform fee from Zelle, but the customer is responsible for any bank fee.'
+    note: 'Send payment after MVPLUXCREATIONS confirms the order.'
   },
   paypal: {
     label: 'PayPal',
-    feePercent: 0.0349,
-    fixedFee: 0.49,
-    note: 'Customer pays the estimated PayPal processing fee.'
+    note: 'PayPal instructions are sent after the order is confirmed.'
   },
   cashapp: {
     label: 'Cash App',
-    feePercent: 0.0275,
-    fixedFee: 0,
-    note: 'Customer pays any Cash App or instant-transfer fee that applies.'
+    note: 'Cash App instructions are sent after the order is confirmed.'
   },
   applepay: {
-    label: 'Apple Pay / Card',
-    feePercent: 0.035,
-    fixedFee: 0.49,
-    note: 'Customer pays the estimated card processing fee.'
+    label: 'Apple Pay',
+    note: 'Apple Pay instructions are sent after the order is confirmed.'
   },
   venmo: {
     label: 'Venmo',
-    feePercent: 0.0299,
-    fixedFee: 0.49,
-    note: 'Customer pays the estimated Venmo/payment processing fee.'
+    note: 'Venmo instructions are sent after the order is confirmed.'
   },
   crypto: {
     label: 'Crypto Wallet',
-    feePercent: 0,
-    fixedFee: 0,
-    note: 'Customer pays the crypto network/gas fee and must send enough for MVPLUXCREATIONS to receive the order total.'
+    note: 'Crypto wallet details are sent after the order is confirmed.'
   }
 };
 
@@ -246,16 +234,10 @@ function closeModals() {
 function calculateCustomerPaidTotal(subtotal, methodKey) {
   const method = checkoutPaymentMethods[methodKey] || checkoutPaymentMethods.zelle;
   const amount = Number(subtotal) || 0;
-  if (!amount) return { subtotal: 0, fee: 0, total: 0, method };
-  if (!method.feePercent && !method.fixedFee) {
-    return { subtotal: amount, fee: 0, total: amount, method };
-  }
-
-  const total = (amount + method.fixedFee) / (1 - method.feePercent);
   return {
     subtotal: amount,
-    fee: Math.max(0, total - amount),
-    total,
+    fee: 0,
+    total: amount,
     method
   };
 }
@@ -309,7 +291,7 @@ function checkoutModalMarkup() {
       <div class="modal-content checkout-modal-content">
         <button class="close-modal" onclick="closeModals()">x</button>
         <h2>Checkout / Pay</h2>
-        <p class="checkout-intro">Choose how you want to pay. Any transaction, processing, card, app, bank, crypto network, or gas fee is paid by the customer.</p>
+        <p class="checkout-intro">Choose how you want to pay. MVPLUXCREATIONS will confirm the order details and send payment instructions.</p>
         <p class="checkout-email-note">Your order request is sent to MVPLUXCREATIONS. You will receive payment instructions after the details are confirmed.</p>
         <div id="checkoutAcceptedOfferNotice" class="checkout-accepted-offer-notice"></div>
         <div id="checkoutSuccessNotice" class="checkout-success-notice">
@@ -338,7 +320,7 @@ function checkoutModalMarkup() {
           <textarea name="notes" placeholder="Order notes: size, deadline, special request"></textarea>
           <label class="policy-check">
             <input type="checkbox" required>
-            <span>I understand this is a custom-made item, customer pays all payment/transaction fees, and production starts after payment and design/order details are confirmed.</span>
+            <span>I understand this is a custom-made item, and production starts after payment and design/order details are confirmed.</span>
           </label>
           <button type="submit" class="submit-btn">Submit Order Request</button>
         </form>
@@ -346,7 +328,7 @@ function checkoutModalMarkup() {
           <strong>Returns & disclaimers</strong>
           <p>Custom/life-size standees are made to order. Returns or cancellations are not accepted after production begins unless MVPLUXCREATIONS made an error or the item arrives damaged. Report shipping damage quickly with photos of the package and product.</p>
           <p>Product images may be restored, enhanced, composited, or recreated for print. MVPLUXCREATIONS is not affiliated with any person, brand, team, league, studio, or rights holder unless clearly stated.</p>
-          <p>Crypto payments are final once sent. The customer is responsible for sending the correct network and amount, including network/gas fees.</p>
+          <p>Crypto payments are final once sent. The customer is responsible for using the correct wallet network and confirmed amount.</p>
         </div>
       </div>
     </div>
@@ -381,7 +363,7 @@ function offerModalMarkup() {
           </select>
           <label class="policy-check">
             <input type="checkbox" required>
-            <span>I understand I can send one offer. If MVPLUXCREATIONS sends a counteroffer, I can accept it or send one final counteroffer. Customer pays all transaction fees if accepted.</span>
+            <span>I understand I can send one offer. If MVPLUXCREATIONS sends a counteroffer, I can accept it or send one final counteroffer.</span>
           </label>
           <button class="submit-btn" type="submit">Send Offer Request</button>
         </form>
@@ -463,7 +445,6 @@ function updateCheckoutDisplay() {
     feeSummary.innerHTML = `
       <div><span>Item total</span><strong>${formatMoney(totals.subtotal)}</strong></div>
       <div><span>Shipping</span><strong>Free</strong></div>
-      <div><span>Customer-paid fees</span><strong>${totals.method.label === 'Crypto Wallet' ? 'Network fee paid separately' : formatMoney(totals.fee)}</strong></div>
       <div class="checkout-total-line"><span>Total to pay</span><strong>${formatMoney(totals.total)}</strong></div>
       <p>${totals.method.note}</p>
     `;
@@ -518,7 +499,7 @@ async function submitCheckoutRequest(event) {
     })),
     payment_method: totals.method.label,
     subtotal: Number(totals.subtotal.toFixed(2)),
-    customer_fee: totals.method.label === 'Crypto Wallet' ? 0 : Number(totals.fee.toFixed(2)),
+    customer_fee: 0,
     total: Number(totals.total.toFixed(2)),
     status: 'new',
     notes: formValue(form, 'notes') || null
@@ -596,7 +577,7 @@ function updateOfferBoard(productName = activeOfferState?.productName || '', sig
       messages.push(offerMessageMarkup('buyer', 'Buyer final counteroffer', `${formatMoney(activeOfferState.buyerFinalCounter.amount)}${activeOfferState.buyerFinalCounter.message ? ` - ${activeOfferState.buyerFinalCounter.message}` : ''}`));
     }
     if (activeOfferState?.status === 'accepted') {
-      messages.push(offerMessageMarkup('system', 'Offer accepted', 'Continue to checkout when payment details are ready. Customer pays any transaction fees.'));
+      messages.push(offerMessageMarkup('system', 'Offer accepted', 'Continue to checkout when payment details are ready.'));
     }
     if (activeOfferState?.status === 'sent' || activeOfferState?.status === 'pending') {
       messages.push(offerMessageMarkup('system', 'Offer sent', 'Thanks, we received your offer. MVPLUXCREATIONS will review it and reply with an acceptance or counteroffer.'));

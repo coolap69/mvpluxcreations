@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260701-cart-icon-same-size" />
+  <link rel="stylesheet" href="style.css?v=20260703-commerce-admin" />
 </head>
 <body>
   <header class="top-nav">
@@ -26,6 +26,27 @@
     <section class="admin-hero">
       <h1>MVPLUX Admin</h1>
       <p>Change product card text, images, original heights, original prices, and coupons without editing code.</p>
+    </section>
+
+    <section class="admin-panel">
+      <div class="admin-panel-header">
+        <h2>Orders & Offers</h2>
+        <div class="admin-panel-actions">
+          <button id="refreshCommerceAdmin" type="button">Refresh</button>
+        </div>
+      </div>
+      <p class="admin-note">Review checkout requests and offers saved from the live website. If these do not load, run the admin SQL shown in <strong>supabase-schema.sql</strong> for your logged-in Supabase user.</p>
+      <div id="commerceAdminStatus" class="admin-status"></div>
+      <div class="admin-commerce-grid">
+        <div>
+          <h3>New Orders</h3>
+          <div id="adminOrdersList" class="admin-commerce-list"></div>
+        </div>
+        <div>
+          <h3>Offers</h3>
+          <div id="adminOffersList" class="admin-commerce-list"></div>
+        </div>
+      </div>
     </section>
 
     <section class="admin-panel">
@@ -115,6 +136,8 @@
     </section>
   </main>
 
-  <script src="admin.js?v=20260630-custom-size-baseline-final"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js?v=20260703-commerce-admin"></script>
+  <script src="admin.js?v=20260703-commerce-admin"></script>
 </body>
 </html>

@@ -163,3 +163,41 @@ values
 on conflict (slug) do update
 set name = excluded.name,
     sort_order = excluded.sort_order;
+
+-- Admin order/offer review access.
+-- After creating your Supabase login, run:
+-- insert into public.admin_profiles (user_id)
+-- values ('PASTE-YOUR-AUTH-USER-ID-HERE')
+-- on conflict (user_id) do nothing;
+create table if not exists public.admin_profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+alter table public.admin_profiles enable row level security;
+
+drop policy if exists "Admins can view their admin profile" on public.admin_profiles;
+create policy "Admins can view their admin profile"
+on public.admin_profiles for select
+using (auth.uid() = user_id);
+
+drop policy if exists "Admins can view all order requests" on public.order_requests;
+create policy "Admins can view all order requests"
+on public.order_requests for select
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
+drop policy if exists "Admins can view all offers" on public.offers;
+create policy "Admins can view all offers"
+on public.offers for select
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
+grant usage on schema public to anon, authenticated;
+grant select on public.categories, public.products, public.product_images to anon, authenticated;
+grant insert on public.order_requests, public.offers to anon, authenticated;
+grant select on public.order_requests, public.offers, public.admin_profiles to authenticated;

@@ -256,6 +256,116 @@ function setStatus(message) {
   if (document.getElementById('adminExportPreview')) renderAdminExportPreview();
 }
 
+function setCommerceStatus(message) {
+  const status = document.getElementById('commerceAdminStatus');
+  if (status) status.textContent = message || '';
+}
+
+function adminMoney(value) {
+  const amount = Number(value) || 0;
+  return '$' + amount.toFixed(2);
+}
+
+function adminDate(value) {
+  if (!value) return '';
+  return new Date(value).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
+function adminListItems(items) {
+  if (!Array.isArray(items) || !items.length) return 'No item listed';
+  return items.map((item) => `${item.name || 'Item'} (${adminMoney(item.price)})`).join(', ');
+}
+
+function adminAddressText(address) {
+  if (!address || typeof address !== 'object') return 'No address yet';
+  return [
+    address.address1,
+    address.address2,
+    [address.city, address.state, address.zip].filter(Boolean).join(', '),
+    address.country
+  ].filter(Boolean).join(' | ') || 'No address yet';
+}
+
+function commerceEmptyMarkup(text) {
+  return `<div class="admin-commerce-empty">${text}</div>`;
+}
+
+function orderCardMarkup(order) {
+  return `
+    <article class="admin-commerce-card">
+      <div class="admin-commerce-card-head">
+        <strong>${order.customer_name || 'Customer'}</strong>
+        <span>${order.status || 'new'}</span>
+      </div>
+      <p>${adminListItems(order.items)}</p>
+      <p><strong>Total:</strong> ${adminMoney(order.total)} · <strong>Pay:</strong> ${order.payment_method || 'Not chosen'}</p>
+      <p><strong>Email:</strong> ${order.customer_email || 'Not provided'} · <strong>Phone:</strong> ${order.customer_phone || 'Not provided'}</p>
+      <p><strong>Ship:</strong> ${adminAddressText(order.shipping_address)}</p>
+      ${order.notes ? `<p><strong>Notes:</strong> ${order.notes}</p>` : ''}
+      <small>${adminDate(order.created_at)}</small>
+    </article>
+  `;
+}
+
+function offerCardMarkup(offer) {
+  return `
+    <article class="admin-commerce-card">
+      <div class="admin-commerce-card-head">
+        <strong>${offer.customer_name || 'Customer'}</strong>
+        <span>${offer.status || 'pending'}</span>
+      </div>
+      <p>${offer.product_name || 'Selected item'}</p>
+      <p><strong>Offer:</strong> ${adminMoney(offer.amount)}</p>
+      <p><strong>Email:</strong> ${offer.customer_email || 'Not provided'}</p>
+      ${offer.message ? `<p><strong>Details:</strong> ${String(offer.message).replace(/\n/g, ' | ')}</p>` : ''}
+      <small>${adminDate(offer.created_at)}</small>
+    </article>
+  `;
+}
+
+async function refreshCommerceAdmin() {
+  const ordersList = document.getElementById('adminOrdersList');
+  const offersList = document.getElementById('adminOffersList');
+  const client = window.getMvpluxSupabaseClient?.();
+
+  if (!ordersList || !offersList) return;
+  if (!client) {
+    setCommerceStatus('Supabase is not loaded yet.');
+    return;
+  }
+
+  setCommerceStatus('Loading orders and offers...');
+  ordersList.innerHTML = commerceEmptyMarkup('Loading orders...');
+  offersList.innerHTML = commerceEmptyMarkup('Loading offers...');
+
+  const [ordersResponse, offersResponse] = await Promise.all([
+    client.from('order_requests').select('*').order('created_at', { ascending: false }).limit(25),
+    client.from('offers').select('*').order('created_at', { ascending: false }).limit(25)
+  ]);
+
+  if (ordersResponse.error || offersResponse.error) {
+    setCommerceStatus('Could not load orders/offers yet. Make sure you are signed in and the admin Supabase policy has been added.');
+    ordersList.innerHTML = commerceEmptyMarkup(ordersResponse.error?.message || 'Orders unavailable.');
+    offersList.innerHTML = commerceEmptyMarkup(offersResponse.error?.message || 'Offers unavailable.');
+    return;
+  }
+
+  ordersList.innerHTML = ordersResponse.data?.length
+    ? ordersResponse.data.map(orderCardMarkup).join('')
+    : commerceEmptyMarkup('No orders yet.');
+
+  offersList.innerHTML = offersResponse.data?.length
+    ? offersResponse.data.map(offerCardMarkup).join('')
+    : commerceEmptyMarkup('No offers yet.');
+
+  setCommerceStatus(`Loaded ${ordersResponse.data?.length || 0} orders and ${offersResponse.data?.length || 0} offers.`);
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -914,6 +1024,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPriceRules();
   renderExtraImages();
   setupCoupons();
+  refreshCommerceAdmin();
 
   if (window.location.hash === '#create-card') {
     createCustomProduct();
@@ -947,6 +1058,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderExtraImages();
     setStatus('Extra image saves cleared in this browser.');
   });
+
+  document.getElementById('refreshCommerceAdmin')?.addEventListener('click', refreshCommerceAdmin);
 
   document.getElementById('exportAdminChanges')?.addEventListener('click', downloadAdminChanges);
   document.getElementById('copyAdminChanges')?.addEventListener('click', copyAdminChanges);
