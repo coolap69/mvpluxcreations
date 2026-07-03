@@ -892,6 +892,28 @@ function getFanVoteStore() {
   }
 }
 
+function getVoteDateKey(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0')
+  ].join('-');
+}
+
+function getGuestVoteId() {
+  let guestId = localStorage.getItem('mvpluxGuestVoteId');
+  if (!guestId) {
+    guestId = `guest-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+    localStorage.setItem('mvpluxGuestVoteId', guestId);
+  }
+  return guestId;
+}
+
+function hasVotedToday(voteRecord) {
+  if (voteRecord === true) return false;
+  return voteRecord?.date === getVoteDateKey();
+}
+
 function getCurrentBasePrice() {
   const settings = getAdminPriceSettings();
   return Number(settings.fullPrice) || 129.99;
@@ -904,15 +926,17 @@ function saveFanVoteStore(votes) {
 function setFanVoteButtonState(button, voted) {
   if (!button) return;
 
+  if (!button.dataset.originalHtml) {
+    button.dataset.originalHtml = button.innerHTML;
+  }
+
   button.classList.toggle('voted', voted);
   button.disabled = voted;
 
-  if (voted && !button.dataset.originalText) {
-    button.dataset.originalText = button.textContent.trim();
-  }
-
   if (voted) {
-    button.textContent = button.dataset.voteLabel === 'best' ? 'Voted Best Design' : 'Voted';
+    button.textContent = button.dataset.voteLabel === 'best' ? 'Voted Today' : 'Voted Today';
+  } else {
+    button.innerHTML = button.dataset.originalHtml;
   }
 }
 
@@ -939,24 +963,46 @@ function incrementVoteCount(voteId) {
   });
 }
 
-function registerFanVote(voteId, button) {
+async function logFanVote(voteId) {
+  const client = window.getMvpluxSupabaseClient?.();
+  if (!client) return;
+
+  try {
+    const { data } = await client.auth.getSession();
+    const user = data?.session?.user;
+    await client.from('fan_votes').insert({
+      vote_id: voteId,
+      vote_date: getVoteDateKey(),
+      customer_id: user?.id || null,
+      guest_id: user?.id ? null : getGuestVoteId()
+    });
+  } catch (error) {
+    console.warn('Fan vote log failed:', error);
+  }
+}
+
+async function registerFanVote(voteId, button) {
   const votes = getFanVoteStore();
 
-  if (votes[voteId]) {
+  if (hasVotedToday(votes[voteId])) {
     setFanVoteButtonState(button, true);
-    showSiteMessage('You already voted for this one.');
+    showSiteMessage('You already voted for this one today. You can vote again tomorrow.');
     return;
   }
 
-  votes[voteId] = true;
+  votes[voteId] = {
+    date: getVoteDateKey(),
+    guestId: getGuestVoteId()
+  };
   saveFanVoteStore(votes);
   incrementVoteCount(voteId);
+  logFanVote(voteId);
 
   document.querySelectorAll(`[data-vote-id="${voteId}"]`).forEach((matchingButton) => {
     setFanVoteButtonState(matchingButton, true);
   });
 
-  showSiteMessage('Vote counted. Thanks for helping choose what comes next.', 'success');
+  showSiteMessage('Vote counted. Thanks for helping choose what comes next. You can vote again tomorrow.', 'success');
 }
 
 /* ---------------- PRODUCT FILTER ---------------- */
@@ -3832,7 +3878,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   const fanVotes = getFanVoteStore();
   document.querySelectorAll('[data-vote-id]').forEach((button) => {
-    setFanVoteButtonState(button, Boolean(fanVotes[button.dataset.voteId]));
+    setFanVoteButtonState(button, hasVotedToday(fanVotes[button.dataset.voteId]));
   });
 
   window.addEventListener('click', function (e) {

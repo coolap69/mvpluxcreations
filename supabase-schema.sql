@@ -201,3 +201,43 @@ grant usage on schema public to anon, authenticated;
 grant select on public.categories, public.products, public.product_images to anon, authenticated;
 grant insert on public.order_requests, public.offers to anon, authenticated;
 grant select on public.order_requests, public.offers, public.admin_profiles to authenticated;
+
+create table if not exists public.fan_votes (
+  id uuid primary key default gen_random_uuid(),
+  vote_id text not null,
+  vote_date date not null default current_date,
+  customer_id uuid references auth.users(id) on delete set null,
+  guest_id text,
+  created_at timestamptz not null default now(),
+  constraint fan_votes_has_voter check (customer_id is not null or guest_id is not null)
+);
+
+create unique index if not exists fan_votes_customer_daily_unique
+on public.fan_votes (vote_id, vote_date, customer_id)
+where customer_id is not null;
+
+create unique index if not exists fan_votes_guest_daily_unique
+on public.fan_votes (vote_id, vote_date, guest_id)
+where guest_id is not null;
+
+alter table public.fan_votes enable row level security;
+
+drop policy if exists "Anyone can create fan votes" on public.fan_votes;
+create policy "Anyone can create fan votes"
+on public.fan_votes for insert
+with check (
+  vote_id is not null
+  and vote_date = current_date
+  and (customer_id = auth.uid() or customer_id is null)
+);
+
+drop policy if exists "Admins can view all fan votes" on public.fan_votes;
+create policy "Admins can view all fan votes"
+on public.fan_votes for select
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
+grant insert on public.fan_votes to anon, authenticated;
+grant select on public.fan_votes to authenticated;
