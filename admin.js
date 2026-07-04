@@ -1127,7 +1127,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('enableAdminAnywhere')?.addEventListener('click', () => {
     localStorage.setItem('mvpluxAdminAnywhere', 'true');
-    setStatus('Page editing is on. Open any website page and edit directly there.');
+    setStatus('Page editing is on. Opening the website now.');
+    window.location.href = 'index.html#shop';
   });
 
   document.getElementById('disableAdminAnywhere')?.addEventListener('click', () => {
