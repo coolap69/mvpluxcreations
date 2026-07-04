@@ -2814,6 +2814,7 @@ let inlineAdminSelectedImage = null;
 let inlineAdminUndoStack = [];
 let inlineAdminRedoStack = [];
 let inlineAdminDirty = false;
+let inlineAdminHasUnsavedLocalChanges = false;
 let inlineAdminLastToolbarAction = { action: '', time: 0 };
 let inlineAdminResizeActive = false;
 let inlineAdminLiveEdits = null;
@@ -2847,7 +2848,10 @@ function getInlineAdminLivePageEdits() {
 
 function getInlineAdminPageEdits() {
   const browserPageEdits = getInlineAdminDraft()[inlineAdminPageKey()] || {};
-  return { ...getInlineAdminLivePageEdits(), ...browserPageEdits };
+  const livePageEdits = getInlineAdminLivePageEdits();
+  return inlineAdminHasUnsavedLocalChanges
+    ? { ...livePageEdits, ...browserPageEdits }
+    : { ...browserPageEdits, ...livePageEdits };
 }
 
 function inlineAdminPageKey() {
@@ -2920,6 +2924,12 @@ async function loadInlineAdminLiveEdits() {
 
   inlineAdminLiveEdits = inlineAdminLiveEdits || {};
   inlineAdminLiveEdits[page] = data?.edits || {};
+  if (data?.edits && Object.keys(data.edits).length) {
+    const draft = getInlineAdminDraft();
+    draft[page] = data.edits;
+    writeInlineAdminEdits(draft);
+    inlineAdminHasUnsavedLocalChanges = false;
+  }
   return inlineAdminLiveEdits;
 }
 
@@ -2956,6 +2966,7 @@ async function saveInlineAdminEditsLive() {
 
   inlineAdminLiveEdits = inlineAdminLiveEdits || {};
   inlineAdminLiveEdits[page] = edits;
+  inlineAdminHasUnsavedLocalChanges = false;
   updateInlineAdminToolbarState('Saved live');
   return true;
 }
@@ -2993,7 +3004,8 @@ function saveInlineAdminEdit(element, patch) {
   edits[page] = edits[page] || {};
   edits[page][key] = { ...(edits[page][key] || {}), ...patch };
   writeInlineAdminEdits(edits);
-  inlineAdminDirty = false;
+  inlineAdminDirty = true;
+  inlineAdminHasUnsavedLocalChanges = true;
   updateInlineAdminToolbarState();
 }
 
@@ -3009,6 +3021,7 @@ function clearCurrentPageBrowserAdminEdits() {
   delete edits[inlineAdminPageKey()];
   writeInlineAdminEdits(edits);
   inlineAdminDirty = false;
+  inlineAdminHasUnsavedLocalChanges = false;
   showSiteMessage('Browser-only edits cleared for this page. Reloading clean view.', 'success');
   window.setTimeout(() => window.location.reload(), 450);
 }

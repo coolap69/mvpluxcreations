@@ -18,6 +18,15 @@ const adminProducts = [
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
+    slug: 'people-public-figure-standee',
+    title: 'People & Public Figure Standees',
+    description: 'Plan actor, creator, historical figure, public speaker, or lookalike-style display ideas.',
+    originalHeight: 78,
+    originalPrice: 129.99,
+    cutoutImage: 'images/FrontPageWeb/Music-TS-TSfinal.png',
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+  },
+  {
     slug: 'music-artist-standee',
     title: 'Music Artist Standees',
     description: 'Explore concert-style standee categories with different performers, stage looks, and custom display choices.',
