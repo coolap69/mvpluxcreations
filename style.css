@@ -4354,6 +4354,33 @@ body .auth-card .password-field input {
   overflow: visible !important;
 }
 
+.admin-mode-badge {
+  position: fixed !important;
+  z-index: 99998 !important;
+  top: 112px !important;
+  right: 16px !important;
+  display: grid !important;
+  gap: 2px !important;
+  padding: 10px 12px !important;
+  border: 1px solid rgba(244,208,111,0.76) !important;
+  border-radius: 10px !important;
+  background: rgba(0,0,0,0.9) !important;
+  color: #f0e7cf !important;
+  box-shadow: 0 16px 30px rgba(0,0,0,0.38) !important;
+  pointer-events: none !important;
+}
+
+.admin-mode-badge strong {
+  color: #f4d06f !important;
+  font-size: 12px !important;
+  letter-spacing: 0 !important;
+}
+
+.admin-mode-badge span {
+  color: #fff !important;
+  font-size: 12px !important;
+}
+
 .admin-anywhere-toolbar.admin-toolbar-free {
   justify-content: flex-start !important;
   align-content: flex-start !important;
@@ -4648,6 +4675,12 @@ body.admin-anywhere-on .product-stage-logo {
     right: 10px !important;
     bottom: 10px !important;
     flex-wrap: wrap !important;
+  }
+
+  .admin-mode-badge {
+    top: 82px !important;
+    right: 8px !important;
+    padding: 8px 10px !important;
   }
 
   .admin-anywhere-toolbar.admin-toolbar-side {

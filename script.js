@@ -1185,6 +1185,10 @@ function isInlineAdminEditingEnabled() {
   return localStorage.getItem('mvpluxAdminAnywhere') === 'true';
 }
 
+function getInlineAdminLabel() {
+  return localStorage.getItem('mvpluxSignedInName') || 'Admin';
+}
+
 function isCustomerSignedIn() {
   return localStorage.getItem('mvpluxCustomerSignedIn') === 'true';
 }
@@ -3634,6 +3638,10 @@ function installInlineAdminMode() {
   document.body.classList.add('admin-anywhere-on');
 
   document.body.insertAdjacentHTML('beforeend', `
+    <div class="admin-mode-badge" role="status">
+      <strong>ADMIN MODE ON</strong>
+      <span>${getInlineAdminLabel()}</span>
+    </div>
     <div class="admin-anywhere-toolbar">
       <strong>Admin Editing</strong>
       <button type="button" class="admin-toolbar-drag-handle" id="adminToolbarDragHandle" title="Drag admin tools">Move</button>
