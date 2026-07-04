@@ -1178,7 +1178,11 @@ function togglePasswordVisibility(button) {
 }
 
 function isAdminSignedIn() {
-  return localStorage.getItem('mvpluxAdminSignedIn') === 'true';
+  return false;
+}
+
+function isInlineAdminEditingEnabled() {
+  return localStorage.getItem('mvpluxAdminAnywhere') === 'true';
 }
 
 function isCustomerSignedIn() {
@@ -1186,9 +1190,7 @@ function isCustomerSignedIn() {
 }
 
 function cleanStaleAdminState() {
-  if (isAdminSignedIn()) return;
-
-  localStorage.removeItem('mvpluxAdminAnywhere');
+  localStorage.removeItem('mvpluxAdminSignedIn');
   if (!isCustomerSignedIn() && localStorage.getItem('mvpluxSignedInName') === 'Admin') {
     localStorage.removeItem('mvpluxSignedInName');
   }
@@ -1196,7 +1198,7 @@ function cleanStaleAdminState() {
 
 async function signOutCurrentUser() {
   const client = getSupabaseClient();
-  if (client?.auth && !isAdminSignedIn()) {
+  if (client?.auth) {
     try {
       await client.auth.signOut();
     } catch (error) {
@@ -1216,7 +1218,6 @@ function signOutAdmin() {
 }
 
 function getSignedInName() {
-  if (isAdminSignedIn()) return localStorage.getItem('mvpluxSignedInName') || 'Admin';
   if (isCustomerSignedIn()) return localStorage.getItem('mvpluxSignedInName') || 'Guest';
   return '';
 }
@@ -1241,12 +1242,17 @@ function isSupabaseNetworkError(error) {
 
 async function syncSupabaseAuthState() {
   const client = getSupabaseClient();
-  if (!client?.auth || isAdminSignedIn()) return;
+  if (!client?.auth) return;
 
   try {
     const { data } = await client.auth.getSession();
     const user = data?.session?.user;
-    if (!user) return;
+    if (!user) {
+      localStorage.removeItem('mvpluxCustomerSignedIn');
+      localStorage.removeItem('mvpluxSignedInName');
+      localStorage.removeItem('mvpluxAdminSignedIn');
+      return;
+    }
 
     const screenName = user.user_metadata?.screen_name || user.email?.split('@')[0] || 'Guest';
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
@@ -1258,7 +1264,10 @@ async function syncSupabaseAuthState() {
 
 async function signInCustomerWithSupabase(email, password) {
   const client = getSupabaseClient();
-  if (!client?.auth) return false;
+  if (!client?.auth) {
+    showSupabaseConnectionAlert('sign in');
+    return true;
+  }
 
   try {
     const { data, error } = await client.auth.signInWithPassword({ email, password });
@@ -1285,7 +1294,10 @@ async function signInCustomerWithSupabase(email, password) {
 
 async function signUpCustomerWithSupabase(screenName, email, password) {
   const client = getSupabaseClient();
-  if (!client?.auth) return false;
+  if (!client?.auth) {
+    showSupabaseConnectionAlert('create the account');
+    return true;
+  }
 
   try {
     const { data, error } = await client.auth.signUp({
@@ -1338,11 +1350,7 @@ function setupAuthState() {
     const email = document.getElementById('signinEmail')?.value.trim().toLowerCase() || '';
     const password = document.getElementById('signinPassword')?.value.trim() || '';
 
-    if (await signInCustomerWithSupabase(email, password)) return;
-
-    localStorage.setItem('mvpluxCustomerSignedIn', 'true');
-    localStorage.setItem('mvpluxSignedInName', email.split('@')[0] || 'Guest');
-    window.location.href = 'index.html';
+    await signInCustomerWithSupabase(email, password);
   });
 
   signupForm?.addEventListener('submit', async (event) => {
@@ -1351,11 +1359,7 @@ function setupAuthState() {
     const email = document.getElementById('signupEmail')?.value.trim().toLowerCase() || '';
     const password = document.getElementById('signupPassword')?.value.trim() || '';
 
-    if (await signUpCustomerWithSupabase(screenName, email, password)) return;
-
-    localStorage.setItem('mvpluxCustomerSignedIn', 'true');
-    localStorage.setItem('mvpluxSignedInName', screenName);
-    window.location.href = 'index.html';
+    await signUpCustomerWithSupabase(screenName, email, password);
   });
 
   const signedInName = getSignedInName();
@@ -3885,9 +3889,9 @@ function openSelectedOffer(button) {
 }
 
 /* ---------------- PAGE INIT ---------------- */
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', async function () {
   clearLegacyAdminBrowserStorage();
-  syncSupabaseAuthState().catch(() => {});
+  await syncSupabaseAuthState().catch(() => {});
   setupAuthState();
   updateCart();
   showInfoSlide(0);
@@ -3938,7 +3942,7 @@ document.addEventListener('DOMContentLoaded', function () {
   applyInlineAdminEdits();
 
   const isAuthPage = Boolean(document.querySelector('.auth-page'));
-  if (!isAuthPage && isAdminSignedIn()) {
+  if (!isAuthPage && isInlineAdminEditingEnabled()) {
     installInlineAdminMode();
   }
 });

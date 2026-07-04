@@ -112,7 +112,7 @@ async function requireSupabaseAdminAccess() {
     return false;
   }
 
-  localStorage.setItem('mvpluxAdminSignedIn', 'true');
+  localStorage.removeItem('mvpluxAdminSignedIn');
   localStorage.setItem('mvpluxCustomerSignedIn', 'true');
   localStorage.setItem('mvpluxSignedInName', user.user_metadata?.screen_name || user.email?.split('@')[0] || 'Admin');
   return true;
@@ -1073,7 +1073,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('createAdminProduct')?.addEventListener('click', createCustomProduct);
 
   document.getElementById('enableAdminAnywhere')?.addEventListener('click', () => {
-    localStorage.setItem('mvpluxAdminSignedIn', 'true');
     localStorage.setItem('mvpluxAdminAnywhere', 'true');
     setStatus('Page editing is on. Open any website page and edit directly there.');
   });
