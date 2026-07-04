@@ -3586,6 +3586,7 @@ var runInlineAdminToolbarAction = function (action) {
   if (action === 'toggle-toolbar-size') toggleInlineAdminToolbarSize();
   if (action === 'toggle-toolbar-collapsed') toggleInlineAdminToolbarCollapsed();
   if (action === 'copy-code') copySelectedInlineAdminCode();
+  if (action === 'replace-image') replaceSelectedInlineAdminImage();
   if (action === 'reset-image') resetSelectedInlineAdminImage();
   if (action === 'lock-image') toggleSelectedInlineAdminImageLock();
   if (action === 'unlock-all-images') unlockAllInlineAdminImages();
@@ -3686,6 +3687,43 @@ function fileToSmallDataUrl(file) {
   });
 }
 
+function replaceInlineAdminImage(image) {
+  if (!image) {
+    updateInlineAdminToolbarState('Select an image first');
+    return;
+  }
+  if (image._adminImageState?.locked) {
+    updateInlineAdminToolbarState('Image locked');
+    return;
+  }
+
+  selectInlineAdminImage(image);
+  const before = getInlineAdminSnapshot(image);
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) return;
+
+    image.src = await fileToSmallDataUrl(file);
+    saveInlineAdminEdit(image, { src: image.src, ...image._adminImageState });
+    pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
+    updateInlineAdminToolbarState('Image replaced');
+  }, { once: true });
+
+  input.addEventListener('cancel', () => input.remove(), { once: true });
+  input.click();
+}
+
+function replaceSelectedInlineAdminImage() {
+  replaceInlineAdminImage(getActiveInlineAdminImage());
+}
+
 function installInlineAdminMode() {
   if (document.body.dataset.inlineAdminReady) return;
   document.body.dataset.inlineAdminReady = 'true';
@@ -3709,6 +3747,7 @@ function installInlineAdminMode() {
       <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image" onpointerdown="runInlineAdminToolbarAction('copy-code'); return false;" onclick="runInlineAdminToolbarAction('copy-code'); return false;">Copy Code</button>
       <button type="button" class="admin-tool-control" data-admin-toolbar-action="restore-cards" id="adminInlineRestoreCards" title="Bring back cards saved for later" onpointerdown="runInlineAdminToolbarAction('restore-cards'); return false;" onclick="runInlineAdminToolbarAction('restore-cards'); return false;">Bring Back Cards</button>
       <span id="adminInlineSelected">Select an image</span>
+      <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="replace-image" id="adminInlineReplaceImage" title="Replace selected image" onpointerdown="runInlineAdminToolbarAction('replace-image'); return false;" onclick="runInlineAdminToolbarAction('replace-image'); return false;">Replace Image</button>
       <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="center" id="adminInlineCenter" title="Center selected image" onpointerdown="runInlineAdminToolbarAction('center'); return false;" onclick="runInlineAdminToolbarAction('center'); return false;">Center</button>
       <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="reset-image" id="adminInlineResetImage" title="Back to normal" onpointerdown="runInlineAdminToolbarAction('reset-image'); return false;" onclick="runInlineAdminToolbarAction('reset-image'); return false;">Normal</button>
       <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="lock-image" id="adminInlineLockImage" title="Lock selected image in place" onpointerdown="runInlineAdminToolbarAction('lock-image'); return false;" onclick="runInlineAdminToolbarAction('lock-image'); return false;">Lock</button>
@@ -3862,19 +3901,7 @@ function installInlineAdminMode() {
     image.addEventListener('dblclick', async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      selectInlineAdminImage(image);
-      const before = getInlineAdminSnapshot(image);
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*';
-      input.addEventListener('change', async () => {
-        const file = input.files?.[0];
-        if (!file) return;
-        image.src = await fileToSmallDataUrl(file);
-        saveInlineAdminEdit(image, { src: image.src, ...image._adminImageState });
-        pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
-      });
-      input.click();
+      replaceInlineAdminImage(image);
     });
   });
 
