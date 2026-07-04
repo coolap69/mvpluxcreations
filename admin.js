@@ -331,8 +331,9 @@ function commerceEmptyMarkup(text) {
 }
 
 function orderCardMarkup(order) {
+  const sentToProduction = order.status === 'sent_to_production';
   return `
-    <article class="admin-commerce-card">
+    <article class="admin-commerce-card ${sentToProduction ? 'is-production-sent' : 'needs-production'}">
       <div class="admin-commerce-card-head">
         <strong>${order.customer_name || 'Customer'}</strong>
         <span>${order.status || 'new'}</span>
@@ -343,6 +344,9 @@ function orderCardMarkup(order) {
       <p><strong>Ship:</strong> ${adminAddressText(order.shipping_address)}</p>
       ${order.notes ? `<p><strong>Notes:</strong> ${order.notes}</p>` : ''}
       <small>${adminDate(order.created_at)}</small>
+      <button class="admin-production-toggle ${sentToProduction ? 'is-sent' : ''}" type="button" data-toggle-production="${sentToProduction ? 'new' : 'sent_to_production'}" data-id="${order.id}">
+        ${sentToProduction ? 'Production Sent' : 'Needs Production'}
+      </button>
       <button class="admin-commerce-delete" type="button" data-delete-commerce="order" data-id="${order.id}">Delete Test Order</button>
     </article>
   `;
@@ -403,9 +407,39 @@ async function deleteCommerceRecord(button) {
 }
 
 function handleCommerceAdminClick(event) {
+  const productionButton = event.target.closest?.('[data-toggle-production]');
+  if (productionButton) {
+    toggleOrderProductionStatus(productionButton);
+    return;
+  }
+
   const button = event.target.closest?.('[data-delete-commerce]');
   if (!button) return;
   deleteCommerceRecord(button);
+}
+
+async function toggleOrderProductionStatus(button) {
+  const client = window.getMvpluxSupabaseClient?.();
+  const id = button?.dataset?.id;
+  const nextStatus = button?.dataset?.toggleProduction || 'sent_to_production';
+  if (!client || !id) return;
+
+  button.disabled = true;
+  button.textContent = 'Saving...';
+  const { error } = await client
+    .from('order_requests')
+    .update({ status: nextStatus })
+    .eq('id', id);
+
+  if (error) {
+    button.disabled = false;
+    button.textContent = nextStatus === 'sent_to_production' ? 'Needs Production' : 'Production Sent';
+    setCommerceStatus('Could not update production status yet. Run the admin update SQL in Supabase, then try again.');
+    return;
+  }
+
+  setCommerceStatus(nextStatus === 'sent_to_production' ? 'Order marked sent to production.' : 'Order marked as needing production again.');
+  refreshCommerceAdmin();
 }
 
 async function refreshCommerceAdmin() {

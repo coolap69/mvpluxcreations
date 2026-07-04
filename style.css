@@ -5003,6 +5003,11 @@ button[aria-label="Add to cart"]::before {
   gap: 7px;
 }
 
+.admin-commerce-card.needs-production {
+  border-color: rgba(255,72,72,0.62);
+  box-shadow: inset 4px 0 0 rgba(205,0,28,0.78);
+}
+
 .admin-commerce-card p {
   margin: 0;
   color: #f0e7cf;
@@ -5025,6 +5030,30 @@ button[aria-label="Add to cart"]::before {
   font-size: 12px;
   font-weight: 900;
   cursor: pointer;
+}
+
+.admin-production-toggle {
+  justify-self: start;
+  margin-top: 5px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255,90,90,0.82);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ef2236, #9c0017);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 950;
+  cursor: pointer;
+}
+
+.admin-production-toggle.is-sent {
+  border-color: rgba(244,208,111,0.45);
+  background: rgba(244,208,111,0.12);
+  color: #f4d06f;
+}
+
+.admin-production-toggle:disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 
 .admin-commerce-delete:hover {

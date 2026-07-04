@@ -197,6 +197,18 @@ using (exists (
   where admin_profiles.user_id = auth.uid()
 ));
 
+drop policy if exists "Admins can update order requests" on public.order_requests;
+create policy "Admins can update order requests"
+on public.order_requests for update
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+))
+with check (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
 drop policy if exists "Admins can view all offers" on public.offers;
 create policy "Admins can view all offers"
 on public.offers for select
@@ -218,6 +230,56 @@ grant select on public.categories, public.products, public.product_images to ano
 grant insert on public.order_requests, public.offers to anon, authenticated;
 grant select on public.order_requests, public.offers, public.admin_profiles to authenticated;
 grant delete on public.order_requests, public.offers to authenticated;
+grant update on public.order_requests to authenticated;
+
+-- Live admin edits.
+-- This stores small text/image-position edits made from Admin Mode so they stay live
+-- after refresh and load for visitors. Large product image uploads should later move
+-- to GitHub files or Supabase Storage instead of being saved here.
+create table if not exists public.site_edits (
+  page_key text primary key,
+  edits jsonb not null default '{}'::jsonb,
+  updated_by uuid references auth.users(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.site_edits enable row level security;
+
+drop policy if exists "Anyone can view site edits" on public.site_edits;
+create policy "Anyone can view site edits"
+on public.site_edits for select
+using (true);
+
+drop policy if exists "Admins can create site edits" on public.site_edits;
+create policy "Admins can create site edits"
+on public.site_edits for insert
+with check (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
+drop policy if exists "Admins can update site edits" on public.site_edits;
+create policy "Admins can update site edits"
+on public.site_edits for update
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+))
+with check (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
+drop policy if exists "Admins can delete site edits" on public.site_edits;
+create policy "Admins can delete site edits"
+on public.site_edits for delete
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
+grant select on public.site_edits to anon, authenticated;
+grant insert, update, delete on public.site_edits to authenticated;
 
 create table if not exists public.fan_votes (
   id uuid primary key default gen_random_uuid(),
