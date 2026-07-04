@@ -73,16 +73,19 @@ img {
   flex: 0 0 auto;
 }
 
-.auth-links a {
+.auth-links a,
+.auth-links button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 38px;
   padding: 9px 15px;
+  border: 0;
   border-radius: 999px;
   font-size: 14px;
   font-weight: 900;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .sign-in-link {
@@ -95,6 +98,18 @@ img {
   color: #111 !important;
   background: linear-gradient(180deg, #ffe083, #b88918);
   box-shadow: 0 0 16px rgba(212,175,55,0.28);
+}
+
+.admin-header-link {
+  border: 1px solid rgba(244,208,111,0.84);
+  color: #111 !important;
+  background: linear-gradient(180deg, #ffe083, #c79622);
+  box-shadow: 0 0 16px rgba(212,175,55,0.26);
+}
+
+.admin-header-link:disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 
 .cart-button {

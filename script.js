@@ -1230,6 +1230,56 @@ function getSupabaseClient() {
   return typeof window.getMvpluxSupabaseClient === 'function' ? window.getMvpluxSupabaseClient() : null;
 }
 
+async function canCurrentUserUseAdminMode() {
+  const client = getSupabaseClient();
+  if (!client?.auth) {
+    showSiteMessage('Admin mode is still loading. Try again in a moment.', 'error');
+    return false;
+  }
+
+  const { data: sessionData } = await client.auth.getSession();
+  const user = sessionData?.session?.user;
+  if (!user) {
+    showSiteMessage('Please sign in first, then turn on Admin Mode.', 'error');
+    return false;
+  }
+
+  const { data, error } = await client
+    .from('admin_profiles')
+    .select('user_id')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    localStorage.removeItem('mvpluxAdminAnywhere');
+    showSiteMessage('This signed-in account is not approved for Admin Mode yet.', 'error');
+    return false;
+  }
+
+  const adminLabel = user.user_metadata?.screen_name || user.email || 'Admin';
+  localStorage.setItem('mvpluxSignedInName', adminLabel);
+  return true;
+}
+
+async function turnOnCurrentPageAdminMode(button) {
+  const originalText = button?.textContent || 'Admin Mode';
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Checking...';
+  }
+
+  const canUseAdmin = await canCurrentUserUseAdminMode();
+  if (button) {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+  if (!canUseAdmin) return;
+
+  localStorage.setItem('mvpluxAdminAnywhere', 'true');
+  installInlineAdminMode();
+  showSiteMessage('Admin Mode is on. You can edit this page now.', 'success');
+}
+
 function showSupabaseConnectionAlert(actionLabel = 'connect to Supabase') {
   const projectUrl = window.MVPLUX_SUPABASE?.url || 'your Supabase project URL';
   showSiteMessage(`Could not ${actionLabel} yet. The site tried to reach ${projectUrl}. Please try again or check the Supabase project settings.`, 'error');
@@ -1383,9 +1433,13 @@ function setupAuthState() {
 
     document.querySelectorAll('.auth-links').forEach((links) => {
       if (links.querySelector('[data-auth-signout]')) return;
-      links.insertAdjacentHTML('beforeend', `<button type="button" class="admin-inline-signout" data-auth-signout>Log Out</button>`);
+      links.insertAdjacentHTML('beforeend', `<button type="button" class="admin-header-link" data-admin-mode-toggle>Admin Mode</button><button type="button" class="admin-inline-signout" data-auth-signout>Log Out</button>`);
     });
   }
+
+  document.querySelectorAll('[data-admin-mode-toggle]').forEach((button) => {
+    button.addEventListener('click', () => turnOnCurrentPageAdminMode(button));
+  });
 
   document.querySelectorAll('[data-auth-signout], [data-admin-signout]').forEach((button) => {
     button.addEventListener('click', signOutCurrentUser);
@@ -3951,6 +4005,12 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   const isAuthPage = Boolean(document.querySelector('.auth-page'));
   if (!isAuthPage && isInlineAdminEditingEnabled()) {
-    installInlineAdminMode();
+    canCurrentUserUseAdminMode()
+      .then((canUseAdmin) => {
+        if (canUseAdmin) installInlineAdminMode();
+      })
+      .catch(() => {
+        localStorage.removeItem('mvpluxAdminAnywhere');
+      });
   }
 });
