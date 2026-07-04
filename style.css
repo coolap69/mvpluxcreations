@@ -4966,6 +4966,29 @@ button[aria-label="Add to cart"]::before {
   color: rgba(240,231,207,0.72);
 }
 
+.admin-commerce-delete {
+  justify-self: start;
+  margin-top: 5px;
+  padding: 7px 11px;
+  border: 1px solid rgba(255,112,112,0.5);
+  border-radius: 8px;
+  background: rgba(150,0,18,0.32);
+  color: #ffd9d9;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-commerce-delete:hover {
+  border-color: rgba(255,112,112,0.9);
+  background: rgba(190,0,24,0.48);
+}
+
+.admin-commerce-delete:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 .admin-commerce-card-head {
   display: flex;
   align-items: center;

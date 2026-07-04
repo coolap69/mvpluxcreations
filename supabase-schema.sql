@@ -189,9 +189,25 @@ using (exists (
   where admin_profiles.user_id = auth.uid()
 ));
 
+drop policy if exists "Admins can delete order requests" on public.order_requests;
+create policy "Admins can delete order requests"
+on public.order_requests for delete
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
 drop policy if exists "Admins can view all offers" on public.offers;
 create policy "Admins can view all offers"
 on public.offers for select
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
+drop policy if exists "Admins can delete offers" on public.offers;
+create policy "Admins can delete offers"
+on public.offers for delete
 using (exists (
   select 1 from public.admin_profiles
   where admin_profiles.user_id = auth.uid()
@@ -201,6 +217,7 @@ grant usage on schema public to anon, authenticated;
 grant select on public.categories, public.products, public.product_images to anon, authenticated;
 grant insert on public.order_requests, public.offers to anon, authenticated;
 grant select on public.order_requests, public.offers, public.admin_profiles to authenticated;
+grant delete on public.order_requests, public.offers to authenticated;
 
 create table if not exists public.fan_votes (
   id uuid primary key default gen_random_uuid(),

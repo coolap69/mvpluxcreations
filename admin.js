@@ -100,6 +100,8 @@ async function requireSupabaseAdminAccess() {
     return false;
   }
 
+  setAdminSignedInAs(`Signed in as ${user.email || 'admin user'}`);
+
   const { data, error } = await client
     .from('admin_profiles')
     .select('user_id')
@@ -108,7 +110,7 @@ async function requireSupabaseAdminAccess() {
 
   if (error || !data) {
     localStorage.removeItem('mvpluxAdminSignedIn');
-    setCommerceStatus('This signed-in account is not admin yet. Add this Supabase user ID to admin_profiles: ' + user.id);
+    setCommerceStatus(`You are signed in as ${user.email || 'this account'}, but it is not admin yet. In Supabase, add this user ID to admin_profiles: ${user.id}`);
     return false;
   }
 
@@ -289,6 +291,11 @@ function setCommerceStatus(message) {
   if (status) status.textContent = message || '';
 }
 
+function setAdminSignedInAs(message) {
+  const status = document.getElementById('adminSignedInAs');
+  if (status) status.textContent = message || '';
+}
+
 function adminMoney(value) {
   const amount = Number(value) || 0;
   return '$' + amount.toFixed(2);
@@ -336,6 +343,7 @@ function orderCardMarkup(order) {
       <p><strong>Ship:</strong> ${adminAddressText(order.shipping_address)}</p>
       ${order.notes ? `<p><strong>Notes:</strong> ${order.notes}</p>` : ''}
       <small>${adminDate(order.created_at)}</small>
+      <button class="admin-commerce-delete" type="button" data-delete-commerce="order" data-id="${order.id}">Delete Test Order</button>
     </article>
   `;
 }
@@ -352,8 +360,52 @@ function offerCardMarkup(offer) {
       <p><strong>Email:</strong> ${offer.customer_email || 'Not provided'}</p>
       ${offer.message ? `<p><strong>Details:</strong> ${String(offer.message).replace(/\n/g, ' | ')}</p>` : ''}
       <small>${adminDate(offer.created_at)}</small>
+      <button class="admin-commerce-delete" type="button" data-delete-commerce="offer" data-id="${offer.id}">Delete Test Offer</button>
     </article>
   `;
+}
+
+async function deleteCommerceRecord(button) {
+  const client = window.getMvpluxSupabaseClient?.();
+  const type = button?.dataset?.deleteCommerce;
+  const id = button?.dataset?.id;
+  const table = type === 'order' ? 'order_requests' : type === 'offer' ? 'offers' : '';
+
+  if (!client || !table || !id) return;
+
+  const label = type === 'order' ? 'test order' : 'test offer';
+  if (button.dataset.confirmDelete !== 'true') {
+    button.dataset.confirmDelete = 'true';
+    button.textContent = 'Click Again To Delete';
+    setCommerceStatus(`Ready to delete this ${label}. Click the same delete button one more time to confirm.`);
+    setTimeout(() => {
+      if (button.dataset.confirmDelete === 'true') {
+        button.dataset.confirmDelete = 'false';
+        button.textContent = type === 'order' ? 'Delete Test Order' : 'Delete Test Offer';
+      }
+    }, 6000);
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Deleting...';
+
+  const { error } = await client.from(table).delete().eq('id', id);
+  if (error) {
+    button.disabled = false;
+    button.textContent = type === 'order' ? 'Delete Test Order' : 'Delete Test Offer';
+    setCommerceStatus('Could not delete yet. Run the admin delete SQL in Supabase, then try again.');
+    return;
+  }
+
+  setCommerceStatus(`Deleted ${label}.`);
+  refreshCommerceAdmin();
+}
+
+function handleCommerceAdminClick(event) {
+  const button = event.target.closest?.('[data-delete-commerce]');
+  if (!button) return;
+  deleteCommerceRecord(button);
 }
 
 async function refreshCommerceAdmin() {
@@ -1056,6 +1108,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (hasAdminAccess) {
     refreshCommerceAdmin();
   }
+  document.addEventListener('click', handleCommerceAdminClick);
 
   if (window.location.hash === '#create-card') {
     createCustomProduct();
