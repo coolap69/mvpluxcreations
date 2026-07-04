@@ -529,6 +529,19 @@ button[aria-label="Add to cart"]::before {
   text-align: right;
 }
 
+.carousel-scroll-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.carousel-scroll-hint::after {
+  content: "→";
+  font-size: 16px;
+  line-height: 1;
+}
+
 .product-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -3289,6 +3302,11 @@ body .auth-card .password-field input {
 
   .featured-row-heading span {
     text-align: left;
+  }
+
+  .carousel-scroll-hint {
+    color: #ffd96a;
+    font-size: 13px;
   }
 
   .product-card {

@@ -488,7 +488,7 @@ function checkoutModalMarkup() {
           <textarea name="notes" placeholder="Order notes: size, deadline, special request"></textarea>
           <label class="policy-check">
             <input type="checkbox" required>
-            <span>I understand this is a custom-made item, and production starts after payment and design/order details are confirmed.</span>
+            <span>I understand this is a custom-made item. Production starts after payment and design/order details are confirmed, and returns/cancellations are not accepted after production begins unless the item arrives damaged or MVPLUXCREATIONS made an error.</span>
           </label>
           <button type="submit" class="submit-btn">Submit Order Request</button>
         </form>
