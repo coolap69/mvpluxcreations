@@ -1478,7 +1478,7 @@ function parseHeightToInches(value) {
 
 function getAdminPriceSettings() {
   try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminPriceSettings') || '{}');
+    return window.mvpluxLiveAdminSettings?.priceSettings || JSON.parse(localStorage.getItem('mvpluxAdminPriceSettings') || '{}');
   } catch (error) {
     return {};
   }
@@ -1639,7 +1639,7 @@ function getProductSlug(productName) {
 
 function getAdminProducts() {
   try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
+    return window.mvpluxLiveAdminSettings?.products || JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
   } catch (error) {
     return {};
   }
@@ -1647,7 +1647,7 @@ function getAdminProducts() {
 
 function getAdminCoupons() {
   try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminCoupons') || '[]');
+    return window.mvpluxLiveAdminSettings?.coupons || JSON.parse(localStorage.getItem('mvpluxAdminCoupons') || '[]');
   } catch (error) {
     return [];
   }
@@ -1655,7 +1655,7 @@ function getAdminCoupons() {
 
 function getAdminCustomProducts() {
   try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminCustomProducts') || '[]');
+    return window.mvpluxLiveAdminSettings?.customProducts || JSON.parse(localStorage.getItem('mvpluxAdminCustomProducts') || '[]');
   } catch (error) {
     return [];
   }
@@ -1663,7 +1663,7 @@ function getAdminCustomProducts() {
 
 function getAdminArchivedProducts() {
   try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminArchivedProducts') || '[]');
+    return window.mvpluxLiveAdminSettings?.savedForLaterProducts || JSON.parse(localStorage.getItem('mvpluxAdminArchivedProducts') || '[]');
   } catch (error) {
     return [];
   }
@@ -1671,10 +1671,59 @@ function getAdminArchivedProducts() {
 
 function getAdminExtraImages() {
   try {
-    return JSON.parse(localStorage.getItem('mvpluxAdminExtraImages') || '{}');
+    return window.mvpluxLiveAdminSettings?.extraImages || JSON.parse(localStorage.getItem('mvpluxAdminExtraImages') || '{}');
   } catch (error) {
     return {};
   }
+}
+
+async function loadLiveAdminSettings() {
+  const client = getSupabaseClient();
+  if (!client?.from) {
+    window.mvpluxLiveAdminSettings = null;
+    return null;
+  }
+
+  const { data, error } = await client
+    .from('site_edits')
+    .select('edits')
+    .eq('page_key', 'admin-global')
+    .maybeSingle();
+
+  if (error) {
+    window.mvpluxLiveAdminSettings = null;
+    return null;
+  }
+
+  window.mvpluxLiveAdminSettings = data?.edits || {};
+  return window.mvpluxLiveAdminSettings;
+}
+
+function updateLiveAdminSettingsLocal(patch) {
+  window.mvpluxLiveAdminSettings = { ...(window.mvpluxLiveAdminSettings || {}), ...(patch || {}) };
+}
+
+async function saveLiveAdminSettings(patch) {
+  const client = getSupabaseClient();
+  if (!client?.from || !client?.auth) return false;
+
+  const { data: sessionData } = await client.auth.getSession();
+  const user = sessionData?.session?.user;
+  if (!user) return false;
+
+  const nextSettings = { ...(window.mvpluxLiveAdminSettings || {}), ...(patch || {}) };
+  updateLiveAdminSettingsLocal(nextSettings);
+
+  const { error } = await client
+    .from('site_edits')
+    .upsert({
+      page_key: 'admin-global',
+      edits: nextSettings,
+      updated_by: user.id,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'page_key' });
+
+  return !error;
 }
 
 const standeeCatalog = {
@@ -2727,7 +2776,7 @@ function installSizeAdmin(builder) {
   const saveButton = builder.querySelector('.admin-save-size');
   if (input) input.value = formatHeight(parseInt(builder.dataset.originalHeight || '78', 10));
 
-  saveButton?.addEventListener('click', () => {
+  saveButton?.addEventListener('click', async () => {
     const inches = parseHeightToInches(input?.value || '');
     if (!inches) {
       showSiteMessage("Enter a height like 6'6 or 78.", 'error');
@@ -2735,9 +2784,27 @@ function installSizeAdmin(builder) {
     }
 
     builder.dataset.originalHeight = String(inches);
+    const basePrice = calculateCutoutPrice(inches, builder);
+    if (basePrice) {
+      builder.dataset.originalPriceOverride = basePrice.toFixed(2);
+    }
     refreshBuilderPrice(builder);
     setStageChoice(builder, 'original');
-    showSiteMessage('Height changed only on this screen. To make it permanent now, edit the code. Backend saving will come later.');
+
+    const slug = builder.dataset.adminSlug || getProductSlug(builder.dataset.productName || 'product');
+    const products = { ...getAdminProducts() };
+    products[slug] = {
+      ...(products[slug] || {}),
+      originalHeight: String(inches),
+      originalPrice: basePrice ? basePrice.toFixed(2) : ''
+    };
+
+    localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
+    updateLiveAdminSettingsLocal({ products });
+    const savedLive = await saveLiveAdminSettings({ products });
+    showSiteMessage(savedLive
+      ? `Original size saved live as ${formatHeight(inches)}. Price updated to ${formatMoney(addFinishToPrice(basePrice, builder))}.`
+      : `Original size changed here. Saved as browser backup, but live save did not finish.`, savedLive ? 'success' : 'error');
   });
 }
 
@@ -3401,7 +3468,7 @@ function unlockAllInlineAdminImages() {
 
 function readInlineHiddenCards() {
   try {
-    return JSON.parse(localStorage.getItem('mvpluxInlineHiddenCards') || '{}');
+    return window.mvpluxLiveAdminSettings?.cardsSavedForLater || JSON.parse(localStorage.getItem('mvpluxInlineHiddenCards') || '{}');
   } catch (error) {
     return {};
   }
@@ -3409,6 +3476,8 @@ function readInlineHiddenCards() {
 
 function writeInlineHiddenCards(cards) {
   localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(cards || {}));
+  updateLiveAdminSettingsLocal({ cardsSavedForLater: cards || {} });
+  saveLiveAdminSettings({ cardsSavedForLater: cards || {} });
   return cards;
 }
 
@@ -4086,6 +4155,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   setupAuthState();
   updateCart();
   showInfoSlide(0);
+  await loadLiveAdminSettings().catch(() => {});
   renderCouponBanner();
   bindProductCarouselDragGuard();
   await loadInlineAdminLiveEdits().catch(() => {});

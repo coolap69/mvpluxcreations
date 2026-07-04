@@ -86,8 +86,73 @@ function clearLegacyAdminBrowserStorage() {
   localStorage.removeItem('mvpluxAdminAnywhereLegacy');
 }
 
+let adminLiveSettings = null;
+
+function getAdminClient() {
+  return window.getMvpluxSupabaseClient?.() || null;
+}
+
+function getAdminLiveValue(key, fallback) {
+  if (adminLiveSettings && Object.prototype.hasOwnProperty.call(adminLiveSettings, key)) {
+    return adminLiveSettings[key];
+  }
+  return fallback;
+}
+
+function updateAdminLiveSettings(patch) {
+  adminLiveSettings = { ...(adminLiveSettings || {}), ...(patch || {}) };
+  return adminLiveSettings;
+}
+
+async function loadAdminLiveSettings() {
+  const client = getAdminClient();
+  if (!client?.from) return null;
+
+  const { data, error } = await client
+    .from('site_edits')
+    .select('edits')
+    .eq('page_key', 'admin-global')
+    .maybeSingle();
+
+  if (error) return null;
+  adminLiveSettings = data?.edits || {};
+  return adminLiveSettings;
+}
+
+async function saveAdminSettingsLive(patch) {
+  const client = getAdminClient();
+  if (!client?.from || !client?.auth) {
+    setStatus('Saved backup in this browser. Supabase is not ready for live save.');
+    return false;
+  }
+
+  const { data: sessionData } = await client.auth.getSession();
+  const user = sessionData?.session?.user;
+  if (!user) {
+    setStatus('Saved backup in this browser. Sign in as admin to save live.');
+    return false;
+  }
+
+  const nextSettings = updateAdminLiveSettings(patch);
+  const { error } = await client
+    .from('site_edits')
+    .upsert({
+      page_key: 'admin-global',
+      edits: nextSettings,
+      updated_by: user.id,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'page_key' });
+
+  if (error) {
+    setStatus('Saved backup in this browser. Run the live admin SQL if live save fails.');
+    return false;
+  }
+
+  return true;
+}
+
 async function requireSupabaseAdminAccess() {
-  const client = window.getMvpluxSupabaseClient?.();
+  const client = getAdminClient();
   if (!client?.auth) {
     setCommerceStatus('Supabase is not loaded yet.');
     return false;
@@ -140,52 +205,69 @@ const extraImageItems = [
 ];
 
 function readAdminProducts() {
-  return readJsonStorage('mvpluxAdminProducts', {});
+  return getAdminLiveValue('products', readJsonStorage('mvpluxAdminProducts', {}));
 }
 
 function writeAdminProducts(products) {
   localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products || {}));
+  updateAdminLiveSettings({ products: products || {} });
+  saveAdminSettingsLive({ products: products || {} });
   return products;
 }
 
 function readCustomProducts() {
-  return readJsonStorage('mvpluxAdminCustomProducts', []);
+  return getAdminLiveValue('customProducts', readJsonStorage('mvpluxAdminCustomProducts', []));
 }
 
 function writeCustomProducts(products) {
   localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(products || []));
+  updateAdminLiveSettings({ customProducts: products || [] });
+  saveAdminSettingsLive({ customProducts: products || [] });
   return products;
 }
 
 function readArchivedProducts() {
-  return readJsonStorage('mvpluxAdminArchivedProducts', []);
+  return getAdminLiveValue('savedForLaterProducts', readJsonStorage('mvpluxAdminArchivedProducts', []));
 }
 
 function writeArchivedProducts(slugs) {
   localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(slugs || []));
+  updateAdminLiveSettings({ savedForLaterProducts: slugs || [] });
+  saveAdminSettingsLive({ savedForLaterProducts: slugs || [] });
   return slugs;
 }
 
 function readPriceSettings() {
-  return readJsonStorage('mvpluxAdminPriceSettings', {});
+  return getAdminLiveValue('priceSettings', readJsonStorage('mvpluxAdminPriceSettings', {}));
 }
 
 function writePriceSettings(settings) {
   localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(settings || {}));
+  updateAdminLiveSettings({ priceSettings: settings || {} });
+  saveAdminSettingsLive({ priceSettings: settings || {} });
   return settings;
 }
 
 function readExtraImages() {
-  return readJsonStorage('mvpluxAdminExtraImages', {});
+  return getAdminLiveValue('extraImages', readJsonStorage('mvpluxAdminExtraImages', {}));
 }
 
 function writeExtraImages(images) {
   localStorage.setItem('mvpluxAdminExtraImages', JSON.stringify(images || {}));
+  updateAdminLiveSettings({ extraImages: images || {} });
+  saveAdminSettingsLive({ extraImages: images || {} });
   return images;
 }
 
 function readCoupons() {
-  return readJsonStorage('mvpluxAdminCoupons', []);
+  return getAdminLiveValue('coupons', readJsonStorage('mvpluxAdminCoupons', []));
+}
+
+function writeCoupons(coupons) {
+  localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(coupons || []));
+  updateAdminLiveSettings({ coupons: coupons || [] });
+  saveAdminSettingsLive({ coupons: coupons || [] });
+  return coupons;
 }
 
 function readJsonStorage(key, fallback) {
@@ -199,7 +281,7 @@ function readJsonStorage(key, fallback) {
 function buildAdminExport() {
   return {
     exportedAt: new Date().toISOString(),
-    note: 'These edits are saved in this browser. Export this file before clearing browser data or moving to another computer.',
+    note: 'These edits are saved live when Supabase is available. Browser storage is only a backup.',
     products: readAdminProducts(),
     customProducts: readCustomProducts(),
     savedForLaterProducts: readArchivedProducts(),
@@ -207,7 +289,7 @@ function buildAdminExport() {
     extraImages: readExtraImages(),
     coupons: readCoupons(),
     pageEdits: readJsonStorage('mvpluxInlineAdminEdits', {}),
-    cardsSavedForLater: readJsonStorage('mvpluxInlineHiddenCards', {})
+    cardsSavedForLater: getAdminLiveValue('cardsSavedForLater', readJsonStorage('mvpluxInlineHiddenCards', {}))
   };
 }
 
@@ -226,14 +308,16 @@ function applyAdminExport(data) {
   writeArchivedProducts(data.savedForLaterProducts || []);
   writePriceSettings(data.priceSettings || {});
   writeExtraImages(data.extraImages || {});
-  localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(data.coupons || []));
+  writeCoupons(data.coupons || []);
   localStorage.setItem('mvpluxInlineAdminEdits', JSON.stringify(data.pageEdits || {}));
   localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(data.cardsSavedForLater || {}));
+  updateAdminLiveSettings({ cardsSavedForLater: data.cardsSavedForLater || {} });
+  saveAdminSettingsLive({ cardsSavedForLater: data.cardsSavedForLater || {} });
   renderAdminProducts();
   fillPriceSettingsForm();
   renderExtraImages();
   renderAdminExportPreview();
-  setStatus('Imported changes into this browser.');
+  setStatus('Imported changes and saved live when Supabase is available.');
 }
 
 function importAdminChangesFromFile(file) {
@@ -528,7 +612,7 @@ function createCustomProduct() {
   });
   writeCustomProducts(products);
   renderAdminProducts();
-  setStatus('Card created and saved in this browser.');
+  setStatus('Card created and saved live.');
 }
 
 function archiveProduct(slug) {
@@ -536,7 +620,7 @@ function archiveProduct(slug) {
   archived.add(slug);
   writeArchivedProducts([...archived]);
   renderAdminProducts();
-  setStatus('Card saved for later in this browser.');
+  setStatus('Card saved for later live.');
 }
 
 function restoreProduct(slug) {
@@ -546,13 +630,13 @@ function restoreProduct(slug) {
 }
 
 function deleteCustomProduct(slug) {
-  if (!window.confirm('Delete this custom card from browser storage?')) return;
+  if (!window.confirm('Delete this custom card?')) return;
   writeCustomProducts(readCustomProducts().filter((product) => product.slug !== slug));
   const products = readAdminProducts();
   delete products[slug];
   writeAdminProducts(products);
   renderAdminProducts();
-  setStatus('Custom card deleted from this browser.');
+  setStatus('Custom card deleted and saved live.');
 }
 
 function productPreviewMarkup(value) {
@@ -780,7 +864,7 @@ function collectProductFormData(form) {
   };
 }
 
-function saveProductForm(form, message = 'Saved product changes. Go back to Shop to see them.') {
+function saveProductForm(form, message = 'Saved product changes live. Go back to Shop to see them.') {
   const products = readAdminProducts();
   products[form.dataset.slug] = collectProductFormData(form);
   writeAdminProducts(products);
@@ -826,7 +910,7 @@ async function handleImageUpload(fileInput, targetInput, form) {
   try {
     targetInput.value = await resizeImageFile(file);
     syncPreviewFromFields(form);
-    saveProductForm(form, 'Image changed on this screen.');
+    saveProductForm(form, 'Image changed and saved live.');
   } catch (error) {
     setStatus('That image could not be loaded. Try another image file.');
   }
@@ -878,7 +962,7 @@ function renderExtraImages() {
         writeExtraImages(images);
         card.querySelector('img').src = dataUrl;
         card.querySelector('.admin-long-path').value = dataUrl;
-        setStatus('Image saved in this browser.');
+        setStatus('Image saved live.');
       } catch (error) {
         setStatus('That image could not be loaded. Try another image file.');
       }
@@ -892,7 +976,7 @@ function renderExtraImages() {
       delete images[button.dataset.resetExtraImage];
       writeExtraImages(images);
       renderExtraImages();
-      setStatus('Image reset in this browser.');
+      setStatus('Image reset and saved live.');
     });
   });
 }
@@ -1099,7 +1183,7 @@ function setupPriceRules() {
     };
     writePriceSettings(settings);
     fillPriceSettingsForm();
-    setStatus('Prices saved in this browser.');
+    setStatus('Prices saved live.');
   });
 }
 
@@ -1120,21 +1204,22 @@ function setupCoupons() {
       code: codeInput?.value.trim() || '',
       discount: discountInput?.value.trim() || ''
     };
-    localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(coupon.code && coupon.discount ? [coupon] : []));
-    setStatus('Coupon saved in this browser.');
+    writeCoupons(coupon.code && coupon.discount ? [coupon] : []);
+    setStatus('Coupon saved live.');
   });
 
   document.getElementById('clearCoupons')?.addEventListener('click', () => {
     codeInput.value = '';
     discountInput.value = '';
-    localStorage.setItem('mvpluxAdminCoupons', '[]');
-    setStatus('Coupon cleared in this browser.');
+    writeCoupons([]);
+    setStatus('Coupon cleared live.');
   });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
   clearLegacyAdminBrowserStorage();
   const hasAdminAccess = await requireSupabaseAdminAccess();
+  await loadAdminLiveSettings().catch(() => {});
   renderAdminProducts();
   setupPriceRules();
   renderExtraImages();
@@ -1153,8 +1238,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     localStorage.removeItem('mvpluxAdminProducts');
     localStorage.removeItem('mvpluxAdminCustomProducts');
     localStorage.removeItem('mvpluxAdminArchivedProducts');
+    updateAdminLiveSettings({ products: {}, customProducts: [], savedForLaterProducts: [] });
+    saveAdminSettingsLive({ products: {}, customProducts: [], savedForLaterProducts: [] });
     renderAdminProducts();
-    setStatus('Product card saves cleared in this browser.');
+    setStatus('Product card saves cleared live.');
   });
 
   document.getElementById('createAdminProduct')?.addEventListener('click', createCustomProduct);
@@ -1173,8 +1260,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('resetExtraImages')?.addEventListener('click', () => {
     localStorage.removeItem('mvpluxAdminExtraImages');
+    updateAdminLiveSettings({ extraImages: {} });
+    saveAdminSettingsLive({ extraImages: {} });
     renderExtraImages();
-    setStatus('Extra image saves cleared in this browser.');
+    setStatus('Extra image saves cleared live.');
   });
 
   document.getElementById('refreshCommerceAdmin')?.addEventListener('click', refreshCommerceAdmin);
