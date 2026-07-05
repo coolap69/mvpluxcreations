@@ -1051,10 +1051,16 @@ function filterProducts() {
   const category = categoryFilter.value;
 
   products.forEach(product => {
-    const name = (product.dataset.name || '').toLowerCase();
+    const searchableText = [
+      product.dataset.name || '',
+      product.dataset.category || '',
+      product.querySelector('.product-title-link')?.textContent || '',
+      product.querySelector('.product-description')?.textContent || '',
+      product.textContent || ''
+    ].join(' ').toLowerCase();
     const productCategory = product.dataset.category || '';
 
-    const matchesSearch = name.includes(search);
+    const matchesSearch = !search || searchableText.includes(search);
     const matchesCategory = category === 'all' || productCategory === category;
 
     product.style.display = matchesSearch && matchesCategory ? '' : 'none';
@@ -1277,7 +1283,25 @@ async function turnOnCurrentPageAdminMode(button) {
 
   localStorage.setItem('mvpluxAdminAnywhere', 'true');
   installInlineAdminMode();
+  updateAdminModeToggleButtons();
   showSiteMessage('Admin Mode is on. You can edit this page now.', 'success');
+}
+
+function updateAdminModeToggleButtons() {
+  const enabled = isInlineAdminEditingEnabled();
+  document.querySelectorAll('[data-admin-mode-toggle]').forEach((button) => {
+    button.textContent = enabled ? 'Admin Off' : 'Admin Mode';
+    button.classList.toggle('admin-mode-toggle-off', enabled);
+  });
+}
+
+async function toggleCurrentPageAdminMode(button) {
+  if (isInlineAdminEditingEnabled()) {
+    turnOffInlineAdminMode();
+    return;
+  }
+
+  await turnOnCurrentPageAdminMode(button);
 }
 
 function showSupabaseConnectionAlert(actionLabel = 'connect to Supabase') {
@@ -1438,7 +1462,8 @@ function setupAuthState() {
   }
 
   document.querySelectorAll('[data-admin-mode-toggle]').forEach((button) => {
-    button.addEventListener('click', () => turnOnCurrentPageAdminMode(button));
+    updateAdminModeToggleButtons();
+    button.addEventListener('click', () => toggleCurrentPageAdminMode(button));
   });
 
   document.querySelectorAll('[data-auth-signout], [data-admin-signout]').forEach((button) => {
@@ -1486,14 +1511,13 @@ function getAdminPriceSettings() {
 
 function getPriceSettingsForBuilder(builder = null) {
   const settings = getAdminPriceSettings();
-  const overridePrice = parseFloat(builder?.dataset.originalPriceOverride || '');
   const configuredFullHeight = parseInt(settings.fullHeight || '78', 10) || 78;
 
   return {
     twoFootPrice: parseFloat(settings.twoFootPrice || '') || 35.00,
     threeFootPrice: parseFloat(settings.threeFootPrice || '') || 50.00,
     fullHeight: configuredFullHeight,
-    fullPrice: overridePrice || parseFloat(settings.fullPrice || '') || 129.99,
+    fullPrice: parseFloat(settings.fullPrice || '') || 129.99,
     extraInchPrice: parseFloat(settings.extraInchPrice || '') || 2.00
   };
 }
@@ -2568,13 +2592,12 @@ function applyAdminProductOverrides(builder) {
     const overrideHeight = parseHeightToInches(String(override.originalHeight)) || parseInt(override.originalHeight, 10);
     if (overrideHeight) builder.dataset.originalHeight = String(overrideHeight);
   }
-  if (override.originalPrice) builder.dataset.originalPriceOverride = String(override.originalPrice);
+  delete builder.dataset.originalPriceOverride;
 }
 
 function updateBuilderOriginalDisplay(builder) {
   const originalHeight = parseInt(builder.dataset.originalHeight || '78', 10);
-  const explicitPrice = parseFloat(builder.dataset.originalPriceOverride || '');
-  const baseOriginalPrice = explicitPrice || calculateCutoutPrice(originalHeight, builder);
+  const baseOriginalPrice = calculateCutoutPrice(originalHeight, builder);
   const originalPrice = addFinishToPrice(baseOriginalPrice, builder);
   const originalLabel = builder.querySelector('input[value="original"]')?.closest('label')?.querySelector('span');
   const customLabel = builder.querySelector('input[value="custom"]')?.closest('label')?.querySelector('span');
@@ -2785,9 +2808,7 @@ function installSizeAdmin(builder) {
 
     builder.dataset.originalHeight = String(inches);
     const basePrice = calculateCutoutPrice(inches, builder);
-    if (basePrice) {
-      builder.dataset.originalPriceOverride = basePrice.toFixed(2);
-    }
+    delete builder.dataset.originalPriceOverride;
     refreshBuilderPrice(builder);
     setStageChoice(builder, 'original');
 
@@ -2796,7 +2817,7 @@ function installSizeAdmin(builder) {
     products[slug] = {
       ...(products[slug] || {}),
       originalHeight: String(inches),
-      originalPrice: basePrice ? basePrice.toFixed(2) : ''
+      originalPrice: ''
     };
 
     localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
@@ -2872,6 +2893,15 @@ function inlineAdminKey(element) {
   if (element.dataset.adminEdit) return element.dataset.adminEdit;
 
   if (element.tagName === 'IMG') {
+    const builder = element.closest('.product-card')?.querySelector('.size-builder');
+    const productSlug = builder?.dataset.adminSlug || '';
+    const roleClass = ['product-cutout', 'product-stage-bg', 'product-stage-logo']
+      .find((className) => element.classList.contains(className));
+    if (productSlug && roleClass) {
+      element.dataset.adminEdit = `product-${inlineAdminStableSlug(productSlug)}-${inlineAdminStableSlug(roleClass)}`;
+      return element.dataset.adminEdit;
+    }
+
     const namedImage = element.dataset.adminImage;
     if (namedImage) {
       element.dataset.adminEdit = `img-${inlineAdminStableSlug(namedImage)}`;
@@ -3983,7 +4013,6 @@ function installInlineAdminMode() {
       </div>
       <div class="admin-toolbar-group admin-toolbar-account">
         <small>Account</small>
-        <button type="button" class="admin-tool-control admin-tool-danger" data-admin-toolbar-action="admin-off" id="adminAnywhereModeOff" title="Turn off admin editing only" onpointerdown="runInlineAdminToolbarAction('admin-off'); return false;" onclick="runInlineAdminToolbarAction('admin-off'); return false;">Admin Off</button>
         <button type="button" class="admin-tool-control" data-admin-toolbar-action="sign-out" id="adminAnywhereOff" onpointerdown="runInlineAdminToolbarAction('sign-out'); return false;" onclick="runInlineAdminToolbarAction('sign-out'); return false;">Log Out</button>
       </div>
       <button type="button" class="admin-toolbar-resize-handle" id="adminToolbarResizeHandle" title="Resize admin tools" aria-label="Resize admin tools"></button>
@@ -4263,7 +4292,10 @@ document.addEventListener('DOMContentLoaded', async function () {
   if (!isAuthPage && isInlineAdminEditingEnabled()) {
     canCurrentUserUseAdminMode()
       .then((canUseAdmin) => {
-        if (canUseAdmin) installInlineAdminMode();
+        if (canUseAdmin) {
+          installInlineAdminMode();
+          updateAdminModeToggleButtons();
+        }
       })
       .catch(() => {
         localStorage.removeItem('mvpluxAdminAnywhere');

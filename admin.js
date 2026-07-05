@@ -45,6 +45,15 @@ const adminProducts = [
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
+    slug: 'holiday-standee',
+    title: 'Holiday Standees',
+    description: 'Seasonal displays for Christmas, Halloween, Easter, Valentine events, parties, and storefronts.',
+    originalHeight: 78,
+    originalPrice: '',
+    cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero8T.png',
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+  },
+  {
     slug: 'fan-request-standee',
     title: 'Fan Request Standees',
     description: 'See fan-inspired ideas, mashups, and custom concepts that can become full-size display pieces.',
