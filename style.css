@@ -4367,6 +4367,7 @@ body .auth-card .password-field input {
   box-shadow: 0 16px 32px rgba(0,0,0,0.42) !important;
   resize: none !important;
   overflow: visible !important;
+  cursor: grab !important;
 }
 
 .admin-toolbar-group {
@@ -4380,6 +4381,16 @@ body .auth-card .password-field input {
   border: 1px solid rgba(244,208,111,0.24) !important;
   border-radius: 8px !important;
   background: rgba(255,255,255,0.045) !important;
+  cursor: grab !important;
+}
+
+.admin-anywhere-toolbar a,
+.admin-anywhere-toolbar button,
+.admin-anywhere-toolbar input,
+.admin-anywhere-toolbar textarea,
+.admin-anywhere-toolbar select,
+.admin-tool-control {
+  cursor: pointer !important;
 }
 
 .admin-toolbar-group small {

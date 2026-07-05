@@ -3563,8 +3563,8 @@ function applyInlineAdminToolbarPrefs() {
   if (prefs.layout === 'free') {
     const width = Math.min(Math.max(Number(prefs.width) || 360, 160), window.innerWidth - 16);
     const height = Math.min(Math.max(Number(prefs.height) || 78, 42), window.innerHeight - 16);
-    const x = Math.min(Math.max(Number(prefs.x) || 16, 8), window.innerWidth - 60);
-    const y = Math.min(Math.max(Number(prefs.y) || 120, 8), window.innerHeight - 42);
+    const x = Math.min(Math.max(Number(prefs.x) || 16, 8), Math.max(8, window.innerWidth - width - 8));
+    const y = Math.min(Math.max(Number(prefs.y) || 120, 8), Math.max(8, window.innerHeight - height - 8));
     toolbar.style.setProperty('left', `${x}px`, 'important');
     toolbar.style.setProperty('top', `${y}px`, 'important');
     toolbar.style.setProperty('right', 'auto', 'important');
@@ -3579,7 +3579,7 @@ function applyInlineAdminToolbarPrefs() {
   const layout = document.getElementById('adminInlineLayout');
   const size = document.getElementById('adminInlineToolSize');
   const hide = document.getElementById('adminInlineHideTools');
-  if (layout) layout.textContent = prefs.layout === 'side' ? 'Bottom' : 'Side';
+  if (layout) layout.textContent = prefs.layout === 'side' ? 'Bottom' : 'Side Dock';
   if (size) size.textContent = prefs.size === 'small' ? 'Normal' : 'Small';
   if (hide) hide.textContent = prefs.collapsed === true ? 'Show Tools' : 'Hide Tools';
 }
@@ -3677,7 +3677,7 @@ function bindInlineAdminToolbarDragResize() {
   if (!toolbar || toolbar.dataset.dragResizeReady) return;
   toolbar.dataset.dragResizeReady = 'true';
 
-  mover?.addEventListener('pointerdown', (event) => {
+  const startToolbarDrag = (event) => {
     event.preventDefault();
     event.stopPropagation();
     const rect = toolbar.getBoundingClientRect();
@@ -3688,10 +3688,12 @@ function bindInlineAdminToolbarDragResize() {
       const prefs = readInlineAdminToolbarPrefs();
       prefs.layout = 'free';
       prefs.collapsed = false;
-      prefs.x = Math.min(Math.max(moveEvent.clientX - offsetX, 8), window.innerWidth - 60);
-      prefs.y = Math.min(Math.max(moveEvent.clientY - offsetY, 8), window.innerHeight - 42);
-      prefs.width = rect.width;
-      prefs.height = rect.height;
+      const width = Math.min(Math.max(rect.width, 160), window.innerWidth - 16);
+      const height = Math.min(Math.max(rect.height, 42), window.innerHeight - 16);
+      prefs.x = Math.min(Math.max(moveEvent.clientX - offsetX, 8), Math.max(8, window.innerWidth - width - 8));
+      prefs.y = Math.min(Math.max(moveEvent.clientY - offsetY, 8), Math.max(8, window.innerHeight - height - 8));
+      prefs.width = width;
+      prefs.height = height;
       writeInlineAdminToolbarPrefs(prefs);
       applyInlineAdminToolbarPrefs();
     };
@@ -3703,6 +3705,33 @@ function bindInlineAdminToolbarDragResize() {
 
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop, { once: true });
+  };
+
+  const isToolbarDragSurface = (target) => {
+    if (!target || target.closest?.('button, a, input, textarea, select, #adminToolbarResizeHandle')) return false;
+    if (target === toolbar) return true;
+    return Boolean(target.closest?.('.admin-toolbar-group'));
+  };
+
+  mover?.addEventListener('pointerdown', (event) => {
+    startToolbarDrag(event);
+  });
+
+  toolbar.addEventListener('pointerdown', (event) => {
+    if (!isToolbarDragSurface(event.target)) return;
+    startToolbarDrag(event);
+  });
+
+  mover?.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    const prefs = readInlineAdminToolbarPrefs();
+    prefs.layout = 'bottom';
+    delete prefs.x;
+    delete prefs.y;
+    delete prefs.width;
+    delete prefs.height;
+    writeInlineAdminToolbarPrefs(prefs);
+    applyInlineAdminToolbarPrefs();
   });
 
   resizer?.addEventListener('pointerdown', (event) => {
