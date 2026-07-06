@@ -934,6 +934,16 @@ function getVoteDateKey(date = new Date()) {
   ].join('-');
 }
 
+const FAN_VOTE_WAIT_DAYS = 2;
+const FAN_VOTE_WAIT_MS = FAN_VOTE_WAIT_DAYS * 24 * 60 * 60 * 1000;
+
+function getVoteRecordTime(voteRecord) {
+  if (!voteRecord || voteRecord === true) return 0;
+  if (voteRecord.timestamp) return Number(voteRecord.timestamp) || 0;
+  if (voteRecord.date) return new Date(`${voteRecord.date}T00:00:00`).getTime() || 0;
+  return 0;
+}
+
 function getGuestVoteId() {
   let guestId = localStorage.getItem('mvpluxGuestVoteId');
   if (!guestId) {
@@ -945,7 +955,9 @@ function getGuestVoteId() {
 
 function hasVotedToday(voteRecord) {
   if (voteRecord === true) return false;
-  return voteRecord?.date === getVoteDateKey();
+  const lastVoteTime = getVoteRecordTime(voteRecord);
+  if (!lastVoteTime) return false;
+  return Date.now() - lastVoteTime < FAN_VOTE_WAIT_MS;
 }
 
 function getCurrentBasePrice() {
@@ -968,7 +980,7 @@ function setFanVoteButtonState(button, voted) {
   button.disabled = voted;
 
   if (voted) {
-    button.textContent = button.dataset.voteLabel === 'best' ? 'Voted Today' : 'Voted Today';
+    button.textContent = 'Voted';
   } else {
     button.innerHTML = button.dataset.originalHtml;
   }
@@ -1020,12 +1032,13 @@ async function registerFanVote(voteId, button) {
 
   if (hasVotedToday(votes[voteId])) {
     setFanVoteButtonState(button, true);
-    showSiteMessage('You already voted for this one today. You can vote again tomorrow.');
+    showSiteMessage('You already voted for this one. You can vote again after 2 days.');
     return;
   }
 
   votes[voteId] = {
     date: getVoteDateKey(),
+    timestamp: Date.now(),
     guestId: getGuestVoteId()
   };
   saveFanVoteStore(votes);
@@ -1036,7 +1049,7 @@ async function registerFanVote(voteId, button) {
     setFanVoteButtonState(matchingButton, true);
   });
 
-  showSiteMessage('Vote counted. Thanks for helping choose what comes next. You can vote again tomorrow.', 'success');
+  showSiteMessage('Vote counted. Thanks for helping choose what comes next. You can vote again after 2 days.', 'success');
 }
 
 /* ---------------- PRODUCT FILTER ---------------- */
@@ -1049,6 +1062,8 @@ function filterProducts() {
 
   const search = searchInput.value.toLowerCase();
   const category = categoryFilter.value;
+  const directMatches = renderSearchResults(search);
+  const showingDirectMatches = Boolean(search.trim() && directMatches.length);
 
   products.forEach(product => {
     const searchableText = [
@@ -1063,8 +1078,75 @@ function filterProducts() {
     const matchesSearch = !search || searchableText.includes(search);
     const matchesCategory = category === 'all' || productCategory === category;
 
-    product.style.display = matchesSearch && matchesCategory ? '' : 'none';
+    product.style.display = !showingDirectMatches && matchesSearch && matchesCategory ? '' : 'none';
   });
+}
+
+function getDirectSearchItems() {
+  const generalItems = typeof standeeCatalog === 'object' ? Object.entries(standeeCatalog).map(([slug, product]) => ({
+    slug,
+    name: product.name || product.title || slug,
+    category: product.sport || product.category || 'Standee',
+    description: product.description || '',
+    image: product.options?.[0]?.image || product.image || '',
+    url: `standee.html?item=${encodeURIComponent(slug)}`
+  })) : [];
+
+  const sportsItems = typeof sportsStandeeCatalog === 'object' ? Object.entries(sportsStandeeCatalog).map(([slug, product]) => ({
+    slug,
+    name: product.name || slug,
+    category: product.sport || 'Sport Legend Standee',
+    description: product.description || '',
+    image: product.options?.[0]?.image || '',
+    url: `sports-legends.html?player=${encodeURIComponent(slug)}`
+  })) : [];
+
+  const seen = new Set();
+  return [...sportsItems, ...generalItems].filter((item) => {
+    const key = `${item.name}|${item.category}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function renderSearchResults(search) {
+  const results = document.getElementById('searchResults');
+  if (!results) return [];
+
+  const term = String(search || '').trim().toLowerCase();
+  if (!term) {
+    results.innerHTML = '';
+    results.hidden = true;
+    return [];
+  }
+
+  const matches = getDirectSearchItems()
+    .filter((item) => `${item.name} ${item.category} ${item.description}`.toLowerCase().includes(term))
+    .slice(0, 8);
+
+  if (!matches.length) {
+    results.innerHTML = '<p>No exact person yet. Try another name or a category.</p>';
+    results.hidden = false;
+    return [];
+  }
+
+  results.innerHTML = `
+    <div class="search-result-heading">Direct matches</div>
+    <div class="search-result-grid">
+      ${matches.map((item) => `
+        <a class="search-result-card" href="${item.url}">
+          ${item.image ? `<img src="${item.image}" alt="${item.name}">` : ''}
+          <span>
+            <strong>${item.name}</strong>
+            <small>${item.category}</small>
+          </span>
+        </a>
+      `).join('')}
+    </div>
+  `;
+  results.hidden = false;
+  return matches;
 }
 
 function bindProductCarouselDragGuard() {
@@ -1511,7 +1593,7 @@ function getAdminPriceSettings() {
 
 function getPriceSettingsForBuilder(builder = null) {
   const settings = getAdminPriceSettings();
-  const configuredFullHeight = parseInt(settings.fullHeight || '78', 10) || 78;
+  const configuredFullHeight = builder ? 78 : (parseInt(settings.fullHeight || '78', 10) || 78);
 
   return {
     twoFootPrice: parseFloat(settings.twoFootPrice || '') || 35.00,
@@ -2176,7 +2258,10 @@ function bindSportsShowroomClicks() {
 
 function initSportsShowroom() {
   if (!document.getElementById('sportsOptionStrip')) return;
-  selectSportsStandee(selectedSportsStandeeKey, false);
+  const params = new URLSearchParams(window.location.search);
+  const player = params.get('player');
+  const startingKey = sportsStandeeCatalog[player] ? player : selectedSportsStandeeKey;
+  selectSportsStandee(startingKey, false);
 }
 
 function getGenericCategoryFallbackStage() {
@@ -2933,6 +3018,26 @@ function isCodeControlledShopImage(image) {
   return image?.matches?.('.hero-group');
 }
 
+function rememberInlineAdminImageFallbacks(root = document) {
+  root.querySelectorAll?.('img')?.forEach((image) => {
+    if (!image.dataset.adminFallbackSrc) {
+      image.dataset.adminFallbackSrc = image.getAttribute('src') || '';
+    }
+    if (image.dataset.adminFallbackReady) return;
+    image.dataset.adminFallbackReady = 'true';
+    image.addEventListener('error', () => {
+      const fallback = image.dataset.adminFallbackSrc;
+      if (!fallback || image.getAttribute('src') === fallback) return;
+      image.src = fallback;
+      saveInlineAdminEdit(image, {
+        src: fallback,
+        ...(image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0, locked: false })
+      });
+      updateInlineAdminToolbarState('Image restored from fallback');
+    });
+  });
+}
+
 async function loadInlineAdminLiveEdits() {
   const client = getSupabaseClient();
   if (!client?.from) {
@@ -3016,7 +3121,10 @@ function applyInlineAdminEdits() {
     if (element.tagName === 'IMG' && isCodeControlledShopImage(element)) return;
 
     if (edit.text && element.tagName !== 'IMG') element.textContent = edit.text;
-    if (edit.src && element.tagName === 'IMG') element.src = edit.src;
+    if (edit.src && element.tagName === 'IMG') {
+      if (!element.dataset.adminFallbackSrc) element.dataset.adminFallbackSrc = element.getAttribute('src') || '';
+      element.src = edit.src;
+    }
     if (element.tagName === 'IMG' && !isInlineAdminBackgroundImage(element)) {
       element.style.setProperty('--admin-x', `${edit.x || 0}px`);
       element.style.setProperty('--admin-y', `${edit.y || 0}px`);
@@ -3565,15 +3673,25 @@ function restoreInlineHiddenCards() {
 
 function readInlineAdminToolbarPrefs() {
   try {
-    return JSON.parse(localStorage.getItem('mvpluxInlineAdminToolbar') || '{}');
+    const saved = JSON.parse(localStorage.getItem('mvpluxInlineAdminToolbar') || '{}');
+    return { collapsed: true, ...saved };
   } catch (error) {
-    return {};
+    return { collapsed: true };
   }
 }
 
 function writeInlineAdminToolbarPrefs(prefs) {
   window.mvpluxInlineToolbarPrefs = { ...(prefs || {}) };
   localStorage.setItem('mvpluxInlineAdminToolbar', JSON.stringify(window.mvpluxInlineToolbarPrefs));
+}
+
+function forceAdminToolbarHiddenForThisUpdate() {
+  const version = '20260705-hidden-admin-tools';
+  if (localStorage.getItem('mvpluxToolbarHiddenVersion') === version) return;
+  const prefs = readInlineAdminToolbarPrefs();
+  prefs.collapsed = true;
+  writeInlineAdminToolbarPrefs(prefs);
+  localStorage.setItem('mvpluxToolbarHiddenVersion', version);
 }
 
 function applyInlineAdminToolbarPrefs() {
@@ -3589,6 +3707,8 @@ function applyInlineAdminToolbarPrefs() {
   toolbar.classList.toggle('admin-toolbar-free', prefs.layout === 'free');
   toolbar.classList.toggle('admin-toolbar-small', prefs.size === 'small');
   toolbar.classList.toggle('admin-toolbar-collapsed', prefs.collapsed === true);
+  const hideButton = document.getElementById('adminInlineHideTools');
+  if (hideButton) hideButton.textContent = prefs.collapsed === true ? 'Tools' : 'Hide';
 
   if (prefs.layout === 'free') {
     const width = Math.min(Math.max(Number(prefs.width) || 360, 160), window.innerWidth - 16);
@@ -3819,7 +3939,6 @@ var runInlineAdminToolbarAction = function (action) {
   if (action === 'toggle-toolbar-size') toggleInlineAdminToolbarSize();
   if (action === 'toggle-toolbar-collapsed') toggleInlineAdminToolbarCollapsed();
   if (action === 'copy-code') copySelectedInlineAdminCode();
-  if (action === 'replace-image') replaceSelectedInlineAdminImage();
   if (action === 'reset-image') resetSelectedInlineAdminImage();
   if (action === 'lock-image') toggleSelectedInlineAdminImageLock();
   if (action === 'unlock-all-images') unlockAllInlineAdminImages();
@@ -3992,7 +4111,6 @@ function installInlineAdminMode() {
       <div class="admin-toolbar-group admin-toolbar-image">
         <small>Image</small>
         <span id="adminInlineSelected">Select an image</span>
-        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="replace-image" id="adminInlineReplaceImage" title="Replace selected image" onpointerdown="runInlineAdminToolbarAction('replace-image'); return false;" onclick="runInlineAdminToolbarAction('replace-image'); return false;">Replace</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="center" id="adminInlineCenter" title="Center selected image" onpointerdown="runInlineAdminToolbarAction('center'); return false;" onclick="runInlineAdminToolbarAction('center'); return false;">Center</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="reset-image" id="adminInlineResetImage" title="Back to normal" onpointerdown="runInlineAdminToolbarAction('reset-image'); return false;" onclick="runInlineAdminToolbarAction('reset-image'); return false;">Normal</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="lock-image" id="adminInlineLockImage" title="Lock selected image in place" onpointerdown="runInlineAdminToolbarAction('lock-image'); return false;" onclick="runInlineAdminToolbarAction('lock-image'); return false;">Lock</button>
@@ -4011,15 +4129,12 @@ function installInlineAdminMode() {
         <a href="admin.html#create-card">Add Card</a>
         <a href="admin.html">Orders/Admin</a>
       </div>
-      <div class="admin-toolbar-group admin-toolbar-account">
-        <small>Account</small>
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="sign-out" id="adminAnywhereOff" onpointerdown="runInlineAdminToolbarAction('sign-out'); return false;" onclick="runInlineAdminToolbarAction('sign-out'); return false;">Log Out</button>
-      </div>
       <button type="button" class="admin-toolbar-resize-handle" id="adminToolbarResizeHandle" title="Resize admin tools" aria-label="Resize admin tools"></button>
     </div>
   `);
   bindInlineAdminToolbarControls();
   bindInlineAdminToolbarDragResize();
+  forceAdminToolbarHiddenForThisUpdate();
   applyInlineAdminToolbarPrefs();
 
   applyInlineHiddenCards();
@@ -4250,6 +4365,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     image.addEventListener('dragstart', (event) => event.preventDefault());
     image.addEventListener('contextmenu', (event) => event.preventDefault());
   });
+  rememberInlineAdminImageFallbacks();
 
   document.addEventListener('change', (event) => {
     if (event.target.closest?.('input[name="checkoutPaymentMethod"]')) {

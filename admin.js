@@ -886,30 +886,9 @@ function saveProductForm(form, message = 'Saved product changes live. Go back to
   const products = readAdminProducts();
   products[form.dataset.slug] = collectProductFormData(form);
   writeAdminProducts(products);
-  syncPriceSettingsFromProduct(products[form.dataset.slug]);
   renderAdminExportPreview();
   setStatus(message);
   return false;
-}
-
-function syncPriceSettingsFromProduct(productData) {
-  const price = parseFloat(productData.originalPrice || '');
-  const height = parseAdminHeight(productData.originalHeight || '');
-  if (!price || !height) return;
-
-  const settings = readPriceSettings();
-
-  if (height <= 24) {
-    settings.twoFootPrice = price.toFixed(2);
-  } else if (height === 36) {
-    settings.threeFootPrice = price.toFixed(2);
-  } else if (height >= 60) {
-    settings.fullHeight = String(height);
-    settings.fullPrice = price.toFixed(2);
-  }
-
-  writePriceSettings(settings);
-  fillPriceSettingsForm();
 }
 
 function schedulePlacementSave(form) {
