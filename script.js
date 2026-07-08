@@ -1283,6 +1283,9 @@ function isCustomerSignedIn() {
 
 function cleanStaleAdminState() {
   localStorage.removeItem('mvpluxAdminSignedIn');
+  if (!localStorage.getItem('mvpluxIsAdminApproved')) {
+    localStorage.removeItem('mvpluxAdminAnywhere');
+  }
   if (!isCustomerSignedIn() && localStorage.getItem('mvpluxSignedInName') === 'Admin') {
     localStorage.removeItem('mvpluxSignedInName');
   }
@@ -1319,16 +1322,23 @@ function getSupabaseClient() {
 }
 
 async function canCurrentUserUseAdminMode() {
+  return checkCurrentUserAdminAccess({ showMessages: true });
+}
+
+async function checkCurrentUserAdminAccess(options = {}) {
+  const showMessages = options.showMessages !== false;
   const client = getSupabaseClient();
   if (!client?.auth) {
-    showSiteMessage('Admin mode is still loading. Try again in a moment.', 'error');
+    if (showMessages) showSiteMessage('Admin mode is still loading. Try again in a moment.', 'error');
     return false;
   }
 
   const { data: sessionData } = await client.auth.getSession();
   const user = sessionData?.session?.user;
   if (!user) {
-    showSiteMessage('Please sign in first, then turn on Admin Mode.', 'error');
+    localStorage.removeItem('mvpluxIsAdminApproved');
+    localStorage.removeItem('mvpluxAdminAnywhere');
+    if (showMessages) showSiteMessage('Please sign in first, then turn on Admin Mode.', 'error');
     return false;
   }
 
@@ -1339,14 +1349,46 @@ async function canCurrentUserUseAdminMode() {
     .maybeSingle();
 
   if (error || !data) {
+    localStorage.removeItem('mvpluxIsAdminApproved');
     localStorage.removeItem('mvpluxAdminAnywhere');
-    showSiteMessage('This signed-in account is not approved for Admin Mode yet.', 'error');
+    if (showMessages) showSiteMessage('This signed-in account is not approved for Admin Mode yet.', 'error');
     return false;
   }
 
   const adminLabel = user.user_metadata?.screen_name || user.email || 'Admin';
+  localStorage.setItem('mvpluxIsAdminApproved', 'true');
   localStorage.setItem('mvpluxSignedInName', adminLabel);
   return true;
+}
+
+function addAdminModeButtonIfMissing() {
+  document.querySelectorAll('.auth-links').forEach((links) => {
+    if (links.querySelector('[data-admin-mode-toggle]')) return;
+    const signout = links.querySelector('[data-auth-signout]');
+    const buttonHtml = '<button type="button" class="admin-header-link" data-admin-mode-toggle>Admin Mode</button>';
+    if (signout) {
+      signout.insertAdjacentHTML('beforebegin', buttonHtml);
+    } else {
+      links.insertAdjacentHTML('beforeend', buttonHtml);
+    }
+  });
+
+  document.querySelectorAll('[data-admin-mode-toggle]').forEach((button) => {
+    if (button.dataset.adminToggleReady) return;
+    button.dataset.adminToggleReady = 'true';
+    updateAdminModeToggleButtons();
+    button.addEventListener('click', () => toggleCurrentPageAdminMode(button));
+  });
+}
+
+async function revealAdminControlsIfApproved() {
+  if (!isCustomerSignedIn()) return;
+  const canUseAdmin = await checkCurrentUserAdminAccess({ showMessages: false });
+  if (!canUseAdmin) {
+    document.querySelectorAll('[data-admin-mode-toggle]').forEach((button) => button.remove());
+    return;
+  }
+  addAdminModeButtonIfMissing();
 }
 
 async function turnOnCurrentPageAdminMode(button) {
@@ -1411,12 +1453,15 @@ async function syncSupabaseAuthState() {
       localStorage.removeItem('mvpluxCustomerSignedIn');
       localStorage.removeItem('mvpluxSignedInName');
       localStorage.removeItem('mvpluxAdminSignedIn');
+      localStorage.removeItem('mvpluxIsAdminApproved');
+      localStorage.removeItem('mvpluxAdminAnywhere');
       return;
     }
 
     const screenName = user.user_metadata?.screen_name || user.email?.split('@')[0] || 'Guest';
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', screenName);
+    checkCurrentUserAdminAccess({ showMessages: false });
   } catch (error) {
     console.warn('Supabase session check failed:', error);
   }
@@ -1539,8 +1584,10 @@ function setupAuthState() {
 
     document.querySelectorAll('.auth-links').forEach((links) => {
       if (links.querySelector('[data-auth-signout]')) return;
-      links.insertAdjacentHTML('beforeend', `<button type="button" class="admin-header-link" data-admin-mode-toggle>Admin Mode</button><button type="button" class="admin-inline-signout" data-auth-signout>Log Out</button>`);
+      links.insertAdjacentHTML('beforeend', `<button type="button" class="admin-inline-signout" data-auth-signout>Log Out</button>`);
     });
+
+    revealAdminControlsIfApproved();
   }
 
   document.querySelectorAll('[data-admin-mode-toggle]').forEach((button) => {
@@ -2684,7 +2731,7 @@ function updateBuilderOriginalDisplay(builder) {
   const originalHeight = parseInt(builder.dataset.originalHeight || '78', 10);
   const baseOriginalPrice = calculateCutoutPrice(originalHeight, builder);
   const originalPrice = addFinishToPrice(baseOriginalPrice, builder);
-  const originalLabel = builder.querySelector('input[value="original"]')?.closest('label')?.querySelector('span');
+  const originalLabel = getBuilderOriginalLabel(builder);
   const customLabel = builder.querySelector('input[value="custom"]')?.closest('label')?.querySelector('span');
   const priceDisplay = builder.querySelector('.live-size-price');
   const originalRadio = builder.querySelector('input[value="original"]');
@@ -2694,9 +2741,7 @@ function updateBuilderOriginalDisplay(builder) {
   builder.dataset.originalPrice = originalPrice.toFixed(2);
 
   if (originalLabel) {
-    originalLabel.textContent = builder.classList.contains('showroom-size-builder')
-      ? `Original ${formatHeight(originalHeight)}`
-      : `Original Size - ${formatHeight(originalHeight)} - ${formatMoney(originalPrice)}`;
+    originalLabel.textContent = `Original ${formatHeight(originalHeight)}`;
   }
 
   if (customLabel && !customLabel.dataset.customPrice) {
@@ -2710,6 +2755,71 @@ function updateBuilderOriginalDisplay(builder) {
   if (originalChoice) {
     originalChoice.textContent = `Original ${formatHeight(originalHeight)}`;
   }
+}
+
+function getBuilderOriginalLabel(builder) {
+  return builder?.querySelector('input[value="original"]')?.closest('label')?.querySelector('span') || null;
+}
+
+function extractHeightFromText(value = '') {
+  const text = String(value || '').trim();
+  const feetMatch = text.match(/(\d+)\s*'\s*(\d{1,2})?\s*"?/);
+  if (feetMatch) {
+    const feet = parseInt(feetMatch[1], 10);
+    const inches = parseInt(feetMatch[2] || '0', 10);
+    if (feet >= 1 && inches >= 0 && inches < 12) return feet * 12 + inches;
+  }
+
+  const inchMatch = text.match(/\b([2-9]\d|1[0-1]\d|120)\b/);
+  if (inchMatch) return parseInt(inchMatch[1], 10);
+
+  return null;
+}
+
+function saveAdminProductHeightFromBuilder(builder, inches) {
+  if (!builder || !inches) return;
+
+  const slug = builder.dataset.adminSlug || getProductSlug(builder.dataset.productName || 'product');
+  const products = { ...getAdminProducts() };
+  products[slug] = {
+    ...(products[slug] || {}),
+    originalHeight: String(inches),
+    originalPrice: ''
+  };
+
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
+  updateLiveAdminSettingsLocal({ products });
+  saveLiveAdminSettings({ products });
+}
+
+function syncOriginalSizeForBuilder(builder, textValue) {
+  if (!builder) return false;
+
+  const inches = extractHeightFromText(textValue || '');
+  if (!inches) return false;
+
+  builder.dataset.originalHeight = String(inches);
+  delete builder.dataset.originalPriceOverride;
+  updateBuilderOriginalDisplay(builder);
+  saveAdminProductHeightFromBuilder(builder, inches);
+  return true;
+}
+
+function syncOriginalSizeFromEditedText(element, textOverride = null) {
+  const builder = element?.closest?.('.size-builder');
+  if (!builder) return false;
+
+  const originalLabel = getBuilderOriginalLabel(builder);
+  if (!originalLabel || (originalLabel !== element && !originalLabel.contains(element))) return false;
+
+  return syncOriginalSizeForBuilder(builder, textOverride ?? element.textContent ?? originalLabel.textContent ?? '');
+}
+
+function isLockedSizeBuilderAdminText(element) {
+  const builder = element?.closest?.('.size-builder');
+  if (!builder) return false;
+  const originalLabel = getBuilderOriginalLabel(builder);
+  return element !== originalLabel;
 }
 
 function setStageChoice(builder, choice) {
@@ -3119,20 +3229,39 @@ function applyInlineAdminEdits() {
     if (!element) return;
     if (element.closest('.auth-form')) return;
     if (element.tagName === 'IMG' && isCodeControlledShopImage(element)) return;
+    if (element.tagName !== 'IMG' && element.closest('.size-builder')) {
+      const builder = element.closest('.size-builder');
+      if (edit.text && String(edit.text).toLowerCase().includes('original') && syncOriginalSizeForBuilder(builder, edit.text)) return;
+      if (syncOriginalSizeFromEditedText(element, edit.text || '')) return;
+      if (isLockedSizeBuilderAdminText(element)) return;
+    }
 
     if (edit.text && element.tagName !== 'IMG') element.textContent = edit.text;
     if (edit.src && element.tagName === 'IMG') {
       if (!element.dataset.adminFallbackSrc) element.dataset.adminFallbackSrc = element.getAttribute('src') || '';
-      element.src = edit.src;
+      const safeSrc = cleanInlineAdminImageSrc(edit.src);
+      if (safeSrc) element.src = safeSrc;
     }
     if (element.tagName === 'IMG' && !isInlineAdminBackgroundImage(element)) {
-      element.style.setProperty('--admin-x', `${edit.x || 0}px`);
-      element.style.setProperty('--admin-y', `${edit.y || 0}px`);
-      element.style.setProperty('--admin-scale', edit.scale || 1);
-      element.style.setProperty('--admin-rotate', `${edit.rotate || 0}deg`);
+      element.style.setProperty('--admin-x', `${safeAdminImageNumber(edit.x, 0, -140, 140)}px`);
+      element.style.setProperty('--admin-y', `${safeAdminImageNumber(edit.y, 0, -140, 140)}px`);
+      element.style.setProperty('--admin-scale', safeAdminImageNumber(edit.scale, 1, 0.45, 2.1));
+      element.style.setProperty('--admin-rotate', `${safeAdminImageNumber(edit.rotate, 0, -28, 28)}deg`);
       element.classList.add('admin-transformable-image');
     }
   });
+}
+
+function cleanInlineAdminImageSrc(src) {
+  const value = String(src || '').trim();
+  if (!value || value === 'undefined' || value === 'null' || value === '#') return '';
+  return value;
+}
+
+function safeAdminImageNumber(value, fallback, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
 }
 
 function saveInlineAdminEdit(element, patch) {
@@ -3490,8 +3619,10 @@ function changeSelectedInlineAdminImage(patch) {
     ...patch
   };
 
-  next.scale = clamp(Number(next.scale || 1), 0.25, 3);
-  next.rotate = Number(next.rotate || 0);
+  next.x = safeAdminImageNumber(next.x, 0, -140, 140);
+  next.y = safeAdminImageNumber(next.y, 0, -140, 140);
+  next.scale = safeAdminImageNumber(next.scale, 1, 0.45, 2.1);
+  next.rotate = safeAdminImageNumber(next.rotate, 0, -28, 28);
   image._adminImageState = next;
   renderInlineAdminImageState(image);
   saveInlineAdminEdit(image, {
@@ -3537,8 +3668,10 @@ function centerSelectedInlineAdminImage() {
   const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
   const next = {
     ...state,
-    x: Number(state.x || 0) + deltaX,
-    y: Number(state.y || 0) + deltaY
+    x: safeAdminImageNumber(Number(state.x || 0) + deltaX, 0, -140, 140),
+    y: safeAdminImageNumber(Number(state.y || 0) + deltaY, 0, -140, 140),
+    scale: safeAdminImageNumber(state.scale, 1, 0.45, 2.1),
+    rotate: safeAdminImageNumber(state.rotate, 0, -28, 28)
   };
 
   image._adminImageState = next;
@@ -4181,6 +4314,7 @@ function installInlineAdminMode() {
   document.querySelectorAll('h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
     if (element.closest('.admin-anywhere-toolbar, .cart-panel, .auth-form, script, style, .password-field')) return;
     if (element.closest('.fan-vote-meter, .fan-carousel-dots, .stage-option-boxes')) return;
+    if (isLockedSizeBuilderAdminText(element)) return;
     inlineAdminKey(element);
     element.contentEditable = 'true';
     element.spellcheck = false;
@@ -4193,8 +4327,12 @@ function installInlineAdminMode() {
       event.preventDefault();
       event.stopImmediatePropagation();
     }, true);
-    element.addEventListener('input', () => saveInlineAdminEdit(element, { text: element.textContent.trim() }));
+    element.addEventListener('input', () => {
+      if (syncOriginalSizeFromEditedText(element)) return;
+      saveInlineAdminEdit(element, { text: element.textContent.trim() });
+    });
     element.addEventListener('blur', () => {
+      syncOriginalSizeFromEditedText(element);
       pushInlineAdminHistory(element._adminBeforeSnapshot, getInlineAdminSnapshot(element));
       delete element._adminBeforeSnapshot;
     });
@@ -4228,10 +4366,10 @@ function installInlineAdminMode() {
     if (!isInlineAdminBackgroundImage(image)) image.classList.add('admin-transformable-image');
     const saved = getInlineAdminPageEdits()[inlineAdminKey(image)] || {};
     image._adminImageState = {
-      x: Number(saved.x || 0),
-      y: Number(saved.y || 0),
-      scale: Number(saved.scale || 1),
-      rotate: Number(saved.rotate || 0),
+      x: safeAdminImageNumber(saved.x, 0, -140, 140),
+      y: safeAdminImageNumber(saved.y, 0, -140, 140),
+      scale: safeAdminImageNumber(saved.scale, 1, 0.45, 2.1),
+      rotate: safeAdminImageNumber(saved.rotate, 0, -28, 28),
       locked: !!saved.locked
     };
     renderInlineAdminImageState(image);
@@ -4250,8 +4388,8 @@ function installInlineAdminMode() {
       const baseY = image._adminImageState.y;
 
       const move = (moveEvent) => {
-        image._adminImageState.x = baseX + moveEvent.clientX - startX;
-        image._adminImageState.y = baseY + moveEvent.clientY - startY;
+        image._adminImageState.x = safeAdminImageNumber(baseX + moveEvent.clientX - startX, 0, -140, 140);
+        image._adminImageState.y = safeAdminImageNumber(baseY + moveEvent.clientY - startY, 0, -140, 140);
         renderInlineAdminImageState(image);
         saveInlineAdminEdit(image, {
           src: image.getAttribute('src') || '',
@@ -4406,7 +4544,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   const isAuthPage = Boolean(document.querySelector('.auth-page'));
   if (!isAuthPage && isInlineAdminEditingEnabled()) {
-    canCurrentUserUseAdminMode()
+    checkCurrentUserAdminAccess({ showMessages: false })
       .then((canUseAdmin) => {
         if (canUseAdmin) {
           installInlineAdminMode();

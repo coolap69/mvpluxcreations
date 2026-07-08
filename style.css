@@ -112,6 +112,22 @@ img {
   cursor: wait;
 }
 
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus {
+  -webkit-text-fill-color: #fff7dc !important;
+  caret-color: #f4d06f !important;
+  border-color: rgba(244,208,111,0.78) !important;
+  box-shadow: 0 0 0 1000px #050505 inset, 0 0 0 2px rgba(244,208,111,0.28) !important;
+  transition: background-color 9999s ease-out, color 9999s ease-out !important;
+}
+
 .cart-button {
   --cart-icon-size: 30px;
   background: transparent;
