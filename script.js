@@ -99,10 +99,58 @@ function ensureCartShell() {
   }
 }
 
-function addToCart(name, price) {
+function isLikelyBackgroundImage(src = '') {
+  const value = String(src || '').toLowerCase();
+  return value.includes('fanbackgrounds')
+    || value.includes('background')
+    || value.includes('stage-')
+    || value.includes('gallery-poster')
+    || value.includes('herobackgroundparts-background');
+}
+
+function imageSrcValue(image) {
+  return image?.currentSrc || image?.src || image?.getAttribute?.('src') || '';
+}
+
+function getDisplayImageFrom(root) {
+  if (!root) return '';
+  const activeOptionImage = root.querySelector?.('.category-option-strip button.active img, .sports-option-strip button.active img');
+  const activeOptionSrc = imageSrcValue(activeOptionImage);
+  if (activeOptionSrc && !isLikelyBackgroundImage(activeOptionSrc)) return activeOptionSrc;
+
+  const images = [...(root.querySelectorAll?.([
+    '#sportsMainImage',
+    '.generic-main-image',
+    '.standee-main-cutout',
+    '.product-cutout',
+    '.fan-card-cutout',
+    '.fan-gallery-cutout'
+  ].join(',')) || [])];
+  const realImage = images.find((image) => {
+    const src = imageSrcValue(image);
+    return src && !isLikelyBackgroundImage(src);
+  }) || images[0];
+  return imageSrcValue(realImage);
+}
+
+function getSelectedProductImage(selected) {
+  const showroom = selected?.card?.closest?.('.sports-showroom, .generic-showroom, .standee-detail-page, .standee-detail-hero');
+  const showroomImage = getDisplayImageFrom(showroom);
+  if (showroomImage) return showroomImage;
+
+  const cardImage = getDisplayImageFrom(selected?.card);
+  if (cardImage) return cardImage;
+
+  const siblingShowroom = selected?.card?.parentElement?.querySelector?.('#sportsMainImage, .generic-main-image, .standee-main-cutout, .product-cutout');
+  if (siblingShowroom) return siblingShowroom.currentSrc || siblingShowroom.src || siblingShowroom.getAttribute('src') || '';
+
+  return getDisplayImageFrom(document.querySelector('.sports-showroom, .generic-showroom, .standee-detail-page')) || '';
+}
+
+function addToCart(name, price, image = '') {
   ensureCartShell();
   resetCheckoutSubmissionState();
-  cart.push({ name, price });
+  cart.push({ name, price, image: image || '' });
   cartTotal += price;
   updateCart();
 }
@@ -153,7 +201,11 @@ function updateCart() {
   cart.forEach((item, index) => {
     const div = document.createElement('div');
     div.className = 'cart-item';
+    const imageMarkup = item.image
+      ? `<img class="cart-item-thumb" src="${item.image}" alt="${item.name} preview">`
+      : '<div class="cart-item-thumb cart-item-thumb-empty" aria-hidden="true">MV</div>';
     div.innerHTML = `
+      ${imageMarkup}
       <div class="cart-item-info">
         <strong>${item.name}</strong>
         <span>$${item.price.toFixed(2)}</span>
@@ -916,6 +968,61 @@ function scrollFanVotes(direction) {
     left: direction * cardWidth,
     behavior: 'smooth'
   });
+}
+
+function getFanCardOptionsHref(card) {
+  if (!card) return '';
+  if (card.dataset.optionsHref) return card.dataset.optionsHref;
+
+  if (card.classList.contains('wanted-card-1')) return 'sports-legends.html#selected-standee';
+  if (card.classList.contains('wanted-card-2')) return 'movie-inspired.html#selected-standee';
+  if (card.classList.contains('wanted-card-3')) return 'music-artists.html#selected-standee';
+  if (card.classList.contains('wanted-card-4')) return 'dinosaur-cutouts.html#selected-standee';
+  if (card.classList.contains('wanted-card-5')) return 'fan-inspired.html#selected-standee';
+
+  const label = card.querySelector('.fan-gallery-label, h4')?.textContent?.toLowerCase() || '';
+  if (label.includes('golden') || label.includes('hero')) return 'religious-cutouts.html#selected-standee';
+  if (label.includes('dinosaur')) return 'dinosaur-cutouts.html#selected-standee';
+  if (label.includes('vip') || label.includes('spotlight')) return 'music-artists.html#selected-standee';
+  return 'fan-inspired.html#selected-standee';
+}
+
+function getFanCardTitle(card, fallback = 'Selected Standee') {
+  return card?.querySelector?.('h4, .fan-gallery-label')?.textContent?.trim() || fallback;
+}
+
+function openFanCardOptions(source) {
+  const card = source?.closest?.('.fan-vote-card, .fan-gallery-card');
+  const href = getFanCardOptionsHref(card);
+  if (href) window.location.href = href;
+}
+
+function bindFanCardCommerce() {
+  if (document.body.dataset.fanCardCommerceReady) return;
+  document.body.dataset.fanCardCommerceReady = 'true';
+
+  document.addEventListener('click', (event) => {
+    if (document.body.classList.contains('admin-anywhere-on')) return;
+
+    const cartButton = event.target.closest?.('[data-wanted-cart], .fan-gallery-cart');
+    if (cartButton) {
+      const card = cartButton.closest('.fan-vote-card, .fan-gallery-card');
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      addToCart(cartButton.dataset.wantedCart || getFanCardTitle(card), getCurrentBasePrice(), getDisplayImageFrom(card));
+      return;
+    }
+
+    if (event.target.closest?.('.fan-vote-action, .fan-gallery-vote, .fan-carousel-btn')) return;
+    const card = event.target.closest?.('.fan-vote-card, .fan-gallery-card');
+    if (!card) return;
+    if (event.target.closest?.('button') && !event.target.closest?.('.fan-card-actions button:first-child')) return;
+    if (!event.target.closest?.('.fan-card-stage, .fan-gallery-stage, .fan-card-actions button:first-child, .fan-gallery-card')) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openFanCardOptions(card);
+  }, true);
 }
 
 function getFanVoteStore() {
@@ -1779,12 +1886,12 @@ function formatMoney(price) {
 }
 
 function getProductAdminKey(builder) {
-  return 'mvpluxOriginalHeight:' + (builder.dataset.productName || 'product').replace(/\W+/g, '-').toLowerCase();
+  ensureProductAdminSlugs(builder?.closest?.('.product-card') || document);
+  return 'mvpluxOriginalHeight:' + (builder?.dataset.adminSlug || getProductSlug(builder?.dataset.productName || 'product'));
 }
 
 function clearLegacyAdminBrowserStorage() {
   localStorage.removeItem('mvpluxAdminAnywhereLegacy');
-  localStorage.removeItem('mvpluxInlineAdminEdits');
   localStorage.removeItem('mvpluxInlineHiddenCards');
 }
 
@@ -1792,9 +1899,22 @@ function getProductSlug(productName) {
   return (productName || 'product').replace(/\W+/g, '-').toLowerCase();
 }
 
+function ensureProductAdminSlugs(root = document) {
+  root.querySelectorAll?.('.size-builder').forEach((builder) => {
+    if (builder.dataset.adminSlug) return;
+    const card = builder.closest('.product-card');
+    const productName = builder.dataset.productName
+      || card?.querySelector('.product-title-link, h3, h2, h1')?.textContent
+      || 'product';
+    builder.dataset.adminSlug = getProductSlug(productName);
+  });
+}
+
 function getAdminProducts() {
   try {
-    return window.mvpluxLiveAdminSettings?.products || JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
+    const liveProducts = window.mvpluxLiveAdminSettings?.products || {};
+    const localProducts = JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
+    return { ...liveProducts, ...localProducts };
   } catch (error) {
     return {};
   }
@@ -2307,6 +2427,8 @@ function bindSportsShowroomClicks() {
 
 function initSportsShowroom() {
   if (!document.getElementById('sportsOptionStrip')) return;
+  const showroom = document.querySelector('.sports-showroom');
+  if (showroom && !showroom.id) showroom.id = 'selected-standee';
   const params = new URLSearchParams(window.location.search);
   const player = params.get('player');
   const startingKey = sportsStandeeCatalog[player] ? player : selectedSportsStandeeKey;
@@ -2373,19 +2495,7 @@ function buildGenericCategoryOptions(card, backgroundImages) {
   }
 
   const cardImage = card.querySelector('img')?.getAttribute('src') || '';
-  const options = [{ label: 'No Background', image: cardImage, stage: getGenericCategoryFallbackStage() }];
-
-  backgroundImages.forEach((image, index) => {
-    const src = image.getAttribute('src') || '';
-    if (!src || options.some((option) => option.image === src)) return;
-    options.push({
-      label: getGenericCategoryOptionLabel(index + 1, src),
-      image: src,
-      stage: getGenericCategoryFallbackStage()
-    });
-  });
-
-  return options;
+  return [{ label: 'No Background', image: cardImage, stage: getGenericCategoryFallbackStage() }];
 }
 
 function setupGenericCategoryShowroom() {
@@ -2406,6 +2516,7 @@ function setupGenericCategoryShowroom() {
   const firstImage = firstCard.querySelector('img')?.getAttribute('src') || '';
 
   const showroom = document.createElement('section');
+  showroom.id = 'selected-standee';
   showroom.className = 'sports-showroom generic-showroom';
   showroom.setAttribute('aria-label', 'Selected category standee');
   showroom.innerHTML = `
@@ -2486,6 +2597,25 @@ function setupGenericCategoryShowroom() {
   });
 
   selectCard(firstCard);
+}
+
+function normalizeFrontPageCategoryLinks() {
+  const path = window.location.pathname.split('/').pop() || 'index.html';
+  if (path !== 'index.html' && path !== '') return;
+  document.querySelectorAll('.product-image-link[href], .product-title-link[href]').forEach((link) => {
+    const href = link.getAttribute('href') || '';
+    if (!href || href.startsWith('#') || href.includes('#selected-standee')) return;
+    if (/\.html(?:$|\?)/.test(href)) {
+      link.setAttribute('href', `${href}#selected-standee`);
+    }
+  });
+}
+
+function scrollToSelectedStandeeHash() {
+  if (window.location.hash !== '#selected-standee') return;
+  window.setTimeout(() => {
+    document.getElementById('selected-standee')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 160);
 }
 
 function getStandeeSlug(value) {
@@ -2704,6 +2834,7 @@ function renderAdminManagedCards() {
 }
 
 function applyAdminProductOverrides(builder) {
+  ensureProductAdminSlugs(builder.closest('.product-card') || document);
   const card = builder.closest('.product-card');
   const productName = builder.dataset.productName || card?.querySelector('.product-title-link')?.textContent || '';
   const override = getAdminProducts()[builder.dataset.adminSlug || getProductSlug(productName)];
@@ -2717,7 +2848,10 @@ function applyAdminProductOverrides(builder) {
 
   if (override.title && titleLink) titleLink.textContent = override.title;
   if (override.description && description) description.textContent = override.description;
-  if (override.cutoutImage && cutout) cutout.src = override.cutoutImage;
+  if (override.cutoutImage && cutout) {
+    cutout.src = override.cutoutImage;
+    cutout.dataset.adminFallbackSrc = override.cutoutImage;
+  }
   if (override.backgroundImage && stage) {
     stage.style.backgroundImage = `url("${override.backgroundImage}")`;
   }
@@ -2781,6 +2915,7 @@ function extractHeightFromText(value = '') {
 function saveAdminProductHeightFromBuilder(builder, inches) {
   if (!builder || !inches) return;
 
+  ensureProductAdminSlugs(builder.closest('.product-card') || document);
   const slug = builder.dataset.adminSlug || getProductSlug(builder.dataset.productName || 'product');
   const products = { ...getAdminProducts() };
   products[slug] = {
@@ -2795,6 +2930,7 @@ function saveAdminProductHeightFromBuilder(builder, inches) {
 }
 
 function getBuilderAdminSlug(builder) {
+  ensureProductAdminSlugs(builder?.closest?.('.product-card') || document);
   return builder?.dataset.adminSlug || getProductSlug(builder?.dataset.productName || 'product');
 }
 
@@ -2807,6 +2943,10 @@ function setBuilderOriginalHeight(builder, inches) {
   if (customRadio) customRadio.checked = false;
   builder.classList.remove('custom-active');
   builder.querySelectorAll('.showroom-size-button').forEach((button) => {
+    const input = button.querySelector('input[type="radio"]');
+    button.classList.toggle('active', input?.value === 'original');
+  });
+  builder.querySelectorAll('.size-option').forEach((button) => {
     const input = button.querySelector('input[type="radio"]');
     button.classList.toggle('active', input?.value === 'original');
   });
@@ -2868,6 +3008,24 @@ function syncOriginalSizeFromEditedText(element, textOverride = null) {
   if (!originalLabel || (originalLabel !== element && !originalLabel.contains(element))) return false;
 
   return syncOriginalSizeForBuilder(builder, textOverride ?? element.textContent ?? originalLabel.textContent ?? '');
+}
+
+function applyOriginalSizeFromEditedText(element, textOverride = null) {
+  const stageBuilder = getBuilderForOriginalStageChoice(element);
+  if (stageBuilder) {
+    const choice = getOriginalStageChoice(element);
+    const inches = extractHeightFromText(textOverride ?? choice?.textContent ?? element.textContent ?? '');
+    return inches ? setBuilderOriginalHeight(stageBuilder, inches) : false;
+  }
+
+  const builder = element?.closest?.('.size-builder');
+  if (!builder) return false;
+
+  const originalLabel = getBuilderOriginalLabel(builder);
+  if (!originalLabel || (originalLabel !== element && !originalLabel.contains(element))) return false;
+
+  const inches = extractHeightFromText(textOverride ?? element.textContent ?? originalLabel.textContent ?? '');
+  return inches ? setBuilderOriginalHeight(builder, inches) : false;
 }
 
 function isLockedStageChoiceAdminText(element) {
@@ -3075,16 +3233,28 @@ let inlineAdminResizeActive = false;
 let inlineAdminLiveEdits = null;
 let inlineAdminAutoSaveTimer = null;
 
+const INLINE_ADMIN_DRAFT_KEY = 'mvpluxInlineAdminDraftV2';
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
 function readInlineAdminEdits() {
-  return inlineAdminDraftEdits || {};
+  if (inlineAdminDraftEdits) return inlineAdminDraftEdits;
+  try {
+    return JSON.parse(localStorage.getItem(INLINE_ADMIN_DRAFT_KEY) || '{}');
+  } catch (error) {
+    return {};
+  }
 }
 
 function writeInlineAdminEdits(edits) {
   inlineAdminDraftEdits = edits || {};
+  try {
+    localStorage.setItem(INLINE_ADMIN_DRAFT_KEY, JSON.stringify(inlineAdminDraftEdits));
+  } catch (error) {
+    console.warn('Could not write admin draft backup:', error);
+  }
 }
 
 function getInlineAdminDraft() {
@@ -3100,9 +3270,7 @@ function getInlineAdminLivePageEdits() {
 function getInlineAdminPageEdits() {
   const draftPageEdits = getInlineAdminDraft()[inlineAdminPageKey()] || {};
   const livePageEdits = getInlineAdminLivePageEdits();
-  return inlineAdminHasUnsavedLocalChanges
-    ? { ...livePageEdits, ...draftPageEdits }
-    : { ...draftPageEdits, ...livePageEdits };
+  return { ...livePageEdits, ...draftPageEdits };
 }
 
 function inlineAdminPageKey() {
@@ -3119,8 +3287,35 @@ function inlineAdminStableSlug(value) {
     .slice(0, 120);
 }
 
+function getProductCardTextAdminKey(element) {
+  if (!element || element.tagName === 'IMG') return '';
+  const card = element.closest?.('.product-card');
+  const builder = card?.querySelector?.('.size-builder');
+  const productSlug = builder?.dataset.adminSlug || '';
+  if (!card || !productSlug) return '';
+
+  if (element.matches('.product-title-link')) return `product-${inlineAdminStableSlug(productSlug)}-title-link`;
+  if (element.matches('h3') && element.querySelector('.product-title-link')) return `product-${inlineAdminStableSlug(productSlug)}-title-heading`;
+  if (element.matches('.product-description')) return `product-${inlineAdminStableSlug(productSlug)}-description`;
+  if (element.closest('[data-stage-choice="original"]')) return `product-${inlineAdminStableSlug(productSlug)}-original-choice`;
+  if (element.closest('.size-builder')) {
+    const originalLabel = getBuilderOriginalLabel(builder);
+    if (originalLabel && (element === originalLabel || originalLabel.contains(element))) {
+      return `product-${inlineAdminStableSlug(productSlug)}-original-size-label`;
+    }
+    return '';
+  }
+  return '';
+}
+
 function inlineAdminKey(element) {
   if (element.dataset.adminEdit) return element.dataset.adminEdit;
+
+  const productTextKey = getProductCardTextAdminKey(element);
+  if (productTextKey) {
+    element.dataset.adminEdit = productTextKey;
+    return element.dataset.adminEdit;
+  }
 
   if (element.tagName === 'IMG') {
     const builder = element.closest('.product-card')?.querySelector('.size-builder');
@@ -3206,9 +3401,8 @@ async function loadInlineAdminLiveEdits() {
   inlineAdminLiveEdits[page] = data?.edits || {};
   if (data?.edits && Object.keys(data.edits).length) {
     const draft = getInlineAdminDraft();
-    draft[page] = data.edits;
+    draft[page] = { ...data.edits, ...(draft[page] || {}) };
     writeInlineAdminEdits(draft);
-    inlineAdminHasUnsavedLocalChanges = false;
   }
   return inlineAdminLiveEdits;
 }
@@ -3291,13 +3485,13 @@ function applyInlineAdminEdits() {
     if (element.closest('.auth-form')) return;
     if (element.tagName === 'IMG' && isCodeControlledShopImage(element)) return;
     if (element.tagName !== 'IMG' && element.closest('[data-stage-choice]')) {
-      if (syncOriginalSizeFromEditedText(element, edit.text || '')) return;
+      if (applyOriginalSizeFromEditedText(element, edit.text || '')) return;
       if (isLockedStageChoiceAdminText(element)) return;
     }
     if (element.tagName !== 'IMG' && element.closest('.size-builder')) {
       const builder = element.closest('.size-builder');
-      if (edit.text && String(edit.text).toLowerCase().includes('original') && syncOriginalSizeForBuilder(builder, edit.text)) return;
-      if (syncOriginalSizeFromEditedText(element, edit.text || '')) return;
+      if (edit.text && String(edit.text).toLowerCase().includes('original') && applyOriginalSizeFromEditedText(element, edit.text)) return;
+      if (applyOriginalSizeFromEditedText(element, edit.text || '')) return;
       if (isLockedSizeBuilderAdminText(element)) return;
     }
 
@@ -4228,15 +4422,29 @@ function fileToSmallDataUrl(file) {
       const image = new Image();
       image.addEventListener('error', () => resolve(reader.result));
       image.addEventListener('load', () => {
-        const maxSide = 900;
-        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        const context = canvas.getContext('2d');
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        const keepTransparency = file.type === 'image/png' || file.type === 'image/webp';
-        resolve(canvas.toDataURL(keepTransparency ? 'image/png' : 'image/jpeg', 0.72));
+        let maxSide = 720;
+        let quality = 0.76;
+        let dataUrl = reader.result;
+
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+          const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          const context = canvas.getContext('2d');
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+          dataUrl = canvas.toDataURL('image/webp', quality);
+          if (!dataUrl.startsWith('data:image/webp')) {
+            dataUrl = canvas.toDataURL('image/png');
+          }
+          if (dataUrl.length < 700000 || maxSide <= 420) break;
+          maxSide = Math.round(maxSide * 0.82);
+          quality = Math.max(0.56, quality - 0.06);
+        }
+
+        resolve(dataUrl);
       });
       image.src = reader.result;
     });
@@ -4525,7 +4733,7 @@ function addSelectedToCart(button) {
     return;
   }
 
-  addToCart(selected.productName, selected.price);
+  addToCart(selected.productName, selected.price, getSelectedProductImage(selected));
 }
 
 function buySelectedNow(button) {
@@ -4536,7 +4744,7 @@ function buySelectedNow(button) {
     return;
   }
 
-  const img = selected.card?.querySelector('.product-cutout, #sportsMainImage, .generic-main-image, .standee-main-cutout')?.src || document.querySelector('.standee-main-cutout')?.src || '';
+  const img = getSelectedProductImage(selected);
   openBuyNow(selected.productName, selected.price, img);
 }
 
@@ -4625,10 +4833,12 @@ document.addEventListener('DOMContentLoaded', async function () {
   setupAuthState();
   updateCart();
   showInfoSlide(0);
+  normalizeFrontPageCategoryLinks();
   await loadLiveAdminSettings().catch(() => {});
   renderCouponBanner();
   bindProductCarouselDragGuard();
   bindBuyerImagePurchaseJumps();
+  bindFanCardCommerce();
   await loadInlineAdminLiveEdits().catch(() => {});
 
   document.querySelectorAll('img').forEach((image) => {
@@ -4637,6 +4847,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     image.addEventListener('contextmenu', (event) => event.preventDefault());
   });
   rememberInlineAdminImageFallbacks();
+  ensureProductAdminSlugs();
 
   document.addEventListener('change', (event) => {
     if (event.target.closest?.('input[name="checkoutPaymentMethod"]')) {
@@ -4650,6 +4861,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   renderStandeeDetailPage();
   setupGenericCategoryShowroom();
   initSportsShowroom();
+  ensureProductAdminSlugs();
+  scrollToSelectedStandeeHash();
   bindSportsShowroomClicks();
   bindCategoryStandeeCards();
 
