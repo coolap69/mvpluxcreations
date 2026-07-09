@@ -1784,6 +1784,8 @@ function getProductAdminKey(builder) {
 
 function clearLegacyAdminBrowserStorage() {
   localStorage.removeItem('mvpluxAdminAnywhereLegacy');
+  localStorage.removeItem('mvpluxInlineAdminEdits');
+  localStorage.removeItem('mvpluxInlineHiddenCards');
 }
 
 function getProductSlug(productName) {
@@ -2792,20 +2794,73 @@ function saveAdminProductHeightFromBuilder(builder, inches) {
   saveLiveAdminSettings({ products });
 }
 
+function getBuilderAdminSlug(builder) {
+  return builder?.dataset.adminSlug || getProductSlug(builder?.dataset.productName || 'product');
+}
+
+function setBuilderOriginalHeight(builder, inches) {
+  if (!builder || !inches) return false;
+
+  const originalRadio = builder.querySelector('input[value="original"]');
+  const customRadio = builder.querySelector('input[value="custom"]');
+  if (originalRadio) originalRadio.checked = true;
+  if (customRadio) customRadio.checked = false;
+  builder.classList.remove('custom-active');
+  builder.querySelectorAll('.showroom-size-button').forEach((button) => {
+    const input = button.querySelector('input[type="radio"]');
+    button.classList.toggle('active', input?.value === 'original');
+  });
+  builder.dataset.originalHeight = String(inches);
+  delete builder.dataset.originalPriceOverride;
+  setStageChoice(builder, 'original');
+  updateBuilderOriginalDisplay(builder);
+  return true;
+}
+
+function saveOriginalHeightPageEdit(builder, inches) {
+  if (!builder || !inches) return;
+
+  const edits = getInlineAdminDraft();
+  const page = inlineAdminPageKey();
+  const key = `product-height-${getBuilderAdminSlug(builder)}`;
+  edits[page] = edits[page] || {};
+  edits[page][key] = { type: 'originalHeight', slug: getBuilderAdminSlug(builder), originalHeight: String(inches) };
+  writeInlineAdminEdits(edits);
+  inlineAdminDirty = true;
+  inlineAdminHasUnsavedLocalChanges = true;
+  updateInlineAdminToolbarState('Auto-saving...');
+  scheduleInlineAdminAutoSave();
+}
+
 function syncOriginalSizeForBuilder(builder, textValue) {
   if (!builder) return false;
 
   const inches = extractHeightFromText(textValue || '');
   if (!inches) return false;
 
-  builder.dataset.originalHeight = String(inches);
-  delete builder.dataset.originalPriceOverride;
-  updateBuilderOriginalDisplay(builder);
+  setBuilderOriginalHeight(builder, inches);
   saveAdminProductHeightFromBuilder(builder, inches);
+  saveOriginalHeightPageEdit(builder, inches);
   return true;
 }
 
+function getOriginalStageChoice(element) {
+  return element?.closest?.('[data-stage-choice="original"]') || null;
+}
+
+function getBuilderForOriginalStageChoice(element) {
+  const choice = getOriginalStageChoice(element);
+  const card = choice?.closest?.('.product-card, .showroom-purchase-card, .standee-purchase-panel, .category-featured-info');
+  return card?.querySelector?.('.size-builder') || null;
+}
+
 function syncOriginalSizeFromEditedText(element, textOverride = null) {
+  const stageBuilder = getBuilderForOriginalStageChoice(element);
+  if (stageBuilder) {
+    const choice = getOriginalStageChoice(element);
+    return syncOriginalSizeForBuilder(stageBuilder, textOverride ?? choice?.textContent ?? element.textContent ?? '');
+  }
+
   const builder = element?.closest?.('.size-builder');
   if (!builder) return false;
 
@@ -2813,6 +2868,12 @@ function syncOriginalSizeFromEditedText(element, textOverride = null) {
   if (!originalLabel || (originalLabel !== element && !originalLabel.contains(element))) return false;
 
   return syncOriginalSizeForBuilder(builder, textOverride ?? element.textContent ?? originalLabel.textContent ?? '');
+}
+
+function isLockedStageChoiceAdminText(element) {
+  const stageChoice = element?.closest?.('[data-stage-choice]');
+  if (!stageChoice) return false;
+  return stageChoice.dataset.stageChoice !== 'original';
 }
 
 function isLockedSizeBuilderAdminText(element) {
@@ -2986,41 +3047,19 @@ function installSizeAdmin(builder) {
         Admin original height
         <input class="admin-original-height-input" type="text" placeholder="Example: 6'6 or 78">
       </label>
-      <button type="button" class="admin-save-size">Save height</button>
     </div>
   `);
 
   const input = builder.querySelector('.admin-original-height-input');
-  const saveButton = builder.querySelector('.admin-save-size');
   if (input) input.value = formatHeight(parseInt(builder.dataset.originalHeight || '78', 10));
 
-  saveButton?.addEventListener('click', async () => {
+  input?.addEventListener('input', async () => {
     const inches = parseHeightToInches(input?.value || '');
-    if (!inches) {
-      showSiteMessage("Enter a height like 6'6 or 78.", 'error');
-      return;
-    }
+    if (!inches) return;
 
-    builder.dataset.originalHeight = String(inches);
-    const basePrice = calculateCutoutPrice(inches, builder);
-    delete builder.dataset.originalPriceOverride;
-    refreshBuilderPrice(builder);
-    setStageChoice(builder, 'original');
-
-    const slug = builder.dataset.adminSlug || getProductSlug(builder.dataset.productName || 'product');
-    const products = { ...getAdminProducts() };
-    products[slug] = {
-      ...(products[slug] || {}),
-      originalHeight: String(inches),
-      originalPrice: ''
-    };
-
-    localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
-    updateLiveAdminSettingsLocal({ products });
-    const savedLive = await saveLiveAdminSettings({ products });
-    showSiteMessage(savedLive
-      ? `Original size saved live as ${formatHeight(inches)}. Price updated to ${formatMoney(addFinishToPrice(basePrice, builder))}.`
-      : `Original size changed here. Saved as browser backup, but live save did not finish.`, savedLive ? 'success' : 'error');
+    setBuilderOriginalHeight(builder, inches);
+    saveAdminProductHeightFromBuilder(builder, inches);
+    saveOriginalHeightPageEdit(builder, inches);
   });
 }
 
@@ -3034,22 +3073,18 @@ let inlineAdminHasUnsavedLocalChanges = false;
 let inlineAdminLastToolbarAction = { action: '', time: 0 };
 let inlineAdminResizeActive = false;
 let inlineAdminLiveEdits = null;
+let inlineAdminAutoSaveTimer = null;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
 function readInlineAdminEdits() {
-  try {
-    return JSON.parse(localStorage.getItem('mvpluxInlineAdminEdits') || '{}');
-  } catch (error) {
-    return {};
-  }
+  return inlineAdminDraftEdits || {};
 }
 
 function writeInlineAdminEdits(edits) {
   inlineAdminDraftEdits = edits || {};
-  localStorage.setItem('mvpluxInlineAdminEdits', JSON.stringify(inlineAdminDraftEdits));
 }
 
 function getInlineAdminDraft() {
@@ -3063,11 +3098,11 @@ function getInlineAdminLivePageEdits() {
 }
 
 function getInlineAdminPageEdits() {
-  const browserPageEdits = getInlineAdminDraft()[inlineAdminPageKey()] || {};
+  const draftPageEdits = getInlineAdminDraft()[inlineAdminPageKey()] || {};
   const livePageEdits = getInlineAdminLivePageEdits();
   return inlineAdminHasUnsavedLocalChanges
-    ? { ...livePageEdits, ...browserPageEdits }
-    : { ...browserPageEdits, ...livePageEdits };
+    ? { ...livePageEdits, ...draftPageEdits }
+    : { ...draftPageEdits, ...livePageEdits };
 }
 
 function inlineAdminPageKey() {
@@ -3181,14 +3216,14 @@ async function loadInlineAdminLiveEdits() {
 async function saveInlineAdminEditsLive() {
   const client = getSupabaseClient();
   if (!client?.from || !client?.auth) {
-    updateInlineAdminToolbarState('Saved in this browser only');
+    updateInlineAdminToolbarState('Live save unavailable');
     return false;
   }
 
   const { data: sessionData } = await client.auth.getSession();
   const user = sessionData?.session?.user;
   if (!user) {
-    updateInlineAdminToolbarState('Saved in browser. Sign in to save live.');
+    updateInlineAdminToolbarState('Sign in as admin to save live');
     return false;
   }
 
@@ -3205,15 +3240,34 @@ async function saveInlineAdminEditsLive() {
 
   if (error) {
     console.warn('Live admin save failed:', error);
-    updateInlineAdminToolbarState('Saved in browser only. Run live-save SQL.');
+    updateInlineAdminToolbarState(getLiveAdminSaveErrorMessage(error));
     return false;
   }
 
   inlineAdminLiveEdits = inlineAdminLiveEdits || {};
   inlineAdminLiveEdits[page] = edits;
   inlineAdminHasUnsavedLocalChanges = false;
-  updateInlineAdminToolbarState('Saved live');
+  updateInlineAdminToolbarState('Saved live automatically');
   return true;
+}
+
+function getLiveAdminSaveErrorMessage(error) {
+  const code = String(error?.code || '').trim();
+  const message = String(error?.message || error || '').toLowerCase();
+
+  if (code === '42P01' || message.includes('site_edits') || message.includes('does not exist')) {
+    return 'Live save failed: run admin SQL';
+  }
+
+  if (code === '42501' || message.includes('row-level security') || message.includes('permission denied')) {
+    return 'Live save failed: admin access missing';
+  }
+
+  if (message.includes('payload') || message.includes('too large') || message.includes('request entity')) {
+    return 'Live save failed: image too large';
+  }
+
+  return 'Live save failed';
 }
 
 function applyInlineAdminEdits() {
@@ -3225,10 +3279,21 @@ function applyInlineAdminEdits() {
   const pageEdits = getInlineAdminPageEdits();
 
   Object.entries(pageEdits).forEach(([key, edit]) => {
+    if (edit?.type === 'originalHeight') {
+      const builder = [...document.querySelectorAll('.size-builder')].find((item) => getBuilderAdminSlug(item) === edit.slug);
+      const inches = parseHeightToInches(String(edit.originalHeight || '')) || parseInt(edit.originalHeight || '0', 10);
+      if (builder && inches) setBuilderOriginalHeight(builder, inches);
+      return;
+    }
+
     const element = document.querySelector(`[data-admin-edit="${key}"]`);
     if (!element) return;
     if (element.closest('.auth-form')) return;
     if (element.tagName === 'IMG' && isCodeControlledShopImage(element)) return;
+    if (element.tagName !== 'IMG' && element.closest('[data-stage-choice]')) {
+      if (syncOriginalSizeFromEditedText(element, edit.text || '')) return;
+      if (isLockedStageChoiceAdminText(element)) return;
+    }
     if (element.tagName !== 'IMG' && element.closest('.size-builder')) {
       const builder = element.closest('.size-builder');
       if (edit.text && String(edit.text).toLowerCase().includes('original') && syncOriginalSizeForBuilder(builder, edit.text)) return;
@@ -3243,6 +3308,7 @@ function applyInlineAdminEdits() {
       if (safeSrc) element.src = safeSrc;
     }
     if (element.tagName === 'IMG' && !isInlineAdminBackgroundImage(element)) {
+      ensureInlineAdminImageBaseTransform(element);
       element.style.setProperty('--admin-x', `${safeAdminImageNumber(edit.x, 0, -140, 140)}px`);
       element.style.setProperty('--admin-y', `${safeAdminImageNumber(edit.y, 0, -140, 140)}px`);
       element.style.setProperty('--admin-scale', safeAdminImageNumber(edit.scale, 1, 0.45, 2.1));
@@ -3255,6 +3321,7 @@ function applyInlineAdminEdits() {
 function cleanInlineAdminImageSrc(src) {
   const value = String(src || '').trim();
   if (!value || value === 'undefined' || value === 'null' || value === '#') return '';
+  if (value.startsWith('data:image') && value.length < 200) return '';
   return value;
 }
 
@@ -3262,6 +3329,12 @@ function safeAdminImageNumber(value, fallback, min, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(max, Math.max(min, number));
+}
+
+function ensureInlineAdminImageBaseTransform(image) {
+  if (!image || image.style.getPropertyValue('--admin-base-transform')) return;
+  const computedTransform = getComputedStyle(image).transform;
+  image.style.setProperty('--admin-base-transform', computedTransform && computedTransform !== 'none' ? computedTransform : 'translate(0, 0)');
 }
 
 function saveInlineAdminEdit(element, patch) {
@@ -3273,14 +3346,26 @@ function saveInlineAdminEdit(element, patch) {
   writeInlineAdminEdits(edits);
   inlineAdminDirty = true;
   inlineAdminHasUnsavedLocalChanges = true;
-  updateInlineAdminToolbarState();
+  updateInlineAdminToolbarState('Auto-saving...');
+  scheduleInlineAdminAutoSave();
+}
+
+function scheduleInlineAdminAutoSave(delay = 650) {
+  window.clearTimeout(inlineAdminAutoSaveTimer);
+  inlineAdminAutoSaveTimer = window.setTimeout(() => {
+    commitInlineAdminEdits();
+  }, delay);
 }
 
 async function commitInlineAdminEdits() {
   writeInlineAdminEdits(getInlineAdminDraft());
-  inlineAdminDirty = false;
   updateInlineAdminToolbarState('Saving live...');
-  await saveInlineAdminEditsLive();
+  const saved = await saveInlineAdminEditsLive();
+  if (saved) {
+    inlineAdminDirty = false;
+    updateInlineAdminToolbarState('Saved live automatically');
+  }
+  return saved;
 }
 
 function clearCurrentPageBrowserAdminEdits() {
@@ -3289,7 +3374,7 @@ function clearCurrentPageBrowserAdminEdits() {
   writeInlineAdminEdits(edits);
   inlineAdminDirty = false;
   inlineAdminHasUnsavedLocalChanges = false;
-  showSiteMessage('Browser-only edits cleared for this page. Reloading clean view.', 'success');
+  showSiteMessage('Admin edits cleared for this page. Reloading clean view.', 'success');
   window.setTimeout(() => window.location.reload(), 450);
 }
 
@@ -3384,7 +3469,7 @@ function updateInlineAdminToolbarState(message = '') {
   const imageControls = document.querySelectorAll('[data-admin-image-control]');
   const activeImage = inlineAdminSelectedImage || document.querySelector('.admin-image-selected');
 
-  if (status) status.textContent = message || (inlineAdminDirty ? 'Unsaved preview' : 'Browser backup ready');
+  if (status) status.textContent = message || (inlineAdminDirty ? 'Auto-saving...' : 'Auto-save is on');
   if (undo) undo.classList.toggle('disabled', !inlineAdminUndoStack.length);
   if (redo) redo.classList.toggle('disabled', !inlineAdminRedoStack.length);
   if (undo) undo.disabled = !inlineAdminUndoStack.length;
@@ -3751,18 +3836,11 @@ function unlockAllInlineAdminImages() {
 }
 
 function readInlineHiddenCards() {
-  try {
-    return window.mvpluxLiveAdminSettings?.cardsSavedForLater || JSON.parse(localStorage.getItem('mvpluxInlineHiddenCards') || '{}');
-  } catch (error) {
-    return {};
-  }
+  return {};
 }
 
 function writeInlineHiddenCards(cards) {
-  localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(cards || {}));
-  updateLiveAdminSettingsLocal({ cardsSavedForLater: cards || {} });
-  saveLiveAdminSettings({ cardsSavedForLater: cards || {} });
-  return cards;
+  return cards || {};
 }
 
 function getInlineAdminSelectedCard() {
@@ -4049,11 +4127,8 @@ function bindInlineAdminToolbarDragResize() {
 }
 
 function applyInlineHiddenCards() {
-  const hidden = readInlineHiddenCards()[inlineAdminPageKey()] || {};
   document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card').forEach((card, index) => {
-    const key = card.dataset.adminCardKey || `card-${index}`;
-    card.dataset.adminCardKey = key;
-    if (hidden[key]) card.style.display = 'none';
+    card.dataset.adminCardKey = card.dataset.adminCardKey || `card-${index}`;
   });
 }
 
@@ -4064,10 +4139,6 @@ var runInlineAdminToolbarAction = function (action) {
 
   if (action === 'undo') undoInlineAdminEdit();
   if (action === 'redo') redoInlineAdminEdit();
-  if (action === 'save') commitInlineAdminEdits();
-  if (action === 'clear-browser-edits') clearCurrentPageBrowserAdminEdits();
-  if (action === 'hide-card') hideSelectedInlineAdminCard();
-  if (action === 'restore-cards') restoreInlineHiddenCards();
   if (action === 'toggle-toolbar-layout') toggleInlineAdminToolbarLayout();
   if (action === 'toggle-toolbar-size') toggleInlineAdminToolbarSize();
   if (action === 'toggle-toolbar-collapsed') toggleInlineAdminToolbarCollapsed();
@@ -4157,7 +4228,7 @@ function fileToSmallDataUrl(file) {
       const image = new Image();
       image.addEventListener('error', () => resolve(reader.result));
       image.addEventListener('load', () => {
-        const maxSide = 1600;
+        const maxSide = 900;
         const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.round(image.width * scale));
@@ -4165,7 +4236,7 @@ function fileToSmallDataUrl(file) {
         const context = canvas.getContext('2d');
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
         const keepTransparency = file.type === 'image/png' || file.type === 'image/webp';
-        resolve(canvas.toDataURL(keepTransparency ? 'image/png' : 'image/jpeg', 0.86));
+        resolve(canvas.toDataURL(keepTransparency ? 'image/png' : 'image/jpeg', 0.72));
       });
       image.src = reader.result;
     });
@@ -4197,6 +4268,8 @@ function replaceInlineAdminImage(image) {
     if (!file) return;
 
     image.src = await fileToSmallDataUrl(file);
+    image._adminImageState = { x: 0, y: 0, scale: 1, rotate: 0, locked: false };
+    renderInlineAdminImageState(image);
     saveInlineAdminEdit(image, { src: image.src, ...image._adminImageState });
     pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
     updateInlineAdminToolbarState('Image replaced');
@@ -4234,12 +4307,9 @@ function installInlineAdminMode() {
         <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-size" id="adminInlineToolSize" title="Make tools smaller or normal size" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-size'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-size'); return false;">Small</button>
         <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-collapsed" id="adminInlineHideTools" title="Hide or show admin tools" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-collapsed'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-collapsed'); return false;">Hide</button>
       </div>
-      <div class="admin-toolbar-group admin-toolbar-save">
-        <small>Save</small>
-        <span id="adminInlineStatus">Browser backup ready</span>
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="undo" id="adminInlineUndo" title="Undo" onpointerdown="runInlineAdminToolbarAction('undo'); return false;" onclick="runInlineAdminToolbarAction('undo'); return false;">Undo</button>
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="redo" id="adminInlineRedo" title="Redo" onpointerdown="runInlineAdminToolbarAction('redo'); return false;" onclick="runInlineAdminToolbarAction('redo'); return false;">Redo</button>
-        <button type="button" class="admin-tool-control admin-tool-primary" data-admin-toolbar-action="save" id="adminInlineSave" title="Save changes to the live website" onpointerdown="runInlineAdminToolbarAction('save'); return false;" onclick="runInlineAdminToolbarAction('save'); return false;">Save Live</button>
+      <div class="admin-toolbar-group admin-toolbar-status">
+        <small>Auto Save</small>
+        <span id="adminInlineStatus">Auto-save is on</span>
       </div>
       <div class="admin-toolbar-group admin-toolbar-image">
         <small>Image</small>
@@ -4256,9 +4326,6 @@ function installInlineAdminMode() {
       <div class="admin-toolbar-group admin-toolbar-page">
         <small>Page</small>
         <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image" onpointerdown="runInlineAdminToolbarAction('copy-code'); return false;" onclick="runInlineAdminToolbarAction('copy-code'); return false;">Copy CSS</button>
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="restore-cards" id="adminInlineRestoreCards" title="Bring back cards saved for later" onpointerdown="runInlineAdminToolbarAction('restore-cards'); return false;" onclick="runInlineAdminToolbarAction('restore-cards'); return false;">Restore Cards</button>
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="clear-browser-edits" id="adminInlineClearBrowser" title="Clear old browser-only edits for this page" onpointerdown="runInlineAdminToolbarAction('clear-browser-edits'); return false;" onclick="runInlineAdminToolbarAction('clear-browser-edits'); return false;">Clear Local</button>
-        <button type="button" class="admin-tool-control admin-tool-danger" data-admin-toolbar-action="hide-card" id="adminInlineHideCard" title="Save selected card for later" onpointerdown="runInlineAdminToolbarAction('hide-card'); return false;" onclick="runInlineAdminToolbarAction('hide-card'); return false;">Save for Later</button>
         <a href="admin.html#create-card">Add Card</a>
         <a href="admin.html">Orders/Admin</a>
       </div>
@@ -4313,7 +4380,8 @@ function installInlineAdminMode() {
 
   document.querySelectorAll('h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
     if (element.closest('.admin-anywhere-toolbar, .cart-panel, .auth-form, script, style, .password-field')) return;
-    if (element.closest('.fan-vote-meter, .fan-carousel-dots, .stage-option-boxes')) return;
+    if (element.closest('.fan-vote-meter, .fan-carousel-dots')) return;
+    if (isLockedStageChoiceAdminText(element)) return;
     if (isLockedSizeBuilderAdminText(element)) return;
     inlineAdminKey(element);
     element.contentEditable = 'true';
@@ -4360,8 +4428,7 @@ function installInlineAdminMode() {
       image.decoding = 'async';
     }
     inlineAdminKey(image);
-    const computedTransform = getComputedStyle(image).transform;
-    image.style.setProperty('--admin-base-transform', computedTransform && computedTransform !== 'none' ? computedTransform : 'translate(0, 0)');
+    ensureInlineAdminImageBaseTransform(image);
     image.classList.add('admin-editable-image');
     if (!isInlineAdminBackgroundImage(image)) image.classList.add('admin-transformable-image');
     const saved = getInlineAdminPageEdits()[inlineAdminKey(image)] || {};
@@ -4486,6 +4553,71 @@ function openSelectedOffer(button) {
   });
 }
 
+function pulseBuyerActionArea(target) {
+  if (!target) return;
+  target.classList.remove('buyer-action-pulse');
+  void target.offsetWidth;
+  target.classList.add('buyer-action-pulse');
+  window.setTimeout(() => target.classList.remove('buyer-action-pulse'), 1300);
+}
+
+function scrollBuyerToPurchaseArea(image) {
+  if (!image || document.body.classList.contains('admin-anywhere-on')) return false;
+  if (image.closest('a[href]')) return false;
+  if (image.closest('.admin-anywhere-toolbar, button, input, textarea, select, label')) return false;
+
+  const sportsCard = image.closest('[data-sports-player]');
+  if (sportsCard && typeof selectSportsStandee === 'function') {
+    selectSportsStandee(sportsCard.dataset.sportsPlayer);
+    return true;
+  }
+
+  const categoryCard = image.closest('.category-page .category-card');
+  const categorySelectButton = categoryCard?.querySelector('button');
+  if (categoryCard && categorySelectButton) {
+    categorySelectButton.click();
+    return true;
+  }
+
+  const showroom = image.closest('.sports-showroom, .generic-showroom, .standee-detail-hero');
+  const showroomActionArea = showroom?.querySelector('.showroom-purchase-card, .standee-purchase-panel, .category-featured-info, .standee-action-row, .button-row');
+  if (showroomActionArea) {
+    showroomActionArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    pulseBuyerActionArea(showroomActionArea);
+    return true;
+  }
+
+  const productCard = image.closest('.product-card');
+  const productActionArea = productCard?.querySelector('.button-row, .standee-action-row, .size-builder');
+  if (productActionArea) {
+    productActionArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    pulseBuyerActionArea(productActionArea);
+    return true;
+  }
+
+  const fanCard = image.closest('.fan-vote-card, .fan-gallery-card');
+  const fanActionArea = fanCard?.querySelector('.fan-card-actions, .fan-card-footer, button');
+  if (fanActionArea) {
+    fanActionArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    pulseBuyerActionArea(fanActionArea);
+    return true;
+  }
+
+  return false;
+}
+
+function bindBuyerImagePurchaseJumps() {
+  if (document.body.dataset.buyerImagePurchaseJumpsReady) return;
+  document.body.dataset.buyerImagePurchaseJumpsReady = 'true';
+
+  document.addEventListener('click', (event) => {
+    const image = event.target.closest?.('img');
+    if (!image) return;
+    if (!image.matches('.product-cutout, .standee-main-cutout, .generic-main-image, #sportsMainImage, .fan-card-cutout, .fan-card-bg, .category-card img')) return;
+    if (scrollBuyerToPurchaseArea(image)) event.preventDefault();
+  });
+}
+
 /* ---------------- PAGE INIT ---------------- */
 document.addEventListener('DOMContentLoaded', async function () {
   clearLegacyAdminBrowserStorage();
@@ -4496,6 +4628,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   await loadLiveAdminSettings().catch(() => {});
   renderCouponBanner();
   bindProductCarouselDragGuard();
+  bindBuyerImagePurchaseJumps();
   await loadInlineAdminLiveEdits().catch(() => {});
 
   document.querySelectorAll('img').forEach((image) => {

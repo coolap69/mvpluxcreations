@@ -140,14 +140,14 @@ async function loadAdminLiveSettings() {
 async function saveAdminSettingsLive(patch) {
   const client = getAdminClient();
   if (!client?.from || !client?.auth) {
-    setStatus('Saved backup in this browser. Supabase is not ready for live save.');
+    setStatus('Live save unavailable. Supabase is not ready.');
     return false;
   }
 
   const { data: sessionData } = await client.auth.getSession();
   const user = sessionData?.session?.user;
   if (!user) {
-    setStatus('Saved backup in this browser. Sign in as admin to save live.');
+    setStatus('Sign in as admin to save live.');
     return false;
   }
 
@@ -162,7 +162,7 @@ async function saveAdminSettingsLive(patch) {
     }, { onConflict: 'page_key' });
 
   if (error) {
-    setStatus('Saved backup in this browser. Run the live admin SQL if live save fails.');
+    setStatus('Live save failed. Run the live admin SQL or check admin access.');
     return false;
   }
 
@@ -299,7 +299,7 @@ function readJsonStorage(key, fallback) {
 function buildAdminExport() {
   return {
     exportedAt: new Date().toISOString(),
-    note: 'These edits are saved live when Supabase is available. Browser storage is only a backup.',
+    note: 'These edits are saved live when Supabase is available.',
     products: readAdminProducts(),
     customProducts: readCustomProducts(),
     savedForLaterProducts: readArchivedProducts(),

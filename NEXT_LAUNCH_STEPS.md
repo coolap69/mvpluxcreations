@@ -86,7 +86,7 @@ git status
 If only wanted website files changed:
 
 ```bash
-git add admin.html admin.js clear-site-data.html custom-photo-cutouts.html dinosaur-cutouts.html fan-inspired.html index.html movie-inspired.html music-artists.html religious-cutouts.html script.js signin.html signup.html small-cutout-party-packs.html sports-legends.html standee.html style.css supabase-config.js supabase-schema.sql videogame-cutouts.html NEXT_LAUNCH_STEPS.md
+git add admin.html admin.js custom-photo-cutouts.html dinosaur-cutouts.html fan-inspired.html index.html movie-inspired.html music-artists.html religious-cutouts.html script.js signin.html signup.html small-cutout-party-packs.html sports-legends.html standee.html style.css supabase-config.js supabase-schema.sql videogame-cutouts.html NEXT_LAUNCH_STEPS.md
 git commit -m "Save launch progress"
 git push origin main
 ```

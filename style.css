@@ -944,6 +944,22 @@ button:hover,
   color: #111 !important;
 }
 
+.buyer-action-pulse {
+  animation: buyerActionPulse 1.25s ease;
+}
+
+@keyframes buyerActionPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(244, 208, 111, 0.75);
+  }
+  55% {
+    box-shadow: 0 0 0 10px rgba(244, 208, 111, 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(244, 208, 111, 0);
+  }
+}
+
 /* PRODUCT STAGE PREVIEW */
 .product-image-wrap {
   display: flex;
@@ -4496,7 +4512,7 @@ body .auth-card .password-field input {
   background: rgba(244,208,111,0.08) !important;
 }
 
-.admin-toolbar-save {
+.admin-toolbar-status {
   border-color: rgba(244,208,111,0.42) !important;
 }
 
