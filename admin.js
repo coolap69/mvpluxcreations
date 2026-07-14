@@ -4,7 +4,6 @@ const adminProducts = [
     title: 'Sport Legend Standees',
     description: 'Shop sports-inspired standee styles, then choose different players, sizes, and background options inside the category.',
     originalHeight: 78,
-    originalPrice: 129.99,
     cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
     backgroundImage: 'images/FanBackgrounds/top-favorite-stage-gold.png'
   },
@@ -13,7 +12,6 @@ const adminProducts = [
     title: 'Movie Character Standees',
     description: 'Browse movie-style standee categories and see more character looks, poses, and display backgrounds inside.',
     originalHeight: 74,
-    originalPrice: '',
     cutoutImage: 'images/MovieCharacterStandees/Endorskeleton/Endornobackground.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -22,7 +20,6 @@ const adminProducts = [
     title: 'People & Public Figure Standees',
     description: 'Plan actor, creator, historical figure, public speaker, or lookalike-style display ideas.',
     originalHeight: 78,
-    originalPrice: 129.99,
     cutoutImage: 'images/FrontPageWeb/Music-TS-TSfinal.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -31,7 +28,6 @@ const adminProducts = [
     title: 'Music Artist Standees',
     description: 'Explore concert-style standee categories with different performers, stage looks, and custom display choices.',
     originalHeight: 69,
-    originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Music-MJackson-MJTR.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -40,7 +36,6 @@ const adminProducts = [
     title: 'Faith & Celebration Standees',
     description: 'View inspirational and celebration display categories for churches, holidays, events, rooms, and plays.',
     originalHeight: 72,
-    originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Religious-J13D.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -49,7 +44,6 @@ const adminProducts = [
     title: 'Holiday Standees',
     description: 'Seasonal displays for Christmas, Halloween, Easter, Valentine events, parties, and storefronts.',
     originalHeight: 78,
-    originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero8T.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -58,7 +52,6 @@ const adminProducts = [
     title: 'Fan Request Standees',
     description: 'See fan-inspired ideas, mashups, and custom concepts that can become full-size display pieces.',
     originalHeight: 69,
-    originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Music-MJackson-MJzombie.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -67,7 +60,6 @@ const adminProducts = [
     title: 'Dinosaur & Creature Standees',
     description: 'Shop dinosaur and creature-style displays for birthdays, rooms, outdoor setups, and big party moments.',
     originalHeight: 96,
-    originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Dinosaurs-JPRex.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -76,7 +68,6 @@ const adminProducts = [
     title: 'Game & Fantasy Standees',
     description: 'Browse game-room, fantasy, stream, and themed-event standee categories with custom scene options.',
     originalHeight: 72,
-    originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero10E.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -85,7 +76,6 @@ const adminProducts = [
     title: 'Custom Photo Standees',
     description: 'Turn your own photo, family member, athlete, or guest of honor into a custom standee display.',
     originalHeight: 66,
-    originalPrice: '',
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero7T.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -94,11 +84,34 @@ const adminProducts = [
     title: 'Party Pack Standees',
     description: 'Shop smaller standee packs for tables, birthdays, rooms, gifts, and party displays.',
     originalHeight: 36,
-    originalPrice: 50,
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero8T.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   }
 ];
+
+const adminCharacterProducts = [
+  { slug: 'kobe-bryant', title: 'Kobe Bryant Standee', originalHeight: 78, cutoutImage: 'images/SportLegendStandees/Kobe/KB1nobackground.png' },
+  { slug: 'basketball-center', title: 'Basketball Center Standee', originalHeight: 85, cutoutImage: 'images/SportLegendStandees/Shaq/shaqNEW.png' },
+  { slug: 'alternate-sports-pose', title: 'Alternate Sports Pose Standee', originalHeight: 85, cutoutImage: 'images/SportLegendStandees/Shaq/shaqDarker.png' },
+  { slug: 'endoskeleton-dark', title: 'Endoskeleton Dark Standee', originalHeight: 78, cutoutImage: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png' },
+  { slug: 'endoskeleton-white', title: 'Endoskeleton White Standee', originalHeight: 78, cutoutImage: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png' },
+  { slug: 'classic-horror-host', title: 'Classic Horror Host Standee', originalHeight: 67, cutoutImage: 'images/MovieCharacterStandees/Elvira/elviranew.png' },
+  { slug: 'red-jacket-performer', title: 'Red Jacket Performer Standee', originalHeight: 69, cutoutImage: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTR.png' },
+  { slug: 'zombie-dance-look', title: 'Zombie Dance Look Standee', originalHeight: 69, cutoutImage: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png' },
+  { slug: 'pop-star-look', title: 'Pop Star Look Standee', originalHeight: 71, cutoutImage: 'images/MusicArtistStandees/TaylorSwift/TSfinal.png' },
+  { slug: 'celebration-display', title: 'Celebration Display Standee', originalHeight: 72, cutoutImage: 'images/FaithCelebrationStandees/Jesus/J13D.png' },
+  { slug: 't-rex', title: 'T-Rex Standee', originalHeight: 72, cutoutImage: 'images/DinosaurCreatureStandees/JPRex.png' },
+  { slug: 'shaq', title: 'Shaquille O\'Neal Standee', originalHeight: 85, cutoutImage: 'images/SportLegendStandees/Shaq/shaqNEW.png' },
+  { slug: 'michael-jordan', title: 'Michael Jordan Standee', originalHeight: 78, cutoutImage: 'images/SportLegendStandees/MJordan/MJLAYUP1/Jordanemptybackground.png' },
+  { slug: 'michael-jordan-layup', title: 'Michael Jordan Layup Standee', originalHeight: 78, cutoutImage: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordantofixlblueightlowres.png' },
+  { slug: 'lionel-messi', title: 'Lionel Messi Standee', originalHeight: 67, cutoutImage: 'images/SportLegendStandees/Messi/Messi2nobackground.png' },
+  { slug: 'lionel-messi-classic', title: 'Lionel Messi Classic Standee', originalHeight: 67, cutoutImage: 'images/SportLegendStandees/Messi/Messinnone.png' },
+  { slug: 'tom-brady', title: 'Tom Brady Standee', originalHeight: 76, cutoutImage: 'images/SportLegendStandees/TomBrady/TB12Nobackground.png' }
+].map((product) => ({
+  ...product,
+  description: 'Character height controls the default price everywhere this standee appears.',
+  backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+}));
 
 function clearLegacyAdminBrowserStorage() {
   localStorage.removeItem('mvpluxAdminAnywhereLegacy');
@@ -222,26 +235,40 @@ const extraImageItems = [
   { key: 'gallery-vip-bg', group: 'Gallery', label: 'VIP Spotlight background', fallback: 'images/FrontPageWeb/FanBackgrounds-gallery-poster-premium.jpg' }
 ];
 
+function withoutStoredProductPrice(product = {}) {
+  const { originalPrice, ...heightBasedProduct } = product;
+  return heightBasedProduct;
+}
+
+function cleanAdminProductMap(products = {}) {
+  return Object.fromEntries(
+    Object.entries(products || {}).map(([slug, product]) => [slug, withoutStoredProductPrice(product)])
+  );
+}
+
 function readAdminProducts() {
-  return getAdminLiveValue('products', readJsonStorage('mvpluxAdminProducts', {}));
+  return cleanAdminProductMap(getAdminLiveValue('products', readJsonStorage('mvpluxAdminProducts', {})));
 }
 
 function writeAdminProducts(products) {
-  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products || {}));
-  updateAdminLiveSettings({ products: products || {} });
-  saveAdminSettingsLive({ products: products || {} });
-  return products;
+  const cleanedProducts = cleanAdminProductMap(products);
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(cleanedProducts));
+  updateAdminLiveSettings({ products: cleanedProducts });
+  saveAdminSettingsLive({ products: cleanedProducts });
+  return cleanedProducts;
 }
 
 function readCustomProducts() {
-  return getAdminLiveValue('customProducts', readJsonStorage('mvpluxAdminCustomProducts', []));
+  return getAdminLiveValue('customProducts', readJsonStorage('mvpluxAdminCustomProducts', []))
+    .map(withoutStoredProductPrice);
 }
 
 function writeCustomProducts(products) {
-  localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(products || []));
-  updateAdminLiveSettings({ customProducts: products || [] });
-  saveAdminSettingsLive({ customProducts: products || [] });
-  return products;
+  const cleanedProducts = (products || []).map(withoutStoredProductPrice);
+  localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(cleanedProducts));
+  updateAdminLiveSettings({ customProducts: cleanedProducts });
+  saveAdminSettingsLive({ customProducts: cleanedProducts });
+  return cleanedProducts;
 }
 
 function readArchivedProducts() {
@@ -587,22 +614,25 @@ function clamp(value, min, max) {
 }
 
 function parseAdminHeight(value) {
-  if (!value) return null;
-  const raw = String(value).trim().toLowerCase();
-  const feetMatch = raw.match(/^(\d+)\s*'\s*(\d+)?$/);
-  if (feetMatch) {
-    return (parseInt(feetMatch[1], 10) * 12) + parseInt(feetMatch[2] || '0', 10);
-  }
-  if (/^\d+$/.test(raw)) {
-    const number = parseInt(raw, 10);
-    if (number >= 2 && number <= 8) return number * 12;
-    if (number >= 24) return number;
-  }
-  return null;
+  return window.MVPLUX_PRICING.parseHeight(value);
+}
+
+function formatAdminMoney(price) {
+  return Number.isFinite(price) ? `$${price.toFixed(2)}` : 'Enter a valid height';
+}
+
+function calculateAdminOriginalPrice(height, settings = readPriceSettings()) {
+  return window.MVPLUX_PRICING.calculateHeightPrice(height, settings);
+}
+
+function updateAdminOriginalPrice(form, settings = readPriceSettings()) {
+  const output = form?.querySelector('.admin-original-price');
+  if (!output) return;
+  output.value = formatAdminMoney(calculateAdminOriginalPrice(form.querySelector('[name="originalHeight"]')?.value, settings));
 }
 
 function allAdminProducts() {
-  return [...adminProducts, ...readCustomProducts()];
+  return [...adminProducts, ...adminCharacterProducts, ...readCustomProducts()];
 }
 
 function makeSlug(title) {
@@ -613,7 +643,7 @@ function createCustomProduct() {
   const title = document.getElementById('newProductTitle')?.value.trim() || 'Custom Standee';
   const products = readCustomProducts();
   const slug = makeSlug(title);
-  if (products.some((product) => product.slug === slug) || adminProducts.some((product) => product.slug === slug)) {
+  if (products.some((product) => product.slug === slug) || [...adminProducts, ...adminCharacterProducts].some((product) => product.slug === slug)) {
     setStatus('A card with that name already exists.');
     return;
   }
@@ -624,7 +654,6 @@ function createCustomProduct() {
     title,
     description: 'New custom standee card.',
     originalHeight: 72,
-    originalPrice: 129.99,
     cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   });
@@ -872,7 +901,6 @@ function collectProductFormData(form) {
     cutoutImage: formData.get('cutoutImage').trim(),
     backgroundImage: formData.get('backgroundImage').trim(),
     originalHeight: formData.get('originalHeight').trim(),
-    originalPrice: formData.get('originalPrice').trim(),
     cutoutHeight: formData.get('cutoutHeight').trim(),
     cutoutLeft: formData.get('cutoutLeft').trim(),
     cutoutBottom: formData.get('cutoutBottom').trim(),
@@ -1069,7 +1097,7 @@ function renderAdminProducts() {
                 </label>
                 <label>
                   Original price
-                  <input name="originalPrice" type="number" min="0" step="0.01" value="${value.originalPrice || ''}" placeholder="Auto">
+                  <output class="admin-original-price">${formatAdminMoney(calculateAdminOriginalPrice(value.originalHeight))}</output>
                 </label>
               </div>
             </fieldset>
@@ -1111,8 +1139,10 @@ function renderAdminProducts() {
   }).join('');
 
   container.querySelectorAll('.admin-product-card').forEach((form) => {
+    updateAdminOriginalPrice(form);
     form.querySelectorAll('input, textarea').forEach((field) => {
       field.addEventListener('input', () => {
+        if (field.name === 'originalHeight') updateAdminOriginalPrice(form);
         if (field.matches('[type="range"], .admin-long-path, [name="stageBackgroundPosition"]')) {
           syncPreviewFromFields(form);
           if (field.matches('[type="range"], [name="stageBackgroundPosition"]')) {
@@ -1169,6 +1199,22 @@ function setupPriceRules() {
 
   fillPriceSettingsForm();
 
+  const getDraftSettings = () => ({
+    twoFootPrice: document.getElementById('twoFootPrice')?.value,
+    threeFootPrice: document.getElementById('threeFootPrice')?.value,
+    fullHeight: document.getElementById('fullHeight')?.value,
+    fullPrice: document.getElementById('fullPrice')?.value,
+    extraInchPrice: document.getElementById('extraInchPrice')?.value
+  });
+
+  form.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', () => {
+      document.querySelectorAll('.admin-product-card').forEach((productForm) => {
+        updateAdminOriginalPrice(productForm, getDraftSettings());
+      });
+    });
+  });
+
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const settings = {
@@ -1180,6 +1226,7 @@ function setupPriceRules() {
     };
     writePriceSettings(settings);
     fillPriceSettingsForm();
+    document.querySelectorAll('.admin-product-card').forEach((productForm) => updateAdminOriginalPrice(productForm, settings));
     setStatus('Prices saved live.');
   });
 }

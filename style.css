@@ -5543,6 +5543,21 @@ button[aria-label="Add to cart"]::before {
   border-color: rgba(244,208,111,0.46) !important;
 }
 
+.admin-original-price {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(244,208,111,0.46);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.72);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 900;
+}
+
 .admin-form-row {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;

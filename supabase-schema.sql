@@ -291,13 +291,41 @@ create table if not exists public.fan_votes (
   constraint fan_votes_has_voter check (customer_id is not null or guest_id is not null)
 );
 
-create unique index if not exists fan_votes_customer_daily_unique
-on public.fan_votes (vote_id, vote_date, customer_id)
-where customer_id is not null;
+drop index if exists public.fan_votes_customer_daily_unique;
+drop index if exists public.fan_votes_guest_daily_unique;
 
-create unique index if not exists fan_votes_guest_daily_unique
-on public.fan_votes (vote_id, vote_date, guest_id)
-where guest_id is not null;
+create or replace function public.enforce_fan_vote_two_day_cooldown()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if exists (
+    select 1
+    from public.fan_votes existing_vote
+    where existing_vote.vote_id = new.vote_id
+      and existing_vote.created_at > now() - interval '2 days'
+      and (
+        (new.customer_id is not null and existing_vote.customer_id = new.customer_id)
+        or
+        (new.customer_id is null and existing_vote.customer_id is null and existing_vote.guest_id = new.guest_id)
+      )
+  ) then
+    raise exception 'You can vote for this item once every 2 days.'
+      using errcode = '23505';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function public.enforce_fan_vote_two_day_cooldown() from public;
+
+drop trigger if exists enforce_fan_vote_two_day_cooldown on public.fan_votes;
+create trigger enforce_fan_vote_two_day_cooldown
+before insert on public.fan_votes
+for each row execute function public.enforce_fan_vote_two_day_cooldown();
 
 alter table public.fan_votes enable row level security;
 

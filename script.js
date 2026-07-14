@@ -1060,7 +1060,7 @@ function getGuestVoteId() {
   return guestId;
 }
 
-function hasVotedToday(voteRecord) {
+function hasActiveFanVoteCooldown(voteRecord) {
   if (voteRecord === true) return false;
   const lastVoteTime = getVoteRecordTime(voteRecord);
   if (!lastVoteTime) return false;
@@ -1068,8 +1068,8 @@ function hasVotedToday(voteRecord) {
 }
 
 function getCurrentBasePrice() {
-  const settings = getAdminPriceSettings();
-  return Number(settings.fullPrice) || 129.99;
+  const settings = getPriceSettingsForBuilder();
+  return calculateCutoutPrice(settings.fullHeight);
 }
 
 function saveFanVoteStore(votes) {
@@ -1125,7 +1125,6 @@ async function logFanVote(voteId) {
     const user = data?.session?.user;
     await client.from('fan_votes').insert({
       vote_id: voteId,
-      vote_date: getVoteDateKey(),
       customer_id: user?.id || null,
       guest_id: user?.id ? null : getGuestVoteId()
     });
@@ -1137,7 +1136,7 @@ async function logFanVote(voteId) {
 async function registerFanVote(voteId, button) {
   const votes = getFanVoteStore();
 
-  if (hasVotedToday(votes[voteId])) {
+  if (hasActiveFanVoteCooldown(votes[voteId])) {
     setFanVoteButtonState(button, true);
     showSiteMessage('You already voted for this one. You can vote again after 2 days.');
     return;
@@ -1541,7 +1540,15 @@ function showSupabaseConnectionAlert(actionLabel = 'connect to Supabase') {
 }
 
 function getAuthRedirectUrl() {
-  return 'https://mvpluxcreations.com/signin.html';
+  const allowedOrigins = new Set([
+    'https://mvpluxcreations.com',
+    'http://localhost:3000'
+  ]);
+  const origin = allowedOrigins.has(window.location.origin)
+    ? window.location.origin
+    : 'https://mvpluxcreations.com';
+
+  return `${origin}/signin.html`;
 }
 
 function isSupabaseNetworkError(error) {
@@ -1709,32 +1716,7 @@ function setupAuthState() {
 
 /* ---------------- PREMIUM SIZE BUILDER ---------------- */
 function parseHeightToInches(value) {
-  if (!value) return null;
-
-  const raw = value.trim().toLowerCase();
-
-  const feetInchesMatch = raw.match(/^(\d+)\s*'\s*(\d+)?$/);
-  if (feetInchesMatch) {
-    const feet = parseInt(feetInchesMatch[1], 10);
-    const inches = parseInt(feetInchesMatch[2] || '0', 10);
-    return feet * 12 + inches;
-  }
-
-  if (/^\d+$/.test(raw)) {
-    const number = parseInt(raw, 10);
-
-    if (number >= 2 && number <= 8) {
-      return number * 12;
-    }
-
-    if (number >= 24) {
-      return number;
-    }
-
-    return null;
-  }
-
-  return null;
+  return window.MVPLUX_PRICING.parseHeight(value);
 }
 
 function getAdminPriceSettings() {
@@ -1746,35 +1728,11 @@ function getAdminPriceSettings() {
 }
 
 function getPriceSettingsForBuilder(builder = null) {
-  const settings = getAdminPriceSettings();
-  const configuredFullHeight = builder ? 78 : (parseInt(settings.fullHeight || '78', 10) || 78);
-
-  return {
-    twoFootPrice: parseFloat(settings.twoFootPrice || '') || 35.00,
-    threeFootPrice: parseFloat(settings.threeFootPrice || '') || 50.00,
-    fullHeight: configuredFullHeight,
-    fullPrice: parseFloat(settings.fullPrice || '') || 129.99,
-    extraInchPrice: parseFloat(settings.extraInchPrice || '') || 2.00
-  };
+  return window.MVPLUX_PRICING.normalizePriceSettings(getAdminPriceSettings());
 }
 
 function calculateCutoutPrice(inches, builder = null) {
-  if (!inches) return null;
-
-  if (inches < 24) return null;
-
-  const settings = getPriceSettingsForBuilder(builder);
-
-  if (inches <= 36) {
-    return settings.twoFootPrice + ((inches - 24) * ((settings.threeFootPrice - settings.twoFootPrice) / 12));
-  }
-
-  if (inches > 36 && inches <= settings.fullHeight) {
-    const span = Math.max(1, settings.fullHeight - 36);
-    return settings.threeFootPrice + ((inches - 36) * ((settings.fullPrice - settings.threeFootPrice) / span));
-  }
-
-  return settings.fullPrice + ((inches - settings.fullHeight) * settings.extraInchPrice);
+  return window.MVPLUX_PRICING.calculateHeightPrice(inches, getPriceSettingsForBuilder(builder));
 }
 
 const finishChoices = [
@@ -2007,7 +1965,6 @@ const standeeCatalog = {
     category: 'Sport Legend Standees',
     image: 'images/SportLegendStandees/Kobe/KB1nobackground.png',
     originalHeight: 78,
-    originalPrice: 129.99,
     description: 'A court-ready life-size sports display with optional printed background styles.',
     backgrounds: [
       { name: 'No Background', image: 'images/SportLegendStandees/Kobe/KB1nobackground.png', stage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg' },
@@ -2022,7 +1979,6 @@ const standeeCatalog = {
     category: 'Sport Legend Standees',
     image: 'images/SportLegendStandees/Shaq/shaqNEW.png',
     originalHeight: 85,
-    originalPrice: 143.99,
     description: 'A larger-than-life basketball display sized from a 7-foot-plus original reference.',
     backgrounds: [
       { name: 'No Background', image: 'images/SportLegendStandees/Shaq/shaqNEW.png', stage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg' },
@@ -2036,7 +1992,6 @@ const standeeCatalog = {
     category: 'Sport Legend Standees',
     image: 'images/SportLegendStandees/Shaq/shaqDarker.png',
     originalHeight: 85,
-    originalPrice: 143.99,
     description: 'A bold alternate pose for fans who want a darker showcase style.',
     backgrounds: [
       { name: 'Darker Look', image: 'images/SportLegendStandees/Shaq/shaqDarker.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
@@ -2049,7 +2004,6 @@ const standeeCatalog = {
     category: 'Movie Character Standees',
     image: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png',
     originalHeight: 78,
-    originalPrice: 129.99,
     description: 'A sci-fi inspired display with darker background options.',
     backgrounds: [
       { name: 'Dark Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' },
@@ -2063,7 +2017,6 @@ const standeeCatalog = {
     category: 'Movie Character Standees',
     image: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png',
     originalHeight: 78,
-    originalPrice: 129.99,
     description: 'A brighter sci-fi display option with clean contrast.',
     backgrounds: [
       { name: 'White Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
@@ -2076,7 +2029,6 @@ const standeeCatalog = {
     category: 'Movie Character Standees',
     image: 'images/MovieCharacterStandees/Elvira/elviranew.png',
     originalHeight: 67,
-    originalPrice: 108.49,
     description: 'A classic horror-host style cutout for spooky rooms, events, and collectors.',
     backgrounds: [
       { name: 'Classic Cutout', image: 'images/MovieCharacterStandees/Elvira/elviranew.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
@@ -2087,42 +2039,39 @@ const standeeCatalog = {
   'red-jacket-performer': {
     title: 'Red Jacket Performer Standee',
     category: 'Music Artist Standees',
-    image: 'images/MusicArtistStandees/MJackson/MJTR.png',
+    image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTR.png',
     originalHeight: 69,
-    originalPrice: 112.99,
     description: 'A performance-style music standee with concert and premium background options.',
     backgrounds: [
-      { name: 'Clean Performer', image: 'images/MusicArtistStandees/MJackson/MJTR.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' },
-      { name: 'Triangle Stage', image: 'images/MusicArtistStandees/MJackson/MJTRTrianglehalf.png', stage: 'images/FanBackgrounds/top-favorite-stage-concert.png' },
-      { name: 'White Stage', image: 'images/MusicArtistStandees/MJackson/MJTRTrianglehalfblank.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' }
+      { name: 'Clean Performer', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTR.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' },
+      { name: 'Triangle Stage', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTRTrianglehalf.png', stage: 'images/FanBackgrounds/top-favorite-stage-concert.png' },
+      { name: 'White Stage', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTRTrianglehalfblank.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' }
     ],
     facts: ['Original height reference: 5\'9".', 'Concert backgrounds make this feel like a mini stage.', 'Works well for music rooms and birthday setups.', 'Custom size pricing comes from the entered height.']
   },
   'zombie-dance-look': {
     title: 'Zombie Dance Look Standee',
     category: 'Music Artist Standees',
-    image: 'images/MusicArtistStandees/MJackson/MJzombie.png',
+    image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png',
     originalHeight: 69,
-    originalPrice: 112.99,
     description: 'A dance-inspired music display with spooky performance energy.',
     backgrounds: [
-      { name: 'Zombie Look', image: 'images/MusicArtistStandees/MJackson/MJzombie.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' },
-      { name: 'Alternate Zombie', image: 'images/MusicArtistStandees/MJackson/MJzombie1.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' }
+      { name: 'Zombie Look', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' },
+      { name: 'Alternate Zombie', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR1/MJzombie1.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' }
     ],
     facts: ['Original height reference: 5\'9".', 'A strong pick for music and Halloween themes.', 'Choose a darker or concert-style background.', 'The size picker can make mini versions too.']
   },
   'pop-star-look': {
     title: 'Pop Star Look Standee',
     category: 'Music Artist Standees',
-    image: 'images/MusicArtistStandees/TS/TSfinal.png',
+    image: 'images/MusicArtistStandees/TaylorSwift/TSfinal.png',
     originalHeight: 71,
-    originalPrice: 117.49,
     description: 'A pop performance display with colorful, pink, and clean background choices.',
     backgrounds: [
-      { name: 'Clean Pop Look', image: 'images/MusicArtistStandees/TS/TSfinal.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' },
-      { name: 'Colorful', image: 'images/MusicArtistStandees/TS/TSfinalcolorfulbackground.png', stage: 'images/MusicArtistStandees/TS/TSfinalcolorfulbackground.png' },
-      { name: 'Off White', image: 'images/MusicArtistStandees/TS/TSfinaloffwhitebackground.png', stage: 'images/MusicArtistStandees/TS/TSfinaloffwhitebackground.png' },
-      { name: 'Pink', image: 'images/MusicArtistStandees/TS/Taylor12pink.png', stage: 'images/MusicArtistStandees/TS/Taylor12pink.png' }
+      { name: 'Clean Pop Look', image: 'images/MusicArtistStandees/TaylorSwift/TSfinal.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' },
+      { name: 'Colorful', image: 'images/MusicArtistStandees/TaylorSwift/TSfinalcolorfulbackground.png', stage: 'images/MusicArtistStandees/TaylorSwift/TSfinalcolorfulbackground.png' },
+      { name: 'Off White', image: 'images/MusicArtistStandees/TaylorSwift/TSfinaloffwhitebackground.png', stage: 'images/MusicArtistStandees/TaylorSwift/TSfinaloffwhitebackground.png' },
+      { name: 'Pink', image: 'images/MusicArtistStandees/TaylorSwift/Taylor12pink.png', stage: 'images/MusicArtistStandees/TaylorSwift/Taylor12pink.png' }
     ],
     facts: ['Original height reference: 5\'11".', 'Colorful backgrounds work well for party photos.', 'Original and custom sizes update live.', 'A clean cutout version is available for simple displays.']
   },
@@ -2131,7 +2080,6 @@ const standeeCatalog = {
     category: 'Faith & Celebration Standees',
     image: 'images/FaithCelebrationStandees/Jesus/J13D.png',
     originalHeight: 72,
-    originalPrice: 119.99,
     description: 'A warm celebration display for faith events, holidays, and family gatherings.',
     backgrounds: [
       { name: 'Celebration', image: 'images/FaithCelebrationStandees/Jesus/J13D.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
@@ -2145,7 +2093,6 @@ const standeeCatalog = {
     category: 'Dinosaur & Animal Standees',
     image: 'images/DinosaurCreatureStandees/JPRex.png',
     originalHeight: 72,
-    originalPrice: 119.99,
     description: 'A dinosaur or animal-style display with adventure background options.',
     backgrounds: [
       { name: 'T-Rex', image: 'images/DinosaurCreatureStandees/JPRex.png', stage: 'images/FanBackgrounds/gallery-poster-adventure.png' },
@@ -2155,6 +2102,10 @@ const standeeCatalog = {
     facts: ['Original height reference: 6\'.', 'Popular for birthdays and adventure rooms.', 'Group dinosaur art is available as another option.', 'Custom sizing can make a smaller party version.']
   }
 };
+
+Object.entries(standeeCatalog).forEach(([slug, product]) => {
+  product.slug = slug;
+});
 
 const sportsStandeeCatalog = {
   'kobe-bryant': {
@@ -2554,6 +2505,7 @@ function setupGenericCategoryShowroom() {
 
   const selectCard = (card) => {
     const title = card.querySelector('h3')?.textContent.trim() || 'Standee';
+    const productId = card.dataset.productId || title;
     const product = getKnownStandeeForCard(card);
     const options = buildGenericCategoryOptions(card, backgroundImages);
     const originalSize = product?.originalHeight ? `Original: ${formatHeight(product.originalHeight)}` : 'Original size varies';
@@ -2567,7 +2519,7 @@ function setupGenericCategoryShowroom() {
     `;
     state.builder.dataset.whiteTriangleImage = findWhiteTriangleImage(options);
     if (!state.builder.dataset.whiteTriangleImage) delete state.builder.dataset.whiteTriangleImage;
-    updateShowroomPurchase(state, product?.title || title, product?.originalHeight || 78, title);
+    updateShowroomPurchase(state, product?.title || title, product?.originalHeight || 78, product?.slug || productId);
     renderGenericCategoryOptions(state, options);
     selectGenericCategoryOption(state, options, 0);
 
@@ -2629,11 +2581,11 @@ function getStandeeSlug(value) {
 
 function getStandeeBySlug(slug) {
   return standeeCatalog[slug] || {
+    slug,
     title: (slug || 'Custom Standee').replace(/-/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
     category: 'MVPLUXCREATIONS Standee',
     image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
     originalHeight: 78,
-    originalPrice: 129.99,
     description: 'Choose the original size, pick your own custom size, and select from available display backgrounds.',
     backgrounds: [
       { name: 'Premium Stage', image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
@@ -2672,10 +2624,11 @@ function renderStandeeDetailPage() {
   if (!root) return;
 
   const params = new URLSearchParams(window.location.search);
-  const product = getStandeeBySlug(params.get('item') || 'kobe-bryant');
-  const slug = getStandeeSlug(product.title);
+  const requestedSlug = params.get('item') || 'kobe-bryant';
+  const product = getStandeeBySlug(requestedSlug);
+  const slug = product.slug || requestedSlug;
   const originalHeight = parseInt(product.originalHeight || '78', 10);
-  const originalPrice = Number(product.originalPrice || calculateCutoutPrice(originalHeight) || 129.99);
+  const originalPrice = calculateCutoutPrice(originalHeight);
   window.currentStandeeProduct = product;
   document.title = `${product.title} | MVPLUXCREATIONS`;
 
@@ -2774,7 +2727,7 @@ function productCardMarkup(product) {
   const slug = product.slug || getProductSlug(product.title);
   const radioName = `${slug.replace(/-/g, '')}SizeMode`;
   const originalHeight = product.originalHeight || 78;
-  const originalPrice = product.originalPrice || calculateCutoutPrice(parseHeightToInches(String(originalHeight)) || originalHeight);
+  const originalPrice = calculateCutoutPrice(parseHeightToInches(String(originalHeight)) || originalHeight);
 
   return `
     <div class="product-card" data-category="custom" data-name="${product.title || 'Custom card'}" data-admin-card-key="${slug}">
@@ -2920,9 +2873,9 @@ function saveAdminProductHeightFromBuilder(builder, inches) {
   const products = { ...getAdminProducts() };
   products[slug] = {
     ...(products[slug] || {}),
-    originalHeight: String(inches),
-    originalPrice: ''
+    originalHeight: String(inches)
   };
+  delete products[slug].originalPrice;
 
   localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
   updateLiveAdminSettingsLocal({ products });
@@ -4854,7 +4807,7 @@ function getSelectedProduct(button) {
 
   if (!builder) {
     const productName = card?.querySelector('.product-title-link, h1, h2, .generic-selected-name, #sportsSelectedName')?.textContent || 'Custom Standee';
-    return { card, builder: null, productName, price: 50.00, valid: true };
+    return { card, builder: null, productName, price: getCurrentBasePrice(), valid: true };
   }
 
   const baseProductName = builder.dataset.productName || 'Custom Standee';
@@ -5026,7 +4979,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   const fanVotes = getFanVoteStore();
   document.querySelectorAll('[data-vote-id]').forEach((button) => {
-    setFanVoteButtonState(button, hasVotedToday(fanVotes[button.dataset.voteId]));
+    setFanVoteButtonState(button, hasActiveFanVoteCooldown(fanVotes[button.dataset.voteId]));
   });
 
   window.addEventListener('click', function (e) {

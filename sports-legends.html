@@ -77,7 +77,7 @@
             </button>
           </div>
         </div>
-        <div id="sportsSizeBuilder" class="showroom-size-builder size-builder" data-product-name="Kobe Bryant" data-admin-slug="kobe-bryant" data-original-price="129.99" data-original-height="78">
+        <div id="sportsSizeBuilder" class="showroom-size-builder size-builder" data-product-name="Kobe Bryant" data-admin-slug="kobe-bryant" data-original-height="78">
           <div class="showroom-size-buttons">
             <label class="showroom-size-button active">
               <input type="radio" name="kobeBryantShowroomSizeMode" value="original" checked>
@@ -91,7 +91,7 @@
           <div class="custom-size-box">
             <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
           </div>
-          <p class="live-price-line">Price: <span class="live-size-price">$129.99</span></p>
+          <p class="live-price-line">Price: <span class="live-size-price">Calculating...</span></p>
         </div>
         <div class="showroom-action-row standee-action-row">
           <button type="button" onclick="buySelectedNow(this)">Buy Now</button>
@@ -156,6 +156,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
+  <script src="pricing.js?v=20260714-height-source"></script>
   <script src="script.js?v=20260709-card-admin-sync"></script>
 </body>
 </html>

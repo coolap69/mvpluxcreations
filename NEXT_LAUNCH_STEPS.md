@@ -1,32 +1,33 @@
 # MVPLUXCREATIONS Launch Handoff
 
-Last updated: 2026-07-03
+Last updated: 2026-07-14
 
 ## Current Status
 
 - Frontend exists already. This is the website in this folder, hosted by GitHub Pages.
 - Supabase is connected in `supabase-config.js`.
 - Current Supabase project URL: `https://ncbddqxdinvcsoszdsxr.supabase.co`
-- Signup confirmation redirect in code points to `https://mvpluxcreations.com/signin.html`.
+- Signup confirmation redirects support `https://mvpluxcreations.com/signin.html` and `http://localhost:3000/signin.html`.
 - Sign up/sign in worked after the new Supabase project was created.
 - Checkout/order requests save to Supabase.
 - Make-offer requests save to Supabase.
-- Daily voting was added:
-  - Guests can vote once per browser per day.
-  - Signed-in users can be logged once per account per day after the `fan_votes` SQL is run.
+- Product prices use `originalHeight` as their source and calculate through the shared `pricing.js` height formula in both the storefront and admin dashboard.
+- Two-day voting was added:
+  - Guests can vote for the same item once every 2 days per browser.
+  - Signed-in users can vote for the same item once every 2 days per account after the latest `fan_votes` SQL is run.
 - Browser `alert()` popups were removed from the site code.
 - Payment buttons exist:
   - Zelle is first and marked preferred/no processing fee.
   - PayPal opens `https://paypal.me/louispazos`.
   - Venmo opens `https://venmo.com/u/Lap27`.
   - Cash App opens `https://cash.app/$Watawonderfulworld`.
-- `supabase-test.html` is only a test page and should not be added to GitHub unless intentionally making it public.
+- `supabase-test.html` is a local-only test page. It is ignored by Git and must not be included in the public deployment.
 
 ## Before Launch
 
 1. Run the latest SQL in Supabase.
    - Open `supabase-schema.sql`.
-   - Run the full schema or at least the new `fan_votes` section.
+   - Run the full schema or at least the latest `fan_votes` section. This replaces the old daily indexes with a two-day cooldown trigger.
    - Add the admin user to `admin_profiles` so the admin dashboard can see orders/offers.
 
 2. Test payment options in checkout.
@@ -50,7 +51,9 @@ Last updated: 2026-07-03
    - In GitHub Pages settings, set custom domain to `mvpluxcreations.com`.
    - In Porkbun DNS, point the domain to GitHub Pages.
    - Wait for HTTPS to become ready.
-   - In Supabase Auth URL Configuration, add `https://mvpluxcreations.com/**` and `https://www.mvpluxcreations.com/**`.
+   - In Supabase Auth URL Configuration, add `https://mvpluxcreations.com/**` and `http://localhost:3000/**`.
+   - Add `https://www.mvpluxcreations.com/**` only if the `www` hostname will also serve the site.
+   - Keep the Supabase project URL as `https://ncbddqxdinvcsoszdsxr.supabase.co`; do not replace it with the website domain.
 
 ## Domain Notes
 
