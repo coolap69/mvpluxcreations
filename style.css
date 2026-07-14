@@ -687,6 +687,7 @@ button[aria-label="Add to cart"]::before {
 }
 
 .product-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   background:
@@ -700,6 +701,48 @@ button[aria-label="Add to cart"]::before {
   color: #fff;
   min-height: 0;
   transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.admin-card-controls {
+  position: absolute;
+  z-index: 12;
+  top: 10px;
+  right: 10px;
+  display: none;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: calc(100% - 20px);
+  pointer-events: auto;
+}
+
+.admin-anywhere-on .admin-card-controls {
+  display: flex;
+}
+
+.admin-card-controls button,
+.admin-card-controls a {
+  appearance: none;
+  border: 1px solid rgba(244, 208, 111, 0.88);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffe27a, #b98a12);
+  color: #070707;
+  font: 900 11px/1 var(--font, inherit);
+  text-decoration: none;
+  padding: 6px 9px;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+  cursor: pointer;
+}
+
+.admin-card-hidden-preview {
+  opacity: 0.42;
+  filter: grayscale(0.55);
+  outline: 2px dashed rgba(244, 208, 111, 0.8);
+  outline-offset: -8px;
+}
+
+body:not(.admin-anywhere-on) .admin-card-hidden-preview {
+  display: none !important;
 }
 
 .product-card:hover {

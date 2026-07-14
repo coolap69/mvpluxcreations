@@ -2777,7 +2777,7 @@ function productCardMarkup(product) {
   const originalPrice = product.originalPrice || calculateCutoutPrice(parseHeightToInches(String(originalHeight)) || originalHeight);
 
   return `
-    <div class="product-card" data-category="custom" data-name="${product.title || 'Custom card'}">
+    <div class="product-card" data-category="custom" data-name="${product.title || 'Custom card'}" data-admin-card-key="${slug}">
       <a href="${product.href || '#shop'}" class="product-image-link">
         <div class="product-stage-preview" style="background-image: url('${product.backgroundImage || 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'}');">
           <img class="product-stage-bg" src="${product.backgroundImage || 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'}" alt="">
@@ -2929,6 +2929,22 @@ function saveAdminProductHeightFromBuilder(builder, inches) {
   saveLiveAdminSettings({ products });
 }
 
+function saveAdminProductImageFromElement(image) {
+  const card = image?.closest?.('.product-card');
+  const builder = card?.querySelector?.('.size-builder');
+  if (!image || !builder || !image.classList.contains('product-cutout')) return;
+  ensureProductAdminSlugs(card);
+  const slug = getBuilderAdminSlug(builder);
+  const products = { ...getAdminProducts() };
+  products[slug] = {
+    ...(products[slug] || {}),
+    cutoutImage: image.getAttribute('src') || image.src || ''
+  };
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
+  updateLiveAdminSettingsLocal({ products });
+  saveLiveAdminSettings({ products });
+}
+
 function getBuilderAdminSlug(builder) {
   ensureProductAdminSlugs(builder?.closest?.('.product-card') || document);
   return builder?.dataset.adminSlug || getProductSlug(builder?.dataset.productName || 'product');
@@ -2957,6 +2973,16 @@ function setBuilderOriginalHeight(builder, inches) {
   return true;
 }
 
+function syncMatchingOriginalHeights(sourceBuilder, inches) {
+  const slug = getBuilderAdminSlug(sourceBuilder);
+  if (!slug || !inches) return;
+  document.querySelectorAll('.size-builder').forEach((builder) => {
+    if (builder === sourceBuilder) return;
+    if (getBuilderAdminSlug(builder) !== slug) return;
+    setBuilderOriginalHeight(builder, inches);
+  });
+}
+
 function saveOriginalHeightPageEdit(builder, inches) {
   if (!builder || !inches) return;
 
@@ -2979,6 +3005,7 @@ function syncOriginalSizeForBuilder(builder, textValue) {
   if (!inches) return false;
 
   setBuilderOriginalHeight(builder, inches);
+  syncMatchingOriginalHeights(builder, inches);
   saveAdminProductHeightFromBuilder(builder, inches);
   saveOriginalHeightPageEdit(builder, inches);
   return true;
@@ -3234,6 +3261,7 @@ let inlineAdminLiveEdits = null;
 let inlineAdminAutoSaveTimer = null;
 
 const INLINE_ADMIN_DRAFT_KEY = 'mvpluxInlineAdminDraftV2';
+const INLINE_HIDDEN_CARDS_KEY = 'mvpluxInlineHiddenCardsV2';
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -4030,11 +4058,98 @@ function unlockAllInlineAdminImages() {
 }
 
 function readInlineHiddenCards() {
-  return {};
+  try {
+    return JSON.parse(localStorage.getItem(INLINE_HIDDEN_CARDS_KEY) || '{}');
+  } catch (error) {
+    return {};
+  }
 }
 
 function writeInlineHiddenCards(cards) {
+  try {
+    localStorage.setItem(INLINE_HIDDEN_CARDS_KEY, JSON.stringify(cards || {}));
+  } catch (error) {
+    console.warn('Could not save hidden cards:', error);
+  }
   return cards || {};
+}
+
+function getCardAdminKey(card) {
+  if (!card) return '';
+  if (card.dataset.adminCardKey) return card.dataset.adminCardKey;
+  const builder = card.querySelector?.('.size-builder');
+  ensureProductAdminSlugs(card);
+  const builderSlug = builder?.dataset.adminSlug;
+  const title = card.querySelector?.('.product-title-link, h3, h4, .fan-gallery-label')?.textContent || '';
+  const key = builderSlug || getProductSlug(title) || `card-${[...document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card')].indexOf(card)}`;
+  card.dataset.adminCardKey = key;
+  return key;
+}
+
+function getCardProductAdminSlug(card) {
+  const builder = card?.querySelector?.('.size-builder');
+  if (!builder) return '';
+  return getBuilderAdminSlug(builder);
+}
+
+function isCardHiddenByAdmin(card) {
+  const page = inlineAdminPageKey();
+  const productSlug = getCardProductAdminSlug(card);
+  const archivedProducts = productSlug ? getAdminArchivedProducts() : [];
+  return Boolean(
+    readInlineHiddenCards()?.[page]?.[getCardAdminKey(card)] ||
+    (productSlug && archivedProducts.includes(productSlug))
+  );
+}
+
+function setInlineAdminCardHidden(card, hiddenValue) {
+  const key = getCardAdminKey(card);
+  if (!key) return;
+  const hidden = readInlineHiddenCards();
+  const page = inlineAdminPageKey();
+  hidden[page] = hidden[page] || {};
+  if (hiddenValue) {
+    hidden[page][key] = true;
+  } else {
+    delete hidden[page][key];
+  }
+  writeInlineHiddenCards(hidden);
+
+  const productSlug = getCardProductAdminSlug(card);
+  if (productSlug) {
+    const archived = new Set(getAdminArchivedProducts());
+    if (hiddenValue) {
+      archived.add(productSlug);
+    } else {
+      archived.delete(productSlug);
+    }
+    const savedForLaterProducts = Array.from(archived);
+    localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(savedForLaterProducts));
+    updateLiveAdminSettingsLocal({ savedForLaterProducts });
+    saveLiveAdminSettings({ savedForLaterProducts });
+  }
+
+  applyInlineHiddenCards();
+  updateInlineAdminToolbarState(hiddenValue ? 'Card hidden from buyers' : 'Card visible again');
+}
+
+function deleteInlineAdminCard(card) {
+  if (!card) return;
+  const customSlug = card.querySelector?.('.size-builder')?.dataset.adminSlug;
+  const customProducts = getAdminCustomProducts();
+  const customIndex = customProducts.findIndex((product) => product.slug === customSlug);
+  if (customIndex >= 0) {
+    const nextProducts = customProducts.filter((product) => product.slug !== customSlug);
+    localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(nextProducts));
+    updateLiveAdminSettingsLocal({ customProducts: nextProducts });
+    saveLiveAdminSettings({ customProducts: nextProducts });
+    card.remove();
+    updateInlineAdminToolbarState('Custom card deleted');
+    return;
+  }
+
+  setInlineAdminCardHidden(card, true);
+  updateInlineAdminToolbarState('Built-in card hidden');
 }
 
 function getInlineAdminSelectedCard() {
@@ -4043,34 +4158,25 @@ function getInlineAdminSelectedCard() {
 }
 
 function hideSelectedInlineAdminCard() {
-  if (!window.confirm('Save this card for later? Use Bring Back Cards to show it again.')) {
-    updateInlineAdminToolbarState('Card kept');
-    return;
-  }
-
   const card = getInlineAdminSelectedCard();
   if (!card) {
     updateInlineAdminToolbarState('Select a card image first');
     return;
   }
 
-  const key = card.dataset.adminCardKey || `card-${[...document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card')].indexOf(card)}`;
-  card.dataset.adminCardKey = key;
-  const hidden = readInlineHiddenCards();
-  const page = inlineAdminPageKey();
-  hidden[page] = hidden[page] || {};
-  hidden[page][key] = true;
-  writeInlineHiddenCards(hidden);
-  card.style.display = 'none';
+  setInlineAdminCardHidden(card, true);
   inlineAdminSelectedImage = null;
-  updateInlineAdminToolbarState('Hidden only until refresh');
 }
 
 function restoreInlineHiddenCards() {
   const hidden = readInlineHiddenCards();
   delete hidden[inlineAdminPageKey()];
   writeInlineHiddenCards(hidden);
+  localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify([]));
+  updateLiveAdminSettingsLocal({ savedForLaterProducts: [] });
+  saveLiveAdminSettings({ savedForLaterProducts: [] });
   document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card').forEach((card) => {
+    card.hidden = false;
     card.style.display = '';
   });
   updateInlineAdminToolbarState('Saved cards shown');
@@ -4322,7 +4428,52 @@ function bindInlineAdminToolbarDragResize() {
 
 function applyInlineHiddenCards() {
   document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card').forEach((card, index) => {
-    card.dataset.adminCardKey = card.dataset.adminCardKey || `card-${index}`;
+    getCardAdminKey(card);
+    const hidden = isCardHiddenByAdmin(card);
+    card.classList.toggle('admin-card-hidden-preview', hidden);
+    if (document.body.classList.contains('admin-anywhere-on')) {
+      card.hidden = false;
+      card.style.display = '';
+    } else if (hidden) {
+      card.hidden = true;
+    } else {
+      card.hidden = false;
+      card.style.display = '';
+    }
+  });
+}
+
+function ensureInlineAdminCardControls() {
+  if (!document.body.classList.contains('admin-anywhere-on')) return;
+  document.querySelectorAll('#shop .product-card, .category-page .category-card').forEach((card) => {
+    if (card.querySelector(':scope > .admin-card-controls')) {
+      const hideButton = card.querySelector(':scope > .admin-card-controls [data-admin-card-action="hide-toggle"]');
+      if (hideButton) hideButton.textContent = isCardHiddenByAdmin(card) ? 'Unhide' : 'Hide';
+      return;
+    }
+    const controls = document.createElement('div');
+    controls.className = 'admin-card-controls';
+    controls.innerHTML = `
+      <button type="button" data-admin-card-action="hide-toggle">Hide</button>
+      <button type="button" data-admin-card-action="delete-card">Delete</button>
+      <a href="admin.html#create-card">Add Card</a>
+    `;
+    controls.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const action = event.target.closest('[data-admin-card-action]')?.dataset.adminCardAction;
+      if (action === 'hide-toggle') {
+        setInlineAdminCardHidden(card, !isCardHiddenByAdmin(card));
+        ensureInlineAdminCardControls();
+      }
+      if (action === 'delete-card') {
+        deleteInlineAdminCard(card);
+        ensureInlineAdminCardControls();
+      }
+    });
+    card.prepend(controls);
+    const hideButton = controls.querySelector('[data-admin-card-action="hide-toggle"]');
+    if (hideButton) hideButton.textContent = isCardHiddenByAdmin(card) ? 'Unhide' : 'Hide';
   });
 }
 
@@ -4479,6 +4630,7 @@ function replaceInlineAdminImage(image) {
     image._adminImageState = { x: 0, y: 0, scale: 1, rotate: 0, locked: false };
     renderInlineAdminImageState(image);
     saveInlineAdminEdit(image, { src: image.src, ...image._adminImageState });
+    saveAdminProductImageFromElement(image);
     pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
     updateInlineAdminToolbarState('Image replaced');
   }, { once: true });
@@ -4546,6 +4698,7 @@ function installInlineAdminMode() {
   applyInlineAdminToolbarPrefs();
 
   applyInlineHiddenCards();
+  ensureInlineAdminCardControls();
 
   document.addEventListener('pointerdown', handleInlineAdminToolbarPress, true);
   document.addEventListener('pointerup', handleInlineAdminToolbarPress, true);
@@ -4858,6 +5011,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   applyAdminExtraImages();
   applyInlineAdminEdits();
   renderAdminManagedCards();
+  applyInlineHiddenCards();
   renderStandeeDetailPage();
   setupGenericCategoryShowroom();
   initSportsShowroom();
