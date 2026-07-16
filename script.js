@@ -1387,6 +1387,10 @@ function isCustomerSignedIn() {
   return localStorage.getItem('mvpluxCustomerSignedIn') === 'true';
 }
 
+function isAdminPrivatePreviewEnabled() {
+  return isCustomerSignedIn() && localStorage.getItem('mvpluxIsAdminApproved') === 'true';
+}
+
 function cleanStaleAdminState() {
   localStorage.removeItem('mvpluxAdminSignedIn');
   if (!localStorage.getItem('mvpluxIsAdminApproved')) {
@@ -1705,6 +1709,8 @@ function setupAuthState() {
   }
 
   document.querySelectorAll('[data-admin-mode-toggle]').forEach((button) => {
+    if (button.dataset.adminToggleReady) return;
+    button.dataset.adminToggleReady = 'true';
     updateAdminModeToggleButtons();
     button.addEventListener('click', () => toggleCurrentPageAdminMode(button));
   });
@@ -1985,19 +1991,30 @@ function getPublishedProducts() {
   };
 }
 
+function getAdminProductOverrides() {
+  if (!isInlineAdminEditingEnabled() && !isAdminPrivatePreviewEnabled()) return {};
+  const liveProducts = window.mvpluxLiveAdminSettings?.products || {};
+  if (!isInlineAdminEditingEnabled()) return structuredClone(liveProducts);
+  try {
+    return {
+      ...liveProducts,
+      ...JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}')
+    };
+  } catch (error) {
+    return { ...liveProducts };
+  }
+}
+
 function getAdminProducts() {
   try {
     const publishedProducts = getPublishedProducts();
-    if (!isInlineAdminEditingEnabled()) return { ...publishedProducts };
-    const liveProducts = window.mvpluxLiveAdminSettings?.products || {};
-    const localProducts = JSON.parse(
-      localStorage.getItem('mvpluxAdminProducts') || '{}'
-    );
+    const privatePreview = isInlineAdminEditingEnabled() || isAdminPrivatePreviewEnabled();
+    if (!privatePreview) return { ...publishedProducts };
+    const productOverrides = getAdminProductOverrides();
 
     const productSlugs = new Set([
       ...Object.keys(publishedProducts),
-      ...Object.keys(liveProducts),
-      ...Object.keys(localProducts)
+      ...Object.keys(productOverrides)
     ]);
 
     return Object.fromEntries(
@@ -2005,8 +2022,7 @@ function getAdminProducts() {
         slug,
         {
           ...(publishedProducts[slug] || {}),
-          ...(liveProducts[slug] || {}),
-          ...(localProducts[slug] || {})
+          ...(productOverrides[slug] || {})
         }
       ])
     );
@@ -2025,7 +2041,7 @@ function getAdminCoupons() {
 
 function getAdminCustomProducts() {
   try {
-    if (!isInlineAdminEditingEnabled()) {
+    if (!isInlineAdminEditingEnabled() && !isAdminPrivatePreviewEnabled()) {
       return Object.values(getPublishedProducts()).filter((product) => product.custom === true);
     }
     return window.mvpluxLiveAdminSettings?.customProducts || JSON.parse(localStorage.getItem('mvpluxAdminCustomProducts') || '[]');
@@ -2036,7 +2052,7 @@ function getAdminCustomProducts() {
 
 function getAdminDeletedProducts() {
   try {
-    if (!isInlineAdminEditingEnabled()) return window.mvpluxPublishedAdminSettings?.deletedProducts || [];
+    if (!isInlineAdminEditingEnabled() && !isAdminPrivatePreviewEnabled()) return window.mvpluxPublishedAdminSettings?.deletedProducts || [];
     return window.mvpluxLiveAdminSettings?.deletedProducts
       || JSON.parse(localStorage.getItem('mvpluxDeletedProducts') || '[]');
   } catch (error) {
@@ -2073,7 +2089,7 @@ function getManagedProductBySlug(slug) {
 
 function getAdminArchivedProducts() {
   try {
-    if (!isInlineAdminEditingEnabled()) {
+    if (!isInlineAdminEditingEnabled() && !isAdminPrivatePreviewEnabled()) {
       return Object.values(getPublishedProducts()).filter((product) => product.visible === false).map((product) => product.slug);
     }
     return window.mvpluxLiveAdminSettings?.savedForLaterProducts || JSON.parse(localStorage.getItem('mvpluxAdminArchivedProducts') || '[]');
@@ -2486,6 +2502,12 @@ function selectSportsOption(index) {
   mainStage.style.setProperty('--showroom-image-height', product.displayFit?.imageHeight || '80%');
   mainImage.src = option.image;
   mainImage.alt = `${product.name} ${option.label} standee preview`;
+  refreshInlineAdminImageContext(mainImage, {
+    productSlug: selectedSportsStandeeKey,
+    role: 'selected-choice-preview',
+    choiceImage: option.image,
+    choiceLabel: option.label
+  });
   mainImage.onload = () => {
     const isWideImage = mainImage.naturalWidth / Math.max(mainImage.naturalHeight, 1) > 0.62;
     mainStage.classList.toggle('wide-standee-image', isWideImage);
@@ -2500,6 +2522,8 @@ function selectSportsOption(index) {
 function selectSportsStandee(key, shouldScroll = true) {
   const managed = getManagedProductBySlug(key);
   const catalogProduct = sportsStandeeCatalog[key];
+  const explicitChoiceOverride = Object.prototype.hasOwnProperty.call(getAdminProductOverrides()[key] || {}, 'imageChoices')
+    || getAdminCustomProducts().some((product) => product.slug === key && Object.prototype.hasOwnProperty.call(product, 'imageChoices'));
   const managedChoices = sanitizeProductImageChoices(managed?.imageChoices)
     .filter((choice) => choice.image !== managed?.cutoutImage);
   const product = catalogProduct ? {
@@ -2508,12 +2532,14 @@ function selectSportsStandee(key, shouldScroll = true) {
     description: managed?.description || catalogProduct.description,
     originalHeight: managed?.originalHeight || catalogProduct.originalHeight,
     backgroundImage: managed?.backgroundImage || catalogProduct.backgroundImage,
-    options: sanitizeProductImageChoices([
-      ...catalogProduct.options.map((option, index) => (
-        index === 0 && managed?.cutoutImage ? { ...option, image: managed.cutoutImage } : option
-      )),
-      ...managedChoices
-    ])
+    options: sanitizeProductImageChoices(explicitChoiceOverride
+      ? [{ ...catalogProduct.options[0], image: managed?.cutoutImage || catalogProduct.options[0]?.image }, ...managedChoices]
+      : [
+          ...catalogProduct.options.map((option, index) => (
+            index === 0 && managed?.cutoutImage ? { ...option, image: managed.cutoutImage } : option
+          )),
+          ...managedChoices
+        ])
   } : (managed ? {
     name: managed.title,
     sport: 'Sports Standee',
@@ -2533,6 +2559,7 @@ function selectSportsStandee(key, shouldScroll = true) {
 
   sportsStandeeCatalog[key] = product;
   selectedSportsStandeeKey = key;
+  document.querySelector('.sports-showroom')?.setAttribute('data-admin-product-slug', key);
 
   const sport = document.getElementById('sportsSelectedSport');
   const name = document.getElementById('sportsSelectedName');
@@ -2551,11 +2578,12 @@ function selectSportsStandee(key, shouldScroll = true) {
   }
 
   optionStrip.innerHTML = product.options.map((option, index) => `
-    <button type="button" class="${index === 0 ? 'active' : ''}" onclick="selectSportsOption(${index})">
+    <button type="button" class="${index === 0 ? 'active' : ''}" onclick="selectSportsOption(${index})" data-admin-choice-product="${key}" data-admin-choice-image="${option.image}" data-admin-choice-label="${option.label}" data-admin-choice-primary="${index === 0}">
       <img src="${option.image}" alt="${product.name} ${option.label} option">
       <span>${option.label}</span>
     </button>
   `).join('');
+  tagInlineAdminChoiceImages(optionStrip, key);
   const sportsChoiceSection = optionStrip.closest('.sports-choice-section') || optionStrip.parentElement;
   if (sportsChoiceSection) sportsChoiceSection.hidden = product.options.length <= 1;
 
@@ -2565,6 +2593,10 @@ function selectSportsStandee(key, shouldScroll = true) {
 
   selectSportsOption(0);
   applyInlineAdminEdits();
+  if (document.body.classList.contains('admin-anywhere-on')) {
+    bindInlineAdminEditableImages(document.querySelector('.sports-showroom'));
+    ensureInlineAdminChoiceControls(document.querySelector('.sports-showroom'));
+  }
   if (shouldScroll) document.querySelector('.sports-showroom')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -2685,13 +2717,195 @@ function renderManagedCategoryPageProducts() {
   grid.innerHTML = products.map(managedCategoryCardMarkup).join('');
 }
 
+function tagInlineAdminChoiceImages(root, productSlug) {
+  root?.querySelectorAll?.('[data-admin-choice-image]')?.forEach((button) => {
+    const image = button.querySelector('img');
+    if (!image) return;
+    image.dataset.adminProductSlug = productSlug || button.dataset.adminChoiceProduct || '';
+    image.dataset.adminElementRole = 'image-choice-thumbnail';
+    image.dataset.adminChoiceImage = button.dataset.adminChoiceImage || image.getAttribute('src') || '';
+    image.dataset.adminChoiceLabel = button.dataset.adminChoiceLabel || image.alt || 'Image choice';
+    delete image.dataset.adminEdit;
+  });
+}
+
+function getInlineAdminRelationshipSnapshot(productSlug) {
+  return {
+    type: 'productRelationships',
+    productSlug,
+    products: structuredClone(getAdminProductOverrides()),
+    customProducts: structuredClone(getAdminCustomProducts())
+  };
+}
+
+async function saveInlineAdminProductChoices(productSlug, choices) {
+  const normalized = sanitizeProductImageChoices(choices);
+  const products = structuredClone(getAdminProductOverrides());
+  const customProducts = structuredClone(getAdminCustomProducts());
+  const customIndex = customProducts.findIndex((product) => product.slug === productSlug);
+  if (customIndex >= 0) customProducts[customIndex] = { ...customProducts[customIndex], imageChoices: normalized };
+  else products[productSlug] = { ...(products[productSlug] || {}), imageChoices: normalized };
+  if (!await saveLiveAdminSettings({ products, customProducts })) return false;
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
+  localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(customProducts));
+  return true;
+}
+
+function refreshInlineProductRelationshipUI(productSlug) {
+  if (!productSlug) return;
+  if (document.getElementById('standeeDetailRoot') && window.currentStandeeProduct?.slug === productSlug) {
+    renderStandeeDetailPage();
+    return;
+  }
+  if (document.querySelector('.sports-showroom') && selectedSportsStandeeKey === productSlug) {
+    selectSportsStandee(productSlug, false);
+    return;
+  }
+  if (typeof window.mvpluxGenericSelectProduct === 'function') {
+    window.mvpluxGenericSelectProduct(productSlug);
+  }
+}
+
+async function removeInlineAdminImageChoice(button) {
+  const productSlug = button.dataset.adminChoiceProduct || '';
+  const imagePath = button.dataset.adminChoiceImage || '';
+  const product = getManagedProductBySlug(productSlug);
+  if (!product || !imagePath || imagePath === product.cutoutImage || button.dataset.adminChoicePrimary === 'true') {
+    updateInlineAdminToolbarState('The primary image cannot be removed here');
+    return;
+  }
+  const choices = sanitizeProductImageChoices(product.imageChoices);
+  const choice = choices.find((item) => item.image === imagePath);
+  if (!choice) {
+    updateInlineAdminToolbarState('That image choice is not in the product record');
+    return;
+  }
+  if (!window.confirm(`Remove “${choice.label}” from ${product.title}? The physical image file will not be deleted.`)) return;
+  const before = getInlineAdminRelationshipSnapshot(productSlug);
+  if (!await saveInlineAdminProductChoices(productSlug, choices.filter((item) => item.image !== imagePath))) {
+    updateInlineAdminToolbarState('Image-choice removal was not saved');
+    return;
+  }
+  const after = getInlineAdminRelationshipSnapshot(productSlug);
+  pushInlineAdminHistory(before, after);
+  refreshInlineProductRelationshipUI(productSlug);
+  updateInlineAdminToolbarState('Image choice removed; publish to update visitors');
+}
+
+async function renameInlineAdminImageChoice(button) {
+  const productSlug = button.dataset.adminChoiceProduct || '';
+  const imagePath = button.dataset.adminChoiceImage || '';
+  const product = getManagedProductBySlug(productSlug);
+  const choices = sanitizeProductImageChoices(product?.imageChoices);
+  const choice = choices.find((item) => item.image === imagePath);
+  if (!choice) return;
+  const label = window.prompt('Image-choice label', choice.label)?.trim();
+  if (!label || label === choice.label) return;
+  const before = getInlineAdminRelationshipSnapshot(productSlug);
+  if (!await saveInlineAdminProductChoices(productSlug, choices.map((item) => item.image === imagePath ? { ...item, label } : item))) return;
+  const after = getInlineAdminRelationshipSnapshot(productSlug);
+  pushInlineAdminHistory(before, after);
+  refreshInlineProductRelationshipUI(productSlug);
+  updateInlineAdminToolbarState('Image-choice label saved; publish to update visitors');
+}
+
+async function moveInlineAdminImageChoice(button, select) {
+  const sourceSlug = button.dataset.adminChoiceProduct || '';
+  const imagePath = button.dataset.adminChoiceImage || '';
+  const targetSlug = select?.value || '';
+  const source = getManagedProductBySlug(sourceSlug);
+  const target = getManagedProductBySlug(targetSlug);
+  const choice = sanitizeProductImageChoices(source?.imageChoices).find((item) => item.image === imagePath);
+  if (!source || !target || !choice || sourceSlug === targetSlug) return;
+  const targetChoices = sanitizeProductImageChoices(target.imageChoices);
+  if (target.cutoutImage === imagePath || targetChoices.some((item) => item.image === imagePath)) {
+    updateInlineAdminToolbarState('That image is already assigned to the selected product');
+    return;
+  }
+  if (!window.confirm(`Move “${choice.label}” from ${source.title} to ${target.title}? The physical image file will be preserved.`)) return;
+  const before = getInlineAdminRelationshipSnapshot(sourceSlug);
+  const products = structuredClone(getAdminProductOverrides());
+  const customProducts = structuredClone(getAdminCustomProducts());
+  const setChoices = (slug, values) => {
+    const index = customProducts.findIndex((product) => product.slug === slug);
+    if (index >= 0) customProducts[index] = { ...customProducts[index], imageChoices: values };
+    else products[slug] = { ...(products[slug] || {}), imageChoices: values };
+  };
+  setChoices(sourceSlug, sanitizeProductImageChoices(source.imageChoices).filter((item) => item.image !== imagePath));
+  setChoices(targetSlug, [...targetChoices, choice]);
+  if (!await saveLiveAdminSettings({ products, customProducts })) return;
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
+  localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(customProducts));
+  const after = getInlineAdminRelationshipSnapshot(sourceSlug);
+  pushInlineAdminHistory(before, after);
+  refreshInlineProductRelationshipUI(sourceSlug);
+  updateInlineAdminToolbarState('Image choice moved; publish to update visitors');
+}
+
+function ensureInlineAdminChoiceControls(root = document) {
+  if (!document.body.classList.contains('admin-anywhere-on')) return;
+  root.querySelectorAll?.('[data-admin-choice-image]')?.forEach((button) => {
+    if (button.dataset.adminChoicePrimary === 'true' || button.closest('.admin-choice-wrapper')) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'admin-choice-wrapper';
+    button.before(wrapper);
+    wrapper.append(button);
+    const details = document.createElement('details');
+    details.className = 'admin-choice-admin';
+    const summary = document.createElement('summary');
+    summary.textContent = '⋯';
+    summary.title = 'Edit image choice';
+    const menu = document.createElement('div');
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.dataset.inlineChoiceAction = 'rename';
+    rename.textContent = 'Rename choice';
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.dataset.inlineChoiceAction = 'remove';
+    remove.textContent = 'Remove from product';
+    const select = document.createElement('select');
+    select.innerHTML = '<option value="">Move to product…</option>';
+    getManagedProductCatalog()
+      .filter((product) => product.slug !== button.dataset.adminChoiceProduct)
+      .forEach((product) => select.add(new Option(`${product.title} — ${product.slug}`, product.slug)));
+    select.dataset.inlineChoiceTarget = 'true';
+    const move = document.createElement('button');
+    move.type = 'button';
+    move.dataset.inlineChoiceAction = 'move';
+    move.textContent = 'Move choice';
+    menu.append(rename, remove, select, move);
+    details.append(summary, menu);
+    wrapper.append(details);
+  });
+}
+
+function handleInlineAdminChoiceAction(event) {
+  const action = event.target.closest?.('[data-inline-choice-action]');
+  if (!action) return;
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation?.();
+  const wrapper = action.closest('.admin-choice-wrapper');
+  const choiceButton = wrapper?.querySelector('[data-admin-choice-image]');
+  if (!choiceButton) return;
+  if (action.dataset.inlineChoiceAction === 'remove') removeInlineAdminImageChoice(choiceButton);
+  if (action.dataset.inlineChoiceAction === 'rename') renameInlineAdminImageChoice(choiceButton);
+  if (action.dataset.inlineChoiceAction === 'move') {
+    moveInlineAdminImageChoice(choiceButton, wrapper.querySelector('[data-inline-choice-target]'));
+  }
+  action.closest('details')?.removeAttribute('open');
+}
+
 function renderGenericCategoryOptions(state, options) {
+  const productSlug = state.stage?.closest?.('[data-admin-product-slug]')?.dataset.adminProductSlug || '';
   state.optionStrip.innerHTML = options.map((option, index) => `
-    <button type="button" class="${index === 0 ? 'active' : ''}" data-generic-option-index="${index}">
+    <button type="button" class="${index === 0 ? 'active' : ''}" data-generic-option-index="${index}" data-admin-choice-product="${productSlug}" data-admin-choice-image="${option.image}" data-admin-choice-label="${option.label}" data-admin-choice-primary="${index === 0}">
       <img src="${option.image}" alt="${option.label}">
       <span>${option.label}</span>
     </button>
   `).join('');
+  tagInlineAdminChoiceImages(state.optionStrip, productSlug);
 }
 
 function selectGenericCategoryOption(state, options, index) {
@@ -2701,6 +2915,12 @@ function selectGenericCategoryOption(state, options, index) {
   state.stage.style.backgroundImage = `url('${option.stage || getGenericCategoryFallbackStage()}')`;
   state.image.src = option.image;
   state.image.alt = `${state.name.textContent} ${option.label} preview`;
+  refreshInlineAdminImageContext(state.image, {
+    productSlug: state.stage?.closest?.('[data-admin-product-slug]')?.dataset.adminProductSlug || '',
+    role: 'selected-choice-preview',
+    choiceImage: option.image,
+    choiceLabel: option.label
+  });
 
   state.optionStrip.querySelectorAll('[data-generic-option-index]').forEach((button) => {
     button.classList.toggle('active', Number(button.dataset.genericOptionIndex) === index);
@@ -2721,6 +2941,13 @@ function buildGenericCategoryOptions(card, backgroundImages) {
         stage: choice.stage || product.backgroundImage || getGenericCategoryFallbackStage()
       }))
     ];
+  }
+  if (product?.slug && Array.isArray(product.imageChoices)) {
+    return [{
+      label: 'Main image',
+      image: product.cutoutImage || card.querySelector('img')?.getAttribute('src') || '',
+      stage: product.backgroundImage || getGenericCategoryFallbackStage()
+    }];
   }
   if (product?.backgrounds?.length) {
     return [...product.backgrounds]
@@ -2798,6 +3025,7 @@ function setupGenericCategoryShowroom() {
     const title = card.querySelector('h3')?.textContent.trim() || 'Standee';
     const productId = card.dataset.productId || title;
     const product = getKnownStandeeForCard(card);
+    showroom.dataset.adminProductSlug = product?.slug || productId;
     const options = buildGenericCategoryOptions(card, backgroundImages);
     const originalSize = product?.originalHeight ? `Original: ${formatHeight(product.originalHeight)}` : 'Original size varies';
     const description = product?.description || `Preview ${title} with the available image choices for this category.`;
@@ -2822,6 +3050,15 @@ function setupGenericCategoryShowroom() {
     });
 
     applyInlineAdminEdits();
+    if (document.body.classList.contains('admin-anywhere-on')) {
+      bindInlineAdminEditableImages(showroom);
+      ensureInlineAdminChoiceControls(showroom);
+    }
+  };
+
+  window.mvpluxGenericSelectProduct = (slug) => {
+    const card = cards.find((item) => (item.dataset.productId || '') === slug);
+    if (card) selectCard(card);
   };
 
   cards.forEach((card, index) => {
@@ -2885,7 +3122,7 @@ function getStandeeBySlug(slug) {
       .join(' / ') || detailed?.category || 'MVPLUXCREATIONS Standee';
     const managedChoices = sanitizeProductImageChoices(managed?.imageChoices)
       .filter((choice) => choice.image !== product.image);
-    product.backgrounds = managedChoices.length
+    product.backgrounds = managed && Array.isArray(managed.imageChoices)
       ? [
           { name: 'Main image', image: product.image, stage: managed?.backgroundImage || getShowroomStageBackground() },
           ...managedChoices.map((choice) => ({
@@ -2933,6 +3170,12 @@ function setStandeeBackground(index) {
   if (image) {
     image.src = selected.image;
     image.alt = selected.name;
+    refreshInlineAdminImageContext(image, {
+      productSlug: window.currentStandeeProduct?.slug || '',
+      role: 'selected-choice-preview',
+      choiceImage: selected.image,
+      choiceLabel: selected.name
+    });
   }
 
   root.querySelectorAll('[data-standee-bg-index]').forEach((button) => {
@@ -2951,10 +3194,11 @@ function renderStandeeDetailPage() {
   const originalHeight = parseInt(product.originalHeight || '78', 10);
   const originalPrice = calculateCutoutPrice(originalHeight);
   window.currentStandeeProduct = product;
+  root.dataset.adminProductSlug = slug;
   document.title = `${product.title} | MVPLUXCREATIONS`;
 
   const backgroundButtons = product.backgrounds.map((background, index) => `
-    <button type="button" class="${index === 0 ? 'active' : ''}" data-standee-bg-index="${index}" onclick="setStandeeBackground(${index})">
+    <button type="button" class="${index === 0 ? 'active' : ''}" data-standee-bg-index="${index}" onclick="setStandeeBackground(${index})" data-admin-choice-product="${slug}" data-admin-choice-image="${background.image}" data-admin-choice-label="${background.name}" data-admin-choice-primary="${index === 0}">
       <img src="${background.image}" alt="">
       <span>${background.name}</span>
     </button>
@@ -3018,6 +3262,17 @@ function renderStandeeDetailPage() {
 
   bindUniversalSizeBuilderEvents();
   updateBuilderOriginalDisplay(root.querySelector('.size-builder'));
+  tagInlineAdminChoiceImages(root, slug);
+  refreshInlineAdminImageContext(root.querySelector('.standee-main-cutout'), {
+    productSlug: slug,
+    role: 'selected-choice-preview',
+    choiceImage: firstBackground?.image || product.image,
+    choiceLabel: firstBackground?.name || 'Main image'
+  });
+  if (document.body.classList.contains('admin-anywhere-on')) {
+    bindInlineAdminEditableImages(root);
+    ensureInlineAdminChoiceControls(root);
+  }
 }
 
 function bindCategoryStandeeCards() {
@@ -3204,7 +3459,7 @@ function saveAdminProductHeightFromBuilder(builder, inches) {
 
   ensureProductAdminSlugs(builder.closest('.product-card') || document);
   const slug = builder.dataset.adminSlug || getProductSlug(builder.dataset.productName || 'product');
-  const products = { ...getAdminProducts() };
+  const products = { ...getAdminProductOverrides() };
   products[slug] = {
     ...(products[slug] || {}),
     originalHeight: String(inches)
@@ -3222,7 +3477,7 @@ function saveAdminProductImageFromElement(image) {
   if (!image || !builder || !image.classList.contains('product-cutout')) return;
   ensureProductAdminSlugs(card);
   const slug = getBuilderAdminSlug(builder);
-  const products = { ...getAdminProducts() };
+  const products = { ...getAdminProductOverrides() };
   products[slug] = {
     ...(products[slug] || {}),
     cutoutImage: image.getAttribute('src') || image.src || ''
@@ -3542,7 +3797,6 @@ let inlineAdminUndoStack = [];
 let inlineAdminRedoStack = [];
 let inlineAdminDirty = false;
 let inlineAdminHasUnsavedLocalChanges = false;
-let inlineAdminLastToolbarAction = { action: '', time: 0 };
 let inlineAdminResizeActive = false;
 let inlineAdminLiveEdits = null;
 let inlineAdminAutoSaveTimer = null;
@@ -3550,6 +3804,7 @@ let inlineAdminAutoSaveTimer = null;
 const INLINE_ADMIN_DRAFT_KEY = 'mvpluxInlineAdminDraftV2';
 const INLINE_HIDDEN_CARDS_KEY = 'mvpluxInlineHiddenCardsV2';
 const HOMEPAGE_CATEGORY_ORDER_EDIT_KEY = 'homepage-category-card-order';
+const INLINE_ADMIN_HISTORY_LIMIT = 50;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -3586,13 +3841,26 @@ function getInlineAdminLivePageEdits() {
 function getInlineAdminPageEdits() {
   const publishedPageEdits = window.mvpluxPublishedAdminSettings?.pageVisualStates?.[inlineAdminPageKey()] || {};
   const livePageEdits = getInlineAdminLivePageEdits();
-
-  if (!isInlineAdminEditingEnabled()) {
-    return { ...publishedPageEdits };
-  }
-
-  const draftPageEdits = getInlineAdminDraft()[inlineAdminPageKey()] || {};
+  const privatePreview = isInlineAdminEditingEnabled() || isAdminPrivatePreviewEnabled();
+  if (!privatePreview) return { ...publishedPageEdits };
+  const draftPageEdits = isInlineAdminEditingEnabled() ? getInlineAdminDraft()[inlineAdminPageKey()] || {} : {};
   return { ...publishedPageEdits, ...livePageEdits, ...draftPageEdits };
+}
+
+function renderAdminPrivatePreviewIndicator() {
+  document.getElementById('adminPrivatePreviewIndicator')?.remove();
+  if (!isAdminPrivatePreviewEnabled() || isInlineAdminEditingEnabled()) return;
+  const published = window.mvpluxPublishedAdminSettings?.pageVisualStates?.[inlineAdminPageKey()] || {};
+  const live = getInlineAdminLivePageEdits();
+  const publishedProducts = window.mvpluxPublishedAdminSettings?.products || {};
+  const liveProducts = window.mvpluxLiveAdminSettings?.products || {};
+  const waiting = JSON.stringify(published) !== JSON.stringify(live)
+    || Object.keys(liveProducts).some((slug) => JSON.stringify(publishedProducts[slug] || {}) !== JSON.stringify(liveProducts[slug] || {}));
+  const indicator = document.createElement('div');
+  indicator.id = 'adminPrivatePreviewIndicator';
+  indicator.className = 'admin-private-preview-indicator';
+  indicator.textContent = waiting ? 'Private preview — changes waiting to publish' : 'Published view';
+  document.body.appendChild(indicator);
 }
 
 function inlineAdminPageKey() {
@@ -3607,6 +3875,51 @@ function inlineAdminStableSlug(value) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 120);
+}
+
+function getInlineAdminProductContext(element) {
+  const card = element?.closest?.('[data-product-id], [data-admin-card-key], .product-card');
+  const builder = card?.querySelector?.('.size-builder') || element?.closest?.('.product-card, .standee-purchase-panel, .showroom-purchase-card')?.querySelector?.('.size-builder');
+  const showroom = element?.closest?.('[data-admin-product-slug], .sports-showroom, .generic-showroom, #standeeDetailRoot');
+  return inlineAdminStableSlug(
+    element?.dataset?.adminProductSlug
+      || showroom?.dataset?.adminProductSlug
+      || card?.dataset?.productId
+      || builder?.dataset?.adminSlug
+      || card?.dataset?.adminCardKey
+      || ''
+  );
+}
+
+function getInlineAdminImageRole(image) {
+  if (image.dataset.adminElementRole) return inlineAdminStableSlug(image.dataset.adminElementRole);
+  if (image.closest('[data-admin-choice-image]')) return 'image-choice-thumbnail';
+  if (image.matches('.generic-main-image, #sportsMainImage, .standee-main-cutout')) return 'selected-choice-preview';
+  if (image.closest('.category-card')) return 'category-card-image';
+  if (image.classList.contains('product-stage-bg')) return 'stage-background';
+  if (image.classList.contains('product-stage-logo')) return 'stage-logo';
+  if (image.classList.contains('product-cutout')) return 'primary-cutout';
+  if (image.classList.contains('fan-card-cutout')) return 'fan-cutout';
+  if (image.classList.contains('fan-card-bg')) return 'fan-background';
+  return 'image';
+}
+
+function refreshInlineAdminImageContext(image, context = {}) {
+  if (!image) return '';
+  if (context.productSlug) image.dataset.adminProductSlug = context.productSlug;
+  if (context.role) image.dataset.adminElementRole = context.role;
+  if (context.choiceImage) image.dataset.adminChoiceImage = context.choiceImage;
+  if (context.choiceLabel) image.dataset.adminChoiceLabel = context.choiceLabel;
+  delete image.dataset.adminEdit;
+  const key = inlineAdminKey(image);
+  const saved = getInlineAdminPageEdits()[key] || {};
+  image._adminImageState = normalizeImageVisualState(saved);
+  if (saved.src) {
+    const safeSrc = cleanInlineAdminImageSrc(saved.src);
+    if (safeSrc) image.src = safeSrc;
+  }
+  renderInlineAdminImageState(image);
+  return key;
 }
 
 function getProductCardTextAdminKey(element) {
@@ -3640,6 +3953,14 @@ function inlineAdminKey(element) {
   }
 
   if (element.tagName === 'IMG') {
+    const productSlug = getInlineAdminProductContext(element);
+    const role = getInlineAdminImageRole(element);
+    const choiceIdentity = element.dataset.adminChoiceImage || element.getAttribute('src') || '';
+    if (productSlug) {
+      element.dataset.adminEdit = `visual-${productSlug}-${role}-${inlineAdminStableSlug(choiceIdentity || role)}`;
+      return element.dataset.adminEdit;
+    }
+
     const builder = element.closest('.product-card')?.querySelector('.size-builder');
     const productSlug = builder?.dataset.adminSlug || '';
     const roleClass = ['product-cutout', 'product-stage-bg', 'product-stage-logo']
@@ -3658,7 +3979,11 @@ function inlineAdminKey(element) {
     const originalSrc = element.dataset.adminOriginalSrc || element.getAttribute('src') || '';
     if (originalSrc && !originalSrc.startsWith('data:')) {
       element.dataset.adminOriginalSrc = originalSrc;
-      element.dataset.adminEdit = `img-src-${inlineAdminStableSlug(originalSrc)}`;
+      const sameSourceImages = [...document.querySelectorAll('img')].filter((image) => (
+        (image.dataset.adminOriginalSrc || image.getAttribute('src') || '') === originalSrc
+      ));
+      const occurrence = Math.max(0, sameSourceImages.indexOf(element));
+      element.dataset.adminEdit = `page-asset-${inlineAdminStableSlug(originalSrc)}-${occurrence}`;
       return element.dataset.adminEdit;
     }
   }
@@ -3869,13 +4194,17 @@ function ensureInlineAdminImageBaseTransform(image) {
   image.style.setProperty('--admin-base-transform', computedTransform && computedTransform !== 'none' ? computedTransform : 'translate(0, 0)');
 }
 
-function saveInlineAdminEdit(element, patch) {
+function writeInlineAdminEditDraft(element, patch) {
   const edits = getInlineAdminDraft();
   const page = inlineAdminPageKey();
   const key = inlineAdminKey(element);
   edits[page] = edits[page] || {};
   edits[page][key] = { ...(edits[page][key] || {}), ...patch };
   writeInlineAdminEdits(edits);
+}
+
+function saveInlineAdminEdit(element, patch) {
+  writeInlineAdminEditDraft(element, patch);
   inlineAdminDirty = true;
   inlineAdminHasUnsavedLocalChanges = true;
   updateInlineAdminToolbarState('Auto-saving...');
@@ -3890,6 +4219,8 @@ function scheduleInlineAdminAutoSave(delay = 650) {
 }
 
 async function commitInlineAdminEdits() {
+  window.clearTimeout(inlineAdminAutoSaveTimer);
+  inlineAdminAutoSaveTimer = null;
   writeInlineAdminEdits(getInlineAdminDraft());
   updateInlineAdminToolbarState('Saving live...');
   const saved = await saveInlineAdminEditsLive();
@@ -3935,10 +4266,63 @@ function getInlineAdminSnapshot(element) {
   };
 }
 
-function applyInlineAdminSnapshot(snapshot) {
-  if (!snapshot) return;
+async function applyInlineAdminSnapshot(snapshot, persist = true) {
+  if (!snapshot) return false;
+  if (snapshot.type === 'batch') {
+    for (const item of snapshot.items || []) await applyInlineAdminSnapshot(item, false);
+    return persist ? commitInlineAdminEdits() : true;
+  }
+  if (snapshot.type === 'productRelationships') {
+    const saved = persist
+      ? await saveLiveAdminSettings({ products: snapshot.products, customProducts: snapshot.customProducts })
+      : true;
+    if (!saved) return false;
+    updateLiveAdminSettingsLocal({ products: snapshot.products, customProducts: snapshot.customProducts });
+    localStorage.setItem('mvpluxAdminProducts', JSON.stringify(snapshot.products || {}));
+    localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(snapshot.customProducts || []));
+    refreshInlineProductRelationshipUI(snapshot.productSlug);
+    return true;
+  }
+  if (snapshot.type === 'hiddenCards') {
+    const saved = persist ? await saveLiveAdminSettings({
+      cardsSavedForLater: snapshot.hidden,
+      savedForLaterProducts: snapshot.savedForLaterProducts
+    }) : true;
+    if (!saved) return false;
+    updateLiveAdminSettingsLocal({
+      cardsSavedForLater: snapshot.hidden,
+      savedForLaterProducts: snapshot.savedForLaterProducts
+    });
+    writeInlineHiddenCards(snapshot.hidden);
+    localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(snapshot.savedForLaterProducts || []));
+    applyInlineHiddenCards();
+    return true;
+  }
+  if (snapshot.type === 'homepageOrder') {
+    const edits = getInlineAdminDraft();
+    const page = inlineAdminPageKey();
+    edits[page] = edits[page] || {};
+    edits[page][HOMEPAGE_CATEGORY_ORDER_EDIT_KEY] = { type: 'homepageCategoryOrder', rows: snapshot.rows };
+    writeInlineAdminEdits(edits);
+    applyHomepageCategoryCardOrder();
+    return persist ? commitInlineAdminEdits() : true;
+  }
+  if (snapshot.type === 'managedOrder') {
+    const saved = persist ? await saveLiveAdminSettings({ products: snapshot.products }) : true;
+    if (!saved) return false;
+    updateLiveAdminSettingsLocal({ products: snapshot.products });
+    localStorage.setItem('mvpluxAdminProducts', JSON.stringify(snapshot.products || {}));
+    const grid = document.querySelector('.category-page .category-grid, .category-page .sports-player-grid');
+    const cards = new Map([...grid?.querySelectorAll?.(':scope > .category-card[data-product-id]') || []]
+      .map((card) => [card.dataset.productId, card]));
+    if (grid) snapshot.order.forEach((slug) => {
+      const card = cards.get(slug);
+      if (card) grid.append(card);
+    });
+    return true;
+  }
   const element = document.querySelector(`[data-admin-edit="${snapshot.key}"]`);
-  if (!element) return;
+  if (!element) return false;
 
   if (snapshot.tag === 'IMG') {
     element.src = snapshot.src;
@@ -3950,20 +4334,24 @@ function applyInlineAdminSnapshot(snapshot) {
       locked: !!snapshot.locked
     };
     renderInlineAdminImageState(element);
-    saveInlineAdminEdit(element, {
+    const patch = {
       src: snapshot.src,
       x: element._adminImageState.x,
       y: element._adminImageState.y,
       scale: element._adminImageState.scale,
       rotate: element._adminImageState.rotate,
       locked: !!element._adminImageState.locked
-    });
+    };
+    if (persist) saveInlineAdminEdit(element, patch);
+    else writeInlineAdminEditDraft(element, patch);
     selectInlineAdminImage(element);
-    return;
+    return persist ? commitInlineAdminEdits() : true;
   }
 
   element.textContent = snapshot.text || '';
-  saveInlineAdminEdit(element, { text: element.textContent.trim() });
+  if (persist) saveInlineAdminEdit(element, { text: element.textContent.trim() });
+  else writeInlineAdminEditDraft(element, { text: element.textContent.trim() });
+  return persist ? commitInlineAdminEdits() : true;
 }
 
 function snapshotsMatch(first, second) {
@@ -3973,22 +4361,37 @@ function snapshotsMatch(first, second) {
 function pushInlineAdminHistory(before, after) {
   if (!before || !after || snapshotsMatch(before, after)) return;
   inlineAdminUndoStack.push({ before, after });
+  if (inlineAdminUndoStack.length > INLINE_ADMIN_HISTORY_LIMIT) {
+    inlineAdminUndoStack.splice(0, inlineAdminUndoStack.length - INLINE_ADMIN_HISTORY_LIMIT);
+  }
   inlineAdminRedoStack = [];
   updateInlineAdminToolbarState();
 }
 
-function undoInlineAdminEdit() {
-  const entry = inlineAdminUndoStack.pop();
+async function undoInlineAdminEdit() {
+  const entry = inlineAdminUndoStack[inlineAdminUndoStack.length - 1];
   if (!entry) return;
-  applyInlineAdminSnapshot(entry.before);
+  updateInlineAdminToolbarState('Saving Undo...');
+  if (!await applyInlineAdminSnapshot(entry.before, true)) {
+    await applyInlineAdminSnapshot(entry.after, false);
+    updateInlineAdminToolbarState('Undo save failed');
+    return;
+  }
+  inlineAdminUndoStack.pop();
   inlineAdminRedoStack.push(entry);
   updateInlineAdminToolbarState('Undone');
 }
 
-function redoInlineAdminEdit() {
-  const entry = inlineAdminRedoStack.pop();
+async function redoInlineAdminEdit() {
+  const entry = inlineAdminRedoStack[inlineAdminRedoStack.length - 1];
   if (!entry) return;
-  applyInlineAdminSnapshot(entry.after);
+  updateInlineAdminToolbarState('Saving Redo...');
+  if (!await applyInlineAdminSnapshot(entry.after, true)) {
+    await applyInlineAdminSnapshot(entry.before, false);
+    updateInlineAdminToolbarState('Redo save failed');
+    return;
+  }
+  inlineAdminRedoStack.pop();
   inlineAdminUndoStack.push(entry);
   updateInlineAdminToolbarState('Redone');
 }
@@ -3999,7 +4402,9 @@ function updateInlineAdminToolbarState(message = '') {
   const redo = document.getElementById('adminInlineRedo');
   const selected = document.getElementById('adminInlineSelected');
   const imageControls = document.querySelectorAll('[data-admin-image-control]');
-  const activeImage = inlineAdminSelectedImage || document.querySelector('.admin-image-selected');
+  const activeImage = inlineAdminSelectedImage?.isConnected
+    ? inlineAdminSelectedImage
+    : document.querySelector('.admin-image-selected');
 
   if (status) status.textContent = message || (inlineAdminDirty ? 'Auto-saving...' : 'Auto-save is on');
   if (undo) undo.classList.toggle('disabled', !inlineAdminUndoStack.length);
@@ -4007,15 +4412,25 @@ function updateInlineAdminToolbarState(message = '') {
   if (undo) undo.disabled = !inlineAdminUndoStack.length;
   if (redo) redo.disabled = !inlineAdminRedoStack.length;
   if (selected) {
-    selected.textContent = activeImage
-      ? (activeImage._adminImageState?.locked ? 'Image locked' : 'Image selected')
-      : 'Select an image';
+    selected.textContent = activeImage ? getInlineAdminSelectionLabel(activeImage) : 'Select an image';
   }
   imageControls.forEach((control) => {
-    control.classList.remove('disabled');
+    const disabled = !activeImage;
+    control.classList.toggle('disabled', disabled);
+    control.disabled = disabled;
   });
   updateInlineAdminResizeHandle();
   updateInlineAdminLockButtons();
+}
+
+function getInlineAdminSelectionLabel(image) {
+  if (!image) return 'Select an image';
+  const productSlug = image.dataset.adminProductSlug || getInlineAdminProductContext(image) || 'page';
+  const product = getManagedProductBySlug(productSlug);
+  const productLabel = product?.title || productSlug.replace(/-/g, ' ');
+  const choiceLabel = image.dataset.adminChoiceLabel;
+  const role = getInlineAdminImageRole(image).replace(/-/g, ' ');
+  return `Selected: ${productLabel} / ${choiceLabel || role}`;
 }
 
 function renderInlineAdminImageState(image) {
@@ -4042,11 +4457,7 @@ function selectInlineAdminImage(image) {
 
   inlineAdminSelectedImage = image;
   image?.classList.add('admin-image-selected');
-  const label = isInlineAdminBackgroundImage(image)
-    ? 'Background selected'
-    : image?._adminImageState?.locked
-      ? 'Image locked'
-    : 'Image selected';
+  const label = image ? getInlineAdminSelectionLabel(image) : 'Select an image';
   updateInlineAdminToolbarState(label);
   updateInlineAdminResizeHandle();
 }
@@ -4286,7 +4697,7 @@ function centerSelectedInlineAdminImage() {
     locked: !!next.locked
   });
   pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
-  updateInlineAdminToolbarState('Centered in box');
+  updateInlineAdminToolbarState('Centered — saving...');
 }
 
 function nudgeSelectedInlineAdminImage(dx, dy) {
@@ -4310,7 +4721,7 @@ function resetSelectedInlineAdminImage() {
     scale: 1,
     rotate: 0
   });
-  updateInlineAdminToolbarState('Back to normal');
+  updateInlineAdminToolbarState('Reset — saving...');
 }
 
 function toggleSelectedInlineAdminImageLock(targetImage = null) {
@@ -4321,39 +4732,52 @@ function toggleSelectedInlineAdminImageLock(targetImage = null) {
     image._adminImageState = { x: 0, y: 0, scale: 1, rotate: 0, locked: false };
   }
 
+  const before = getInlineAdminSnapshot(image);
   image._adminImageState.locked = !image._adminImageState.locked;
   image.classList.toggle('admin-image-locked', image._adminImageState.locked);
   saveInlineAdminEdit(image, {
     src: image.getAttribute('src') || '',
     ...image._adminImageState
   });
-  updateInlineAdminToolbarState(image._adminImageState.locked ? 'Image locked' : 'Image unlocked');
+  updateInlineAdminToolbarState(image._adminImageState.locked ? 'Locking — saving...' : 'Unlocking — saving...');
   updateInlineAdminResizeHandle();
   updateInlineAdminLockButtons();
+  pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
 }
 
 function unlockAllInlineAdminImages() {
   let count = 0;
+  const beforeItems = [];
+  const afterItems = [];
 
   document.querySelectorAll('img.admin-editable-image.admin-image-locked').forEach((image) => {
     if (!image._adminImageState) return;
+    beforeItems.push(getInlineAdminSnapshot(image));
     image._adminImageState.locked = false;
     image.classList.remove('admin-image-locked');
     saveInlineAdminEdit(image, {
       src: image.getAttribute('src') || '',
       ...image._adminImageState
     });
+    afterItems.push(getInlineAdminSnapshot(image));
     count += 1;
   });
 
-  updateInlineAdminToolbarState(count ? 'All images unlocked' : 'No locked images');
+  if (count) pushInlineAdminHistory(
+    { type: 'batch', items: beforeItems },
+    { type: 'batch', items: afterItems }
+  );
+
+  updateInlineAdminToolbarState(count ? 'Unlocking — saving...' : 'No locked images');
   updateInlineAdminResizeHandle();
   updateInlineAdminLockButtons();
 }
 
 function readInlineHiddenCards() {
-  const live = window.mvpluxLiveAdminSettings?.cardsSavedForLater;
+  const privatePreview = isInlineAdminEditingEnabled() || isAdminPrivatePreviewEnabled();
+  const live = privatePreview ? window.mvpluxLiveAdminSettings?.cardsSavedForLater : null;
   if (live && typeof live === 'object' && !Array.isArray(live)) return structuredClone(live);
+  if (!isInlineAdminEditingEnabled()) return {};
   try {
     return JSON.parse(localStorage.getItem(INLINE_HIDDEN_CARDS_KEY) || '{}');
   } catch (error) {
@@ -4402,6 +4826,11 @@ async function setInlineAdminCardHidden(card, hiddenValue) {
   const key = getCardAdminKey(card);
   if (!key) return;
   const hidden = readInlineHiddenCards();
+  const before = {
+    type: 'hiddenCards',
+    hidden: structuredClone(hidden),
+    savedForLaterProducts: [...getAdminArchivedProducts()]
+  };
   const page = inlineAdminPageKey();
   hidden[page] = hidden[page] || {};
   if (hiddenValue) {
@@ -4430,6 +4859,12 @@ async function setInlineAdminCardHidden(card, hiddenValue) {
   if (productSlug) localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(savedForLaterProducts));
 
   applyInlineHiddenCards();
+  const after = {
+    type: 'hiddenCards',
+    hidden: structuredClone(hidden),
+    savedForLaterProducts: [...savedForLaterProducts]
+  };
+  pushInlineAdminHistory(before, after);
   updateInlineAdminToolbarState(hiddenValue ? 'Card hidden in Admin; publish to update buyers' : 'Card visible in Admin; publish to update buyers');
   return true;
 }
@@ -4556,7 +4991,7 @@ function applyInlineAdminToolbarPrefs() {
   const layout = document.getElementById('adminInlineLayout');
   const size = document.getElementById('adminInlineToolSize');
   const hide = document.getElementById('adminInlineHideTools');
-  if (layout) layout.textContent = prefs.layout === 'side' ? 'Bottom' : 'Side Dock';
+  if (layout) layout.textContent = prefs.layout === 'side' ? 'Bottom' : 'Dock';
   if (size) size.textContent = prefs.size === 'small' ? 'Normal' : 'Small';
   if (hide) hide.textContent = prefs.collapsed === true ? 'Show Tools' : 'Hide Tools';
 }
@@ -4764,7 +5199,7 @@ function getHomepageCategoryRows() {
 }
 
 function getHomepageCategoryCardOrder() {
-  if (!isInlineAdminEditingEnabled()) {
+  if (!isInlineAdminEditingEnabled() && !isAdminPrivatePreviewEnabled()) {
     return window.mvpluxPublishedAdminSettings?.homepageCategoryOrder || [];
   }
   const edit = getInlineAdminPageEdits()[HOMEPAGE_CATEGORY_ORDER_EDIT_KEY];
@@ -4811,7 +5246,7 @@ function saveHomepageCategoryCardOrder() {
   scheduleInlineAdminAutoSave();
 }
 
-function moveHomepageCategoryCard(card, direction) {
+async function moveHomepageCategoryCard(card, direction) {
   const row = card?.closest('#shop .product-carousel-row');
   const rows = getHomepageCategoryRows();
   const rowIndex = rows.indexOf(row);
@@ -4819,6 +5254,10 @@ function moveHomepageCategoryCard(card, direction) {
 
   const rowCards = [...row.querySelectorAll(':scope > .product-card')];
   const cardIndex = rowCards.indexOf(card);
+  const before = {
+    type: 'homepageOrder',
+    rows: rows.map((item) => [...item.querySelectorAll(':scope > .product-card')].map(getCardAdminKey))
+  };
 
   if (direction === 'left' && cardIndex > 0) {
     row.insertBefore(card, rowCards[cardIndex - 1]);
@@ -4833,12 +5272,22 @@ function moveHomepageCategoryCard(card, direction) {
   }
 
   saveHomepageCategoryCardOrder();
+  if (!await commitInlineAdminEdits()) {
+    await applyInlineAdminSnapshot(before, false);
+    updateInlineAdminToolbarState('Card order was not saved');
+    return false;
+  }
+  const after = {
+    type: 'homepageOrder',
+    rows: rows.map((item) => [...item.querySelectorAll(':scope > .product-card')].map(getCardAdminKey))
+  };
+  pushInlineAdminHistory(before, after);
   updateInlineAdminToolbarState(`Card moved ${direction}`);
   return true;
 }
 
 async function saveManagedProductPatch(slug, patch) {
-  const products = { ...getAdminProducts() };
+  const products = { ...getAdminProductOverrides() };
   products[slug] = { ...(products[slug] || {}), ...(patch || {}) };
   if (!await saveLiveAdminSettings({ products })) return false;
   localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
@@ -4868,9 +5317,14 @@ async function moveManagedProductInCurrentSection(card, offset) {
   const target = products[index + offset];
   if (index < 0 || !target) return;
   const current = products[index];
+  const before = {
+    type: 'managedOrder',
+    products: structuredClone(getAdminProductOverrides()),
+    order: products.map((product) => product.slug)
+  };
   const currentOrder = Number(current.categoryOrder?.[category]) || index;
   const targetOrder = Number(target.categoryOrder?.[category]) || index + offset;
-  const savedProducts = { ...getAdminProducts() };
+  const savedProducts = { ...getAdminProductOverrides() };
   savedProducts[current.slug] = {
     ...(savedProducts[current.slug] || {}),
     categoryOrder: { ...(current.categoryOrder || {}), [category]: targetOrder }
@@ -4894,6 +5348,11 @@ async function moveManagedProductInCurrentSection(card, offset) {
   if (grid) reorderedProducts.forEach((product) => {
     const productCard = renderedCards.get(product.slug);
     if (productCard) grid.append(productCard);
+  });
+  pushInlineAdminHistory(before, {
+    type: 'managedOrder',
+    products: structuredClone(savedProducts),
+    order: reorderedProducts.map((product) => product.slug)
   });
   updateInlineAdminToolbarState('Section order saved');
 }
@@ -4991,7 +5450,7 @@ function ensureInlineAdminCardControls() {
                 : columnCount;
           await moveManagedProductInCurrentSection(card, offset);
         } else {
-          moveHomepageCategoryCard(card, action.slice(5));
+          await moveHomepageCategoryCard(card, action.slice(5));
         }
       }
       if (action === 'remove-section') await removeManagedProductFromCurrentSection(card);
@@ -5004,10 +5463,6 @@ function ensureInlineAdminCardControls() {
 }
 
 var runInlineAdminToolbarAction = function (action) {
-  const now = Date.now();
-  if (inlineAdminLastToolbarAction.action === action && now - inlineAdminLastToolbarAction.time < 250) return;
-  inlineAdminLastToolbarAction = { action, time: now };
-
   if (action === 'undo') undoInlineAdminEdit();
   if (action === 'redo') redoInlineAdminEdit();
   if (action === 'toggle-toolbar-layout') toggleInlineAdminToolbarLayout();
@@ -5058,6 +5513,7 @@ function handleInlineAdminToolbarPress(event) {
   event.stopPropagation();
   event.stopImmediatePropagation?.();
   runInlineAdminToolbarAction(control.dataset.adminToolbarAction);
+  control.closest('details')?.removeAttribute('open');
 }
 
 function bindInlineAdminToolbarControls() {
@@ -5165,6 +5621,56 @@ function turnOffInlineAdminMode() {
   window.setTimeout(() => window.location.reload(), 450);
 }
 
+function bindInlineAdminEditableImages(root = document) {
+  root.querySelectorAll?.('img')?.forEach((image) => {
+    if (image.closest('.admin-anywhere-toolbar') || image.dataset.inlineAdminImageReady) return;
+    image.dataset.inlineAdminImageReady = 'true';
+    if (isCodeControlledShopImage(image)) return;
+    if (!image.closest('.hero-stage')) {
+      image.loading = 'lazy';
+      image.decoding = 'async';
+    }
+    inlineAdminKey(image);
+    ensureInlineAdminImageBaseTransform(image);
+    image.classList.add('admin-editable-image');
+    if (!isInlineAdminBackgroundImage(image)) image.classList.add('admin-transformable-image');
+    const saved = getInlineAdminPageEdits()[inlineAdminKey(image)] || {};
+    image._adminImageState = normalizeImageVisualState(saved);
+    renderInlineAdminImageState(image);
+
+    image.addEventListener('pointerdown', (event) => {
+      if (event.target?.id === 'adminImageResizeHandle' || image._adminImageState?.locked || event.altKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectInlineAdminImage(image);
+      const before = getInlineAdminSnapshot(image);
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const baseX = image._adminImageState.x;
+      const baseY = image._adminImageState.y;
+      const move = (moveEvent) => {
+        image._adminImageState.x = safeAdminImageNumber(baseX + moveEvent.clientX - startX, 0, -140, 140);
+        image._adminImageState.y = safeAdminImageNumber(baseY + moveEvent.clientY - startY, 0, -140, 140);
+        renderInlineAdminImageState(image);
+        saveInlineAdminEdit(image, { src: image.getAttribute('src') || '', ...image._adminImageState });
+      };
+      const stop = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', stop);
+        pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', stop);
+    });
+
+    image.addEventListener('dblclick', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      replaceInlineAdminImage(image);
+    });
+  });
+}
+
 function installInlineAdminMode() {
   if (document.body.dataset.inlineAdminReady) return;
   document.body.dataset.inlineAdminReady = 'true';
@@ -5181,6 +5687,8 @@ function installInlineAdminMode() {
         <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-layout" id="adminInlineLayout" title="Move tools to side or bottom">Side</button>
         <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-size" id="adminInlineToolSize" title="Make tools smaller or normal size">Small</button>
         <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-collapsed" id="adminInlineHideTools" title="Hide or show admin tools">Hide</button>
+        <button type="button" class="admin-tool-control" data-admin-toolbar-action="undo" id="adminInlineUndo" title="Undo last page edit" disabled>Undo</button>
+        <button type="button" class="admin-tool-control" data-admin-toolbar-action="redo" id="adminInlineRedo" title="Redo last undone edit" disabled>Redo</button>
       </div>
       <div class="admin-toolbar-group admin-toolbar-status">
         <span id="adminInlineStatus">Auto-save is on</span>
@@ -5190,18 +5698,18 @@ function installInlineAdminMode() {
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="center" id="adminInlineCenter" title="Center selected image">Center</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="reset-image" id="adminInlineResetImage" title="Back to normal">Normal</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="lock-image" id="adminInlineLockImage" title="Lock selected image in place">Lock</button>
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="unlock-all-images" id="adminInlineUnlockAll" title="Unlock all locked images">Unlock</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller">Size -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger">Size +</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left">Rotate -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right">Rotate +</button>
       </div>
       <div class="admin-toolbar-group admin-toolbar-page">
-        <a href="admin.html#create-card">Add Card</a>
-        <a href="admin.html">Orders/Admin</a>
-        <details class="admin-toolbar-more"><summary>More</summary><div>
+        <details class="admin-toolbar-more"><summary aria-label="More Admin tools" title="More Admin tools">⋯</summary><div>
+          <button type="button" class="admin-tool-control" data-admin-toolbar-action="unlock-all-images" id="adminInlineUnlockAll" title="Unlock all locked images">Unlock All</button>
           <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image">Copy CSS</button>
           <button type="button" class="admin-tool-control" data-admin-toolbar-action="restore-cards" id="adminInlineRestoreCards" title="Restore cards hidden on this page">Restore Cards</button>
+          <a href="admin.html#create-card">Add Card</a>
+          <a href="admin.html">Orders/Admin</a>
         </div></details>
       </div>
       <button type="button" class="admin-toolbar-resize-handle" id="adminToolbarResizeHandle" title="Resize admin tools" aria-label="Resize admin tools"></button>
@@ -5214,10 +5722,20 @@ function installInlineAdminMode() {
 
   applyInlineHiddenCards();
   ensureInlineAdminCardControls();
+  ensureInlineAdminChoiceControls();
 
   document.addEventListener('click', handleInlineAdminToolbarPress, true);
   document.addEventListener('keydown', handleInlineAdminToolbarKey, true);
   document.addEventListener('click', handleInlineAdminImageSelect, true);
+  document.addEventListener('click', handleInlineAdminChoiceAction, true);
+  document.addEventListener('click', (event) => {
+    if (event.target.closest?.('.admin-toolbar-more')) return;
+    document.querySelectorAll('.admin-toolbar-more[open]').forEach((menu) => menu.removeAttribute('open'));
+  });
+  document.addEventListener('click', (event) => {
+    if (event.target.closest?.('.admin-choice-admin')) return;
+    document.querySelectorAll('.admin-choice-admin[open]').forEach((menu) => menu.removeAttribute('open'));
+  });
 
   window.addEventListener('keydown', (event) => {
     if (!document.body.classList.contains('admin-anywhere-on')) return;
@@ -5230,12 +5748,12 @@ function installInlineAdminMode() {
       commitInlineAdminEdits();
     }
 
-    if ((event.metaKey || event.ctrlKey) && key === 'z' && !event.shiftKey) {
+    if (!typing && (event.metaKey || event.ctrlKey) && key === 'z' && !event.shiftKey) {
       event.preventDefault();
       undoInlineAdminEdit();
     }
 
-    if ((event.metaKey || event.ctrlKey) && (key === 'y' || (key === 'z' && event.shiftKey))) {
+    if (!typing && (event.metaKey || event.ctrlKey) && (key === 'y' || (key === 'z' && event.shiftKey))) {
       event.preventDefault();
       redoInlineAdminEdit();
     }
@@ -5251,7 +5769,7 @@ function installInlineAdminMode() {
   });
 
   document.querySelectorAll('h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
-    if (element.closest('.admin-anywhere-toolbar, .admin-card-controls, .admin-image-lock-button, .cart-panel, .auth-form, script, style, .password-field')) return;
+    if (element.closest('.admin-anywhere-toolbar, .admin-card-controls, .admin-image-lock-button, .admin-choice-wrapper, .cart-panel, .auth-form, script, style, .password-field')) return;
     if (element.closest('.fan-vote-meter, .fan-carousel-dots')) return;
     if (element.matches('.product-image-link')) return;
     if (isLockedStageChoiceAdminText(element)) return;
@@ -5279,79 +5797,7 @@ function installInlineAdminMode() {
     });
   });
 
-  document.querySelectorAll('img').forEach((image) => {
-    if (image.closest('.admin-anywhere-toolbar')) return;
-    if (isCodeControlledShopImage(image)) {
-      image.classList.remove('admin-transformable-image', 'admin-editable-image', 'admin-image-selected');
-      image.style.removeProperty('--admin-x');
-      image.style.removeProperty('--admin-y');
-      image.style.removeProperty('--admin-scale');
-      image.style.removeProperty('--admin-rotate');
-      image.style.removeProperty('--admin-base-transform');
-      image.style.removeProperty('transform');
-      image.style.removeProperty('left');
-      image.style.removeProperty('bottom');
-      image.style.removeProperty('height');
-      image.style.removeProperty('width');
-      image.style.removeProperty('top');
-      return;
-    }
-    if (!image.closest('.hero-stage')) {
-      image.loading = 'lazy';
-      image.decoding = 'async';
-    }
-    inlineAdminKey(image);
-    ensureInlineAdminImageBaseTransform(image);
-    image.classList.add('admin-editable-image');
-    if (!isInlineAdminBackgroundImage(image)) image.classList.add('admin-transformable-image');
-    const saved = getInlineAdminPageEdits()[inlineAdminKey(image)] || {};
-    image._adminImageState = {
-      x: safeAdminImageNumber(saved.x, 0, -140, 140),
-      y: safeAdminImageNumber(saved.y, 0, -140, 140),
-      scale: safeAdminImageNumber(saved.scale, 1, 0.45, 2.1),
-      rotate: safeAdminImageNumber(saved.rotate, 0, -28, 28),
-      locked: !!saved.locked
-    };
-    renderInlineAdminImageState(image);
-
-    image.addEventListener('pointerdown', (event) => {
-      if (event.target?.id === 'adminImageResizeHandle') return;
-      if (image._adminImageState?.locked) return;
-      if (event.altKey) return;
-      event.preventDefault();
-      event.stopPropagation();
-      selectInlineAdminImage(image);
-      const before = getInlineAdminSnapshot(image);
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const baseX = image._adminImageState.x;
-      const baseY = image._adminImageState.y;
-
-      const move = (moveEvent) => {
-        image._adminImageState.x = safeAdminImageNumber(baseX + moveEvent.clientX - startX, 0, -140, 140);
-        image._adminImageState.y = safeAdminImageNumber(baseY + moveEvent.clientY - startY, 0, -140, 140);
-        renderInlineAdminImageState(image);
-        saveInlineAdminEdit(image, {
-          src: image.getAttribute('src') || '',
-          ...image._adminImageState
-        });
-      };
-      const stop = () => {
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', stop);
-        pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
-      };
-
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', stop);
-    });
-
-    image.addEventListener('dblclick', async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      replaceInlineAdminImage(image);
-    });
-  });
+  bindInlineAdminEditableImages();
 
   window.addEventListener('scroll', updateInlineAdminResizeHandle, { passive: true });
   window.addEventListener('scroll', updateInlineAdminLockButtons, { passive: true });
@@ -5555,6 +6001,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   });
 
   applyInlineAdminEdits();
+  renderAdminPrivatePreviewIndicator();
 
   const isAuthPage = Boolean(document.querySelector('.auth-page'));
   if (!isAuthPage && isInlineAdminEditingEnabled()) {
