@@ -2119,24 +2119,28 @@ function updateLiveAdminSettingsLocal(patch) {
 async function saveLiveAdminSettings(patch) {
   const client = getSupabaseClient();
   if (!client?.from || !client?.auth) return false;
+  try {
+    const { data: sessionData, error: sessionError } = await client.auth.getSession();
+    if (sessionError) throw sessionError;
+    const user = sessionData?.session?.user;
+    if (!user) return false;
 
-  const { data: sessionData } = await client.auth.getSession();
-  const user = sessionData?.session?.user;
-  if (!user) return false;
-
-  const nextSettings = { ...(window.mvpluxLiveAdminSettings || {}), ...(patch || {}) };
-  updateLiveAdminSettingsLocal(nextSettings);
-
-  const { error } = await client
-    .from('site_edits')
-    .upsert({
-      page_key: 'admin-global',
-      edits: nextSettings,
-      updated_by: user.id,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'page_key' });
-
-  return !error;
+    const nextSettings = { ...(window.mvpluxLiveAdminSettings || {}), ...(patch || {}) };
+    const { error } = await client
+      .from('site_edits')
+      .upsert({
+        page_key: 'admin-global',
+        edits: nextSettings,
+        updated_by: user.id,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'page_key' });
+    if (error) throw error;
+    updateLiveAdminSettingsLocal(nextSettings);
+    return true;
+  } catch (error) {
+    console.warn('Admin settings save failed:', error);
+    return false;
+  }
 }
 
 const standeeCatalog = {
@@ -4101,7 +4105,6 @@ function getInlineAdminResizeHandle() {
   };
 
   handle.addEventListener('pointerdown', startResize);
-  handle.addEventListener('mousedown', startResize);
 
   return handle;
 }
@@ -4131,7 +4134,6 @@ function getInlineAdminLockButton(image) {
     toggleSelectedInlineAdminImageLock(image);
   };
 
-  button.addEventListener('pointerdown', toggle);
   button.addEventListener('click', toggle);
   return button;
 }
@@ -4350,6 +4352,8 @@ function unlockAllInlineAdminImages() {
 }
 
 function readInlineHiddenCards() {
+  const live = window.mvpluxLiveAdminSettings?.cardsSavedForLater;
+  if (live && typeof live === 'object' && !Array.isArray(live)) return structuredClone(live);
   try {
     return JSON.parse(localStorage.getItem(INLINE_HIDDEN_CARDS_KEY) || '{}');
   } catch (error) {
@@ -4394,7 +4398,7 @@ function isCardHiddenByAdmin(card) {
   );
 }
 
-function setInlineAdminCardHidden(card, hiddenValue) {
+async function setInlineAdminCardHidden(card, hiddenValue) {
   const key = getCardAdminKey(card);
   if (!key) return;
   const hidden = readInlineHiddenCards();
@@ -4405,9 +4409,8 @@ function setInlineAdminCardHidden(card, hiddenValue) {
   } else {
     delete hidden[page][key];
   }
-  writeInlineHiddenCards(hidden);
-
   const productSlug = getCardProductAdminSlug(card);
+  let savedForLaterProducts = getAdminArchivedProducts();
   if (productSlug) {
     const archived = new Set(getAdminArchivedProducts());
     if (hiddenValue) {
@@ -4415,17 +4418,23 @@ function setInlineAdminCardHidden(card, hiddenValue) {
     } else {
       archived.delete(productSlug);
     }
-    const savedForLaterProducts = Array.from(archived);
-    localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(savedForLaterProducts));
-    updateLiveAdminSettingsLocal({ savedForLaterProducts });
-    saveLiveAdminSettings({ savedForLaterProducts });
+    savedForLaterProducts = Array.from(archived);
   }
 
+  const patch = { cardsSavedForLater: hidden, ...(productSlug ? { savedForLaterProducts } : {}) };
+  if (!await saveLiveAdminSettings(patch)) {
+    updateInlineAdminToolbarState('Card change was not saved');
+    return false;
+  }
+  writeInlineHiddenCards(hidden);
+  if (productSlug) localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(savedForLaterProducts));
+
   applyInlineHiddenCards();
-  updateInlineAdminToolbarState(hiddenValue ? 'Card hidden from buyers' : 'Card visible again');
+  updateInlineAdminToolbarState(hiddenValue ? 'Card hidden in Admin; publish to update buyers' : 'Card visible in Admin; publish to update buyers');
+  return true;
 }
 
-function deleteInlineAdminCard(card) {
+async function deleteInlineAdminCard(card) {
   if (!card) return;
   const customSlug = card.querySelector?.('.size-builder')?.dataset.adminSlug;
   const customProducts = getAdminCustomProducts();
@@ -4433,9 +4442,11 @@ function deleteInlineAdminCard(card) {
   if (customIndex >= 0) {
     if (!window.confirm('Delete this display-card record? Its physical image file will not be deleted.')) return;
     const nextProducts = customProducts.filter((product) => product.slug !== customSlug);
+    if (!await saveLiveAdminSettings({ customProducts: nextProducts })) {
+      updateInlineAdminToolbarState('Delete failed; record was preserved');
+      return;
+    }
     localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(nextProducts));
-    updateLiveAdminSettingsLocal({ customProducts: nextProducts });
-    saveLiveAdminSettings({ customProducts: nextProducts });
     card.remove();
     updateInlineAdminToolbarState('Custom card deleted');
     return;
@@ -4444,9 +4455,11 @@ function deleteInlineAdminCard(card) {
   const slug = getCardProductAdminSlug(card) || card.dataset.productId || getCardAdminKey(card);
   if (!slug || !window.confirm('Delete this card record? Its physical image file will not be deleted.')) return;
   const deletedProducts = [...new Set([...getAdminDeletedProducts(), slug])];
+  if (!await saveLiveAdminSettings({ deletedProducts })) {
+    updateInlineAdminToolbarState('Delete failed; record was preserved');
+    return;
+  }
   localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
-  updateLiveAdminSettingsLocal({ deletedProducts });
-  saveLiveAdminSettings({ deletedProducts });
   card.remove();
   updateInlineAdminToolbarState('Card record deleted; image file retained');
 }
@@ -4456,29 +4469,33 @@ function getInlineAdminSelectedCard() {
   return image?.closest('.fan-vote-card, .fan-gallery-card, .product-card, .category-card');
 }
 
-function hideSelectedInlineAdminCard() {
+async function hideSelectedInlineAdminCard() {
   const card = getInlineAdminSelectedCard();
   if (!card) {
     updateInlineAdminToolbarState('Select a card image first');
     return;
   }
 
-  setInlineAdminCardHidden(card, true);
-  inlineAdminSelectedImage = null;
+  if (await setInlineAdminCardHidden(card, true)) inlineAdminSelectedImage = null;
 }
 
-function restoreInlineHiddenCards() {
+async function restoreInlineHiddenCards() {
   const hidden = readInlineHiddenCards();
-  delete hidden[inlineAdminPageKey()];
+  const page = inlineAdminPageKey();
+  const pageHiddenKeys = new Set(Object.keys(hidden[page] || {}));
+  delete hidden[page];
+  const savedForLaterProducts = getAdminArchivedProducts().filter((slug) => !pageHiddenKeys.has(slug));
+  if (!await saveLiveAdminSettings({ cardsSavedForLater: hidden, savedForLaterProducts })) {
+    updateInlineAdminToolbarState('Restore failed; saved cards remain hidden');
+    return;
+  }
   writeInlineHiddenCards(hidden);
-  localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify([]));
-  updateLiveAdminSettingsLocal({ savedForLaterProducts: [] });
-  saveLiveAdminSettings({ savedForLaterProducts: [] });
+  localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(savedForLaterProducts));
   document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card').forEach((card) => {
     card.hidden = false;
     card.style.display = '';
   });
-  updateInlineAdminToolbarState('Saved cards shown');
+  updateInlineAdminToolbarState('Cards restored in Admin; publish to update buyers');
 }
 
 function readInlineAdminToolbarPrefs() {
@@ -4820,25 +4837,28 @@ function moveHomepageCategoryCard(card, direction) {
   return true;
 }
 
-function saveManagedProductPatch(slug, patch) {
+async function saveManagedProductPatch(slug, patch) {
   const products = { ...getAdminProducts() };
   products[slug] = { ...(products[slug] || {}), ...(patch || {}) };
+  if (!await saveLiveAdminSettings({ products })) return false;
   localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
-  updateLiveAdminSettingsLocal({ products });
-  saveLiveAdminSettings({ products });
+  return true;
 }
 
-function removeManagedProductFromCurrentSection(card) {
+async function removeManagedProductFromCurrentSection(card) {
   const slug = card?.dataset.productId;
   const category = getCurrentProductCategory();
   const product = getManagedProductBySlug(slug);
   if (!slug || !category || !product) return;
-  saveManagedProductPatch(slug, { categories: product.categories.filter((key) => key !== category) });
+  if (!await saveManagedProductPatch(slug, { categories: product.categories.filter((key) => key !== category) })) {
+    updateInlineAdminToolbarState('Category removal failed; product was preserved');
+    return;
+  }
   card.remove();
   updateInlineAdminToolbarState('Removed from this section; product retained');
 }
 
-function moveManagedProductInCurrentSection(card, offset) {
+async function moveManagedProductInCurrentSection(card, offset) {
   const slug = card?.dataset.productId;
   const category = getCurrentProductCategory();
   const products = getManagedProductCatalog()
@@ -4850,29 +4870,55 @@ function moveManagedProductInCurrentSection(card, offset) {
   const current = products[index];
   const currentOrder = Number(current.categoryOrder?.[category]) || index;
   const targetOrder = Number(target.categoryOrder?.[category]) || index + offset;
-  saveManagedProductPatch(current.slug, { categoryOrder: { ...(current.categoryOrder || {}), [category]: targetOrder } });
-  saveManagedProductPatch(target.slug, { categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder } });
-  renderManagedCategoryPageProducts();
+  const savedProducts = { ...getAdminProducts() };
+  savedProducts[current.slug] = {
+    ...(savedProducts[current.slug] || {}),
+    categoryOrder: { ...(current.categoryOrder || {}), [category]: targetOrder }
+  };
+  savedProducts[target.slug] = {
+    ...(savedProducts[target.slug] || {}),
+    categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder }
+  };
+  if (!await saveLiveAdminSettings({ products: savedProducts })) {
+    updateInlineAdminToolbarState('Section order was not saved');
+    return;
+  }
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(savedProducts));
+  const grid = card.parentElement;
+  const renderedCards = new Map(
+    [...(grid?.querySelectorAll?.(':scope > .category-card[data-product-id]') || [])]
+      .map((item) => [item.dataset.productId, item])
+  );
+  const reorderedProducts = [...products];
+  [reorderedProducts[index], reorderedProducts[index + offset]] = [reorderedProducts[index + offset], reorderedProducts[index]];
+  if (grid) reorderedProducts.forEach((product) => {
+    const productCard = renderedCards.get(product.slug);
+    if (productCard) grid.append(productCard);
+  });
   updateInlineAdminToolbarState('Section order saved');
 }
 
-function deleteManagedProduct(card) {
+async function deleteManagedProduct(card) {
   const slug = card?.dataset.productId;
   if (!slug || !window.confirm('Delete this product record? Its image file will not be deleted.')) return;
   const customProducts = getAdminCustomProducts();
   if (customProducts.some((product) => product.slug === slug)) {
     const nextProducts = customProducts.filter((product) => product.slug !== slug);
+    if (!await saveLiveAdminSettings({ customProducts: nextProducts })) {
+      updateInlineAdminToolbarState('Delete failed; product was preserved');
+      return;
+    }
     localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(nextProducts));
-    updateLiveAdminSettingsLocal({ customProducts: nextProducts });
-    saveLiveAdminSettings({ customProducts: nextProducts });
     card.remove();
     updateInlineAdminToolbarState('Product deleted; image file retained');
     return;
   }
   const deletedProducts = [...new Set([...getAdminDeletedProducts(), slug])];
+  if (!await saveLiveAdminSettings({ deletedProducts })) {
+    updateInlineAdminToolbarState('Delete failed; product was preserved');
+    return;
+  }
   localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
-  updateLiveAdminSettingsLocal({ deletedProducts });
-  saveLiveAdminSettings({ deletedProducts });
   card.remove();
   updateInlineAdminToolbarState('Product deleted; image file retained');
 }
@@ -4915,23 +4961,23 @@ function ensureInlineAdminCardControls() {
         </div></details>
       ` : ''}
     `;
-    controls.addEventListener('click', (event) => {
+    controls.addEventListener('click', async (event) => {
       event.stopPropagation();
       const actionControl = event.target.closest('[data-admin-card-action]');
       if (!actionControl) return;
       event.preventDefault();
       const action = actionControl.dataset.adminCardAction;
       if (action === 'hide-toggle') {
-        setInlineAdminCardHidden(card, !isCardHiddenByAdmin(card));
+        await setInlineAdminCardHidden(card, !isCardHiddenByAdmin(card));
         ensureInlineAdminCardControls();
       }
       if (action === 'delete-card') {
-        deleteInlineAdminCard(card);
+        await deleteInlineAdminCard(card);
         ensureInlineAdminCardControls();
       }
       if (action === 'remove-display') {
         if (window.confirm('Remove this card from the homepage display? The record and physical image file will be preserved.')) {
-          setInlineAdminCardHidden(card, true);
+          await setInlineAdminCardHidden(card, true);
           ensureInlineAdminCardControls();
         }
       }
@@ -4943,13 +4989,13 @@ function ensureInlineAdminCardControls() {
             : direction === 'right' ? 1
               : direction === 'up' ? -columnCount
                 : columnCount;
-          moveManagedProductInCurrentSection(card, offset);
+          await moveManagedProductInCurrentSection(card, offset);
         } else {
           moveHomepageCategoryCard(card, action.slice(5));
         }
       }
-      if (action === 'remove-section') removeManagedProductFromCurrentSection(card);
-      if (action === 'delete-product') deleteManagedProduct(card);
+      if (action === 'remove-section') await removeManagedProductFromCurrentSection(card);
+      if (action === 'delete-product') await deleteManagedProduct(card);
     });
     card.prepend(controls);
     const hideButton = controls.querySelector('[data-admin-card-action="hide-toggle"]');
@@ -4968,6 +5014,7 @@ var runInlineAdminToolbarAction = function (action) {
   if (action === 'toggle-toolbar-size') toggleInlineAdminToolbarSize();
   if (action === 'toggle-toolbar-collapsed') toggleInlineAdminToolbarCollapsed();
   if (action === 'copy-code') copySelectedInlineAdminCode();
+  if (action === 'restore-cards') restoreInlineHiddenCards();
   if (action === 'reset-image') resetSelectedInlineAdminImage();
   if (action === 'lock-image') toggleSelectedInlineAdminImageLock();
   if (action === 'unlock-all-images') unlockAllInlineAdminImages();
@@ -5017,17 +5064,6 @@ function bindInlineAdminToolbarControls() {
   document.querySelectorAll('.admin-anywhere-toolbar [data-admin-toolbar-action]').forEach((control) => {
     if (control.dataset.adminToolbarReady) return;
     control.dataset.adminToolbarReady = 'true';
-
-    const activate = (event) => {
-      if (control.classList.contains('disabled')) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation?.();
-      runInlineAdminToolbarAction(control.dataset.adminToolbarAction);
-    };
-
-    control.addEventListener('pointerdown', activate);
-    control.addEventListener('click', activate);
   });
 }
 
@@ -5142,29 +5178,30 @@ function installInlineAdminMode() {
     <div class="admin-anywhere-toolbar">
       <div class="admin-toolbar-group admin-toolbar-main">
         <button type="button" class="admin-toolbar-drag-handle" id="adminToolbarDragHandle" title="Drag admin tools">Move</button>
-        <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-layout" id="adminInlineLayout" title="Move tools to side or bottom" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-layout'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-layout'); return false;">Side</button>
-        <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-size" id="adminInlineToolSize" title="Make tools smaller or normal size" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-size'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-size'); return false;">Small</button>
-        <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-collapsed" id="adminInlineHideTools" title="Hide or show admin tools" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-collapsed'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-collapsed'); return false;">Hide</button>
+        <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-layout" id="adminInlineLayout" title="Move tools to side or bottom">Side</button>
+        <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-size" id="adminInlineToolSize" title="Make tools smaller or normal size">Small</button>
+        <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-collapsed" id="adminInlineHideTools" title="Hide or show admin tools">Hide</button>
       </div>
       <div class="admin-toolbar-group admin-toolbar-status">
         <span id="adminInlineStatus">Auto-save is on</span>
       </div>
       <div class="admin-toolbar-group admin-toolbar-image">
         <span id="adminInlineSelected">Select an image</span>
-        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="center" id="adminInlineCenter" title="Center selected image" onpointerdown="runInlineAdminToolbarAction('center'); return false;" onclick="runInlineAdminToolbarAction('center'); return false;">Center</button>
-        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="reset-image" id="adminInlineResetImage" title="Back to normal" onpointerdown="runInlineAdminToolbarAction('reset-image'); return false;" onclick="runInlineAdminToolbarAction('reset-image'); return false;">Normal</button>
-        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="lock-image" id="adminInlineLockImage" title="Lock selected image in place" onpointerdown="runInlineAdminToolbarAction('lock-image'); return false;" onclick="runInlineAdminToolbarAction('lock-image'); return false;">Lock</button>
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="unlock-all-images" id="adminInlineUnlockAll" title="Unlock all locked images" onpointerdown="runInlineAdminToolbarAction('unlock-all-images'); return false;" onclick="runInlineAdminToolbarAction('unlock-all-images'); return false;">Unlock</button>
-        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller" onpointerdown="runInlineAdminToolbarAction('size-down'); return false;" onclick="runInlineAdminToolbarAction('size-down'); return false;">Size -</button>
-        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger" onpointerdown="runInlineAdminToolbarAction('size-up'); return false;" onclick="runInlineAdminToolbarAction('size-up'); return false;">Size +</button>
-        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left" onpointerdown="runInlineAdminToolbarAction('rotate-left'); return false;" onclick="runInlineAdminToolbarAction('rotate-left'); return false;">Rotate -</button>
-        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onpointerdown="runInlineAdminToolbarAction('rotate-right'); return false;" onclick="runInlineAdminToolbarAction('rotate-right'); return false;">Rotate +</button>
+        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="center" id="adminInlineCenter" title="Center selected image">Center</button>
+        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="reset-image" id="adminInlineResetImage" title="Back to normal">Normal</button>
+        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="lock-image" id="adminInlineLockImage" title="Lock selected image in place">Lock</button>
+        <button type="button" class="admin-tool-control" data-admin-toolbar-action="unlock-all-images" id="adminInlineUnlockAll" title="Unlock all locked images">Unlock</button>
+        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller">Size -</button>
+        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger">Size +</button>
+        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left">Rotate -</button>
+        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right">Rotate +</button>
       </div>
       <div class="admin-toolbar-group admin-toolbar-page">
         <a href="admin.html#create-card">Add Card</a>
         <a href="admin.html">Orders/Admin</a>
         <details class="admin-toolbar-more"><summary>More</summary><div>
-          <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image" onpointerdown="runInlineAdminToolbarAction('copy-code'); return false;" onclick="runInlineAdminToolbarAction('copy-code'); return false;">Copy CSS</button>
+          <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image">Copy CSS</button>
+          <button type="button" class="admin-tool-control" data-admin-toolbar-action="restore-cards" id="adminInlineRestoreCards" title="Restore cards hidden on this page">Restore Cards</button>
         </div></details>
       </div>
       <button type="button" class="admin-toolbar-resize-handle" id="adminToolbarResizeHandle" title="Resize admin tools" aria-label="Resize admin tools"></button>
@@ -5178,10 +5215,6 @@ function installInlineAdminMode() {
   applyInlineHiddenCards();
   ensureInlineAdminCardControls();
 
-  document.addEventListener('pointerdown', handleInlineAdminToolbarPress, true);
-  document.addEventListener('pointerup', handleInlineAdminToolbarPress, true);
-  document.addEventListener('mousedown', handleInlineAdminToolbarPress, true);
-  document.addEventListener('mouseup', handleInlineAdminToolbarPress, true);
   document.addEventListener('click', handleInlineAdminToolbarPress, true);
   document.addEventListener('keydown', handleInlineAdminToolbarKey, true);
   document.addEventListener('click', handleInlineAdminImageSelect, true);
@@ -5218,7 +5251,7 @@ function installInlineAdminMode() {
   });
 
   document.querySelectorAll('h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
-    if (element.closest('.admin-anywhere-toolbar, .cart-panel, .auth-form, script, style, .password-field')) return;
+    if (element.closest('.admin-anywhere-toolbar, .admin-card-controls, .admin-image-lock-button, .cart-panel, .auth-form, script, style, .password-field')) return;
     if (element.closest('.fan-vote-meter, .fan-carousel-dots')) return;
     if (element.matches('.product-image-link')) return;
     if (isLockedStageChoiceAdminText(element)) return;

@@ -323,33 +323,33 @@ function readPriceSettings() {
   return getAdminLiveValue('priceSettings', readJsonStorage('mvpluxAdminPriceSettings', {}));
 }
 
-function writePriceSettings(settings) {
-  localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(settings || {}));
-  updateAdminLiveSettings({ priceSettings: settings || {} });
-  saveAdminSettingsLive({ priceSettings: settings || {} });
-  return settings;
+async function writePriceSettings(settings) {
+  const values = settings || {};
+  if (!await saveAdminSettingsLive({ priceSettings: values })) return null;
+  localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(values));
+  return values;
 }
 
 function readExtraImages() {
   return getAdminLiveValue('extraImages', readJsonStorage('mvpluxAdminExtraImages', {}));
 }
 
-function writeExtraImages(images) {
-  localStorage.setItem('mvpluxAdminExtraImages', JSON.stringify(images || {}));
-  updateAdminLiveSettings({ extraImages: images || {} });
-  saveAdminSettingsLive({ extraImages: images || {} });
-  return images;
+async function writeExtraImages(images) {
+  const values = images || {};
+  if (!await saveAdminSettingsLive({ extraImages: values })) return null;
+  localStorage.setItem('mvpluxAdminExtraImages', JSON.stringify(values));
+  return values;
 }
 
 function readCoupons() {
   return getAdminLiveValue('coupons', readJsonStorage('mvpluxAdminCoupons', []));
 }
 
-function writeCoupons(coupons) {
-  localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(coupons || []));
-  updateAdminLiveSettings({ coupons: coupons || [] });
-  saveAdminSettingsLive({ coupons: coupons || [] });
-  return coupons;
+async function writeCoupons(coupons) {
+  const values = coupons || [];
+  if (!await saveAdminSettingsLive({ coupons: values })) return null;
+  localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(values));
+  return values;
 }
 
 function readJsonStorage(key, fallback) {
@@ -375,8 +375,10 @@ function buildAdminExport() {
     priceSettings: readPriceSettings(),
     extraImages: readExtraImages(),
     coupons: readCoupons(),
-    pageEdits: readJsonStorage('mvpluxInlineAdminEdits', {}),
-    cardsSavedForLater: getAdminLiveValue('cardsSavedForLater', readJsonStorage('mvpluxInlineHiddenCards', {}))
+    pageEdits: Object.keys(adminPageLiveEdits || {}).length
+      ? structuredClone(adminPageLiveEdits)
+      : readJsonStorage('mvpluxInlineAdminDraftV2', {}),
+    cardsSavedForLater: getAdminLiveValue('cardsSavedForLater', readJsonStorage('mvpluxInlineHiddenCardsV2', {}))
   };
 }
 
@@ -946,38 +948,79 @@ async function refreshPublishHistory() {
   }
 }
 
-function applyAdminExport(data) {
+async function saveImportedAdminStateLive(patch, pageEdits) {
+  const entries = Object.entries(pageEdits || {}).filter(([pageKey, edits]) => (
+    pageKey && pageKey !== 'admin-global' && edits && typeof edits === 'object' && !Array.isArray(edits)
+  ));
+  const client = getAdminClient();
+  if (!client?.from || !client?.auth) throw new Error('Supabase is not ready.');
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  const user = sessionData?.session?.user;
+  if (!user) throw new Error('Sign in as admin to restore page edits.');
+  const updatedAt = new Date().toISOString();
+  const nextSettings = { ...(adminLiveSettings || {}), ...(patch || {}) };
+  const rows = [
+    { page_key: 'admin-global', edits: nextSettings, updated_by: user.id, updated_at: updatedAt },
+    ...entries.map(([pageKey, edits]) => ({
+      page_key: pageKey.toLowerCase(),
+      edits,
+      updated_by: user.id,
+      updated_at: updatedAt
+    }))
+  ];
+  const { error } = await client.from('site_edits').upsert(rows, { onConflict: 'page_key' });
+  if (error) throw error;
+  updateAdminLiveSettings(patch);
+  adminPageLiveEdits = { ...adminPageLiveEdits, ...Object.fromEntries(entries) };
+  return true;
+}
+
+async function applyAdminExport(data) {
   if (!data || typeof data !== 'object') throw new Error('Invalid export');
 
-  writeAdminProducts(data.products || {});
-  writeCustomProducts(data.customProducts || []);
-  writeArchivedProducts(data.savedForLaterProducts || []);
-  writeDeletedProducts(data.deletedProducts || []);
-  writeImageDraftEdits(data.imageDrafts || {});
-  writeImageDraftPaths('dismissedImageDrafts', data.dismissedImageDrafts || []);
-  writeImageDraftPaths('configuredImagePaths', data.configuredImagePaths || []);
-  writeImageDraftPaths('ignoredImagePaths', data.ignoredImagePaths || []);
-  writePriceSettings(data.priceSettings || {});
-  writeExtraImages(data.extraImages || {});
-  writeCoupons(data.coupons || []);
-  localStorage.setItem('mvpluxInlineAdminEdits', JSON.stringify(data.pageEdits || {}));
-  localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(data.cardsSavedForLater || {}));
-  updateAdminLiveSettings({ cardsSavedForLater: data.cardsSavedForLater || {} });
-  saveAdminSettingsLive({ cardsSavedForLater: data.cardsSavedForLater || {} });
+  const patch = {
+    products: cleanAdminProductMap(data.products || {}),
+    customProducts: (data.customProducts || []).map(withoutStoredProductPrice),
+    savedForLaterProducts: data.savedForLaterProducts || [],
+    deletedProducts: [...new Set(data.deletedProducts || [])],
+    imageDrafts: data.imageDrafts || {},
+    dismissedImageDrafts: [...new Set(data.dismissedImageDrafts || [])],
+    configuredImagePaths: [...new Set(data.configuredImagePaths || [])],
+    ignoredImagePaths: [...new Set(data.ignoredImagePaths || [])],
+    priceSettings: data.priceSettings || {},
+    extraImages: data.extraImages || {},
+    coupons: data.coupons || [],
+    cardsSavedForLater: data.cardsSavedForLater || {}
+  };
+  await saveImportedAdminStateLive(patch, data.pageEdits || {});
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(patch.products));
+  localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(patch.customProducts));
+  localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(patch.savedForLaterProducts));
+  localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(patch.deletedProducts));
+  localStorage.setItem('mvpluxImageDrafts', JSON.stringify(patch.imageDrafts));
+  localStorage.setItem('mvpluxDismissedImageDrafts', JSON.stringify(patch.dismissedImageDrafts));
+  localStorage.setItem('mvpluxConfiguredImagePaths', JSON.stringify(patch.configuredImagePaths));
+  localStorage.setItem('mvpluxIgnoredImagePaths', JSON.stringify(patch.ignoredImagePaths));
+  localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(patch.priceSettings));
+  localStorage.setItem('mvpluxAdminExtraImages', JSON.stringify(patch.extraImages));
+  localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(patch.coupons));
+  localStorage.setItem('mvpluxInlineAdminDraftV2', JSON.stringify(data.pageEdits || {}));
+  localStorage.setItem('mvpluxInlineHiddenCardsV2', JSON.stringify(patch.cardsSavedForLater));
   renderAdminProducts();
   fillPriceSettingsForm();
   renderExtraImages();
   renderAdminExportPreview();
-  setStatus('Imported changes and saved live when Supabase is available.');
+  setStatus('Imported changes and saved to Supabase.');
 }
 
 function importAdminChangesFromFile(file) {
   if (!file) return;
   const reader = new FileReader();
 
-  reader.addEventListener('load', () => {
+  reader.addEventListener('load', async () => {
     try {
-      applyAdminExport(JSON.parse(reader.result));
+      await applyAdminExport(JSON.parse(reader.result));
     } catch (error) {
       setStatus('That export file could not be restored.');
     }
@@ -1571,7 +1614,10 @@ function collectProductFormData(form) {
 async function saveProductForm(form, message = 'Saved product changes live. Go back to Shop to see them.') {
   const products = readAdminProducts();
   products[form.dataset.slug] = collectProductFormData(form);
-  if (!await writeAdminProducts(products)) return false;
+  if (!await writeAdminProducts(products)) {
+    renderAdminProducts();
+    return false;
+  }
   renderAdminExportPreview();
   setStatus(message);
   return true;
@@ -1642,7 +1688,7 @@ function renderExtraImages() {
         const dataUrl = await resizeImageFile(file);
         const images = readExtraImages();
         images[key] = dataUrl;
-        writeExtraImages(images);
+        if (!await writeExtraImages(images)) return;
         card.querySelector('img').src = dataUrl;
         card.querySelector('.admin-long-path').value = dataUrl;
         setStatus('Image saved live.');
@@ -1653,11 +1699,11 @@ function renderExtraImages() {
   });
 
   container.querySelectorAll('[data-reset-extra-image]').forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', async () => {
       if (!window.confirm('Clear this image edit and go back to the original image?')) return;
       const images = readExtraImages();
       delete images[button.dataset.resetExtraImage];
-      writeExtraImages(images);
+      if (!await writeExtraImages(images)) return;
       renderExtraImages();
       setStatus('Image reset and saved live.');
     });
@@ -1720,10 +1766,8 @@ function categoryAssignmentMarkup(value) {
           </select>
         </label>
         <button type="button" data-remove-section>Remove from This Category</button>
-        <button type="button" data-move-product="-1" title="Move left">←</button>
-        <button type="button" data-move-product="1" title="Move right">→</button>
-        <button type="button" data-move-product="-3" title="Move up">↑</button>
-        <button type="button" data-move-product="3" title="Move down">↓</button>
+        <button type="button" data-move-product="-1" title="Move to the previous position">Previous</button>
+        <button type="button" data-move-product="1" title="Move to the next position">Next</button>
       </div>
     </fieldset>
   `;
@@ -2295,7 +2339,7 @@ function setupPriceRules() {
     });
   });
 
-  form.addEventListener('submit', (event) => {
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const settings = {
       twoFootPrice: document.getElementById('twoFootPrice')?.value.trim() || '35.00',
@@ -2304,7 +2348,7 @@ function setupPriceRules() {
       fullPrice: document.getElementById('fullPrice')?.value.trim() || '129.99',
       extraInchPrice: document.getElementById('extraInchPrice')?.value.trim() || '2.00'
     };
-    writePriceSettings(settings);
+    if (!await writePriceSettings(settings)) return;
     fillPriceSettingsForm();
     document.querySelectorAll('.admin-product-card').forEach((productForm) => updateAdminOriginalPrice(productForm, settings));
     setStatus('Prices saved live.');
@@ -2322,20 +2366,20 @@ function setupCoupons() {
     discountInput.value = saved.discount || '';
   }
 
-  form?.addEventListener('submit', (event) => {
+  form?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const coupon = {
       code: codeInput?.value.trim() || '',
       discount: discountInput?.value.trim() || ''
     };
-    writeCoupons(coupon.code && coupon.discount ? [coupon] : []);
+    if (!await writeCoupons(coupon.code && coupon.discount ? [coupon] : [])) return;
     setStatus('Coupon saved live.');
   });
 
-  document.getElementById('clearCoupons')?.addEventListener('click', () => {
+  document.getElementById('clearCoupons')?.addEventListener('click', async () => {
+    if (!await writeCoupons([])) return;
     codeInput.value = '';
     discountInput.value = '';
-    writeCoupons([]);
     setStatus('Coupon cleared live.');
   });
 }
@@ -2640,12 +2684,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     history.replaceState(null, '', 'admin.html');
   }
 
-  document.getElementById('resetAdminProducts')?.addEventListener('click', () => {
+  document.getElementById('resetAdminProducts')?.addEventListener('click', async () => {
+    if (!window.confirm('Clear all saved product-card edits? Physical image files will not be changed.')) return;
+    if (!await saveAdminSettingsLive({ products: {}, customProducts: [], savedForLaterProducts: [] })) return;
     localStorage.removeItem('mvpluxAdminProducts');
     localStorage.removeItem('mvpluxAdminCustomProducts');
     localStorage.removeItem('mvpluxAdminArchivedProducts');
-    updateAdminLiveSettings({ products: {}, customProducts: [], savedForLaterProducts: [] });
-    saveAdminSettingsLive({ products: {}, customProducts: [], savedForLaterProducts: [] });
     renderAdminProducts();
     setStatus('Product card saves cleared live.');
   });
@@ -2669,10 +2713,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     setStatus('Page editing is off.');
   });
 
-  document.getElementById('resetExtraImages')?.addEventListener('click', () => {
+  document.getElementById('resetExtraImages')?.addEventListener('click', async () => {
+    if (!window.confirm('Clear all Most Wanted and Gallery image edits? Physical image files will not be changed.')) return;
+    if (!await saveAdminSettingsLive({ extraImages: {} })) return;
     localStorage.removeItem('mvpluxAdminExtraImages');
-    updateAdminLiveSettings({ extraImages: {} });
-    saveAdminSettingsLive({ extraImages: {} });
     renderExtraImages();
     setStatus('Extra image saves cleared live.');
   });
