@@ -97,6 +97,7 @@ function clearLegacyAdminBrowserStorage() {
 
 let adminLiveSettings = null;
 let adminHomepageLiveEdits = {};
+let adminPageLiveEdits = {};
 let adminSaveQueue = Promise.resolve(true);
 let adminSavePending = 0;
 let adminLastSaveSucceeded = null;
@@ -126,8 +127,7 @@ async function loadAdminLiveSettings() {
 
   const { data, error } = await client
     .from('site_edits')
-    .select('page_key, edits')
-    .in('page_key', ['admin-global', 'index.html']);
+    .select('page_key, edits');
 
   if (error) {
     adminLastSaveError = `Supabase reload failed: ${error.message || 'unknown error'}`;
@@ -136,6 +136,11 @@ async function loadAdminLiveSettings() {
   }
   adminLiveSettings = data?.find((row) => row.page_key === 'admin-global')?.edits || {};
   adminHomepageLiveEdits = data?.find((row) => row.page_key === 'index.html')?.edits || {};
+  adminPageLiveEdits = Object.fromEntries(
+    (data || [])
+      .filter((row) => row.page_key !== 'admin-global' && row.edits && typeof row.edits === 'object')
+      .map((row) => [String(row.page_key || '').toLowerCase(), row.edits])
+  );
   return adminLiveSettings;
 }
 
@@ -403,6 +408,31 @@ function publishImageReference(value) {
   return `admin-upload:${mime}:${reference.length}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
+function publishableNumber(value, fallback, min, max) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
+}
+
+function publishablePageVisualStates() {
+  const pages = {};
+  Object.entries(adminPageLiveEdits || {}).forEach(([pageKey, edits]) => {
+    const visualStates = {};
+    Object.entries(edits || {}).forEach(([elementKey, edit]) => {
+      if (!edit || typeof edit !== 'object' || edit.type) return;
+      const hasGeometry = ['x', 'y', 'scale', 'rotate'].some((field) => Number.isFinite(Number(edit[field])));
+      if (!hasGeometry) return;
+      visualStates[elementKey] = {
+        x: publishableNumber(edit.x, 0, -140, 140),
+        y: publishableNumber(edit.y, 0, -140, 140),
+        scale: publishableNumber(edit.scale, 1, 0.45, 2.1),
+        rotate: publishableNumber(edit.rotate, 0, -28, 28)
+      };
+    });
+    if (Object.keys(visualStates).length) pages[pageKey] = visualStates;
+  });
+  return pages;
+}
+
 function publishableProduct(product = {}, archived = false) {
   return {
     slug: product.slug,
@@ -417,6 +447,12 @@ function publishableProduct(product = {}, archived = false) {
       ...(choice.stage ? { stage: publishImageReference(choice.stage) } : {})
     })),
     originalHeight: String(product.originalHeight || ''),
+    cutoutHeight: String(product.cutoutHeight || ''),
+    cutoutLeft: String(product.cutoutLeft || ''),
+    cutoutBottom: String(product.cutoutBottom || ''),
+    logoWidth: String(product.logoWidth || ''),
+    logoTop: String(product.logoTop || ''),
+    stageBackgroundPosition: String(product.stageBackgroundPosition || ''),
     categories: [...new Set(product.categories || [])].sort(),
     visible: !archived && product.visible !== false,
     categoryOrder: normalizedCategoryOrder(product.categoryOrder)
@@ -444,7 +480,8 @@ function buildDefaultPublishBaseline() {
     categoryDisplayCards: Object.fromEntries(adminProducts.map((product) => [product.slug, publishableProduct(product)])),
     deletedProducts: [],
     homepageCategoryOrder: [],
-    ignoredImagePaths: []
+    ignoredImagePaths: [],
+    pageVisualStates: {}
   };
 }
 
@@ -475,7 +512,8 @@ function buildCurrentPublishSnapshot() {
     ignoredImagePaths: [...new Set(readImageDraftPaths('ignoredImagePaths'))].sort(),
     homepageCategoryOrder: homepageOrder?.type === 'homepageCategoryOrder' && Array.isArray(homepageOrder.rows)
       ? homepageOrder.rows.map((row) => [...row])
-      : []
+      : [],
+    pageVisualStates: publishablePageVisualStates()
   };
 }
 
@@ -557,6 +595,19 @@ function generatePublishChanges(before, after) {
       lines.push(`Changed background image for ${title} from ${previous.backgroundImage || 'not set'} to ${current.backgroundImage || 'not set'}`);
       if (current.backgroundImage) seenImages.add(current.backgroundImage);
     }
+    const placementFields = [
+      ['cutoutHeight', 'standee size'],
+      ['cutoutLeft', 'horizontal position'],
+      ['cutoutBottom', 'vertical position'],
+      ['logoWidth', 'logo size'],
+      ['logoTop', 'logo position'],
+      ['stageBackgroundPosition', 'background position']
+    ];
+    placementFields.forEach(([field, label]) => {
+      if (String(previous[field] || '') !== String(current[field] || '')) {
+        lines.push(`Changed ${label} for ${title}`);
+      }
+    });
     const previousChoices = new Map(normalizeImageChoices(previous.imageChoices).map((choice) => [choice.image, choice]));
     const currentChoices = new Map(normalizeImageChoices(current.imageChoices).map((choice) => [choice.image, choice]));
     currentChoices.forEach((choice, image) => {
@@ -595,6 +646,13 @@ function generatePublishChanges(before, after) {
   afterIgnored.forEach((path) => {
     if (!beforeIgnored.has(path)) lines.push(`Ignored non-product image: ${path}`);
   });
+  const beforeVisualStates = before?.pageVisualStates || {};
+  const afterVisualStates = after?.pageVisualStates || {};
+  [...new Set([...Object.keys(beforeVisualStates), ...Object.keys(afterVisualStates)])].sort().forEach((pageKey) => {
+    if (JSON.stringify(beforeVisualStates[pageKey] || {}) !== JSON.stringify(afterVisualStates[pageKey] || {})) {
+      lines.push(`Updated saved image positioning on ${pageKey}`);
+    }
+  });
   return [...new Set(lines)];
 }
 
@@ -626,6 +684,9 @@ function normalizePublishedBaseline(snapshot) {
     ? snapshot.homepageCategoryOrder.map((row) => Array.isArray(row) ? [...row] : [])
     : [];
   baseline.ignoredImagePaths = Array.isArray(snapshot.ignoredImagePaths) ? [...snapshot.ignoredImagePaths] : [];
+  baseline.pageVisualStates = snapshot.pageVisualStates && typeof snapshot.pageVisualStates === 'object'
+    ? structuredClone(snapshot.pageVisualStates)
+    : {};
   return baseline;
 }
 
@@ -1658,11 +1719,11 @@ function categoryAssignmentMarkup(value) {
             ${categories.map((category) => `<option value="${category.key}" ${selected.has(category.key) ? 'selected' : ''}>${category.label}</option>`).join('')}
           </select>
         </label>
-        <button type="button" data-remove-section>Remove from This Section</button>
-        <button type="button" data-move-product="-1">Move Left</button>
-        <button type="button" data-move-product="1">Move Right</button>
-        <button type="button" data-move-product="-3">Move Up</button>
-        <button type="button" data-move-product="3">Move Down</button>
+        <button type="button" data-remove-section>Remove from This Category</button>
+        <button type="button" data-move-product="-1" title="Move left">←</button>
+        <button type="button" data-move-product="1" title="Move right">→</button>
+        <button type="button" data-move-product="-3" title="Move up">↑</button>
+        <button type="button" data-move-product="3" title="Move down">↓</button>
       </div>
     </fieldset>
   `;
@@ -1846,6 +1907,49 @@ async function removeProductImageChoice(parentSlug, imagePath) {
   setStatus('Image choice removed. The physical image file was not changed.');
 }
 
+async function renameProductImageChoice(parentSlug, imagePath, label) {
+  const parent = effectiveAdminProduct(parentSlug);
+  const nextLabel = String(label || '').trim();
+  if (!parent || !nextLabel) {
+    setStatus('Enter an image-choice label before saving.');
+    return;
+  }
+  const choices = normalizeImageChoices(parent.imageChoices).map((choice) => (
+    choice.image === imagePath ? { ...choice, label: nextLabel } : choice
+  ));
+  if (!await writeProductImageChoices(parentSlug, choices)) return;
+  renderAdminProducts();
+  setStatus('Image-choice label saved.');
+}
+
+async function moveProductImageChoice(sourceSlug, imagePath, targetSlug) {
+  const source = effectiveAdminProduct(sourceSlug);
+  const target = effectiveAdminProduct(targetSlug);
+  const choice = normalizeImageChoices(source?.imageChoices).find((item) => item.image === imagePath);
+  if (!source || !target || !choice || sourceSlug === targetSlug) {
+    setStatus('Select a different product card for this image choice.');
+    return;
+  }
+  if (findProductImageOwner(imagePath, sourceSlug)) {
+    setStatus('That image path is already assigned to another product.');
+    return;
+  }
+  if (!window.confirm(`Move “${choice.label}” from ${source.title} to ${target.title}? The physical image file will be preserved.`)) return;
+
+  const customProducts = readCustomProducts();
+  const products = readAdminProducts();
+  const setChoices = (slug, choices) => {
+    const customIndex = customProducts.findIndex((product) => product.slug === slug);
+    if (customIndex >= 0) customProducts[customIndex] = { ...customProducts[customIndex], imageChoices: normalizeImageChoices(choices) };
+    else products[slug] = { ...(products[slug] || {}), imageChoices: normalizeImageChoices(choices) };
+  };
+  setChoices(sourceSlug, normalizeImageChoices(source.imageChoices).filter((item) => item.image !== imagePath));
+  setChoices(targetSlug, [...normalizeImageChoices(target.imageChoices), choice]);
+  if (!await saveProductWorkflowPatch({ customProducts, products })) return;
+  renderAdminProducts();
+  setStatus('Image choice moved. The physical image file was not changed.');
+}
+
 async function moveCustomProductToExistingProduct(form) {
   const sourceSlug = form.dataset.slug;
   const source = readCustomProducts().find((product) => product.slug === sourceSlug);
@@ -1904,6 +2008,9 @@ async function moveCustomProductToExistingProduct(form) {
 
 function productImageChoicesMarkup(value) {
   const choices = normalizeImageChoices(value.imageChoices);
+  const moveTargets = effectiveAdminProducts()
+    .filter((product) => product.slug !== value.slug)
+    .sort((left, right) => String(left.title || left.slug).localeCompare(String(right.title || right.slug)));
   return `
     <fieldset class="admin-image-choice-manager">
       <legend>Image Choices For Selected Standee</legend>
@@ -1911,6 +2018,15 @@ function productImageChoicesMarkup(value) {
         <div class="admin-image-choice-row">
           <img src="${escapeAdminHtml(choice.image)}" alt="">
           <span><strong>${escapeAdminHtml(choice.label)}</strong><br>${escapeAdminHtml(choice.image)}</span>
+          <label>Rename choice<input type="text" value="${escapeAdminHtml(choice.label)}" data-image-choice-label="${escapeAdminHtml(choice.image)}"></label>
+          <button type="button" data-rename-image-choice="${escapeAdminHtml(choice.image)}">Save label</button>
+          <label>Move choice to
+            <select data-move-image-choice-target="${escapeAdminHtml(choice.image)}">
+              <option value="">Select product</option>
+              ${moveTargets.map((product) => `<option value="${escapeAdminHtml(product.slug)}">${escapeAdminHtml(product.title)} — ${escapeAdminHtml(product.slug)}</option>`).join('')}
+            </select>
+          </label>
+          <button type="button" data-move-image-choice="${escapeAdminHtml(choice.image)}">Move choice</button>
           <button type="button" data-remove-image-choice="${escapeAdminHtml(choice.image)}">Remove image choice</button>
         </div>
       `).join('') : '<p class="admin-note">No alternate image choices assigned.</p>'}
@@ -2112,6 +2228,22 @@ function renderAdminProducts() {
 
     form.querySelectorAll('[data-remove-image-choice]').forEach((button) => {
       button.addEventListener('click', () => removeProductImageChoice(form.dataset.slug, button.dataset.removeImageChoice));
+    });
+
+    form.querySelectorAll('[data-rename-image-choice]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const imagePath = button.dataset.renameImageChoice;
+        const label = button.closest('.admin-image-choice-row')?.querySelector('[data-image-choice-label]')?.value;
+        renameProductImageChoice(form.dataset.slug, imagePath, label);
+      });
+    });
+
+    form.querySelectorAll('[data-move-image-choice]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const imagePath = button.dataset.moveImageChoice;
+        const target = button.closest('.admin-image-choice-row')?.querySelector('[data-move-image-choice-target]')?.value || '';
+        moveProductImageChoice(form.dataset.slug, imagePath, target);
+      });
     });
 
     form.querySelector('[data-move-to-existing-product]')?.addEventListener('click', () => {

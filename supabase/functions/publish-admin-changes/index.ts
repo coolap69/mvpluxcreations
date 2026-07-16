@@ -180,6 +180,29 @@ function validatePublishedSnapshot(value: unknown) {
           throw new PublishError('validation', 400, 'INVALID_IMAGE_CHOICE', `Product ${slug} has an invalid image choice.`);
         }
       }
+      for (const field of ['cutoutHeight', 'cutoutLeft', 'cutoutBottom', 'logoWidth', 'logoTop']) {
+        if (product[field] !== undefined && product[field] !== '' && !Number.isFinite(Number(product[field]))) {
+          throw new PublishError('validation', 400, 'INVALID_PRODUCT_POSITION', `Product ${slug} has an invalid ${field} value.`);
+        }
+      }
+    }
+  }
+  const pageVisualStates = snapshot.pageVisualStates;
+  if (pageVisualStates !== undefined) {
+    if (!pageVisualStates || typeof pageVisualStates !== 'object' || Array.isArray(pageVisualStates)) {
+      throw new PublishError('validation', 400, 'INVALID_VISUAL_STATES', 'pageVisualStates must be an object.');
+    }
+    for (const [pageKey, rawStates] of Object.entries(pageVisualStates as Record<string, unknown>)) {
+      if (!pageKey || !rawStates || typeof rawStates !== 'object' || Array.isArray(rawStates)) {
+        throw new PublishError('validation', 400, 'INVALID_VISUAL_STATES', `Invalid visual states for ${pageKey || 'unknown page'}.`);
+      }
+      for (const [elementKey, rawState] of Object.entries(rawStates as Record<string, unknown>)) {
+        const state = rawState as Record<string, unknown>;
+        if (!elementKey || !state || typeof state !== 'object' || Array.isArray(state)
+          || !['x', 'y', 'scale', 'rotate'].every((field) => Number.isFinite(Number(state[field])))) {
+          throw new PublishError('validation', 400, 'INVALID_VISUAL_STATE', `Invalid image positioning state on ${pageKey}.`);
+        }
+      }
     }
   }
   return snapshot;

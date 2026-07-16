@@ -5863,6 +5863,127 @@ button[aria-label="Add to cart"]::before {
   }
 }
 
+/* Compact Admin overlays must stay smaller than customer-facing buttons. */
+.admin-anywhere-toolbar {
+  gap: 4px !important;
+  max-width: min(94vw, 900px) !important;
+  padding: 5px !important;
+}
+
+.admin-anywhere-toolbar .admin-toolbar-group {
+  gap: 3px !important;
+  min-height: 26px !important;
+  padding: 3px !important;
+}
+
+.admin-anywhere-toolbar .admin-toolbar-image {
+  flex: 1 1 390px !important;
+}
+
+.admin-anywhere-toolbar a,
+.admin-anywhere-toolbar button,
+.admin-anywhere-toolbar .admin-tool-control,
+.admin-anywhere-toolbar #adminInlineStatus,
+.admin-anywhere-toolbar #adminInlineSelected,
+.admin-card-controls button,
+.admin-card-controls a,
+.admin-card-controls summary {
+  min-height: 22px !important;
+  padding: 3px 6px !important;
+  border-radius: 5px !important;
+  font-size: 9px !important;
+  line-height: 1 !important;
+}
+
+.admin-anywhere-toolbar #adminInlineStatus,
+.admin-anywhere-toolbar #adminInlineSelected {
+  max-width: 116px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.admin-anywhere-toolbar.admin-toolbar-small {
+  max-width: min(92vw, 720px) !important;
+  gap: 2px !important;
+  padding: 3px !important;
+}
+
+.admin-anywhere-toolbar.admin-toolbar-small .admin-toolbar-group {
+  min-height: 20px !important;
+  padding: 2px !important;
+}
+
+.admin-anywhere-toolbar.admin-toolbar-small a,
+.admin-anywhere-toolbar.admin-toolbar-small button,
+.admin-anywhere-toolbar.admin-toolbar-small .admin-tool-control,
+.admin-anywhere-toolbar.admin-toolbar-small #adminInlineStatus,
+.admin-anywhere-toolbar.admin-toolbar-small #adminInlineSelected {
+  min-height: 18px !important;
+  padding: 2px 4px !important;
+  font-size: 8px !important;
+}
+
+.admin-anywhere-toolbar.admin-toolbar-collapsed {
+  padding: 2px !important;
+  border-radius: 5px !important;
+}
+
+.admin-anywhere-toolbar.admin-toolbar-collapsed #adminInlineHideTools {
+  min-width: 38px !important;
+  min-height: 18px !important;
+  padding: 2px 5px !important;
+  font-size: 8px !important;
+}
+
+.admin-toolbar-more,
+.admin-card-more {
+  position: relative;
+}
+
+.admin-toolbar-more > summary,
+.admin-card-more > summary {
+  list-style: none;
+  cursor: pointer;
+  border: 1px solid rgba(244,208,111,0.72);
+  background: linear-gradient(180deg, #fff0a8, #d49a18);
+  color: #050505;
+  font-weight: 900;
+}
+
+.admin-toolbar-more > summary::-webkit-details-marker,
+.admin-card-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-toolbar-more > div,
+.admin-card-more > div {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: calc(100% + 4px);
+  display: grid;
+  min-width: 112px;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid rgba(244,208,111,0.55);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.96);
+}
+
+.admin-card-controls {
+  top: 6px;
+  right: 6px;
+  gap: 3px;
+  max-width: calc(100% - 12px);
+  flex-wrap: nowrap;
+}
+
+.admin-card-controls .admin-card-more > div {
+  top: calc(100% + 4px);
+  bottom: auto;
+}
+
 .admin-preview-cutout:active,
 .admin-preview-logo:active {
   cursor: grabbing;

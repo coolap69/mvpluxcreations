@@ -1896,6 +1896,11 @@ function sanitizePublishedProduct(slug, value) {
   if ((typeof value.originalHeight === 'string' || typeof value.originalHeight === 'number') && String(value.originalHeight).trim()) {
     product.originalHeight = value.originalHeight;
   }
+  ['cutoutHeight', 'cutoutLeft', 'cutoutBottom', 'logoWidth', 'logoTop', 'stageBackgroundPosition'].forEach((field) => {
+    if ((typeof value[field] === 'string' || typeof value[field] === 'number') && String(value[field]).trim()) {
+      product[field] = value[field];
+    }
+  });
   if (typeof value.visible === 'boolean') product.visible = value.visible;
   if (value.custom === true) product.custom = true;
   if (Array.isArray(value.categories)) {
@@ -1932,6 +1937,17 @@ function validatePublishedAdminSettings(value) {
       .map((row) => row.filter((slug) => typeof slug === 'string' && slug))
     : [];
 
+  const pageVisualStates = {};
+  Object.entries(snapshot.pageVisualStates || {}).forEach(([pageKey, states]) => {
+    if (!pageKey || !states || typeof states !== 'object' || Array.isArray(states)) return;
+    const sanitizedStates = {};
+    Object.entries(states).forEach(([elementKey, state]) => {
+      if (!elementKey || !state || typeof state !== 'object' || Array.isArray(state)) return;
+      sanitizedStates[elementKey] = normalizeImageVisualState(state);
+    });
+    if (Object.keys(sanitizedStates).length) pageVisualStates[pageKey.toLowerCase()] = sanitizedStates;
+  });
+
   return {
     version: 1,
     products,
@@ -1942,7 +1958,8 @@ function validatePublishedAdminSettings(value) {
     ignoredImagePaths: Array.isArray(snapshot.ignoredImagePaths)
       ? [...new Set(snapshot.ignoredImagePaths.filter((path) => typeof path === 'string' && path))]
       : [],
-    homepageCategoryOrder
+    homepageCategoryOrder,
+    pageVisualStates
   };
 }
 
@@ -2500,7 +2517,11 @@ function selectSportsStandee(key, shouldScroll = true) {
     originalHeight: managed.originalHeight,
     backgroundImage: managed.backgroundImage,
     displayFit: {},
-    facts: [`Original size: ${formatHeight(managed.originalHeight || 78)}`, 'Sports', `Options: ${managedChoices.length + 1} images`],
+    facts: [
+      `Original size: ${formatHeight(managed.originalHeight || 78)}`,
+      'Sports',
+      managedChoices.length ? `Options: ${managedChoices.length + 1} images` : 'Primary image'
+    ],
     options: [{ label: 'Main image', image: managed.cutoutImage }, ...managedChoices]
   } : null);
   const optionStrip = document.getElementById('sportsOptionStrip');
@@ -2531,15 +2552,15 @@ function selectSportsStandee(key, shouldScroll = true) {
       <span>${option.label}</span>
     </button>
   `).join('');
+  const sportsChoiceSection = optionStrip.closest('.sports-choice-section') || optionStrip.parentElement;
+  if (sportsChoiceSection) sportsChoiceSection.hidden = product.options.length <= 1;
 
   document.querySelectorAll('[data-sports-player]').forEach((card) => {
     card.classList.toggle('active', card.dataset.sportsPlayer === key);
   });
 
   selectSportsOption(0);
-  if (document.body.classList.contains('admin-anywhere-on')) {
-    applyInlineAdminEdits();
-  }
+  applyInlineAdminEdits();
   if (shouldScroll) document.querySelector('.sports-showroom')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -2749,7 +2770,7 @@ function setupGenericCategoryShowroom() {
         <span>Preview choices below</span>
         <span>Options update by card</span>
       </div>
-      <div>
+      <div class="generic-choice-section">
         <h3 class="sports-choice-title">Image Choices For Selected Standee</h3>
         <div class="category-option-strip sports-option-strip generic-option-strip" aria-label="Selected standee image choices"></div>
       </div>
@@ -2781,12 +2802,14 @@ function setupGenericCategoryShowroom() {
     state.facts.innerHTML = `
       <span>${originalSize}</span>
       <span>Selected card</span>
-      <span>Options: ${options.length} image${options.length === 1 ? '' : 's'}</span>
+      <span>${options.length > 1 ? `Options: ${options.length} images` : 'Primary image'}</span>
     `;
     state.builder.dataset.whiteTriangleImage = findWhiteTriangleImage(options);
     if (!state.builder.dataset.whiteTriangleImage) delete state.builder.dataset.whiteTriangleImage;
     updateShowroomPurchase(state, product?.title || title, product?.originalHeight || 78, product?.slug || productId);
     renderGenericCategoryOptions(state, options);
+    const choiceSection = state.optionStrip.closest('.generic-choice-section');
+    if (choiceSection) choiceSection.hidden = options.length <= 1;
     selectGenericCategoryOption(state, options, 0);
 
     cards.forEach((item) => item.classList.toggle('active', item === card));
@@ -2794,9 +2817,7 @@ function setupGenericCategoryShowroom() {
       button.addEventListener('click', () => selectGenericCategoryOption(state, options, Number(button.dataset.genericOptionIndex)));
     });
 
-    if (document.body.classList.contains('admin-anywhere-on')) {
-      applyInlineAdminEdits();
-    }
+    applyInlineAdminEdits();
   };
 
   cards.forEach((card, index) => {
@@ -3068,10 +3089,11 @@ function renderAdminManagedCards() {
   if (!grid) return;
 
   const archived = new Set(getAdminArchivedProducts());
+  const deleted = new Set(getAdminDeletedProducts());
   document.querySelectorAll('#shop .size-builder').forEach((builder) => {
     const card = builder.closest('.product-card');
     const slug = builder.dataset.adminSlug || getProductSlug(builder.dataset.productName || '');
-    if (archived.has(slug)) {
+    if (archived.has(slug) || deleted.has(slug)) {
       card.style.display = 'none';
     }
   });
@@ -3110,6 +3132,13 @@ function applyAdminProductOverrides(builder) {
     }
   }
   if (override.stageBackgroundPosition && stage) stage.style.backgroundPosition = override.stageBackgroundPosition;
+  if (stage) {
+    if (String(override.cutoutHeight || '').trim()) stage.style.setProperty('--category-cutout-height', `${safeAdminImageNumber(override.cutoutHeight, 78, 30, 100)}%`);
+    if (String(override.cutoutLeft || '').trim()) stage.style.setProperty('--category-cutout-x', `${safeAdminImageNumber(override.cutoutLeft, 50, 0, 100)}%`);
+    if (String(override.cutoutBottom || '').trim()) stage.style.setProperty('--category-cutout-bottom', `${safeAdminImageNumber(override.cutoutBottom, 22, 0, 60)}%`);
+    if (String(override.logoWidth || '').trim()) stage.style.setProperty('--category-logo-width', `${safeAdminImageNumber(override.logoWidth, 82, 30, 100)}%`);
+    if (String(override.logoTop || '').trim()) stage.style.setProperty('--category-logo-top', `${safeAdminImageNumber(override.logoTop, -4, -20, 40)}%`);
+  }
   if (override.originalHeight) {
     const overrideHeight = parseHeightToInches(String(override.originalHeight)) || parseInt(override.originalHeight, 10);
     if (overrideHeight) builder.dataset.originalHeight = String(overrideHeight);
@@ -3551,14 +3580,15 @@ function getInlineAdminLivePageEdits() {
 }
 
 function getInlineAdminPageEdits() {
+  const publishedPageEdits = window.mvpluxPublishedAdminSettings?.pageVisualStates?.[inlineAdminPageKey()] || {};
   const livePageEdits = getInlineAdminLivePageEdits();
 
   if (!isInlineAdminEditingEnabled()) {
-    return {};
+    return { ...publishedPageEdits };
   }
 
   const draftPageEdits = getInlineAdminDraft()[inlineAdminPageKey()] || {};
-  return { ...livePageEdits, ...draftPageEdits };
+  return { ...publishedPageEdits, ...livePageEdits, ...draftPageEdits };
 }
 
 function inlineAdminPageKey() {
@@ -3788,12 +3818,7 @@ function applyInlineAdminEdits() {
       if (safeSrc) element.src = safeSrc;
     }
     if (element.tagName === 'IMG' && !isInlineAdminBackgroundImage(element)) {
-      ensureInlineAdminImageBaseTransform(element);
-      element.style.setProperty('--admin-x', `${safeAdminImageNumber(edit.x, 0, -140, 140)}px`);
-      element.style.setProperty('--admin-y', `${safeAdminImageNumber(edit.y, 0, -140, 140)}px`);
-      element.style.setProperty('--admin-scale', safeAdminImageNumber(edit.scale, 1, 0.45, 2.1));
-      element.style.setProperty('--admin-rotate', `${safeAdminImageNumber(edit.rotate, 0, -28, 28)}deg`);
-      element.classList.add('admin-transformable-image');
+      applyImageVisualState(element, edit);
     }
   });
 }
@@ -3809,6 +3834,29 @@ function safeAdminImageNumber(value, fallback, min, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.min(max, Math.max(min, number));
+}
+
+function normalizeImageVisualState(state = {}) {
+  return {
+    x: safeAdminImageNumber(state.x, 0, -140, 140),
+    y: safeAdminImageNumber(state.y, 0, -140, 140),
+    scale: safeAdminImageNumber(state.scale, 1, 0.45, 2.1),
+    rotate: safeAdminImageNumber(state.rotate, 0, -28, 28),
+    locked: !!state.locked
+  };
+}
+
+function applyImageVisualState(image, state = {}) {
+  if (!image || isInlineAdminBackgroundImage(image)) return;
+  const normalized = normalizeImageVisualState(state);
+  ensureInlineAdminImageBaseTransform(image);
+  image._adminImageState = normalized;
+  image.style.setProperty('--admin-x', `${normalized.x}px`);
+  image.style.setProperty('--admin-y', `${normalized.y}px`);
+  image.style.setProperty('--admin-scale', normalized.scale);
+  image.style.setProperty('--admin-rotate', `${normalized.rotate}deg`);
+  image.classList.add('admin-transformable-image');
+  image.classList.toggle('admin-image-locked', normalized.locked && isInlineAdminEditingEnabled());
 }
 
 function ensureInlineAdminImageBaseTransform(image) {
@@ -3978,21 +4026,7 @@ function renderInlineAdminImageState(image) {
     return;
   }
 
-  const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
-  if (!image.style.getPropertyValue('--admin-base-transform')) {
-    const baseTransform = image.closest('.category-featured-art, .standee-hero-art')
-      ? 'translateX(-50%)'
-      : 'translate(0, 0)';
-    image.style.setProperty('--admin-base-transform', baseTransform);
-  }
-  const baseTransform = image.style.getPropertyValue('--admin-base-transform') || 'translate(0, 0)';
-  const transform = `${baseTransform} translate(${state.x}px, ${state.y}px) scale(${state.scale}) rotate(${state.rotate}deg)`;
-  image.style.setProperty('--admin-x', `${state.x}px`);
-  image.style.setProperty('--admin-y', `${state.y}px`);
-  image.style.setProperty('--admin-scale', state.scale);
-  image.style.setProperty('--admin-rotate', `${state.rotate}deg`);
-  image.style.setProperty('transform', transform, 'important');
-  image.classList.toggle('admin-image-locked', !!state.locked);
+  applyImageVisualState(image, image._adminImageState);
   if (image === inlineAdminSelectedImage) updateInlineAdminResizeHandle();
   updateInlineAdminLockButtons();
 }
@@ -4397,6 +4431,7 @@ function deleteInlineAdminCard(card) {
   const customProducts = getAdminCustomProducts();
   const customIndex = customProducts.findIndex((product) => product.slug === customSlug);
   if (customIndex >= 0) {
+    if (!window.confirm('Delete this display-card record? Its physical image file will not be deleted.')) return;
     const nextProducts = customProducts.filter((product) => product.slug !== customSlug);
     localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(nextProducts));
     updateLiveAdminSettingsLocal({ customProducts: nextProducts });
@@ -4406,8 +4441,14 @@ function deleteInlineAdminCard(card) {
     return;
   }
 
-  setInlineAdminCardHidden(card, true);
-  updateInlineAdminToolbarState('Built-in card hidden');
+  const slug = getCardProductAdminSlug(card) || card.dataset.productId || getCardAdminKey(card);
+  if (!slug || !window.confirm('Delete this card record? Its physical image file will not be deleted.')) return;
+  const deletedProducts = [...new Set([...getAdminDeletedProducts(), slug])];
+  localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
+  updateLiveAdminSettingsLocal({ deletedProducts });
+  saveLiveAdminSettings({ deletedProducts });
+  card.remove();
+  updateInlineAdminToolbarState('Card record deleted; image file retained');
 }
 
 function getInlineAdminSelectedCard() {
@@ -4847,31 +4888,39 @@ function ensureInlineAdminCardControls() {
     const controls = document.createElement('div');
     controls.className = 'admin-card-controls';
     const managedProductSlug = card.matches('.category-page .category-card[data-product-id]') ? card.dataset.productId : '';
+    const homepageDisplayCard = Boolean(card.closest('#shop .featured-category-row'));
     controls.innerHTML = `
       ${managedProductSlug ? `
-        <a href="admin.html#product-${managedProductSlug}">Edit Product</a>
-        <button type="button" data-admin-card-action="remove-section">Remove from This Section</button>
-        <button type="button" data-admin-card-action="move-product-left">Move Left</button>
-        <button type="button" data-admin-card-action="move-product-right">Move Right</button>
-        <button type="button" data-admin-card-action="move-product-up">Move Up</button>
-        <button type="button" data-admin-card-action="move-product-down">Move Down</button>
-        <button type="button" data-admin-card-action="delete-product">Delete Product</button>
+        <button type="button" data-admin-card-action="remove-section" title="Remove from this category">Remove</button>
+        <button type="button" data-admin-card-action="move-product-left" title="Move left">←</button>
+        <button type="button" data-admin-card-action="move-product-right" title="Move right">→</button>
+        <button type="button" data-admin-card-action="move-product-up" title="Move up">↑</button>
+        <button type="button" data-admin-card-action="move-product-down" title="Move down">↓</button>
+        <details class="admin-card-more"><summary>More</summary><div>
+          <a href="admin.html#product-${managedProductSlug}">Edit Product</a>
+          <button type="button" data-admin-card-action="delete-product">Delete Product</button>
+        </div></details>
       ` : `
         <button type="button" data-admin-card-action="hide-toggle">Hide</button>
-        <button type="button" data-admin-card-action="delete-card">Delete</button>
+        ${homepageDisplayCard ? '<button type="button" data-admin-card-action="remove-display" title="Remove from homepage display">Remove</button>' : ''}
       `}
-      ${card.closest('#shop .featured-category-row') ? `
-        <button type="button" data-admin-card-action="move-left">Move Left</button>
-        <button type="button" data-admin-card-action="move-right">Move Right</button>
-        <button type="button" data-admin-card-action="move-up">Move Up</button>
-        <button type="button" data-admin-card-action="move-down">Move Down</button>
+      ${homepageDisplayCard ? `
+        <button type="button" data-admin-card-action="move-left" title="Move left">←</button>
+        <button type="button" data-admin-card-action="move-right" title="Move right">→</button>
+        <button type="button" data-admin-card-action="move-up" title="Move up">↑</button>
+        <button type="button" data-admin-card-action="move-down" title="Move down">↓</button>
+        <details class="admin-card-more"><summary>More</summary><div>
+          <a href="admin.html#product-${getCardAdminKey(card)}">Edit Card</a>
+          <button type="button" data-admin-card-action="delete-card">Delete Record</button>
+        </div></details>
       ` : ''}
-      <a href="admin.html#create-card">Add Card</a>
     `;
     controls.addEventListener('click', (event) => {
-      event.preventDefault();
       event.stopPropagation();
-      const action = event.target.closest('[data-admin-card-action]')?.dataset.adminCardAction;
+      const actionControl = event.target.closest('[data-admin-card-action]');
+      if (!actionControl) return;
+      event.preventDefault();
+      const action = actionControl.dataset.adminCardAction;
       if (action === 'hide-toggle') {
         setInlineAdminCardHidden(card, !isCardHiddenByAdmin(card));
         ensureInlineAdminCardControls();
@@ -4879,6 +4928,12 @@ function ensureInlineAdminCardControls() {
       if (action === 'delete-card') {
         deleteInlineAdminCard(card);
         ensureInlineAdminCardControls();
+      }
+      if (action === 'remove-display') {
+        if (window.confirm('Remove this card from the homepage display? The record and physical image file will be preserved.')) {
+          setInlineAdminCardHidden(card, true);
+          ensureInlineAdminCardControls();
+        }
       }
       if (action?.startsWith('move-')) {
         if (action.startsWith('move-product-')) {
@@ -5086,33 +5141,31 @@ function installInlineAdminMode() {
     </div>
     <div class="admin-anywhere-toolbar">
       <div class="admin-toolbar-group admin-toolbar-main">
-        <strong>Admin Tools</strong>
         <button type="button" class="admin-toolbar-drag-handle" id="adminToolbarDragHandle" title="Drag admin tools">Move</button>
         <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-layout" id="adminInlineLayout" title="Move tools to side or bottom" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-layout'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-layout'); return false;">Side</button>
         <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-size" id="adminInlineToolSize" title="Make tools smaller or normal size" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-size'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-size'); return false;">Small</button>
         <button type="button" class="admin-tool-control admin-toolbar-toggle" data-admin-toolbar-action="toggle-toolbar-collapsed" id="adminInlineHideTools" title="Hide or show admin tools" onpointerdown="runInlineAdminToolbarAction('toggle-toolbar-collapsed'); return false;" onclick="runInlineAdminToolbarAction('toggle-toolbar-collapsed'); return false;">Hide</button>
       </div>
       <div class="admin-toolbar-group admin-toolbar-status">
-        <small>Auto Save</small>
         <span id="adminInlineStatus">Auto-save is on</span>
       </div>
       <div class="admin-toolbar-group admin-toolbar-image">
-        <small>Image</small>
         <span id="adminInlineSelected">Select an image</span>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="center" id="adminInlineCenter" title="Center selected image" onpointerdown="runInlineAdminToolbarAction('center'); return false;" onclick="runInlineAdminToolbarAction('center'); return false;">Center</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="reset-image" id="adminInlineResetImage" title="Back to normal" onpointerdown="runInlineAdminToolbarAction('reset-image'); return false;" onclick="runInlineAdminToolbarAction('reset-image'); return false;">Normal</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="lock-image" id="adminInlineLockImage" title="Lock selected image in place" onpointerdown="runInlineAdminToolbarAction('lock-image'); return false;" onclick="runInlineAdminToolbarAction('lock-image'); return false;">Lock</button>
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="unlock-all-images" id="adminInlineUnlockAll" title="Unlock all locked images" onpointerdown="runInlineAdminToolbarAction('unlock-all-images'); return false;" onclick="runInlineAdminToolbarAction('unlock-all-images'); return false;">Unlock All</button>
+        <button type="button" class="admin-tool-control" data-admin-toolbar-action="unlock-all-images" id="adminInlineUnlockAll" title="Unlock all locked images" onpointerdown="runInlineAdminToolbarAction('unlock-all-images'); return false;" onclick="runInlineAdminToolbarAction('unlock-all-images'); return false;">Unlock</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller" onpointerdown="runInlineAdminToolbarAction('size-down'); return false;" onclick="runInlineAdminToolbarAction('size-down'); return false;">Size -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger" onpointerdown="runInlineAdminToolbarAction('size-up'); return false;" onclick="runInlineAdminToolbarAction('size-up'); return false;">Size +</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left" onpointerdown="runInlineAdminToolbarAction('rotate-left'); return false;" onclick="runInlineAdminToolbarAction('rotate-left'); return false;">Rotate -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onpointerdown="runInlineAdminToolbarAction('rotate-right'); return false;" onclick="runInlineAdminToolbarAction('rotate-right'); return false;">Rotate +</button>
       </div>
       <div class="admin-toolbar-group admin-toolbar-page">
-        <small>Page</small>
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image" onpointerdown="runInlineAdminToolbarAction('copy-code'); return false;" onclick="runInlineAdminToolbarAction('copy-code'); return false;">Copy CSS</button>
         <a href="admin.html#create-card">Add Card</a>
         <a href="admin.html">Orders/Admin</a>
+        <details class="admin-toolbar-more"><summary>More</summary><div>
+          <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image" onpointerdown="runInlineAdminToolbarAction('copy-code'); return false;" onclick="runInlineAdminToolbarAction('copy-code'); return false;">Copy CSS</button>
+        </div></details>
       </div>
       <button type="button" class="admin-toolbar-resize-handle" id="adminToolbarResizeHandle" title="Resize admin tools" aria-label="Resize admin tools"></button>
     </div>
