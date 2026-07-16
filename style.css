@@ -5511,6 +5511,78 @@ button[aria-label="Add to cart"]::before {
   gap: 12px;
 }
 
+.admin-category-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.admin-category-options label,
+.admin-visible-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-category-options input,
+.admin-visible-toggle input {
+  width: 18px !important;
+  height: 18px !important;
+  margin: 0;
+}
+
+.admin-category-order-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.admin-product-card select {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid rgba(244,208,111,0.46);
+  border-radius: 8px;
+  background: rgba(0,0,0,0.72);
+  color: #fff;
+}
+
+.admin-draft-preview {
+  position: static;
+  width: 100%;
+  max-width: 100%;
+  max-height: 360px;
+  transform: none;
+}
+
+.admin-publish-review,
+.admin-publish-history {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(244,208,111,0.28);
+}
+
+.admin-publish-review label {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-publish-history-item {
+  padding: 14px;
+  border: 1px solid rgba(244,208,111,0.3);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.28);
+}
+
+.admin-publish-history-item pre {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #eee;
+}
+
 .admin-product-card fieldset {
   display: grid;
   gap: 10px;

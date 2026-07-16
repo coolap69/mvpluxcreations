@@ -1868,11 +1868,103 @@ function ensureProductAdminSlugs(root = document) {
   });
 }
 
+window.mvpluxPublishedAdminSettings = null;
+
+function sanitizePublishedProduct(slug, value) {
+  if (!slug || !value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const product = { slug };
+  if (typeof value.title === 'string' && value.title.trim()) product.title = value.title;
+  if (typeof value.description === 'string') product.description = value.description;
+  if (typeof value.cutoutImage === 'string' && value.cutoutImage.trim()) product.cutoutImage = value.cutoutImage;
+  if (typeof value.backgroundImage === 'string' && value.backgroundImage.trim()) product.backgroundImage = value.backgroundImage;
+  if ((typeof value.originalHeight === 'string' || typeof value.originalHeight === 'number') && String(value.originalHeight).trim()) {
+    product.originalHeight = value.originalHeight;
+  }
+  if (typeof value.visible === 'boolean') product.visible = value.visible;
+  if (value.custom === true) product.custom = true;
+  if (Array.isArray(value.categories)) {
+    product.categories = [...new Set(value.categories.filter((category) => typeof category === 'string' && category))];
+  }
+  if (value.categoryOrder && typeof value.categoryOrder === 'object' && !Array.isArray(value.categoryOrder)) {
+    product.categoryOrder = Object.fromEntries(
+      Object.entries(value.categoryOrder).filter(([category, order]) => category && Number.isFinite(Number(order)))
+    );
+  }
+  return product;
+}
+
+function validatePublishedAdminSettings(value) {
+  const snapshot = value?.snapshot;
+  if (!snapshot || snapshot.version !== 1 || !snapshot.products || typeof snapshot.products !== 'object' || Array.isArray(snapshot.products)) {
+    return null;
+  }
+
+  const products = {};
+  Object.entries(snapshot.products).forEach(([slug, product]) => {
+    const sanitized = sanitizePublishedProduct(slug, product);
+    if (sanitized) products[slug] = sanitized;
+  });
+
+  const homepageCategoryOrder = Array.isArray(snapshot.homepageCategoryOrder)
+    ? snapshot.homepageCategoryOrder
+      .filter(Array.isArray)
+      .map((row) => row.filter((slug) => typeof slug === 'string' && slug))
+    : [];
+
+  return {
+    version: 1,
+    products,
+    deletedProducts: Array.isArray(snapshot.deletedProducts)
+      ? [...new Set(snapshot.deletedProducts.filter((slug) => typeof slug === 'string' && slug))]
+      : [],
+    homepageCategoryOrder
+  };
+}
+
+async function loadPublishedAdminSettings() {
+  window.mvpluxPublishedAdminSettings = null;
+  try {
+    const response = await fetch('published-admin-settings.json', { cache: 'no-store' });
+    if (!response.ok) return null;
+    const snapshot = validatePublishedAdminSettings(await response.json());
+    if (!snapshot) return null;
+    window.mvpluxPublishedAdminSettings = snapshot;
+    return snapshot;
+  } catch (error) {
+    window.mvpluxPublishedAdminSettings = null;
+    return null;
+  }
+}
+
+function getPublishedProducts() {
+  return window.mvpluxPublishedAdminSettings?.products || {};
+}
+
 function getAdminProducts() {
   try {
+    const publishedProducts = getPublishedProducts();
+    if (!isInlineAdminEditingEnabled()) return { ...publishedProducts };
     const liveProducts = window.mvpluxLiveAdminSettings?.products || {};
-    const localProducts = JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
-    return { ...liveProducts, ...localProducts };
+    const localProducts = JSON.parse(
+      localStorage.getItem('mvpluxAdminProducts') || '{}'
+    );
+
+    const productSlugs = new Set([
+      ...Object.keys(publishedProducts),
+      ...Object.keys(liveProducts),
+      ...Object.keys(localProducts)
+    ]);
+
+    return Object.fromEntries(
+      [...productSlugs].map((slug) => [
+        slug,
+        {
+          ...(publishedProducts[slug] || {}),
+          ...(liveProducts[slug] || {}),
+          ...(localProducts[slug] || {})
+        }
+      ])
+    );
   } catch (error) {
     return {};
   }
@@ -1888,14 +1980,55 @@ function getAdminCoupons() {
 
 function getAdminCustomProducts() {
   try {
+    if (!isInlineAdminEditingEnabled()) {
+      return Object.values(getPublishedProducts()).filter((product) => product.custom === true);
+    }
     return window.mvpluxLiveAdminSettings?.customProducts || JSON.parse(localStorage.getItem('mvpluxAdminCustomProducts') || '[]');
   } catch (error) {
     return [];
   }
 }
 
+function getAdminDeletedProducts() {
+  try {
+    if (!isInlineAdminEditingEnabled()) return window.mvpluxPublishedAdminSettings?.deletedProducts || [];
+    return window.mvpluxLiveAdminSettings?.deletedProducts
+      || JSON.parse(localStorage.getItem('mvpluxDeletedProducts') || '[]');
+  } catch (error) {
+    return [];
+  }
+}
+
+function getManagedProductCatalog() {
+  const overrides = getAdminProducts();
+  const defaults = window.MVPLUX_PRODUCT_CATALOG || [];
+  const customProducts = getAdminCustomProducts();
+  const deleted = new Set(getAdminDeletedProducts());
+  const bySlug = new Map();
+
+  [...defaults, ...customProducts].forEach((product) => {
+    const slug = product?.slug;
+    if (!slug || deleted.has(slug)) return;
+    const merged = { ...product, ...(overrides[slug] || {}) };
+    merged.categories = Array.isArray(merged.categories) ? [...new Set(merged.categories)] : [];
+    merged.categoryOrder = merged.categoryOrder && typeof merged.categoryOrder === 'object'
+      ? { ...merged.categoryOrder }
+      : {};
+    bySlug.set(slug, merged);
+  });
+
+  return [...bySlug.values()];
+}
+
+function getManagedProductBySlug(slug) {
+  return getManagedProductCatalog().find((product) => product.slug === slug) || null;
+}
+
 function getAdminArchivedProducts() {
   try {
+    if (!isInlineAdminEditingEnabled()) {
+      return Object.values(getPublishedProducts()).filter((product) => product.visible === false).map((product) => product.slug);
+    }
     return window.mvpluxLiveAdminSettings?.savedForLaterProducts || JSON.parse(localStorage.getItem('mvpluxAdminArchivedProducts') || '[]');
   } catch (error) {
     return [];
@@ -2032,7 +2165,7 @@ const standeeCatalog = {
     description: 'A classic horror-host style cutout for spooky rooms, events, and collectors.',
     backgrounds: [
       { name: 'Classic Cutout', image: 'images/MovieCharacterStandees/Elvira/elviranew.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
-      { name: 'Alternate Cutout', image: 'images/MovieCharacterStandees/Elvira/elviraforother.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' }
+      { name: 'Alternate Cutout', image: 'images/MovieCharacterStandees/Elvira1/elviraforother.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' }
     ],
     facts: ['Original height reference: 5\'7".', 'Great for Halloween displays and movie rooms.', 'Background choices can shift the mood quickly.', 'Smaller custom sizes are available for tables and shelves.']
   },
@@ -2078,13 +2211,13 @@ const standeeCatalog = {
   'celebration-display': {
     title: 'Celebration Display Standee',
     category: 'Faith & Celebration Standees',
-    image: 'images/FaithCelebrationStandees/Jesus/J13D.png',
+    image: 'images/FaithCelebrationStandees/Jesus1/J13D.png',
     originalHeight: 72,
     description: 'A warm celebration display for faith events, holidays, and family gatherings.',
     backgrounds: [
-      { name: 'Celebration', image: 'images/FaithCelebrationStandees/Jesus/J13D.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
-      { name: 'Light', image: 'images/FaithCelebrationStandees/Jesus/J13LN.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
-      { name: 'Print', image: 'images/FaithCelebrationStandees/Jesus/JesusPrint.png', stage: 'images/FanBackgrounds/gallery-poster-premium.png' }
+      { name: 'Celebration', image: 'images/FaithCelebrationStandees/Jesus1/J13D.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
+      { name: 'Light', image: 'images/FaithCelebrationStandees/Jesus1/J13LN.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
+      { name: 'Print', image: 'images/FaithCelebrationStandees/Jesus3/JesusPrint.png', stage: 'images/FanBackgrounds/gallery-poster-premium.png' }
     ],
     facts: ['Original height reference: 6\'.', 'Good for church events and home displays.', 'Gold and premium backgrounds are available.', 'Custom sizes help fit smaller rooms.']
   },
@@ -2298,7 +2431,7 @@ function selectSportsOption(index) {
 
   if (!product || !option || !mainStage || !mainImage) return;
 
-  mainStage.style.backgroundImage = `url('${getShowroomStageBackground()}')`;
+  mainStage.style.backgroundImage = `url('${product.backgroundImage || getShowroomStageBackground()}')`;
   mainStage.style.setProperty('--showroom-image-height', product.displayFit?.imageHeight || '80%');
   mainImage.src = option.image;
   mainImage.alt = `${product.name} ${option.label} standee preview`;
@@ -2314,10 +2447,31 @@ function selectSportsOption(index) {
 }
 
 function selectSportsStandee(key, shouldScroll = true) {
-  const product = sportsStandeeCatalog[key];
+  const managed = getManagedProductBySlug(key);
+  const catalogProduct = sportsStandeeCatalog[key];
+  const product = catalogProduct ? {
+    ...catalogProduct,
+    name: managed?.title || catalogProduct.name,
+    description: managed?.description || catalogProduct.description,
+    originalHeight: managed?.originalHeight || catalogProduct.originalHeight,
+    backgroundImage: managed?.backgroundImage || catalogProduct.backgroundImage,
+    options: catalogProduct.options.map((option, index) => (
+      index === 0 && managed?.cutoutImage ? { ...option, image: managed.cutoutImage } : option
+    ))
+  } : (managed ? {
+    name: managed.title,
+    sport: 'Sports Standee',
+    description: managed.description,
+    originalHeight: managed.originalHeight,
+    backgroundImage: managed.backgroundImage,
+    displayFit: {},
+    facts: [`Original size: ${formatHeight(managed.originalHeight || 78)}`, 'Sports', 'Options: 1 image'],
+    options: [{ label: 'No Background', image: managed.cutoutImage }]
+  } : null);
   const optionStrip = document.getElementById('sportsOptionStrip');
   if (!product || !optionStrip) return;
 
+  sportsStandeeCatalog[key] = product;
   selectedSportsStandeeKey = key;
 
   const sport = document.getElementById('sportsSelectedSport');
@@ -2408,7 +2562,94 @@ function isNoBackgroundOption(option) {
 
 function getKnownStandeeForCard(card) {
   const title = card.querySelector('h3')?.textContent.trim() || '';
-  return standeeCatalog[getStandeeSlug(title)] || null;
+  const slug = card.dataset.productId || getStandeeSlug(title);
+  const managed = getManagedProductBySlug(slug);
+  const detailed = standeeCatalog[slug];
+  return detailed ? { ...detailed, ...managed, backgrounds: detailed.backgrounds, slug } : managed;
+}
+
+function getCurrentProductCategory() {
+  const file = window.location.pathname.split('/').pop() || 'index.html';
+  return (window.MVPLUX_PRODUCT_CATEGORIES || []).find((category) => (
+    category.page === file || category.pages?.includes(file)
+  ))?.key || '';
+}
+
+function managedCategoryCardMarkup(product) {
+  return `
+    <article class="category-card" data-product-id="${product.slug}" data-admin-card-key="${product.slug}">
+      <img src="${product.cutoutImage}" alt="${product.title} standee">
+      <h3>${product.title}</h3>
+      <button type="button">Select Standee</button>
+    </article>
+  `;
+}
+
+function renderManagedCategoryPageProducts() {
+  const category = getCurrentProductCategory();
+  const page = document.querySelector('.category-page');
+  if (!category || !page) return;
+
+  const products = getManagedProductCatalog()
+    .filter((product) => product.visible !== false && product.categories.includes(category))
+    .sort((a, b) => {
+      const aOrder = Number(a.categoryOrder?.[category]);
+      const bOrder = Number(b.categoryOrder?.[category]);
+      return (Number.isFinite(aOrder) ? aOrder : Number.MAX_SAFE_INTEGER)
+        - (Number.isFinite(bOrder) ? bOrder : Number.MAX_SAFE_INTEGER)
+        || a.title.localeCompare(b.title);
+    });
+
+  if (category === 'sports') {
+    const productsBySlug = new Map(products.map((product) => [product.slug, product]));
+    const existingProductSlugs = new Set();
+    page.querySelectorAll('[data-sports-player]').forEach((card) => {
+      const product = productsBySlug.get(card.dataset.sportsPlayer);
+      card.hidden = !product;
+      if (!product) return;
+      if (card.matches('.sport-type-card')) return;
+      existingProductSlugs.add(product.slug);
+      card.dataset.productId = product.slug;
+      card.dataset.adminCardKey = product.slug;
+      const image = card.querySelector('img');
+      const title = card.querySelector('h3');
+      if (image && product.cutoutImage) image.src = product.cutoutImage;
+      if (title && product.title) title.textContent = product.title;
+    });
+
+    page.querySelectorAll('.sports-player-grid').forEach((grid) => {
+      [...grid.children]
+        .sort((a, b) => products.findIndex((product) => product.slug === a.dataset.sportsPlayer)
+          - products.findIndex((product) => product.slug === b.dataset.sportsPlayer))
+        .forEach((card) => grid.append(card));
+    });
+
+    const additionalProducts = products.filter((product) => !existingProductSlugs.has(product.slug));
+    let additionalPanel = page.querySelector('#additional-sports-products');
+    if (!additionalProducts.length) {
+      additionalPanel?.remove();
+      return;
+    }
+    if (!additionalPanel) {
+      additionalPanel = document.createElement('section');
+      additionalPanel.id = 'additional-sports-products';
+      additionalPanel.className = 'category-panel sports-roster-panel';
+      additionalPanel.innerHTML = '<h2>Additional Sports Standees</h2><div class="category-grid sports-player-grid"></div>';
+      page.querySelector('.sports-roster-panel:last-of-type')?.insertAdjacentElement('afterend', additionalPanel);
+    }
+    additionalPanel.querySelector('.category-grid').innerHTML = additionalProducts.map((product) => `
+      <article class="category-card sports-player-card" data-sports-player="${product.slug}" data-product-id="${product.slug}" data-admin-card-key="${product.slug}">
+        <img src="${product.cutoutImage}" alt="${product.title} standee">
+        <h3>${product.title}</h3>
+        <button type="button" onclick="selectSportsStandee('${product.slug}')">Select Standee</button>
+      </article>
+    `).join('');
+    return;
+  }
+
+  const grid = page.querySelector('.category-panel .category-grid');
+  if (!grid) return;
+  grid.innerHTML = products.map(managedCategoryCardMarkup).join('');
 }
 
 function renderGenericCategoryOptions(state, options) {
@@ -2424,7 +2665,7 @@ function selectGenericCategoryOption(state, options, index) {
   const option = options[index];
   if (!option) return;
 
-  state.stage.style.backgroundImage = `url('${getGenericCategoryFallbackStage()}')`;
+  state.stage.style.backgroundImage = `url('${option.stage || getGenericCategoryFallbackStage()}')`;
   state.image.src = option.image;
   state.image.alt = `${state.name.textContent} ${option.label} preview`;
 
@@ -2440,13 +2681,17 @@ function buildGenericCategoryOptions(card, backgroundImages) {
       .map((background) => ({
         label: background.name,
         image: background.image,
-        stage: getGenericCategoryFallbackStage()
+        stage: product.backgroundImage || background.stage || getGenericCategoryFallbackStage()
       }))
       .sort((a, b) => Number(isNoBackgroundOption(b)) - Number(isNoBackgroundOption(a)));
   }
 
   const cardImage = card.querySelector('img')?.getAttribute('src') || '';
-  return [{ label: 'No Background', image: cardImage, stage: getGenericCategoryFallbackStage() }];
+  return [{
+    label: 'No Background',
+    image: cardImage,
+    stage: product?.backgroundImage || getGenericCategoryFallbackStage()
+  }];
 }
 
 function setupGenericCategoryShowroom() {
@@ -2580,7 +2825,26 @@ function getStandeeSlug(value) {
 }
 
 function getStandeeBySlug(slug) {
-  return standeeCatalog[slug] || {
+  const managed = getManagedProductBySlug(slug);
+  const detailed = standeeCatalog[slug];
+  if (managed || detailed) {
+    const product = { ...(managed || {}), ...(detailed || {}), slug };
+    product.title = managed?.title || detailed?.title || slug;
+    product.description = managed?.description || detailed?.description || '';
+    product.originalHeight = managed?.originalHeight || detailed?.originalHeight || 78;
+    product.image = managed?.cutoutImage || detailed?.image;
+    product.category = (managed?.categories || [])
+      .map((key) => (window.MVPLUX_PRODUCT_CATEGORIES || []).find((category) => category.key === key)?.label)
+      .filter(Boolean)
+      .join(' / ') || detailed?.category || 'MVPLUXCREATIONS Standee';
+    product.backgrounds = detailed?.backgrounds?.length
+      ? detailed.backgrounds
+      : [{ name: 'Selected Background', image: product.image, stage: managed?.backgroundImage || getShowroomStageBackground() }];
+    product.facts = detailed?.facts || ['Original size sets the starting price.', 'Custom sizes are available.'];
+    return product;
+  }
+
+  return {
     slug,
     title: (slug || 'Custom Standee').replace(/-/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
     category: 'MVPLUXCREATIONS Standee',
@@ -2780,7 +3044,7 @@ function renderAdminManagedCards() {
     }
   });
 
-  getAdminCustomProducts().filter((product) => !archived.has(product.slug)).forEach((product) => {
+  getAdminCustomProducts().filter((product) => product.visible !== false && !archived.has(product.slug)).forEach((product) => {
     if (grid.querySelector(`[data-admin-slug="${product.slug}"]`)) return;
     grid.insertAdjacentHTML('beforeend', productCardMarkup(product));
   });
@@ -2797,6 +3061,7 @@ function applyAdminProductOverrides(builder) {
   const description = card.querySelector('.product-description');
   const cutout = card.querySelector('.product-cutout');
   const stage = card.querySelector('.product-stage-preview');
+  const stageImage = card.querySelector('.product-stage-bg');
   const logo = card.querySelector('.product-stage-logo');
 
   if (override.title && titleLink) titleLink.textContent = override.title;
@@ -2807,6 +3072,10 @@ function applyAdminProductOverrides(builder) {
   }
   if (override.backgroundImage && stage) {
     stage.style.backgroundImage = `url("${override.backgroundImage}")`;
+    if (stageImage) {
+      stageImage.src = override.backgroundImage;
+      stageImage.dataset.adminFallbackSrc = override.backgroundImage;
+    }
   }
   if (override.stageBackgroundPosition && stage) stage.style.backgroundPosition = override.stageBackgroundPosition;
   if (override.originalHeight) {
@@ -3215,6 +3484,7 @@ let inlineAdminAutoSaveTimer = null;
 
 const INLINE_ADMIN_DRAFT_KEY = 'mvpluxInlineAdminDraftV2';
 const INLINE_HIDDEN_CARDS_KEY = 'mvpluxInlineHiddenCardsV2';
+const HOMEPAGE_CATEGORY_ORDER_EDIT_KEY = 'homepage-category-card-order';
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -3249,8 +3519,13 @@ function getInlineAdminLivePageEdits() {
 }
 
 function getInlineAdminPageEdits() {
-  const draftPageEdits = getInlineAdminDraft()[inlineAdminPageKey()] || {};
   const livePageEdits = getInlineAdminLivePageEdits();
+
+  if (!isInlineAdminEditingEnabled()) {
+    return {};
+  }
+
+  const draftPageEdits = getInlineAdminDraft()[inlineAdminPageKey()] || {};
   return { ...livePageEdits, ...draftPageEdits };
 }
 
@@ -3380,11 +3655,6 @@ async function loadInlineAdminLiveEdits() {
 
   inlineAdminLiveEdits = inlineAdminLiveEdits || {};
   inlineAdminLiveEdits[page] = data?.edits || {};
-  if (data?.edits && Object.keys(data.edits).length) {
-    const draft = getInlineAdminDraft();
-    draft[page] = { ...data.edits, ...(draft[page] || {}) };
-    writeInlineAdminEdits(draft);
-  }
   return inlineAdminLiveEdits;
 }
 
@@ -3454,6 +3724,8 @@ function applyInlineAdminEdits() {
   const pageEdits = getInlineAdminPageEdits();
 
   Object.entries(pageEdits).forEach(([key, edit]) => {
+    if (edit?.type === 'homepageCategoryOrder') return;
+
     if (edit?.type === 'originalHeight') {
       const builder = [...document.querySelectorAll('.size-builder')].find((item) => getBuilderAdminSlug(item) === edit.slug);
       const inches = parseHeightToInches(String(edit.originalHeight || '')) || parseInt(edit.originalHeight || '0', 10);
@@ -3464,6 +3736,7 @@ function applyInlineAdminEdits() {
     const element = document.querySelector(`[data-admin-edit="${key}"]`);
     if (!element) return;
     if (element.closest('.auth-form')) return;
+    if (element.matches('.product-image-link')) return;
     if (element.tagName === 'IMG' && isCodeControlledShopImage(element)) return;
     if (element.tagName !== 'IMG' && element.closest('[data-stage-choice]')) {
       if (applyOriginalSizeFromEditedText(element, edit.text || '')) return;
@@ -4396,6 +4669,141 @@ function applyInlineHiddenCards() {
   });
 }
 
+function getHomepageCategoryRows() {
+  return [...document.querySelectorAll('#shop .featured-category-row .product-carousel-row')];
+}
+
+function getHomepageCategoryCardOrder() {
+  if (!isInlineAdminEditingEnabled()) {
+    return window.mvpluxPublishedAdminSettings?.homepageCategoryOrder || [];
+  }
+  const edit = getInlineAdminPageEdits()[HOMEPAGE_CATEGORY_ORDER_EDIT_KEY];
+  return edit?.type === 'homepageCategoryOrder' && Array.isArray(edit.rows) ? edit.rows : [];
+}
+
+function applyHomepageCategoryCardOrder() {
+  const rows = getHomepageCategoryRows();
+  const savedRows = getHomepageCategoryCardOrder();
+  if (!rows.length || !savedRows.length) return;
+
+  const cardsByKey = new Map();
+  rows.forEach((row) => {
+    row.querySelectorAll(':scope > .product-card').forEach((card) => {
+      cardsByKey.set(getCardAdminKey(card), card);
+    });
+  });
+
+  savedRows.forEach((keys, rowIndex) => {
+    const row = rows[rowIndex];
+    if (!row || !Array.isArray(keys)) return;
+    keys.forEach((key) => {
+      const card = cardsByKey.get(key);
+      if (card) row.append(card);
+    });
+  });
+}
+
+function saveHomepageCategoryCardOrder() {
+  const rows = getHomepageCategoryRows();
+  if (!rows.length) return;
+
+  const edits = getInlineAdminDraft();
+  const page = inlineAdminPageKey();
+  edits[page] = edits[page] || {};
+  edits[page][HOMEPAGE_CATEGORY_ORDER_EDIT_KEY] = {
+    type: 'homepageCategoryOrder',
+    rows: rows.map((row) => [...row.querySelectorAll(':scope > .product-card')].map(getCardAdminKey))
+  };
+  writeInlineAdminEdits(edits);
+  inlineAdminDirty = true;
+  inlineAdminHasUnsavedLocalChanges = true;
+  updateInlineAdminToolbarState('Auto-saving card order...');
+  scheduleInlineAdminAutoSave();
+}
+
+function moveHomepageCategoryCard(card, direction) {
+  const row = card?.closest('#shop .product-carousel-row');
+  const rows = getHomepageCategoryRows();
+  const rowIndex = rows.indexOf(row);
+  if (!card || !row || rowIndex < 0) return false;
+
+  const rowCards = [...row.querySelectorAll(':scope > .product-card')];
+  const cardIndex = rowCards.indexOf(card);
+
+  if (direction === 'left' && cardIndex > 0) {
+    row.insertBefore(card, rowCards[cardIndex - 1]);
+  } else if (direction === 'right' && cardIndex >= 0 && cardIndex < rowCards.length - 1) {
+    row.insertBefore(rowCards[cardIndex + 1], card);
+  } else if (direction === 'up' && rowIndex > 0) {
+    rows[rowIndex - 1].append(card);
+  } else if (direction === 'down' && rowIndex < rows.length - 1) {
+    rows[rowIndex + 1].append(card);
+  } else {
+    return false;
+  }
+
+  saveHomepageCategoryCardOrder();
+  updateInlineAdminToolbarState(`Card moved ${direction}`);
+  return true;
+}
+
+function saveManagedProductPatch(slug, patch) {
+  const products = { ...getAdminProducts() };
+  products[slug] = { ...(products[slug] || {}), ...(patch || {}) };
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
+  updateLiveAdminSettingsLocal({ products });
+  saveLiveAdminSettings({ products });
+}
+
+function removeManagedProductFromCurrentSection(card) {
+  const slug = card?.dataset.productId;
+  const category = getCurrentProductCategory();
+  const product = getManagedProductBySlug(slug);
+  if (!slug || !category || !product) return;
+  saveManagedProductPatch(slug, { categories: product.categories.filter((key) => key !== category) });
+  card.remove();
+  updateInlineAdminToolbarState('Removed from this section; product retained');
+}
+
+function moveManagedProductInCurrentSection(card, offset) {
+  const slug = card?.dataset.productId;
+  const category = getCurrentProductCategory();
+  const products = getManagedProductCatalog()
+    .filter((product) => product.visible !== false && product.categories.includes(category))
+    .sort((a, b) => (Number(a.categoryOrder?.[category]) || 0) - (Number(b.categoryOrder?.[category]) || 0));
+  const index = products.findIndex((product) => product.slug === slug);
+  const target = products[index + offset];
+  if (index < 0 || !target) return;
+  const current = products[index];
+  const currentOrder = Number(current.categoryOrder?.[category]) || index;
+  const targetOrder = Number(target.categoryOrder?.[category]) || index + offset;
+  saveManagedProductPatch(current.slug, { categoryOrder: { ...(current.categoryOrder || {}), [category]: targetOrder } });
+  saveManagedProductPatch(target.slug, { categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder } });
+  renderManagedCategoryPageProducts();
+  updateInlineAdminToolbarState('Section order saved');
+}
+
+function deleteManagedProduct(card) {
+  const slug = card?.dataset.productId;
+  if (!slug || !window.confirm('Delete this product record? Its image file will not be deleted.')) return;
+  const customProducts = getAdminCustomProducts();
+  if (customProducts.some((product) => product.slug === slug)) {
+    const nextProducts = customProducts.filter((product) => product.slug !== slug);
+    localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(nextProducts));
+    updateLiveAdminSettingsLocal({ customProducts: nextProducts });
+    saveLiveAdminSettings({ customProducts: nextProducts });
+    card.remove();
+    updateInlineAdminToolbarState('Product deleted; image file retained');
+    return;
+  }
+  const deletedProducts = [...new Set([...getAdminDeletedProducts(), slug])];
+  localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
+  updateLiveAdminSettingsLocal({ deletedProducts });
+  saveLiveAdminSettings({ deletedProducts });
+  card.remove();
+  updateInlineAdminToolbarState('Product deleted; image file retained');
+}
+
 function ensureInlineAdminCardControls() {
   if (!document.body.classList.contains('admin-anywhere-on')) return;
   document.querySelectorAll('#shop .product-card, .category-page .category-card').forEach((card) => {
@@ -4406,9 +4814,26 @@ function ensureInlineAdminCardControls() {
     }
     const controls = document.createElement('div');
     controls.className = 'admin-card-controls';
+    const managedProductSlug = card.matches('.category-page .category-card[data-product-id]') ? card.dataset.productId : '';
     controls.innerHTML = `
-      <button type="button" data-admin-card-action="hide-toggle">Hide</button>
-      <button type="button" data-admin-card-action="delete-card">Delete</button>
+      ${managedProductSlug ? `
+        <a href="admin.html#product-${managedProductSlug}">Edit Product</a>
+        <button type="button" data-admin-card-action="remove-section">Remove from This Section</button>
+        <button type="button" data-admin-card-action="move-product-left">Move Left</button>
+        <button type="button" data-admin-card-action="move-product-right">Move Right</button>
+        <button type="button" data-admin-card-action="move-product-up">Move Up</button>
+        <button type="button" data-admin-card-action="move-product-down">Move Down</button>
+        <button type="button" data-admin-card-action="delete-product">Delete Product</button>
+      ` : `
+        <button type="button" data-admin-card-action="hide-toggle">Hide</button>
+        <button type="button" data-admin-card-action="delete-card">Delete</button>
+      `}
+      ${card.closest('#shop .featured-category-row') ? `
+        <button type="button" data-admin-card-action="move-left">Move Left</button>
+        <button type="button" data-admin-card-action="move-right">Move Right</button>
+        <button type="button" data-admin-card-action="move-up">Move Up</button>
+        <button type="button" data-admin-card-action="move-down">Move Down</button>
+      ` : ''}
       <a href="admin.html#create-card">Add Card</a>
     `;
     controls.addEventListener('click', (event) => {
@@ -4423,6 +4848,21 @@ function ensureInlineAdminCardControls() {
         deleteInlineAdminCard(card);
         ensureInlineAdminCardControls();
       }
+      if (action?.startsWith('move-')) {
+        if (action.startsWith('move-product-')) {
+          const direction = action.slice('move-product-'.length);
+          const columnCount = Math.max(1, getComputedStyle(card.parentElement).gridTemplateColumns.split(' ').length);
+          const offset = direction === 'left' ? -1
+            : direction === 'right' ? 1
+              : direction === 'up' ? -columnCount
+                : columnCount;
+          moveManagedProductInCurrentSection(card, offset);
+        } else {
+          moveHomepageCategoryCard(card, action.slice(5));
+        }
+      }
+      if (action === 'remove-section') removeManagedProductFromCurrentSection(card);
+      if (action === 'delete-product') deleteManagedProduct(card);
     });
     card.prepend(controls);
     const hideButton = controls.querySelector('[data-admin-card-action="hide-toggle"]');
@@ -4695,6 +5135,7 @@ function installInlineAdminMode() {
   document.querySelectorAll('h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
     if (element.closest('.admin-anywhere-toolbar, .cart-panel, .auth-form, script, style, .password-field')) return;
     if (element.closest('.fan-vote-meter, .fan-carousel-dots')) return;
+    if (element.matches('.product-image-link')) return;
     if (isLockedStageChoiceAdminText(element)) return;
     if (isLockedSizeBuilderAdminText(element)) return;
     inlineAdminKey(element);
@@ -4934,12 +5375,12 @@ function bindBuyerImagePurchaseJumps() {
 
 /* ---------------- PAGE INIT ---------------- */
 document.addEventListener('DOMContentLoaded', async function () {
-  clearLegacyAdminBrowserStorage();
   await syncSupabaseAuthState().catch(() => {});
   setupAuthState();
   updateCart();
   showInfoSlide(0);
   normalizeFrontPageCategoryLinks();
+  await loadPublishedAdminSettings();
   await loadLiveAdminSettings().catch(() => {});
   renderCouponBanner();
   bindProductCarouselDragGuard();
@@ -4964,7 +5405,9 @@ document.addEventListener('DOMContentLoaded', async function () {
   applyAdminExtraImages();
   applyInlineAdminEdits();
   renderAdminManagedCards();
+  applyHomepageCategoryCardOrder();
   applyInlineHiddenCards();
+  renderManagedCategoryPageProducts();
   renderStandeeDetailPage();
   setupGenericCategoryShowroom();
   initSportsShowroom();

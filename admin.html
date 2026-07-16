@@ -50,6 +50,17 @@
       </div>
     </section>
 
+    <section class="admin-panel" id="new-image-drafts">
+      <div class="admin-panel-header">
+        <div>
+          <h2>New Images Waiting for Setup</h2>
+          <p class="admin-note">Run <code>python3 sync-products.py</code> locally, then refresh this page. Images stay unpublished until you configure them.</p>
+        </div>
+        <button id="refreshImageDrafts" type="button">Refresh Inventory</button>
+      </div>
+      <div id="adminImageDrafts" class="admin-product-list"></div>
+    </section>
+
     <section class="admin-panel">
       <div class="admin-panel-header">
         <h2>Product Cards</h2>
@@ -134,12 +145,48 @@
       <p class="admin-note">Export saves your browser edits into one file. Restore Export puts that file back into this browser. Use the export when you want the changes added into the real website files.</p>
       <input id="importAdminChangesFile" type="file" accept="application/json,.json" hidden>
       <textarea id="adminExportPreview" class="admin-export-preview" readonly placeholder="Your exported changes will appear here."></textarea>
+
+      <div class="admin-publish-review">
+        <h3>GitHub Publish Summary</h3>
+        <p class="admin-note">This compares the current saved Admin state with the last successful publish. GitHub credentials stay in the server-side publisher.</p>
+        <label>
+          Commit title
+          <input id="adminCommitTitle" type="text" maxlength="72" value="Update product cards and categories">
+        </label>
+        <label>
+          Changes since previous publish
+          <textarea id="adminCommitSummary" rows="12" readonly></textarea>
+        </label>
+        <label>
+          Additional commit notes
+          <textarea id="adminCommitNotes" rows="4" placeholder="Optional notes to add after the generated change list"></textarea>
+        </label>
+        <label>
+          New image files to include
+          <textarea id="adminPublishImagePaths" rows="5" placeholder="One existing repository image path per line"></textarea>
+        </label>
+        <p class="admin-note">Only image paths listed above are sent to the secure publisher and added to this commit. Leave this blank when publishing settings only.</p>
+        <div class="admin-panel-actions">
+          <button id="refreshPublishSummary" type="button">Refresh Summary</button>
+          <button id="publishAdminChanges" type="button">Publish One GitHub Commit</button>
+        </div>
+      </div>
+
+      <div class="admin-publish-history">
+        <div class="admin-panel-header">
+          <h3>Publish History</h3>
+          <button id="refreshPublishHistory" type="button">Refresh Deployment Results</button>
+        </div>
+        <div id="adminPublishHistory"></div>
+      </div>
     </section>
+
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
   <script src="pricing.js?v=20260714-height-source"></script>
-  <script src="admin.js?v=20260709-card-admin-sync"></script>
+  <script src="product-catalog.js?v=20260715-product-categories"></script>
+  <script src="admin.js?v=20260715-image-drafts"></script>
 </body>
 </html>

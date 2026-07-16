@@ -1,0 +1,11 @@
+{
+  "publishedAt": null,
+  "title": "Default product catalog",
+  "changeSummary": "Uses product-catalog.js without published overrides.",
+  "snapshot": {
+    "version": 1,
+    "products": {},
+    "deletedProducts": [],
+    "homepageCategoryOrder": []
+  }
+}

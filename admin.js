@@ -20,7 +20,7 @@ const adminProducts = [
     title: 'People & Public Figure Standees',
     description: 'Plan actor, creator, historical figure, public speaker, or lookalike-style display ideas.',
     originalHeight: 78,
-    cutoutImage: 'images/FrontPageWeb/Music-TS-TSfinal.png',
+    cutoutImage: 'images/PeoplePublicFigureStandees/President/Nobackgroubd.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
@@ -89,35 +89,14 @@ const adminProducts = [
   }
 ];
 
-const adminCharacterProducts = [
-  { slug: 'kobe-bryant', title: 'Kobe Bryant Standee', originalHeight: 78, cutoutImage: 'images/SportLegendStandees/Kobe/KB1nobackground.png' },
-  { slug: 'basketball-center', title: 'Basketball Center Standee', originalHeight: 85, cutoutImage: 'images/SportLegendStandees/Shaq/shaqNEW.png' },
-  { slug: 'alternate-sports-pose', title: 'Alternate Sports Pose Standee', originalHeight: 85, cutoutImage: 'images/SportLegendStandees/Shaq/shaqDarker.png' },
-  { slug: 'endoskeleton-dark', title: 'Endoskeleton Dark Standee', originalHeight: 78, cutoutImage: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png' },
-  { slug: 'endoskeleton-white', title: 'Endoskeleton White Standee', originalHeight: 78, cutoutImage: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png' },
-  { slug: 'classic-horror-host', title: 'Classic Horror Host Standee', originalHeight: 67, cutoutImage: 'images/MovieCharacterStandees/Elvira/elviranew.png' },
-  { slug: 'red-jacket-performer', title: 'Red Jacket Performer Standee', originalHeight: 69, cutoutImage: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTR.png' },
-  { slug: 'zombie-dance-look', title: 'Zombie Dance Look Standee', originalHeight: 69, cutoutImage: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png' },
-  { slug: 'pop-star-look', title: 'Pop Star Look Standee', originalHeight: 71, cutoutImage: 'images/MusicArtistStandees/TaylorSwift/TSfinal.png' },
-  { slug: 'celebration-display', title: 'Celebration Display Standee', originalHeight: 72, cutoutImage: 'images/FaithCelebrationStandees/Jesus/J13D.png' },
-  { slug: 't-rex', title: 'T-Rex Standee', originalHeight: 72, cutoutImage: 'images/DinosaurCreatureStandees/JPRex.png' },
-  { slug: 'shaq', title: 'Shaquille O\'Neal Standee', originalHeight: 85, cutoutImage: 'images/SportLegendStandees/Shaq/shaqNEW.png' },
-  { slug: 'michael-jordan', title: 'Michael Jordan Standee', originalHeight: 78, cutoutImage: 'images/SportLegendStandees/MJordan/MJLAYUP1/Jordanemptybackground.png' },
-  { slug: 'michael-jordan-layup', title: 'Michael Jordan Layup Standee', originalHeight: 78, cutoutImage: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordantofixlblueightlowres.png' },
-  { slug: 'lionel-messi', title: 'Lionel Messi Standee', originalHeight: 67, cutoutImage: 'images/SportLegendStandees/Messi/Messi2nobackground.png' },
-  { slug: 'lionel-messi-classic', title: 'Lionel Messi Classic Standee', originalHeight: 67, cutoutImage: 'images/SportLegendStandees/Messi/Messinnone.png' },
-  { slug: 'tom-brady', title: 'Tom Brady Standee', originalHeight: 76, cutoutImage: 'images/SportLegendStandees/TomBrady/TB12Nobackground.png' }
-].map((product) => ({
-  ...product,
-  description: 'Character height controls the default price everywhere this standee appears.',
-  backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
-}));
+const adminCharacterProducts = (window.MVPLUX_PRODUCT_CATALOG || []).map((product) => ({ ...product }));
 
 function clearLegacyAdminBrowserStorage() {
   localStorage.removeItem('mvpluxAdminAnywhereLegacy');
 }
 
 let adminLiveSettings = null;
+let adminHomepageLiveEdits = {};
 
 function getAdminClient() {
   return window.getMvpluxSupabaseClient?.() || null;
@@ -141,12 +120,12 @@ async function loadAdminLiveSettings() {
 
   const { data, error } = await client
     .from('site_edits')
-    .select('edits')
-    .eq('page_key', 'admin-global')
-    .maybeSingle();
+    .select('page_key, edits')
+    .in('page_key', ['admin-global', 'index.html']);
 
   if (error) return null;
-  adminLiveSettings = data?.edits || {};
+  adminLiveSettings = data?.find((row) => row.page_key === 'admin-global')?.edits || {};
+  adminHomepageLiveEdits = data?.find((row) => row.page_key === 'index.html')?.edits || {};
   return adminLiveSettings;
 }
 
@@ -165,6 +144,7 @@ async function saveAdminSettingsLive(patch) {
   }
 
   const nextSettings = updateAdminLiveSettings(patch);
+  queueMicrotask(() => renderPublishSummary());
   const { error } = await client
     .from('site_edits')
     .upsert({
@@ -282,6 +262,18 @@ function writeArchivedProducts(slugs) {
   return slugs;
 }
 
+function readDeletedProducts() {
+  return getAdminLiveValue('deletedProducts', readJsonStorage('mvpluxDeletedProducts', []));
+}
+
+function writeDeletedProducts(slugs) {
+  const deletedProducts = [...new Set(slugs || [])];
+  localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
+  updateAdminLiveSettings({ deletedProducts });
+  saveAdminSettingsLive({ deletedProducts });
+  return deletedProducts;
+}
+
 function readPriceSettings() {
   return getAdminLiveValue('priceSettings', readJsonStorage('mvpluxAdminPriceSettings', {}));
 }
@@ -330,6 +322,10 @@ function buildAdminExport() {
     products: readAdminProducts(),
     customProducts: readCustomProducts(),
     savedForLaterProducts: readArchivedProducts(),
+    deletedProducts: readDeletedProducts(),
+    imageDrafts: readImageDraftEdits(),
+    dismissedImageDrafts: readImageDraftPaths('dismissedImageDrafts'),
+    configuredImagePaths: readImageDraftPaths('configuredImagePaths'),
     priceSettings: readPriceSettings(),
     extraImages: readExtraImages(),
     coupons: readCoupons(),
@@ -345,12 +341,381 @@ function renderAdminExportPreview(exportData = buildAdminExport()) {
   return json;
 }
 
+function normalizedCategoryOrder(order = {}) {
+  return Object.fromEntries(
+    Object.entries(order || {})
+      .filter(([, value]) => Number.isFinite(Number(value)))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => [key, Number(value)])
+  );
+}
+
+function publishImageReference(value) {
+  const reference = String(value || '');
+  if (!reference.startsWith('data:image/')) return reference;
+  let hash = 2166136261;
+  for (let index = 0; index < reference.length; index += 1) {
+    hash ^= reference.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const mime = reference.slice(5, reference.indexOf(';') > 5 ? reference.indexOf(';') : 32);
+  return `admin-upload:${mime}:${reference.length}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function publishableProduct(product = {}, archived = false) {
+  return {
+    slug: product.slug,
+    ...(product.custom === true ? { custom: true } : {}),
+    title: String(product.title || product.slug || 'Untitled product'),
+    description: String(product.description || ''),
+    cutoutImage: publishImageReference(product.cutoutImage),
+    backgroundImage: publishImageReference(product.backgroundImage),
+    originalHeight: String(product.originalHeight || ''),
+    categories: [...new Set(product.categories || [])].sort(),
+    visible: !archived && product.visible !== false,
+    categoryOrder: normalizedCategoryOrder(product.categoryOrder)
+  };
+}
+
+function buildDefaultPublishBaseline() {
+  const products = [...adminProducts, ...adminCharacterProducts];
+  return {
+    version: 1,
+    products: Object.fromEntries(products.map((product) => [product.slug, publishableProduct(product)])),
+    deletedProducts: [],
+    homepageCategoryOrder: []
+  };
+}
+
+function buildCurrentPublishSnapshot() {
+  const saved = readAdminProducts();
+  const archived = new Set(readArchivedProducts());
+  const deleted = new Set(readDeletedProducts());
+  const products = {};
+
+  allAdminProducts().forEach((product) => {
+    if (!product?.slug || deleted.has(product.slug)) return;
+    const value = { ...product, ...(saved[product.slug] || {}) };
+    products[product.slug] = publishableProduct(value, archived.has(product.slug));
+  });
+
+  const homepageDraft = readJsonStorage('mvpluxInlineAdminDraftV2', {})?.['index.html']?.['homepage-category-card-order'];
+  const homepageOrder = homepageDraft?.type === 'homepageCategoryOrder'
+    ? homepageDraft
+    : adminHomepageLiveEdits?.['homepage-category-card-order'];
+
+  return {
+    version: 1,
+    products,
+    deletedProducts: [...deleted].sort(),
+    homepageCategoryOrder: homepageOrder?.type === 'homepageCategoryOrder' && Array.isArray(homepageOrder.rows)
+      ? homepageOrder.rows.map((row) => [...row])
+      : []
+  };
+}
+
+function categoryPublishLabel(key) {
+  return (window.MVPLUX_PRODUCT_CATEGORIES || []).find((category) => category.key === key)?.label || key;
+}
+
+function productPublishTitle(product, fallbackSlug = '') {
+  return product?.title || fallbackSlug.replace(/-/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatPublishedHeight(value) {
+  const text = String(value || '').trim();
+  return /^\d+$/.test(text) ? `${text}"` : text || 'not set';
+}
+
+function addPublishImageLine(lines, seenImages, prefix, path) {
+  if (!path) return;
+  lines.push(`${prefix}: ${path}`);
+  seenImages.add(path);
+}
+
+function summarizeHomepageOrder(beforeRows = [], afterRows = []) {
+  if (JSON.stringify(beforeRows) === JSON.stringify(afterRows)) return [];
+  if (!beforeRows.length || !afterRows.length) return ['Changed homepage category card order'];
+
+  const beforePositions = new Map();
+  beforeRows.forEach((row, rowIndex) => row.forEach((slug, index) => beforePositions.set(slug, `${rowIndex}:${index}`)));
+  const titles = new Map(adminProducts.map((product) => [product.slug, product.title]));
+  const changes = [];
+  afterRows.forEach((row, rowIndex) => row.forEach((slug, index) => {
+    if (beforePositions.get(slug) === `${rowIndex}:${index}`) return;
+    changes.push(`Moved ${titles.get(slug) || productPublishTitle(null, slug)} to row ${rowIndex + 1}, position ${index + 1}`);
+  }));
+  return changes.length ? changes : ['Changed homepage category card order'];
+}
+
+function generatePublishChanges(before, after) {
+  const lines = [];
+  const seenImages = new Set();
+  const beforeProducts = before?.products || {};
+  const afterProducts = after?.products || {};
+  const slugs = [...new Set([...Object.keys(beforeProducts), ...Object.keys(afterProducts)])].sort();
+
+  slugs.forEach((slug) => {
+    const previous = beforeProducts[slug];
+    const current = afterProducts[slug];
+    const title = productPublishTitle(current || previous, slug);
+
+    if (!previous && current) {
+      lines.push(`Created product/card: ${title}`);
+      addPublishImageLine(lines, seenImages, `Added cutout image for ${title}`, current.cutoutImage);
+      addPublishImageLine(lines, seenImages, `Added background image for ${title}`, current.backgroundImage);
+      if (current.categories.length) {
+        lines.push(`Assigned ${title} to ${current.categories.map(categoryPublishLabel).join(' and ')}`);
+      }
+      if (!current.visible) lines.push(`Created ${title} as hidden`);
+      return;
+    }
+
+    if (previous && !current) {
+      lines.push(`Deleted product/card: ${title}`);
+      return;
+    }
+
+    if (previous.title !== current.title) lines.push(`Changed title from ${previous.title} to ${current.title}`);
+    if (previous.description !== current.description) lines.push(`Changed description for ${title}`);
+    if (previous.originalHeight !== current.originalHeight) {
+      lines.push(`Changed ${title} original height from ${formatPublishedHeight(previous.originalHeight)} to ${formatPublishedHeight(current.originalHeight)}`);
+    }
+    if (previous.cutoutImage !== current.cutoutImage) {
+      lines.push(`Changed cutout image for ${title} from ${previous.cutoutImage || 'not set'} to ${current.cutoutImage || 'not set'}`);
+      if (current.cutoutImage) seenImages.add(current.cutoutImage);
+    }
+    if (previous.backgroundImage !== current.backgroundImage) {
+      lines.push(`Changed background image for ${title} from ${previous.backgroundImage || 'not set'} to ${current.backgroundImage || 'not set'}`);
+      if (current.backgroundImage) seenImages.add(current.backgroundImage);
+    }
+    if (previous.visible !== current.visible) lines.push(`${current.visible ? 'Showed' : 'Hid'} ${title}`);
+
+    const previousCategories = new Set(previous.categories || []);
+    const currentCategories = new Set(current.categories || []);
+    const addedCategories = [...currentCategories].filter((category) => !previousCategories.has(category));
+    const removedCategories = [...previousCategories].filter((category) => !currentCategories.has(category));
+    if (addedCategories.length) lines.push(`Assigned ${title} to ${addedCategories.map(categoryPublishLabel).join(' and ')}`);
+    if (removedCategories.length) lines.push(`Removed ${title} from ${removedCategories.map(categoryPublishLabel).join(' and ')}`);
+
+    const orderedCategories = new Set([
+      ...Object.keys(previous.categoryOrder || {}),
+      ...Object.keys(current.categoryOrder || {})
+    ]);
+    orderedCategories.forEach((category) => {
+      const oldOrder = previous.categoryOrder?.[category];
+      const newOrder = current.categoryOrder?.[category];
+      if (oldOrder === newOrder || !currentCategories.has(category)) return;
+      lines.push(`Moved ${title} in ${categoryPublishLabel(category)} to position ${Number(newOrder) + 1}`);
+    });
+  });
+
+  lines.push(...summarizeHomepageOrder(before?.homepageCategoryOrder, after?.homepageCategoryOrder));
+  return [...new Set(lines)];
+}
+
+function defaultPublishTitle(changes) {
+  if (changes.length && changes.every((line) => /image/i.test(line))) return 'Update product images';
+  return 'Update product cards and categories';
+}
+
+let currentPublishReview = null;
+let adminPublishedBaseline = null;
+
+function normalizePublishedBaseline(snapshot) {
+  const baseline = buildDefaultPublishBaseline();
+  if (!snapshot || snapshot.version !== 1 || !snapshot.products || typeof snapshot.products !== 'object') return baseline;
+  Object.entries(snapshot.products).forEach(([slug, product]) => {
+    if (!product || typeof product !== 'object' || Array.isArray(product)) return;
+    baseline.products[slug] = { ...(baseline.products[slug] || {}), ...product, slug };
+  });
+  (Array.isArray(snapshot.deletedProducts) ? snapshot.deletedProducts : []).forEach((slug) => {
+    delete baseline.products[slug];
+  });
+  baseline.deletedProducts = Array.isArray(snapshot.deletedProducts) ? [...snapshot.deletedProducts] : [];
+  baseline.homepageCategoryOrder = Array.isArray(snapshot.homepageCategoryOrder)
+    ? snapshot.homepageCategoryOrder.map((row) => Array.isArray(row) ? [...row] : [])
+    : [];
+  return baseline;
+}
+
+async function loadPublishedPublishBaseline() {
+  try {
+    const response = await fetch('published-admin-settings.json', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Published settings file is unavailable.');
+    const value = await response.json();
+    adminPublishedBaseline = normalizePublishedBaseline(value?.snapshot);
+  } catch (error) {
+    adminPublishedBaseline = buildDefaultPublishBaseline();
+  }
+  return adminPublishedBaseline;
+}
+
+function selectedPublishImagePaths() {
+  const value = document.getElementById('adminPublishImagePaths')?.value || '';
+  return [...new Set(value.split(/\r?\n/).map((path) => path.trim()).filter(Boolean))];
+}
+
+function validatePublishImagePath(path) {
+  return /^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i.test(path)
+    && !path.includes('..')
+    && !path.includes('\\');
+}
+
+function renderPublishSummary() {
+  const before = adminPublishedBaseline || buildDefaultPublishBaseline();
+  const snapshot = buildCurrentPublishSnapshot();
+  const selectedImages = selectedPublishImagePaths();
+  const invalidImages = selectedImages.filter((path) => !validatePublishImagePath(path));
+  const changes = [
+    ...generatePublishChanges(before, snapshot),
+    ...selectedImages.filter(validatePublishImagePath).map((path) => `Added image file: ${path}`)
+  ];
+  if (invalidImages.length) changes.push(...invalidImages.map((path) => `Invalid image path (will not publish): ${path}`));
+  const summary = changes.map((line) => `- ${line}`).join('\n');
+  const titleInput = document.getElementById('adminCommitTitle');
+  const summaryInput = document.getElementById('adminCommitSummary');
+  const publishButton = document.getElementById('publishAdminChanges');
+  if (titleInput && (!currentPublishReview || !titleInput.value.trim())) titleInput.value = defaultPublishTitle(changes);
+  if (summaryInput) summaryInput.value = summary || 'No product changes since the previous publish.';
+  if (publishButton) publishButton.disabled = changes.length === 0 || invalidImages.length > 0;
+  currentPublishReview = { snapshot, changes, summary, selectedImages, invalidImages };
+  return currentPublishReview;
+}
+
+function escapeAdminHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderPublishHistory() {
+  const container = document.getElementById('adminPublishHistory');
+  if (!container) return;
+  const history = getAdminLiveValue('publishHistory', []);
+  if (!history.length) {
+    container.innerHTML = '<p class="admin-note">No GitHub publishes have been recorded yet.</p>';
+    return;
+  }
+  container.innerHTML = [...history].reverse().map((entry) => {
+    const hash = /^[a-f0-9]{7,40}$/i.test(entry.commitHash || '') ? entry.commitHash : '';
+    const commit = hash
+      ? `<a href="https://github.com/coolap69/mvpluxcreations/commit/${hash}" target="_blank" rel="noopener">${hash.slice(0, 7)}</a>`
+      : 'Unavailable';
+    return `
+      <article class="admin-publish-history-item">
+        <h4>${escapeAdminHtml(entry.title || 'Admin publish')}</h4>
+        <p>${escapeAdminHtml(entry.date || '')} · Commit ${commit} · Deployment: ${escapeAdminHtml(entry.deploymentResult || 'queued')}</p>
+        <pre>${escapeAdminHtml(entry.changeSummary || '')}</pre>
+      </article>
+    `;
+  }).join('');
+}
+
+async function callAdminPublisher(payload) {
+  const client = getAdminClient();
+  const projectUrl = window.MVPLUX_SUPABASE?.url;
+  if (!client?.auth || !projectUrl) throw new Error('Supabase is unavailable.');
+  const { data } = await client.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) throw new Error('Sign in as admin before publishing.');
+  const response = await fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'GitHub publish failed.');
+  return result;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function loadSelectedPublishImages(paths) {
+  const files = [];
+  for (const path of paths) {
+    if (!validatePublishImagePath(path)) throw new Error(`Invalid image path: ${path}`);
+    const response = await fetch(path, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Could not load selected image: ${path}`);
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType && !contentType.startsWith('image/')) throw new Error(`Selected path is not an image: ${path}`);
+    files.push({ path, content: arrayBufferToBase64(await response.arrayBuffer()) });
+  }
+  return files;
+}
+
+async function publishAdminChanges() {
+  const review = renderPublishSummary();
+  if (!review.changes.length || review.invalidImages.length) return;
+  const title = document.getElementById('adminCommitTitle')?.value.trim();
+  const notes = document.getElementById('adminCommitNotes')?.value.trim();
+  if (!title) {
+    setStatus('Add a short commit title before publishing.');
+    return;
+  }
+  const body = `${review.summary}${notes ? `\n\nNotes:\n${notes}` : ''}`;
+  if (!window.confirm(`Publish one GitHub commit titled "${title}"?`)) return;
+
+  setStatus('Loading explicitly selected images...');
+  try {
+    const imageFiles = await loadSelectedPublishImages(review.selectedImages);
+    setStatus('Publishing one GitHub commit...');
+    const result = await callAdminPublisher({
+      action: 'publish',
+      title,
+      body,
+      changeSummary: review.summary,
+      snapshot: review.snapshot,
+      imageFiles
+    });
+    updateAdminLiveSettings({
+      lastPublishedSnapshot: review.snapshot,
+      publishHistory: result.publishHistory || []
+    });
+    document.getElementById('adminCommitNotes').value = '';
+    document.getElementById('adminPublishImagePaths').value = '';
+    adminPublishedBaseline = normalizePublishedBaseline(review.snapshot);
+    currentPublishReview = null;
+    renderPublishSummary();
+    renderPublishHistory();
+    setStatus(`Published commit ${result.commitHash?.slice(0, 7) || ''}. Deployment: ${result.deploymentResult || 'queued'}.`);
+  } catch (error) {
+    setStatus(error.message || 'GitHub publish failed.');
+  }
+}
+
+async function refreshPublishHistory() {
+  setStatus('Refreshing deployment results...');
+  try {
+    const result = await callAdminPublisher({ action: 'refresh-history' });
+    updateAdminLiveSettings({ publishHistory: result.publishHistory || [] });
+    renderPublishHistory();
+    setStatus('Deployment results refreshed.');
+  } catch (error) {
+    setStatus(error.message || 'Could not refresh deployment results.');
+  }
+}
+
 function applyAdminExport(data) {
   if (!data || typeof data !== 'object') throw new Error('Invalid export');
 
   writeAdminProducts(data.products || {});
   writeCustomProducts(data.customProducts || []);
   writeArchivedProducts(data.savedForLaterProducts || []);
+  writeDeletedProducts(data.deletedProducts || []);
+  writeImageDraftEdits(data.imageDrafts || {});
+  writeImageDraftPaths('dismissedImageDrafts', data.dismissedImageDrafts || []);
+  writeImageDraftPaths('configuredImagePaths', data.configuredImagePaths || []);
   writePriceSettings(data.priceSettings || {});
   writeExtraImages(data.extraImages || {});
   writeCoupons(data.coupons || []);
@@ -632,7 +997,11 @@ function updateAdminOriginalPrice(form, settings = readPriceSettings()) {
 }
 
 function allAdminProducts() {
-  return [...adminProducts, ...adminCharacterProducts, ...readCustomProducts()];
+  return [
+    ...adminProducts.map((product) => ({ ...product, categoryCard: true })),
+    ...adminCharacterProducts,
+    ...readCustomProducts()
+  ];
 }
 
 function makeSlug(title) {
@@ -655,7 +1024,10 @@ function createCustomProduct() {
     description: 'New custom standee card.',
     originalHeight: 72,
     cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg',
+    categories: [],
+    visible: false,
+    categoryOrder: {}
   });
   writeCustomProducts(products);
   renderAdminProducts();
@@ -676,14 +1048,16 @@ function restoreProduct(slug) {
   setStatus('Card restored.');
 }
 
-function deleteCustomProduct(slug) {
-  if (!window.confirm('Delete this custom card?')) return;
-  writeCustomProducts(readCustomProducts().filter((product) => product.slug !== slug));
+function deleteProduct(slug) {
+  if (!window.confirm('Delete this product record? Its image file will not be deleted.')) return;
+  const isCustom = readCustomProducts().some((product) => product.slug === slug);
+  if (isCustom) writeCustomProducts(readCustomProducts().filter((product) => product.slug !== slug));
   const products = readAdminProducts();
   delete products[slug];
   writeAdminProducts(products);
+  if (!isCustom) writeDeletedProducts([...readDeletedProducts(), slug]);
   renderAdminProducts();
-  setStatus('Custom card deleted and saved live.');
+  setStatus('Product record deleted. Its image file was not changed.');
 }
 
 function productPreviewMarkup(value) {
@@ -893,7 +1267,8 @@ function resizeImageFile(file) {
 
 function collectProductFormData(form) {
   const formData = new FormData(form);
-  const current = allAdminProducts().find((product) => product.slug === form.dataset.slug);
+  const base = allAdminProducts().find((product) => product.slug === form.dataset.slug) || {};
+  const current = { ...base, ...(readAdminProducts()[form.dataset.slug] || {}) };
   return {
     custom: Boolean(current?.custom),
     title: formData.get('title').trim(),
@@ -906,7 +1281,10 @@ function collectProductFormData(form) {
     cutoutBottom: formData.get('cutoutBottom').trim(),
     logoWidth: formData.get('logoWidth').trim(),
     logoTop: formData.get('logoTop').trim(),
-    stageBackgroundPosition: formData.get('stageBackgroundPosition').trim()
+    stageBackgroundPosition: formData.get('stageBackgroundPosition').trim(),
+    categories: current.categoryCard ? [] : formData.getAll('categories'),
+    visible: current.categoryCard ? current.visible !== false : formData.has('visible'),
+    categoryOrder: { ...(current.categoryOrder || {}) }
   };
 }
 
@@ -1033,6 +1411,95 @@ function renderSavedProducts() {
   });
 }
 
+function categoryAssignmentMarkup(value) {
+  const categories = window.MVPLUX_PRODUCT_CATEGORIES || [];
+  const selected = new Set(value.categories || []);
+  return `
+    <fieldset class="admin-category-controls">
+      <legend>Sections</legend>
+      <label class="admin-visible-toggle">
+        <input name="visible" type="checkbox" ${value.visible === false ? '' : 'checked'}>
+        Show this product in assigned sections
+      </label>
+      <details>
+        <summary>Add to Another Section</summary>
+        <div class="admin-category-options">
+          ${categories.map((category) => `
+            <label>
+              <input name="categories" type="checkbox" value="${category.key}" ${selected.has(category.key) ? 'checked' : ''}>
+              ${category.label}
+            </label>
+          `).join('')}
+        </div>
+      </details>
+      <div class="admin-category-order-row">
+        <label>
+          Current section
+          <select name="activeCategory">
+            ${categories.map((category) => `<option value="${category.key}" ${selected.has(category.key) ? 'selected' : ''}>${category.label}</option>`).join('')}
+          </select>
+        </label>
+        <button type="button" data-remove-section>Remove from This Section</button>
+        <button type="button" data-move-product="-1">Move Left</button>
+        <button type="button" data-move-product="1">Move Right</button>
+        <button type="button" data-move-product="-3">Move Up</button>
+        <button type="button" data-move-product="3">Move Down</button>
+      </div>
+    </fieldset>
+  `;
+}
+
+function setProductVisibility(form, visible) {
+  const input = form.querySelector('[name="visible"]');
+  if (input) input.checked = visible;
+  saveProductForm(form, visible ? 'Product shown in assigned sections.' : 'Product hidden from customer sections.');
+  renderAdminProducts();
+}
+
+function removeProductFromSelectedSection(form) {
+  const category = form.querySelector('[name="activeCategory"]')?.value;
+  const checkbox = form.querySelector(`[name="categories"][value="${category}"]`);
+  if (!category || !checkbox || !checkbox.checked) {
+    setStatus('That product is not assigned to the selected section.');
+    return;
+  }
+  checkbox.checked = false;
+  saveProductForm(form, 'Removed from this section without deleting the product.');
+  renderAdminProducts();
+}
+
+function moveProductInSelectedSection(form, offset) {
+  const category = form.querySelector('[name="activeCategory"]')?.value;
+  const slug = form.dataset.slug;
+  const saved = readAdminProducts();
+  const deleted = new Set(readDeletedProducts());
+  const products = allAdminProducts()
+    .filter((product) => !product.categoryCard && !deleted.has(product.slug))
+    .map((product) => ({ ...product, ...(saved[product.slug] || {}) }))
+    .filter((product) => product.visible !== false && (product.categories || []).includes(category))
+    .sort((a, b) => (Number(a.categoryOrder?.[category]) || 0) - (Number(b.categoryOrder?.[category]) || 0));
+  const index = products.findIndex((product) => product.slug === slug);
+  const target = products[index + offset];
+  if (index < 0 || !target) {
+    setStatus('That product is already at the edge of this section.');
+    return;
+  }
+
+  const currentOrder = Number(products[index].categoryOrder?.[category]) || index;
+  const targetOrder = Number(target.categoryOrder?.[category]) || index + offset;
+  saved[slug] = {
+    ...(saved[slug] || {}),
+    categoryOrder: { ...(products[index].categoryOrder || {}), [category]: targetOrder }
+  };
+  saved[target.slug] = {
+    ...(saved[target.slug] || {}),
+    categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder }
+  };
+  writeAdminProducts(saved);
+  renderAdminProducts();
+  setStatus('Product order saved for the selected section.');
+}
+
 function renderAdminProducts() {
   const container = document.getElementById('adminProducts');
   const saved = readAdminProducts();
@@ -1041,16 +1508,18 @@ function renderAdminProducts() {
 
   renderSavedProducts();
 
-  container.innerHTML = allAdminProducts().filter((product) => !archived.has(product.slug)).map((product) => {
+  const deleted = new Set(readDeletedProducts());
+  container.innerHTML = allAdminProducts().filter((product) => !archived.has(product.slug) && !deleted.has(product.slug)).map((product) => {
     const value = { ...product, ...(saved[product.slug] || {}) };
     return `
-      <form class="admin-product-card" data-slug="${product.slug}">
+      <form class="admin-product-card" id="product-${product.slug}" data-slug="${product.slug}">
         <div class="admin-product-heading">
           <h3>${product.title}</h3>
           <div class="admin-card-actions">
             <button type="submit">Save Product</button>
             <button type="button" data-archive-product="${product.slug}">Save for Later</button>
-            ${product.custom ? `<button type="button" data-delete-product="${product.slug}">Delete</button>` : ''}
+            ${product.categoryCard ? '' : `<button type="button" data-visibility-toggle="${value.visible === false ? 'show' : 'hide'}">${value.visible === false ? 'Show' : 'Hide'}</button>`}
+            ${product.categoryCard ? '' : `<button type="button" data-delete-product="${product.slug}">Delete Product</button>`}
           </div>
         </div>
         <div class="admin-product-layout">
@@ -1069,6 +1538,7 @@ function renderAdminProducts() {
                 <textarea name="description" rows="3">${value.description || ''}</textarea>
               </label>
             </fieldset>
+            ${product.categoryCard ? '' : categoryAssignmentMarkup(value)}
             <fieldset>
               <legend>Images</legend>
               <label>
@@ -1168,7 +1638,21 @@ function renderAdminProducts() {
     });
 
     form.querySelector('[data-delete-product]')?.addEventListener('click', (event) => {
-      deleteCustomProduct(event.target.dataset.deleteProduct);
+      deleteProduct(event.target.dataset.deleteProduct);
+    });
+
+    form.querySelector('[data-visibility-toggle]')?.addEventListener('click', (event) => {
+      setProductVisibility(form, event.target.dataset.visibilityToggle === 'show');
+    });
+
+    form.querySelector('[data-remove-section]')?.addEventListener('click', () => {
+      removeProductFromSelectedSection(form);
+    });
+
+    form.querySelectorAll('[data-move-product]').forEach((button) => {
+      button.addEventListener('click', () => {
+        moveProductInSelectedSection(form, Number(button.dataset.moveProduct));
+      });
     });
 
     form.addEventListener('submit', (event) => {
@@ -1260,13 +1744,189 @@ function setupCoupons() {
   });
 }
 
+let imageDraftInventory = [];
+
+function readImageDraftEdits() {
+  return getAdminLiveValue('imageDrafts', readJsonStorage('mvpluxImageDrafts', {}));
+}
+
+function writeImageDraftEdits(drafts) {
+  localStorage.setItem('mvpluxImageDrafts', JSON.stringify(drafts || {}));
+  updateAdminLiveSettings({ imageDrafts: drafts || {} });
+  saveAdminSettingsLive({ imageDrafts: drafts || {} });
+}
+
+function readImageDraftPaths(key) {
+  return getAdminLiveValue(key, readJsonStorage(`mvplux${key[0].toUpperCase()}${key.slice(1)}`, []));
+}
+
+function writeImageDraftPaths(key, paths) {
+  const uniquePaths = [...new Set(paths || [])];
+  localStorage.setItem(`mvplux${key[0].toUpperCase()}${key.slice(1)}`, JSON.stringify(uniquePaths));
+  updateAdminLiveSettings({ [key]: uniquePaths });
+  saveAdminSettingsLive({ [key]: uniquePaths });
+  return uniquePaths;
+}
+
+function imageDraftCategoryMarkup(selectedCategories = []) {
+  const selected = new Set(selectedCategories);
+  return (window.MVPLUX_PRODUCT_CATEGORIES || []).map((category) => `
+    <label>
+      <input name="categories" type="checkbox" value="${category.key}" ${selected.has(category.key) ? 'checked' : ''}>
+      ${category.label}
+    </label>
+  `).join('');
+}
+
+function collectImageDraftForm(form) {
+  const formData = new FormData(form);
+  const requestedSlug = formData.get('slug').trim();
+  return {
+    path: form.dataset.imagePath,
+    title: formData.get('title').trim(),
+    slug: requestedSlug ? makeSlug(requestedSlug) : '',
+    description: formData.get('description').trim(),
+    originalHeight: formData.get('originalHeight').trim(),
+    backgroundImage: formData.get('backgroundImage'),
+    categories: formData.getAll('categories')
+  };
+}
+
+function saveImageDraftForm(form) {
+  const drafts = readImageDraftEdits();
+  drafts[form.dataset.imagePath] = collectImageDraftForm(form);
+  writeImageDraftEdits(drafts);
+  setStatus('Unpublished image draft saved.');
+}
+
+function publishImageDraft(form) {
+  const draft = collectImageDraftForm(form);
+  if (!draft.title || !draft.slug || !draft.originalHeight) {
+    setStatus('Add a title, slug, and original height before publishing.');
+    return;
+  }
+  if (allAdminProducts().some((product) => product.slug === draft.slug)) {
+    setStatus('That slug already belongs to another product.');
+    return;
+  }
+
+  const products = readCustomProducts();
+  products.push({
+    slug: draft.slug,
+    custom: true,
+    title: draft.title,
+    description: draft.description || `Preview ${draft.title} with available sizes and display options.`,
+    cutoutImage: draft.path,
+    backgroundImage: draft.backgroundImage,
+    originalHeight: draft.originalHeight,
+    categories: draft.categories,
+    visible: draft.categories.length > 0,
+    categoryOrder: Object.fromEntries(draft.categories.map((category) => [category, 999]))
+  });
+  writeCustomProducts(products);
+  writeImageDraftPaths('configuredImagePaths', [...readImageDraftPaths('configuredImagePaths'), draft.path]);
+  const edits = readImageDraftEdits();
+  delete edits[draft.path];
+  writeImageDraftEdits(edits);
+  renderAdminProducts();
+  renderImageDrafts();
+  setStatus(draft.categories.length ? 'Product published to its selected sections.' : 'Product saved as an uncategorized Admin record.');
+}
+
+function deleteImageDraft(path) {
+  const drafts = readImageDraftEdits();
+  delete drafts[path];
+  writeImageDraftEdits(drafts);
+  writeImageDraftPaths('dismissedImageDrafts', [...readImageDraftPaths('dismissedImageDrafts'), path]);
+  renderImageDrafts();
+  setStatus('Draft removed. The image file was not changed.');
+}
+
+function renderImageDrafts() {
+  const container = document.getElementById('adminImageDrafts');
+  if (!container) return;
+  const edits = readImageDraftEdits();
+  const hiddenPaths = new Set([
+    ...readImageDraftPaths('dismissedImageDrafts'),
+    ...readImageDraftPaths('configuredImagePaths')
+  ]);
+  const drafts = imageDraftInventory.filter((draft) => draft?.path && !hiddenPaths.has(draft.path));
+
+  if (!drafts.length) {
+    container.innerHTML = '<p class="admin-note">No new unassociated images are waiting for setup.</p>';
+    return;
+  }
+
+  container.innerHTML = drafts.map((inventoryDraft) => {
+    const draft = { ...inventoryDraft, ...(edits[inventoryDraft.path] || {}) };
+    return `
+      <form class="admin-product-card admin-image-draft" data-image-path="${draft.path}">
+        <div class="admin-product-heading">
+          <h3>${draft.title || 'Unpublished image draft'}</h3>
+          <div class="admin-card-actions">
+            <button type="button" data-save-image-draft>Save Draft</button>
+            <button type="button" data-publish-image-draft>Publish</button>
+            <button type="button" data-delete-image-draft>Delete Draft</button>
+          </div>
+        </div>
+        <div class="admin-product-layout">
+          <div class="admin-card-preview"><img class="admin-preview-cutout admin-draft-preview" src="${draft.path}" alt="Unpublished image preview"></div>
+          <div class="admin-control-groups">
+            <label>Image path<input type="text" value="${draft.path}" readonly></label>
+            <label>Title<input name="title" type="text" value="${draft.title || ''}"></label>
+            <label>Slug<input name="slug" type="text" value="${draft.slug || ''}"></label>
+            <label>Description<textarea name="description" rows="3">${draft.description || ''}</textarea></label>
+            <label>Original height<input name="originalHeight" type="text" value="${draft.originalHeight || ''}" placeholder="6'6 or 78"></label>
+            <label>Background
+              <select name="backgroundImage">
+                <option value="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg">Sci-fi stage</option>
+                <option value="images/FanBackgrounds/top-favorite-stage-gold.png">Gold stage</option>
+                <option value="images/FanBackgrounds/top-favorite-stage-premium.png">Premium stage</option>
+                <option value="images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg">Clean stage</option>
+              </select>
+            </label>
+            <fieldset><legend>Category assignments</legend><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
+          </div>
+        </div>
+      </form>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.admin-image-draft').forEach((form) => {
+    const background = edits[form.dataset.imagePath]?.backgroundImage;
+    if (background) form.querySelector('[name="backgroundImage"]').value = background;
+    form.querySelector('[data-save-image-draft]')?.addEventListener('click', () => saveImageDraftForm(form));
+    form.querySelector('[data-publish-image-draft]')?.addEventListener('click', () => publishImageDraft(form));
+    form.querySelector('[data-delete-image-draft]')?.addEventListener('click', () => deleteImageDraft(form.dataset.imagePath));
+  });
+}
+
+async function loadImageDraftInventory() {
+  try {
+    const response = await fetch('product-drafts.json', { cache: 'no-store' });
+    imageDraftInventory = response.ok ? await response.json() : [];
+  } catch (error) {
+    imageDraftInventory = [];
+  }
+  renderImageDrafts();
+  renderPublishSummary();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   clearLegacyAdminBrowserStorage();
+  await loadImageDraftInventory();
   const hasAdminAccess = await requireSupabaseAdminAccess();
   await loadAdminLiveSettings().catch(() => {});
+  renderImageDrafts();
+  await loadPublishedPublishBaseline();
   renderAdminProducts();
   setupPriceRules();
   renderExtraImages();
+  renderPublishSummary();
+  renderPublishHistory();
+  if (window.location.hash.startsWith('#product-')) {
+    document.querySelector(window.location.hash)?.scrollIntoView({ block: 'start' });
+  }
   setupCoupons();
   if (hasAdminAccess) {
     refreshCommerceAdmin();
@@ -1289,6 +1949,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   document.getElementById('createAdminProduct')?.addEventListener('click', createCustomProduct);
+  document.getElementById('refreshImageDrafts')?.addEventListener('click', loadImageDraftInventory);
+  document.getElementById('refreshPublishSummary')?.addEventListener('click', renderPublishSummary);
+  document.getElementById('adminPublishImagePaths')?.addEventListener('input', renderPublishSummary);
+  document.getElementById('publishAdminChanges')?.addEventListener('click', publishAdminChanges);
+  document.getElementById('refreshPublishHistory')?.addEventListener('click', refreshPublishHistory);
 
   document.getElementById('enableAdminAnywhere')?.addEventListener('click', () => {
     localStorage.setItem('mvpluxAdminAnywhere', 'true');
