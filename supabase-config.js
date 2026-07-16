@@ -9,7 +9,14 @@ window.getMvpluxSupabaseClient = function getMvpluxSupabaseClient() {
 
   window.mvpluxSupabaseClient = window.supabase.createClient(
     window.MVPLUX_SUPABASE.url,
-    window.MVPLUX_SUPABASE.publishableKey
+    window.MVPLUX_SUPABASE.publishableKey,
+    {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    }
   );
 
   return window.mvpluxSupabaseClient;

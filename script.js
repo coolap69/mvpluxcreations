@@ -1588,31 +1588,105 @@ async function syncSupabaseAuthState() {
 async function signInCustomerWithSupabase(email, password) {
   const client = getSupabaseClient();
   if (!client?.auth) {
-    showSupabaseConnectionAlert('sign in');
-    return true;
+    return { ok: false, error: 'Supabase is unavailable. Check the connection and try again.' };
   }
 
   try {
     const { data, error } = await client.auth.signInWithPassword({ email, password });
     if (error) {
-      if (isSupabaseNetworkError(error)) {
-        showSupabaseConnectionAlert('sign in');
-        return true;
-      }
-      showSiteMessage(error.message || 'Could not sign in. Please check your email and password.', 'error');
-      return true;
+      return { ok: false, error: error.message || 'Could not sign in. Please check your email and password.' };
     }
 
     const user = data?.user;
     const screenName = user?.user_metadata?.screen_name || email.split('@')[0] || 'Guest';
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', screenName);
-    window.location.href = 'index.html';
+    return { ok: true, user };
   } catch (error) {
     console.warn('Supabase sign-in failed:', error);
-    showSupabaseConnectionAlert('sign in');
+    return { ok: false, error: error?.message || String(error) || 'Could not sign in.' };
   }
-  return true;
+}
+
+function getSignInReturnUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get('returnTo') || params.get('return') || params.get('redirect') || '';
+  if (!requested) return 'index.html';
+
+  try {
+    const target = new URL(requested, window.location.href);
+    const currentPage = window.location.pathname.split('/').pop()?.toLowerCase();
+    const targetPage = target.pathname.split('/').pop()?.toLowerCase();
+    if (target.origin !== window.location.origin || !['http:', 'https:'].includes(target.protocol)) return 'index.html';
+    if (!targetPage || targetPage === currentPage || targetPage === 'signup.html') return 'index.html';
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch (error) {
+    return 'index.html';
+  }
+}
+
+function setSignInStatus(message, type = 'info') {
+  const notice = document.getElementById('signedInNotice');
+  if (!notice) return;
+  notice.textContent = message;
+  notice.dataset.status = type;
+}
+
+function bindSignInForm() {
+  const signinForm = document.getElementById('signinForm');
+  if (!signinForm || signinForm.dataset.submitReady === 'true') return;
+  signinForm.dataset.submitReady = 'true';
+
+  signinForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (signinForm.dataset.submitting === 'true') return;
+
+    const email = document.getElementById('signinEmail')?.value.trim().toLowerCase() || '';
+    const password = document.getElementById('signinPassword')?.value || '';
+    const submitButton = signinForm.querySelector('button[type="submit"]');
+    const originalLabel = submitButton?.textContent || 'Sign In';
+
+    if (!email || !password) {
+      setSignInStatus('Enter both your email and password.', 'error');
+      return;
+    }
+
+    signinForm.dataset.submitting = 'true';
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Signing in…';
+    }
+    setSignInStatus('Signing in…');
+
+    const result = await signInCustomerWithSupabase(email, password);
+    if (result.ok) {
+      setSignInStatus('Signed in. Redirecting…', 'success');
+      window.location.assign(getSignInReturnUrl());
+      return;
+    }
+
+    setSignInStatus(result.error, 'error');
+    signinForm.dataset.submitting = 'false';
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = originalLabel;
+    }
+  });
+}
+
+function bindSignUpForm() {
+  const signupForm = document.getElementById('signupForm');
+  if (!signupForm || signupForm.dataset.submitReady === 'true') return;
+  signupForm.dataset.submitReady = 'true';
+
+  signupForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const screenName = document.getElementById('signupScreenName')?.value.trim() || 'Guest';
+    const email = document.getElementById('signupEmail')?.value.trim().toLowerCase() || '';
+    const password = document.getElementById('signupPassword')?.value.trim() || '';
+
+    await signUpCustomerWithSupabase(screenName, email, password);
+  });
 }
 
 async function signUpCustomerWithSupabase(screenName, email, password) {
@@ -1660,30 +1734,14 @@ async function signUpCustomerWithSupabase(screenName, email, password) {
 function setupAuthState() {
   cleanStaleAdminState();
 
-  const signinForm = document.getElementById('signinForm');
-  const signupForm = document.getElementById('signupForm');
   const signedInNotice = document.getElementById('signedInNotice');
+
+  bindSignInForm();
+  bindSignUpForm();
 
   if (signedInNotice && isAdminSignedIn()) {
     signedInNotice.innerHTML = `You are signed in as <strong>${getSignedInName()}</strong>. <button type="button" class="admin-inline-signout" data-admin-signout>Log Out</button>`;
   }
-
-  signinForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const email = document.getElementById('signinEmail')?.value.trim().toLowerCase() || '';
-    const password = document.getElementById('signinPassword')?.value.trim() || '';
-
-    await signInCustomerWithSupabase(email, password);
-  });
-
-  signupForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const screenName = document.getElementById('signupScreenName')?.value.trim() || 'Guest';
-    const email = document.getElementById('signupEmail')?.value.trim().toLowerCase() || '';
-    const password = document.getElementById('signupPassword')?.value.trim() || '';
-
-    await signUpCustomerWithSupabase(screenName, email, password);
-  });
 
   const signedInName = getSignedInName();
   const isSignedIn = Boolean(isAdminSignedIn() || isCustomerSignedIn());
@@ -5939,6 +5997,10 @@ function bindBuyerImagePurchaseJumps() {
 
 /* ---------------- PAGE INIT ---------------- */
 document.addEventListener('DOMContentLoaded', async function () {
+  const isAuthPage = Boolean(document.querySelector('.auth-page'));
+  bindSignInForm();
+  bindSignUpForm();
+  if (isAuthPage) return;
   await syncSupabaseAuthState().catch(() => {});
   setupAuthState();
   updateCart();
@@ -6003,8 +6065,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   applyInlineAdminEdits();
   renderAdminPrivatePreviewIndicator();
 
-  const isAuthPage = Boolean(document.querySelector('.auth-page'));
-  if (!isAuthPage && isInlineAdminEditingEnabled()) {
+  if (isInlineAdminEditingEnabled()) {
     checkCurrentUserAdminAccess({ showMessages: false })
       .then((canUseAdmin) => {
         if (canUseAdmin) {
