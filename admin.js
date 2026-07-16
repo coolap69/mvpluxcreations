@@ -97,6 +97,12 @@ function clearLegacyAdminBrowserStorage() {
 
 let adminLiveSettings = null;
 let adminHomepageLiveEdits = {};
+let adminSaveQueue = Promise.resolve(true);
+let adminSavePending = 0;
+let adminLastSaveSucceeded = null;
+let adminLastSaveError = '';
+let adminLatestPublishError = '';
+let adminPublishedFileState = { reachable: false, publishedAt: null, commitHash: '' };
 
 function getAdminClient() {
   return window.getMvpluxSupabaseClient?.() || null;
@@ -123,43 +129,65 @@ async function loadAdminLiveSettings() {
     .select('page_key, edits')
     .in('page_key', ['admin-global', 'index.html']);
 
-  if (error) return null;
+  if (error) {
+    adminLastSaveError = `Supabase reload failed: ${error.message || 'unknown error'}`;
+    renderAdminDiagnostics();
+    return null;
+  }
   adminLiveSettings = data?.find((row) => row.page_key === 'admin-global')?.edits || {};
   adminHomepageLiveEdits = data?.find((row) => row.page_key === 'index.html')?.edits || {};
   return adminLiveSettings;
 }
 
 async function saveAdminSettingsLive(patch) {
-  const client = getAdminClient();
-  if (!client?.from || !client?.auth) {
-    setStatus('Live save unavailable. Supabase is not ready.');
-    return false;
-  }
+  updateAdminLiveSettings(patch);
+  adminSavePending += 1;
+  renderAdminDiagnostics();
 
-  const { data: sessionData } = await client.auth.getSession();
-  const user = sessionData?.session?.user;
-  if (!user) {
-    setStatus('Sign in as admin to save live.');
-    return false;
-  }
+  const save = async () => {
+    const client = getAdminClient();
+    try {
+      if (!client?.from || !client?.auth) throw new Error('Supabase is not ready.');
+      const { data: sessionData, error: sessionError } = await client.auth.getSession();
+      if (sessionError) throw sessionError;
+      const user = sessionData?.session?.user;
+      if (!user) throw new Error('Sign in as admin to save live.');
 
-  const nextSettings = updateAdminLiveSettings(patch);
-  queueMicrotask(() => renderPublishSummary());
-  const { error } = await client
-    .from('site_edits')
-    .upsert({
-      page_key: 'admin-global',
-      edits: nextSettings,
-      updated_by: user.id,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'page_key' });
+      const nextSettings = { ...(adminLiveSettings || {}) };
+      const { error } = await client
+        .from('site_edits')
+        .upsert({
+          page_key: 'admin-global',
+          edits: nextSettings,
+          updated_by: user.id,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'page_key' });
+      if (error) throw error;
 
-  if (error) {
-    setStatus('Live save failed. Run the live admin SQL or check admin access.');
-    return false;
-  }
+      adminLastSaveSucceeded = true;
+      adminLastSaveError = '';
+      return true;
+    } catch (error) {
+      adminLastSaveSucceeded = false;
+      adminLastSaveError = error?.message || 'Unknown Supabase error.';
+      setStatus(`Live save failed: ${adminLastSaveError}`);
+      if (adminSavePending === 1) await loadAdminLiveSettings();
+      return false;
+    } finally {
+      adminSavePending = Math.max(0, adminSavePending - 1);
+      renderAdminDiagnostics();
+      renderPublishSummary();
+    }
+  };
 
-  return true;
+  const result = adminSaveQueue.then(save, save);
+  adminSaveQueue = result.then(() => true, () => true);
+  return result;
+}
+
+async function waitForAdminSaves() {
+  await adminSaveQueue;
+  return adminLastSaveSucceeded !== false;
 }
 
 async function requireSupabaseAdminAccess() {
@@ -232,10 +260,10 @@ function readAdminProducts() {
 
 function writeAdminProducts(products) {
   const cleanedProducts = cleanAdminProductMap(products);
-  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(cleanedProducts));
-  updateAdminLiveSettings({ products: cleanedProducts });
-  saveAdminSettingsLive({ products: cleanedProducts });
-  return cleanedProducts;
+  return saveAdminSettingsLive({ products: cleanedProducts }).then((saved) => {
+    if (saved) localStorage.setItem('mvpluxAdminProducts', JSON.stringify(cleanedProducts));
+    return saved ? cleanedProducts : null;
+  });
 }
 
 function readCustomProducts() {
@@ -256,10 +284,10 @@ function normalizeImageChoices(choices = []) {
 
 function writeCustomProducts(products) {
   const cleanedProducts = (products || []).map(withoutStoredProductPrice);
-  localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(cleanedProducts));
-  updateAdminLiveSettings({ customProducts: cleanedProducts });
-  saveAdminSettingsLive({ customProducts: cleanedProducts });
-  return cleanedProducts;
+  return saveAdminSettingsLive({ customProducts: cleanedProducts }).then((saved) => {
+    if (saved) localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(cleanedProducts));
+    return saved ? cleanedProducts : null;
+  });
 }
 
 function readArchivedProducts() {
@@ -267,10 +295,11 @@ function readArchivedProducts() {
 }
 
 function writeArchivedProducts(slugs) {
-  localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(slugs || []));
-  updateAdminLiveSettings({ savedForLaterProducts: slugs || [] });
-  saveAdminSettingsLive({ savedForLaterProducts: slugs || [] });
-  return slugs;
+  const values = slugs || [];
+  return saveAdminSettingsLive({ savedForLaterProducts: values }).then((saved) => {
+    if (saved) localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(values));
+    return saved ? values : null;
+  });
 }
 
 function readDeletedProducts() {
@@ -279,10 +308,10 @@ function readDeletedProducts() {
 
 function writeDeletedProducts(slugs) {
   const deletedProducts = [...new Set(slugs || [])];
-  localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
-  updateAdminLiveSettings({ deletedProducts });
-  saveAdminSettingsLive({ deletedProducts });
-  return deletedProducts;
+  return saveAdminSettingsLive({ deletedProducts }).then((saved) => {
+    if (saved) localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
+    return saved ? deletedProducts : null;
+  });
 }
 
 function readPriceSettings() {
@@ -394,6 +423,20 @@ function publishableProduct(product = {}, archived = false) {
   };
 }
 
+function publishableSnapshotProduct(baseProduct, value, archived) {
+  const published = publishableProduct(value, archived);
+  if (published.cutoutImage.startsWith('admin-upload:')) {
+    published.cutoutImage = publishImageReference(baseProduct.cutoutImage);
+  }
+  if (published.backgroundImage.startsWith('admin-upload:')) {
+    published.backgroundImage = publishImageReference(baseProduct.backgroundImage);
+  }
+  published.imageChoices = published.imageChoices.filter((choice) => (
+    !choice.image.startsWith('admin-upload:') && !String(choice.stage || '').startsWith('admin-upload:')
+  ));
+  return published;
+}
+
 function buildDefaultPublishBaseline() {
   return {
     version: 1,
@@ -416,7 +459,7 @@ function buildCurrentPublishSnapshot() {
     if (!product?.slug || deleted.has(product.slug)) return;
     const value = { ...product, ...(saved[product.slug] || {}) };
     const target = product.categoryCard ? categoryDisplayCards : products;
-    target[product.slug] = publishableProduct(value, archived.has(product.slug));
+    target[product.slug] = publishableSnapshotProduct(product, value, archived.has(product.slug));
   });
 
   const homepageDraft = readJsonStorage('mvpluxInlineAdminDraftV2', {})?.['index.html']?.['homepage-category-card-order'];
@@ -562,6 +605,7 @@ function defaultPublishTitle(changes) {
 
 let currentPublishReview = null;
 let adminPublishedBaseline = null;
+let adminLastSuccessfulSnapshot = null;
 
 function normalizePublishedBaseline(snapshot) {
   const baseline = buildDefaultPublishBaseline();
@@ -591,10 +635,70 @@ async function loadPublishedPublishBaseline() {
     if (!response.ok) throw new Error('Published settings file is unavailable.');
     const value = await response.json();
     adminPublishedBaseline = normalizePublishedBaseline(value?.snapshot);
+    adminLastSuccessfulSnapshot = value?.publishedAt ? value?.snapshot || null : null;
+    adminPublishedFileState = {
+      reachable: true,
+      publishedAt: value?.publishedAt || null,
+      commitHash: String(value?.commitHash || '')
+    };
   } catch (error) {
     adminPublishedBaseline = buildDefaultPublishBaseline();
+    adminLastSuccessfulSnapshot = null;
+    adminPublishedFileState = { reachable: false, publishedAt: null, commitHash: '' };
   }
+  renderAdminDiagnostics();
   return adminPublishedBaseline;
+}
+
+function productLifecycleState(product, saved, archived) {
+  const current = publishableProduct({ ...product, ...(saved[product.slug] || {}) }, archived.has(product.slug));
+  const publishedSnapshot = adminLiveSettings?.lastPublishedSnapshot || adminLastSuccessfulSnapshot;
+  const published = publishedSnapshot?.products?.[product.slug];
+  if (!published) return { key: 'waiting', label: 'Waiting to Publish' };
+  const canonicalJson = (value) => JSON.stringify(value, (_, item) => (
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right)))
+      : item
+  ));
+  if (canonicalJson(current) === canonicalJson(published)) return { key: 'published', label: 'Published' };
+  return { key: 'waiting', label: 'Changes Waiting to Publish' };
+}
+
+function getProductLifecycleCounts() {
+  const saved = readAdminProducts();
+  const archived = new Set(readArchivedProducts());
+  const deleted = new Set(readDeletedProducts());
+  const products = allAdminProducts().filter((product) => !product.categoryCard && !archived.has(product.slug) && !deleted.has(product.slug));
+  const states = products.map((product) => productLifecycleState(product, saved, archived));
+  return {
+    approved: products.length,
+    waiting: states.filter((state) => state.key === 'waiting').length,
+    published: states.filter((state) => state.key === 'published').length
+  };
+}
+
+function renderAdminDiagnostics() {
+  const container = document.getElementById('adminPublishDiagnostics');
+  if (!container) return;
+  const counts = getProductLifecycleCounts();
+  const history = getAdminLiveValue('publishHistory', []);
+  const lastPublish = history.length ? history[history.length - 1] : null;
+  const saveStatus = adminSavePending
+    ? `Saving (${adminSavePending} queued)`
+    : adminLastSaveSucceeded === true ? 'Saved to Supabase' : adminLastSaveSucceeded === false ? 'Save failed' : 'Loaded from Supabase';
+  container.innerHTML = `
+    <dl>
+      <div><dt>Supabase save status</dt><dd>${escapeAdminHtml(saveStatus)}</dd></div>
+      <div><dt>Approved products</dt><dd>${counts.approved}</dd></div>
+      <div><dt>Waiting to publish</dt><dd>${counts.waiting}</dd></div>
+      <div><dt>Already published</dt><dd>${counts.published}</dd></div>
+      <div><dt>Last successful publish</dt><dd>${escapeAdminHtml(lastPublish?.date || adminPublishedFileState.publishedAt || 'Never')}</dd></div>
+      <div><dt>Last commit hash</dt><dd>${escapeAdminHtml(lastPublish?.commitHash || adminPublishedFileState.commitHash || 'None')}</dd></div>
+      <div><dt>Latest save error</dt><dd>${escapeAdminHtml(adminLastSaveError || 'None')}</dd></div>
+      <div><dt>Latest publish error</dt><dd>${escapeAdminHtml(adminLatestPublishError || 'None')}</dd></div>
+      <div><dt>Public settings file</dt><dd>${adminPublishedFileState.reachable ? 'Reachable' : 'Unavailable'}</dd></div>
+    </dl>
+  `;
 }
 
 function selectedPublishImagePaths() {
@@ -670,12 +774,23 @@ async function callAdminPublisher(payload) {
   if (!token) throw new Error('Sign in as admin before publishing.');
   const response = await fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      apikey: window.MVPLUX_SUPABASE?.publishableKey || ''
+    },
     body: JSON.stringify(payload)
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || 'GitHub publish failed.');
-  return result;
+  if (!response.ok) {
+    const stage = result.stage ? ` at ${result.stage}` : '';
+    const detail = result.error || result.message || result.code || 'Unknown publisher error.';
+    const error = new Error(`Publish failed${stage} (HTTP ${response.status}): ${detail}`);
+    error.httpStatus = response.status;
+    error.responseBody = result;
+    throw error;
+  }
+  return { ...result, httpStatus: response.status };
 }
 
 function arrayBufferToBase64(buffer) {
@@ -701,6 +816,14 @@ async function loadSelectedPublishImages(paths) {
 }
 
 async function publishAdminChanges() {
+  setStatus('Confirming all Admin changes are saved to Supabase...');
+  if (!await waitForAdminSaves()) return;
+  const persisted = await loadAdminLiveSettings();
+  if (!persisted) {
+    setStatus(`Publish stopped: ${adminLastSaveError || 'could not reload persisted Admin state from Supabase.'}`);
+    return;
+  }
+  renderAdminProducts();
   const review = renderPublishSummary();
   if (!review.changes.length || review.invalidImages.length) return;
   const title = document.getElementById('adminCommitTitle')?.value.trim();
@@ -728,15 +851,25 @@ async function publishAdminChanges() {
       lastPublishedSnapshot: review.snapshot,
       publishHistory: result.publishHistory || []
     });
+    adminLatestPublishError = '';
+    adminPublishedFileState = {
+      reachable: true,
+      publishedAt: result.publishedAt || new Date().toISOString(),
+      commitHash: result.commitHash || ''
+    };
     document.getElementById('adminCommitNotes').value = '';
     document.getElementById('adminPublishImagePaths').value = '';
     adminPublishedBaseline = normalizePublishedBaseline(review.snapshot);
     currentPublishReview = null;
     renderPublishSummary();
     renderPublishHistory();
-    setStatus(`Published commit ${result.commitHash?.slice(0, 7) || ''}. Deployment: ${result.deploymentResult || 'queued'}.`);
+    renderAdminProducts();
+    renderAdminDiagnostics();
+    setStatus(`Published commit ${result.commitHash?.slice(0, 7) || ''} (HTTP ${result.httpStatus}). Deployment: ${result.deploymentResult || 'queued'}.`);
   } catch (error) {
-    setStatus(error.message || 'GitHub publish failed.');
+    adminLatestPublishError = error.message || 'GitHub publish failed.';
+    renderAdminDiagnostics();
+    setStatus(adminLatestPublishError);
   }
 }
 
@@ -1055,7 +1188,7 @@ function makeSlug(title) {
   return (title || 'custom-card').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'custom-card';
 }
 
-function createCustomProduct() {
+async function createCustomProduct() {
   const title = document.getElementById('newProductTitle')?.value.trim() || 'Custom Standee';
   const products = readCustomProducts();
   const slug = makeSlug(title);
@@ -1076,35 +1209,73 @@ function createCustomProduct() {
     visible: false,
     categoryOrder: {}
   });
-  writeCustomProducts(products);
+  if (!await writeCustomProducts(products)) return;
   renderAdminProducts();
   setStatus('Card created and saved live.');
 }
 
-function archiveProduct(slug) {
+async function archiveProduct(slug) {
   const archived = new Set(readArchivedProducts());
   archived.add(slug);
-  writeArchivedProducts([...archived]);
+  if (!await writeArchivedProducts([...archived])) return;
   renderAdminProducts();
   setStatus('Card saved for later live.');
 }
 
-function restoreProduct(slug) {
-  writeArchivedProducts(readArchivedProducts().filter((item) => item !== slug));
+async function restoreProduct(slug) {
+  if (!await writeArchivedProducts(readArchivedProducts().filter((item) => item !== slug))) return;
   renderAdminProducts();
   setStatus('Card restored.');
 }
 
-function deleteProduct(slug) {
+async function deleteProduct(slug) {
   if (!window.confirm('Delete this product record? Its image file will not be deleted.')) return;
   const isCustom = readCustomProducts().some((product) => product.slug === slug);
-  if (isCustom) writeCustomProducts(readCustomProducts().filter((product) => product.slug !== slug));
   const products = readAdminProducts();
   delete products[slug];
-  writeAdminProducts(products);
-  if (!isCustom) writeDeletedProducts([...readDeletedProducts(), slug]);
+  const patch = { products };
+  if (isCustom) patch.customProducts = readCustomProducts().filter((product) => product.slug !== slug);
+  if (!isCustom) patch.deletedProducts = [...new Set([...readDeletedProducts(), slug])];
+  if (!await saveProductWorkflowPatch(patch)) return;
   renderAdminProducts();
   setStatus('Product record deleted. Its image file was not changed.');
+}
+
+async function returnProductToDraft(slug) {
+  const customProducts = readCustomProducts();
+  const product = customProducts.find((item) => item.slug === slug);
+  if (!product?.cutoutImage) {
+    setStatus('Only approved custom products with a repository image can return to Draft.');
+    return;
+  }
+  if (!window.confirm(`Return ${product.title} to New Images Waiting for Setup? The image file will not be changed.`)) return;
+
+  const imageDrafts = readImageDraftEdits();
+  imageDrafts[product.cutoutImage] = {
+    path: product.cutoutImage,
+    purpose: 'new-product',
+    title: product.title || '',
+    slug: product.slug || '',
+    description: product.description || '',
+    originalHeight: String(product.originalHeight || ''),
+    backgroundImage: product.backgroundImage || '',
+    categories: Array.isArray(product.categories) ? [...product.categories] : []
+  };
+  const configuredImagePaths = readImageDraftPaths('configuredImagePaths').filter((path) => path !== product.cutoutImage);
+  const products = readAdminProducts();
+  delete products[slug];
+  const savedForLaterProducts = readArchivedProducts().filter((item) => item !== slug);
+  const saved = await saveProductWorkflowPatch({
+    customProducts: customProducts.filter((item) => item.slug !== slug),
+    products,
+    savedForLaterProducts,
+    configuredImagePaths,
+    imageDrafts
+  });
+  if (!saved) return;
+  renderAdminProducts();
+  renderImageDrafts();
+  setStatus('Product returned to Draft. The physical image file was preserved.');
 }
 
 function productPreviewMarkup(value) {
@@ -1336,13 +1507,13 @@ function collectProductFormData(form) {
   };
 }
 
-function saveProductForm(form, message = 'Saved product changes live. Go back to Shop to see them.') {
+async function saveProductForm(form, message = 'Saved product changes live. Go back to Shop to see them.') {
   const products = readAdminProducts();
   products[form.dataset.slug] = collectProductFormData(form);
-  writeAdminProducts(products);
+  if (!await writeAdminProducts(products)) return false;
   renderAdminExportPreview();
   setStatus(message);
-  return false;
+  return true;
 }
 
 function schedulePlacementSave(form) {
@@ -1361,7 +1532,7 @@ async function handleImageUpload(fileInput, targetInput, form) {
   try {
     targetInput.value = await resizeImageFile(file);
     syncPreviewFromFields(form);
-    saveProductForm(form, 'Image changed and saved live.');
+    await saveProductForm(form, 'Image changed and saved live.');
   } catch (error) {
     setStatus('That image could not be loaded. Try another image file.');
   }
@@ -1497,14 +1668,14 @@ function categoryAssignmentMarkup(value) {
   `;
 }
 
-function setProductVisibility(form, visible) {
+async function setProductVisibility(form, visible) {
   const input = form.querySelector('[name="visible"]');
   if (input) input.checked = visible;
-  saveProductForm(form, visible ? 'Product shown in assigned sections.' : 'Product hidden from customer sections.');
+  if (!await saveProductForm(form, visible ? 'Product shown in assigned sections.' : 'Product hidden from customer sections.')) return;
   renderAdminProducts();
 }
 
-function removeProductFromSelectedSection(form) {
+async function removeProductFromSelectedSection(form) {
   const category = form.querySelector('[name="activeCategory"]')?.value;
   const checkbox = form.querySelector(`[name="categories"][value="${category}"]`);
   if (!category || !checkbox || !checkbox.checked) {
@@ -1512,11 +1683,11 @@ function removeProductFromSelectedSection(form) {
     return;
   }
   checkbox.checked = false;
-  saveProductForm(form, 'Removed from this section without deleting the product.');
+  if (!await saveProductForm(form, 'Removed from this section without deleting the product.')) return;
   renderAdminProducts();
 }
 
-function moveProductInSelectedSection(form, offset) {
+async function moveProductInSelectedSection(form, offset) {
   const category = form.querySelector('[name="activeCategory"]')?.value;
   const slug = form.dataset.slug;
   const saved = readAdminProducts();
@@ -1543,7 +1714,7 @@ function moveProductInSelectedSection(form, offset) {
     ...(saved[target.slug] || {}),
     categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder }
   };
-  writeAdminProducts(saved);
+  if (!await writeAdminProducts(saved)) return;
   renderAdminProducts();
   setStatus('Product order saved for the selected section.');
 }
@@ -1627,42 +1798,55 @@ function findProductImageOwner(path, excludedSlug = '') {
   )) || null;
 }
 
-function writeProductImageChoices(slug, choices) {
+async function writeProductImageChoices(slug, choices) {
   const normalized = normalizeImageChoices(choices);
   const customProducts = readCustomProducts();
   const customIndex = customProducts.findIndex((product) => product.slug === slug);
   if (customIndex >= 0) {
     customProducts[customIndex] = { ...customProducts[customIndex], imageChoices: normalized };
-    writeCustomProducts(customProducts);
-    return;
+    return Boolean(await writeCustomProducts(customProducts));
   }
   const saved = readAdminProducts();
   saved[slug] = { ...(saved[slug] || {}), imageChoices: normalized };
-  writeAdminProducts(saved);
+  return Boolean(await writeAdminProducts(saved));
 }
 
-function addImageChoiceToProduct(parentSlug, choice, excludedSlug = '') {
+async function addImageChoiceToProduct(parentSlug, choice, excludedSlug = '') {
   const parent = effectiveAdminProduct(parentSlug);
   if (!parent) throw new Error('Select an existing parent product card.');
   const owner = findProductImageOwner(choice.image, excludedSlug);
   if (owner) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
-  writeProductImageChoices(parentSlug, [...normalizeImageChoices(parent.imageChoices), choice]);
+  if (!await writeProductImageChoices(parentSlug, [...normalizeImageChoices(parent.imageChoices), choice])) {
+    throw new Error('Could not save the image choice to Supabase.');
+  }
   return parent;
 }
 
-function removeProductImageChoice(parentSlug, imagePath) {
+async function removeProductImageChoice(parentSlug, imagePath) {
   const parent = effectiveAdminProduct(parentSlug);
   if (!parent) return;
   const choice = normalizeImageChoices(parent.imageChoices).find((item) => item.image === imagePath);
   if (!choice || !window.confirm(`Remove “${choice.label}” from ${parent.title}? The image file will not be deleted.`)) return;
-  writeProductImageChoices(parentSlug, normalizeImageChoices(parent.imageChoices).filter((item) => item.image !== imagePath));
-  writeImageDraftPaths('configuredImagePaths', readImageDraftPaths('configuredImagePaths').filter((path) => path !== imagePath));
+  const choices = normalizeImageChoices(parent.imageChoices).filter((item) => item.image !== imagePath);
+  const configuredImagePaths = readImageDraftPaths('configuredImagePaths').filter((path) => path !== imagePath);
+  const patch = { configuredImagePaths };
+  const customProducts = readCustomProducts();
+  const customIndex = customProducts.findIndex((product) => product.slug === parentSlug);
+  if (customIndex >= 0) {
+    customProducts[customIndex] = { ...customProducts[customIndex], imageChoices: choices };
+    patch.customProducts = customProducts;
+  } else {
+    const products = readAdminProducts();
+    products[parentSlug] = { ...(products[parentSlug] || {}), imageChoices: choices };
+    patch.products = products;
+  }
+  if (!await saveProductWorkflowPatch(patch)) return;
   renderAdminProducts();
   renderImageDrafts();
   setStatus('Image choice removed. The physical image file was not changed.');
 }
 
-function moveCustomProductToExistingProduct(form) {
+async function moveCustomProductToExistingProduct(form) {
   const sourceSlug = form.dataset.slug;
   const source = readCustomProducts().find((product) => product.slug === sourceSlug);
   const parentSlug = form.querySelector('[name="moveParentProductSlug"]')?.value || '';
@@ -1687,15 +1871,29 @@ function moveCustomProductToExistingProduct(form) {
       const owner = findProductImageOwner(choice.image, sourceSlug);
       if (owner) throw new Error(`Image ${choice.image} is already assigned to ${owner.title} (${owner.slug}).`);
     });
-    writeProductImageChoices(parentSlug, [...normalizeImageChoices(parent.imageChoices), ...incomingChoices]);
-    writeCustomProducts(readCustomProducts().filter((product) => product.slug !== sourceSlug));
+    const parentChoices = [...normalizeImageChoices(parent.imageChoices), ...incomingChoices];
+    const customProducts = readCustomProducts();
+    const parentIndex = customProducts.findIndex((product) => product.slug === parentSlug);
+    const remainingProducts = customProducts.filter((product) => product.slug !== sourceSlug);
+    const patch = {};
+    if (parentIndex >= 0) {
+      const remainingParentIndex = remainingProducts.findIndex((product) => product.slug === parentSlug);
+      remainingProducts[remainingParentIndex] = { ...remainingProducts[remainingParentIndex], imageChoices: parentChoices };
+      patch.customProducts = remainingProducts;
+    } else {
+      patch.customProducts = remainingProducts;
+      const products = readAdminProducts();
+      products[parentSlug] = { ...(products[parentSlug] || {}), imageChoices: parentChoices };
+      delete products[sourceSlug];
+      patch.products = products;
+    }
     const archived = readArchivedProducts().filter((slug) => slug !== sourceSlug);
-    writeArchivedProducts(archived);
+    patch.savedForLaterProducts = archived;
     const history = getAdminLiveValue('productRelationshipHistory', []);
     const entry = { action: 'moved-to-image-choice', sourceSlug, parentSlug, image: source.cutoutImage, date: new Date().toISOString() };
-    localStorage.setItem('mvpluxProductRelationshipHistory', JSON.stringify([...history, entry]));
-    updateAdminLiveSettings({ productRelationshipHistory: [...history, entry] });
-    saveAdminSettingsLive({ productRelationshipHistory: [...history, entry] });
+    patch.productRelationshipHistory = [...history, entry];
+    if (!await saveProductWorkflowPatch(patch)) return;
+    localStorage.setItem('mvpluxProductRelationshipHistory', JSON.stringify(patch.productRelationshipHistory));
     renderAdminProducts();
     renderImageDrafts();
     setStatus('Standalone product moved into the selected product card. The image file was preserved.');
@@ -1722,8 +1920,9 @@ function productImageChoicesMarkup(value) {
 
 function renderAdminProducts() {
   const approvedContainer = document.getElementById('approvedProducts');
+  const publishedContainer = document.getElementById('publishedProducts');
   const categoryContainer = document.getElementById('adminProducts');
-  const productContainers = [approvedContainer, categoryContainer].filter(Boolean);
+  const productContainers = [approvedContainer, publishedContainer, categoryContainer].filter(Boolean);
   const saved = readAdminProducts();
   const archived = new Set(readArchivedProducts());
   if (!productContainers.length) return;
@@ -1732,16 +1931,18 @@ function renderAdminProducts() {
 
   const deleted = new Set(readDeletedProducts());
   const availableProducts = allAdminProducts().filter((product) => !archived.has(product.slug) && !deleted.has(product.slug));
-  const productMarkup = (products) => products.map((product) => {
+  const productMarkup = (products, lifecycleLabel = '') => products.map((product) => {
     const value = { ...product, ...(saved[product.slug] || {}) };
+    const lifecycle = product.categoryCard ? '' : lifecycleLabel || productLifecycleState(product, saved, archived).label;
     return `
       <form class="admin-product-card" id="product-${product.slug}" data-slug="${product.slug}">
         <div class="admin-product-heading">
-          <h3>${product.title}</h3>
+          <div><h3>${product.title}</h3>${lifecycle ? `<p class="admin-note">${escapeAdminHtml(lifecycle)}</p>` : ''}</div>
           <div class="admin-card-actions">
             <button type="submit">Save Product</button>
             <button type="button" data-archive-product="${product.slug}">Save for Later</button>
             ${product.categoryCard ? '' : `<button type="button" data-visibility-toggle="${value.visible === false ? 'show' : 'hide'}">${value.visible === false ? 'Show' : 'Hide'}</button>`}
+            ${value.custom === true ? `<button type="button" data-return-to-draft="${product.slug}">Return to Draft</button>` : ''}
             ${product.categoryCard ? '' : `<button type="button" data-delete-product="${product.slug}">Delete Product</button>`}
           </div>
         </div>
@@ -1850,7 +2051,11 @@ function renderAdminProducts() {
     `;
   }).join('');
 
-  if (approvedContainer) approvedContainer.innerHTML = productMarkup(availableProducts.filter((product) => !product.categoryCard));
+  const approvedProducts = availableProducts.filter((product) => !product.categoryCard);
+  const waitingProducts = approvedProducts.filter((product) => productLifecycleState(product, saved, archived).key === 'waiting');
+  const publishedProducts = approvedProducts.filter((product) => productLifecycleState(product, saved, archived).key === 'published');
+  if (approvedContainer) approvedContainer.innerHTML = productMarkup(waitingProducts) || '<p class="admin-note">No products are waiting to publish.</p>';
+  if (publishedContainer) publishedContainer.innerHTML = productMarkup(publishedProducts, 'Published') || '<p class="admin-note">No products have been published yet.</p>';
   if (categoryContainer) categoryContainer.innerHTML = productMarkup(availableProducts.filter((product) => product.categoryCard));
 
   productContainers.forEach((container) => container.querySelectorAll('.admin-product-card').forEach((form) => {
@@ -1887,6 +2092,10 @@ function renderAdminProducts() {
       deleteProduct(event.target.dataset.deleteProduct);
     });
 
+    form.querySelector('[data-return-to-draft]')?.addEventListener('click', (event) => {
+      returnProductToDraft(event.target.dataset.returnToDraft);
+    });
+
     form.querySelector('[data-visibility-toggle]')?.addEventListener('click', (event) => {
       setProductVisibility(form, event.target.dataset.visibilityToggle === 'show');
     });
@@ -1914,6 +2123,7 @@ function renderAdminProducts() {
       saveProductForm(form);
     });
   }));
+  renderAdminDiagnostics();
 }
 
 function fillPriceSettingsForm() {
@@ -2005,9 +2215,11 @@ function readImageDraftEdits() {
 }
 
 function writeImageDraftEdits(drafts) {
-  localStorage.setItem('mvpluxImageDrafts', JSON.stringify(drafts || {}));
-  updateAdminLiveSettings({ imageDrafts: drafts || {} });
-  saveAdminSettingsLive({ imageDrafts: drafts || {} });
+  const values = drafts || {};
+  return saveAdminSettingsLive({ imageDrafts: values }).then((saved) => {
+    if (saved) localStorage.setItem('mvpluxImageDrafts', JSON.stringify(values));
+    return saved ? values : null;
+  });
 }
 
 function readImageDraftPaths(key) {
@@ -2016,10 +2228,29 @@ function readImageDraftPaths(key) {
 
 function writeImageDraftPaths(key, paths) {
   const uniquePaths = [...new Set(paths || [])];
-  localStorage.setItem(`mvplux${key[0].toUpperCase()}${key.slice(1)}`, JSON.stringify(uniquePaths));
-  updateAdminLiveSettings({ [key]: uniquePaths });
-  saveAdminSettingsLive({ [key]: uniquePaths });
-  return uniquePaths;
+  return saveAdminSettingsLive({ [key]: uniquePaths }).then((saved) => {
+    if (saved) localStorage.setItem(`mvplux${key[0].toUpperCase()}${key.slice(1)}`, JSON.stringify(uniquePaths));
+    return saved ? uniquePaths : null;
+  });
+}
+
+async function saveProductWorkflowPatch(patch) {
+  const saved = await saveAdminSettingsLive(patch);
+  if (!saved) return false;
+  const storageKeys = {
+    products: 'mvpluxAdminProducts',
+    customProducts: 'mvpluxAdminCustomProducts',
+    savedForLaterProducts: 'mvpluxAdminArchivedProducts',
+    deletedProducts: 'mvpluxDeletedProducts',
+    imageDrafts: 'mvpluxImageDrafts',
+    dismissedImageDrafts: 'mvpluxDismissedImageDrafts',
+    configuredImagePaths: 'mvpluxConfiguredImagePaths',
+    ignoredImagePaths: 'mvpluxIgnoredImagePaths'
+  };
+  Object.entries(patch).forEach(([key, value]) => {
+    if (storageKeys[key]) localStorage.setItem(storageKeys[key], JSON.stringify(value));
+  });
+  return true;
 }
 
 function imageDraftCategoryMarkup(selectedCategories = []) {
@@ -2049,14 +2280,14 @@ function collectImageDraftForm(form) {
   };
 }
 
-function saveImageDraftForm(form) {
+async function saveImageDraftForm(form) {
   const drafts = readImageDraftEdits();
   drafts[form.dataset.imagePath] = collectImageDraftForm(form);
-  writeImageDraftEdits(drafts);
+  if (!await writeImageDraftEdits(drafts)) return;
   setStatus('Unpublished image draft saved.');
 }
 
-function publishImageDraft(form) {
+async function publishImageDraft(form) {
   const draft = collectImageDraftForm(form);
   if (draft.purpose !== 'new-product') return;
   if (!draft.title || !draft.slug || !draft.originalHeight) {
@@ -2087,31 +2318,46 @@ function publishImageDraft(form) {
     categoryOrder: Object.fromEntries(draft.categories.map((category) => [category, 999])),
     imageChoices: []
   });
-  writeCustomProducts(products);
-  writeImageDraftPaths('configuredImagePaths', [...readImageDraftPaths('configuredImagePaths'), draft.path]);
+  const configuredImagePaths = [...new Set([...readImageDraftPaths('configuredImagePaths'), draft.path])];
   const edits = readImageDraftEdits();
   delete edits[draft.path];
-  writeImageDraftEdits(edits);
+  if (!await saveProductWorkflowPatch({ customProducts: products, configuredImagePaths, imageDrafts: edits })) return;
   renderAdminProducts();
   renderImageDrafts();
   setStatus(draft.categories.length ? 'Product added to Admin. Use Publish Changes to send it to the storefront.' : 'Product saved as an uncategorized Admin record.');
 }
 
-function addDraftImageChoice(form) {
+async function addDraftImageChoice(form) {
   const draft = collectImageDraftForm(form);
   if (draft.purpose !== 'image-choice' || !draft.parentProductSlug) {
     setStatus('Select the product card this image belongs to.');
     return;
   }
   try {
-    addImageChoiceToProduct(draft.parentProductSlug, {
+    const parent = effectiveAdminProduct(draft.parentProductSlug);
+    if (!parent) throw new Error('Select an existing parent product card.');
+    const owner = findProductImageOwner(draft.path);
+    if (owner) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
+    const imageChoices = [...normalizeImageChoices(parent.imageChoices), {
       label: draft.imageChoiceLabel || 'Alternate image',
       image: draft.path
-    });
-    writeImageDraftPaths('configuredImagePaths', [...readImageDraftPaths('configuredImagePaths'), draft.path]);
+    }];
+    const patch = {};
+    const customProducts = readCustomProducts();
+    const customIndex = customProducts.findIndex((product) => product.slug === parent.slug);
+    if (customIndex >= 0) {
+      customProducts[customIndex] = { ...customProducts[customIndex], imageChoices };
+      patch.customProducts = customProducts;
+    } else {
+      const products = readAdminProducts();
+      products[parent.slug] = { ...(products[parent.slug] || {}), imageChoices };
+      patch.products = products;
+    }
+    patch.configuredImagePaths = [...new Set([...readImageDraftPaths('configuredImagePaths'), draft.path])];
     const edits = readImageDraftEdits();
     delete edits[draft.path];
-    writeImageDraftEdits(edits);
+    patch.imageDrafts = edits;
+    if (!await saveProductWorkflowPatch(patch)) return;
     renderAdminProducts();
     renderImageDrafts();
     setStatus('Image choice added to the selected Admin product. Use Publish Changes to send it to the storefront.');
@@ -2120,11 +2366,11 @@ function addDraftImageChoice(form) {
   }
 }
 
-function ignoreImageDraft(path) {
+async function ignoreImageDraft(path) {
   const drafts = readImageDraftEdits();
   delete drafts[path];
-  writeImageDraftEdits(drafts);
-  writeImageDraftPaths('ignoredImagePaths', [...readImageDraftPaths('ignoredImagePaths'), path]);
+  const ignoredImagePaths = [...new Set([...readImageDraftPaths('ignoredImagePaths'), path])];
+  if (!await saveProductWorkflowPatch({ imageDrafts: drafts, ignoredImagePaths })) return;
   renderImageDrafts();
   setStatus('Image marked as non-product inventory. The image file was not changed.');
 }

@@ -64,8 +64,8 @@
     <section class="admin-panel" id="approved-products">
       <div class="admin-panel-header">
         <div>
-          <h2>Approved Products</h2>
-          <p class="admin-note">Real individual products from the fallback catalog and approved Admin records. These are included in Publish Changes.</p>
+          <h2>Approved — Waiting to Publish</h2>
+          <p class="admin-note">Approved products absent from, or changed since, the last successful published snapshot.</p>
         </div>
         <div class="admin-panel-actions">
           <button id="createAdminProduct" type="button">Create New Product</button>
@@ -73,6 +73,16 @@
       </div>
       <div id="savedProducts" class="admin-saved-products"></div>
       <div id="approvedProducts" class="admin-product-list"></div>
+    </section>
+
+    <section class="admin-panel" id="published-products">
+      <div class="admin-panel-header">
+        <div>
+          <h2>Published Products</h2>
+          <p class="admin-note">Approved products identical to the last successful published snapshot.</p>
+        </div>
+      </div>
+      <div id="publishedProducts" class="admin-product-list"></div>
     </section>
 
     <section class="admin-panel" id="category-display-cards">
@@ -161,6 +171,7 @@
       <div class="admin-publish-review">
         <h3>GitHub Publish Summary</h3>
         <p class="admin-note">This compares the current saved Admin state with the last successful publish. GitHub credentials stay in the server-side publisher.</p>
+        <div id="adminPublishDiagnostics" class="admin-publish-diagnostics" aria-live="polite"></div>
         <label>
           Commit title
           <input id="adminCommitTitle" type="text" maxlength="72" value="Update product cards and categories">
@@ -199,6 +210,6 @@
   <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
   <script src="pricing.js?v=20260714-height-source"></script>
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
-  <script src="admin.js?v=20260716-product-publishing"></script>
+  <script src="admin.js?v=20260716-admin-persistence"></script>
 </body>
 </html>

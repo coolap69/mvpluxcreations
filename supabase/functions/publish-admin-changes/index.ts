@@ -22,62 +22,75 @@ function jsonResponse(request: Request, body: unknown, status = 200) {
   });
 }
 
+class PublishError extends Error {
+  stage: string;
+  status: number;
+  code: string;
+
+  constructor(stage: string, status: number, code: string, message: string) {
+    super(message);
+    this.stage = stage;
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function readJson(response: Response) {
   return response.json().catch(() => ({}));
 }
 
 function requiredEnvironment(name: string) {
   const value = Deno.env.get(name)?.trim();
-  if (!value) throw new Error(`Missing server secret: ${name}`);
+  if (!value) throw new PublishError('configuration', 500, 'MISSING_SECRET', `Missing server secret: ${name}`);
   return value;
 }
 
 async function authenticateAdmin(request: Request) {
   const authorization = request.headers.get('authorization') || '';
-  if (!authorization.startsWith('Bearer ')) throw new Error('Admin sign-in is required.');
+  if (!authorization.startsWith('Bearer ')) throw new PublishError('authentication', 401, 'ADMIN_SIGN_IN_REQUIRED', 'Admin sign-in is required.');
 
   const supabaseUrl = requiredEnvironment('SUPABASE_URL');
   const anonKey = requiredEnvironment('SUPABASE_ANON_KEY');
-  const serviceKey = requiredEnvironment('SUPABASE_SERVICE_ROLE_KEY');
   const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
     headers: { Authorization: authorization, apikey: anonKey }
   });
   const user = await readJson(userResponse);
-  if (!userResponse.ok || !user?.id) throw new Error('Admin session is invalid or expired.');
+  if (!userResponse.ok || !user?.id) throw new PublishError('authentication', 401, 'INVALID_ADMIN_SESSION', 'Admin session is invalid or expired.');
 
   const profileResponse = await fetch(
     `${supabaseUrl}/rest/v1/admin_profiles?user_id=eq.${encodeURIComponent(user.id)}&select=user_id`,
-    { headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey } }
+    { headers: { Authorization: authorization, apikey: anonKey } }
   );
   const profiles = await readJson(profileResponse);
   if (!profileResponse.ok || !Array.isArray(profiles) || !profiles.length) {
-    throw new Error('This account does not have Admin publishing access.');
+    throw new PublishError('authorization', 403, 'ADMIN_ACCESS_DENIED', 'This account does not have Admin publishing access.');
   }
 
-  return { supabaseUrl, serviceKey, user };
+  return { supabaseUrl, anonKey, authorization, user };
 }
 
-async function readAdminGlobal(supabaseUrl: string, serviceKey: string) {
+async function readAdminGlobal(supabaseUrl: string, anonKey: string, authorization: string) {
   const response = await fetch(
     `${supabaseUrl}/rest/v1/site_edits?page_key=eq.admin-global&select=edits`,
-    { headers: { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey } }
+    { headers: { Authorization: authorization, apikey: anonKey } }
   );
   const rows = await readJson(response);
-  if (!response.ok) throw new Error('Could not read Admin publish history.');
+  if (!response.ok) throw new PublishError('supabase-read', 502, 'ADMIN_STATE_READ_FAILED', 'Could not read Admin publish history.');
   return Array.isArray(rows) && rows[0]?.edits ? rows[0].edits : {};
 }
 
 async function writeAdminGlobal(
   supabaseUrl: string,
-  serviceKey: string,
+  anonKey: string,
+  authorization: string,
   edits: Record<string, unknown>,
   userId: string
 ) {
   const response = await fetch(`${supabaseUrl}/rest/v1/site_edits?on_conflict=page_key`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${serviceKey}`,
-      apikey: serviceKey,
+      Authorization: authorization,
+      apikey: anonKey,
       'Content-Type': 'application/json',
       Prefer: 'resolution=merge-duplicates,return=minimal'
     },
@@ -88,7 +101,7 @@ async function writeAdminGlobal(
       updated_at: new Date().toISOString()
     })
   });
-  if (!response.ok) throw new Error('GitHub committed the snapshot, but publish history could not be saved.');
+  if (!response.ok) throw new PublishError('supabase-history-write', 502, 'PUBLISH_HISTORY_SAVE_FAILED', 'GitHub committed the snapshot, but publish history could not be saved.');
 }
 
 function githubHeaders(token: string) {
@@ -106,7 +119,9 @@ async function githubRequest(token: string, path: string, init: RequestInit = {}
     headers: { ...githubHeaders(token), ...(init.headers || {}) }
   });
   const data = await readJson(response);
-  if (!response.ok) throw new Error(data?.message || `GitHub request failed (${response.status}).`);
+  if (!response.ok) {
+    throw new PublishError('github-api', 502, 'GITHUB_API_FAILED', data?.message || `GitHub request failed (${response.status}).`);
+  }
   return data;
 }
 
@@ -127,6 +142,49 @@ async function snapshotFingerprint(snapshot: unknown) {
 
 type PublishImageFile = { path: string; content: string };
 
+function isRepositoryImagePath(value: unknown) {
+  return typeof value === 'string'
+    && /^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i.test(value)
+    && !value.includes('..')
+    && !value.includes('\\');
+}
+
+function validatePublishedSnapshot(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new PublishError('validation', 400, 'INVALID_SNAPSHOT', 'Published snapshot must be an object.');
+  }
+  const snapshot = value as Record<string, unknown>;
+  if (snapshot.version !== 1) throw new PublishError('validation', 400, 'INVALID_SNAPSHOT_VERSION', 'Published snapshot version must be 1.');
+  for (const collectionName of ['products', 'categoryDisplayCards']) {
+    const collection = snapshot[collectionName];
+    if (!collection || typeof collection !== 'object' || Array.isArray(collection)) {
+      throw new PublishError('validation', 400, 'INVALID_PRODUCT_COLLECTION', `${collectionName} must be an object.`);
+    }
+    for (const [slug, rawProduct] of Object.entries(collection as Record<string, unknown>)) {
+      if (!rawProduct || typeof rawProduct !== 'object' || Array.isArray(rawProduct)) {
+        throw new PublishError('validation', 400, 'INVALID_PRODUCT', `Invalid product record: ${slug}.`);
+      }
+      const product = rawProduct as Record<string, unknown>;
+      if (product.slug !== slug) throw new PublishError('validation', 400, 'INVALID_PRODUCT_SLUG', `Product slug mismatch: ${slug}.`);
+      if (!isRepositoryImagePath(product.cutoutImage)) {
+        throw new PublishError('validation', 400, 'INVALID_PRODUCT_IMAGE', `Product ${slug} has an invalid cutout image path.`);
+      }
+      if (product.backgroundImage && !isRepositoryImagePath(product.backgroundImage)) {
+        throw new PublishError('validation', 400, 'INVALID_BACKGROUND_IMAGE', `Product ${slug} has an invalid background image path.`);
+      }
+      if (!Array.isArray(product.categories) || typeof product.visible !== 'boolean') {
+        throw new PublishError('validation', 400, 'INVALID_PRODUCT_SETTINGS', `Product ${slug} has invalid category or visibility settings.`);
+      }
+      for (const choice of Array.isArray(product.imageChoices) ? product.imageChoices : []) {
+        if (!isRepositoryImagePath(choice?.image) || (choice?.stage && !isRepositoryImagePath(choice.stage))) {
+          throw new PublishError('validation', 400, 'INVALID_IMAGE_CHOICE', `Product ${slug} has an invalid image choice.`);
+        }
+      }
+    }
+  }
+  return snapshot;
+}
+
 function validatePublishImageFiles(value: unknown): PublishImageFile[] {
   if (!Array.isArray(value)) return [];
   if (value.length > 20) throw new Error('Select no more than 20 images per publish.');
@@ -137,15 +195,15 @@ function validatePublishImageFiles(value: unknown): PublishImageFile[] {
     const path = typeof item?.path === 'string' ? item.path.trim() : '';
     const content = typeof item?.content === 'string' ? item.content : '';
     if (!/^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i.test(path) || path.includes('..') || path.includes('\\')) {
-      throw new Error(`Invalid image repository path: ${path || 'missing path'}`);
+      throw new PublishError('validation', 400, 'INVALID_IMAGE_PATH', `Invalid image repository path: ${path || 'missing path'}`);
     }
-    if (!content || !/^[A-Za-z0-9+/]+={0,2}$/.test(content)) throw new Error(`Invalid image content for ${path}.`);
+    if (!content || !/^[A-Za-z0-9+/]+={0,2}$/.test(content)) throw new PublishError('validation', 400, 'INVALID_IMAGE_CONTENT', `Invalid image content for ${path}.`);
     if (seen.has(path)) continue;
     seen.add(path);
     encodedBytes += content.length;
     files.push({ path, content });
   }
-  if (encodedBytes > 40_000_000) throw new Error('Selected images exceed the 30 MB publish limit.');
+  if (encodedBytes > 40_000_000) throw new PublishError('validation', 400, 'IMAGE_LIMIT_EXCEEDED', 'Selected images exceed the 30 MB publish limit.');
   return files;
 }
 
@@ -245,13 +303,15 @@ Deno.serve(async (request) => {
   if (request.method !== 'POST') return jsonResponse(request, { error: 'Method not allowed.' }, 405);
 
   try {
-    const { supabaseUrl, serviceKey, user } = await authenticateAdmin(request);
+    const { supabaseUrl, anonKey, authorization, user } = await authenticateAdmin(request);
     const token = requiredEnvironment('GITHUB_TOKEN');
     const owner = requiredEnvironment('GITHUB_OWNER');
     const repo = requiredEnvironment('GITHUB_REPO');
     const branch = Deno.env.get('GITHUB_BRANCH')?.trim() || 'main';
-    const payload = await request.json();
-    const settings = await readAdminGlobal(supabaseUrl, serviceKey);
+    const payload = await request.json().catch(() => {
+      throw new PublishError('validation', 400, 'INVALID_JSON', 'Request body must be valid JSON.');
+    });
+    const settings = await readAdminGlobal(supabaseUrl, anonKey, authorization);
     const existingHistory = Array.isArray(settings.publishHistory) ? settings.publishHistory : [];
 
     if (payload?.action === 'refresh-history') {
@@ -264,18 +324,18 @@ Deno.serve(async (request) => {
         publishHistory.push({ ...entry, deploymentResult: result });
       }
       const retainedHistory = [...existingHistory.slice(0, -25), ...publishHistory];
-      await writeAdminGlobal(supabaseUrl, serviceKey, { ...settings, publishHistory: retainedHistory }, user.id);
+      await writeAdminGlobal(supabaseUrl, anonKey, authorization, { ...settings, publishHistory: retainedHistory }, user.id);
       return jsonResponse(request, { publishHistory: retainedHistory });
     }
 
-    if (payload?.action !== 'publish') return jsonResponse(request, { error: 'Unknown publisher action.' }, 400);
+    if (payload?.action !== 'publish') return jsonResponse(request, { error: 'Unknown publisher action.', stage: 'validation', code: 'UNKNOWN_ACTION' }, 400);
     const title = String(payload.title || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 72);
     const body = String(payload.body || '').trim().slice(0, 50000);
     const changeSummary = String(payload.changeSummary || '').trim().slice(0, 40000);
-    const snapshot = payload.snapshot;
+    const snapshot = validatePublishedSnapshot(payload.snapshot);
     const imageFiles = validatePublishImageFiles(payload.imageFiles);
-    if (!title || !changeSummary || !snapshot || typeof snapshot !== 'object') {
-      return jsonResponse(request, { error: 'Commit title, change summary, and snapshot are required.' }, 400);
+    if (!title || !changeSummary) {
+      return jsonResponse(request, { error: 'Commit title, change summary, and snapshot are required.', stage: 'validation', code: 'INVALID_PUBLISH_PAYLOAD' }, 400);
     }
 
     const imageFingerprints = [];
@@ -305,7 +365,7 @@ Deno.serve(async (request) => {
       snapshotFingerprint: fingerprint
     };
     const publishHistory = [...existingHistory, historyEntry];
-    await writeAdminGlobal(supabaseUrl, serviceKey, {
+    await writeAdminGlobal(supabaseUrl, anonKey, authorization, {
       ...settings,
       lastPublishedSnapshot: snapshot,
       publishHistory
@@ -313,10 +373,18 @@ Deno.serve(async (request) => {
 
     return jsonResponse(request, {
       commitHash: publication.commitHash,
+      publishedAt: publication.publishedAt,
       deploymentResult: result,
       publishHistory
     });
   } catch (error) {
-    return jsonResponse(request, { error: error instanceof Error ? error.message : 'Publish failed.' }, 500);
+    const publishError = error instanceof PublishError
+      ? error
+      : new PublishError('publisher', 500, 'PUBLISH_FAILED', error instanceof Error ? error.message : 'Publish failed.');
+    return jsonResponse(request, {
+      error: publishError.message,
+      stage: publishError.stage,
+      code: publishError.code
+    }, publishError.status);
   }
 });
