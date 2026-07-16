@@ -53,9 +53,13 @@
     product('zombie-dance-look', 'Zombie Dance Look', 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png', 69, ['music-artists'], 1),
     product('pop-star-look', 'Pop Star Look', 'images/MusicArtistStandees/TaylorSwift/TSfinal.png', 71, ['music-artists'], 2),
 
-    product('celebration-display', 'Celebration Display', 'images/FaithCelebrationStandees/Jesus1/J13D.png', 72, ['faith-celebration'], 0),
-    product('light-display', 'Light Display', 'images/FaithCelebrationStandees/Jesus1/J13LN.png', 78, ['faith-celebration'], 1),
-    product('print-display', 'Print Display', 'images/FaithCelebrationStandees/Jesus3/JesusPrint.png', 78, ['faith-celebration'], 2),
+    {
+      ...product('celebration-display', 'Celebration Display', 'images/FaithCelebrationStandees/Jesus1/J13D.png', 72, ['faith-celebration'], 0),
+      imageChoices: [
+        { label: 'Light', image: 'images/FaithCelebrationStandees/Jesus1/J13LN.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
+        { label: 'Print', image: 'images/FaithCelebrationStandees/Jesus3/JesusPrint.png', stage: 'images/FanBackgrounds/gallery-poster-premium.png' }
+      ]
+    },
 
     product('holiday-display', 'Holiday Display', 'images/FrontPageWeb/Herobackgroundparts-hero8T.png', 78, ['holiday'], 0),
     product('seasonal-display', 'Seasonal Display', 'images/Herobackgroundparts/hero8T.png', 78, ['holiday'], 1),

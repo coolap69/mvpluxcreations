@@ -5,7 +5,9 @@
   "snapshot": {
     "version": 1,
     "products": {},
+    "categoryDisplayCards": {},
     "deletedProducts": [],
-    "homepageCategoryOrder": []
+    "homepageCategoryOrder": [],
+    "ignoredImagePaths": []
   }
 }

@@ -243,6 +243,17 @@ function readCustomProducts() {
     .map(withoutStoredProductPrice);
 }
 
+function normalizeImageChoices(choices = []) {
+  const seen = new Set();
+  return (Array.isArray(choices) ? choices : []).flatMap((choice) => {
+    const image = String(choice?.image || '').trim();
+    if (!image || seen.has(image)) return [];
+    seen.add(image);
+    const stage = String(choice?.stage || '').trim();
+    return [{ label: String(choice?.label || '').trim() || 'Alternate image', image, ...(stage ? { stage } : {}) }];
+  });
+}
+
 function writeCustomProducts(products) {
   const cleanedProducts = (products || []).map(withoutStoredProductPrice);
   localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(cleanedProducts));
@@ -326,6 +337,7 @@ function buildAdminExport() {
     imageDrafts: readImageDraftEdits(),
     dismissedImageDrafts: readImageDraftPaths('dismissedImageDrafts'),
     configuredImagePaths: readImageDraftPaths('configuredImagePaths'),
+    ignoredImagePaths: readImageDraftPaths('ignoredImagePaths'),
     priceSettings: readPriceSettings(),
     extraImages: readExtraImages(),
     coupons: readCoupons(),
@@ -370,6 +382,11 @@ function publishableProduct(product = {}, archived = false) {
     description: String(product.description || ''),
     cutoutImage: publishImageReference(product.cutoutImage),
     backgroundImage: publishImageReference(product.backgroundImage),
+    imageChoices: normalizeImageChoices(product.imageChoices).map((choice) => ({
+      label: choice.label,
+      image: publishImageReference(choice.image),
+      ...(choice.stage ? { stage: publishImageReference(choice.stage) } : {})
+    })),
     originalHeight: String(product.originalHeight || ''),
     categories: [...new Set(product.categories || [])].sort(),
     visible: !archived && product.visible !== false,
@@ -378,12 +395,13 @@ function publishableProduct(product = {}, archived = false) {
 }
 
 function buildDefaultPublishBaseline() {
-  const products = [...adminProducts, ...adminCharacterProducts];
   return {
     version: 1,
-    products: Object.fromEntries(products.map((product) => [product.slug, publishableProduct(product)])),
+    products: Object.fromEntries(adminCharacterProducts.map((product) => [product.slug, publishableProduct(product)])),
+    categoryDisplayCards: Object.fromEntries(adminProducts.map((product) => [product.slug, publishableProduct(product)])),
     deletedProducts: [],
-    homepageCategoryOrder: []
+    homepageCategoryOrder: [],
+    ignoredImagePaths: []
   };
 }
 
@@ -392,11 +410,13 @@ function buildCurrentPublishSnapshot() {
   const archived = new Set(readArchivedProducts());
   const deleted = new Set(readDeletedProducts());
   const products = {};
+  const categoryDisplayCards = {};
 
   allAdminProducts().forEach((product) => {
     if (!product?.slug || deleted.has(product.slug)) return;
     const value = { ...product, ...(saved[product.slug] || {}) };
-    products[product.slug] = publishableProduct(value, archived.has(product.slug));
+    const target = product.categoryCard ? categoryDisplayCards : products;
+    target[product.slug] = publishableProduct(value, archived.has(product.slug));
   });
 
   const homepageDraft = readJsonStorage('mvpluxInlineAdminDraftV2', {})?.['index.html']?.['homepage-category-card-order'];
@@ -407,7 +427,9 @@ function buildCurrentPublishSnapshot() {
   return {
     version: 1,
     products,
+    categoryDisplayCards,
     deletedProducts: [...deleted].sort(),
+    ignoredImagePaths: [...new Set(readImageDraftPaths('ignoredImagePaths'))].sort(),
     homepageCategoryOrder: homepageOrder?.type === 'homepageCategoryOrder' && Array.isArray(homepageOrder.rows)
       ? homepageOrder.rows.map((row) => [...row])
       : []
@@ -451,8 +473,8 @@ function summarizeHomepageOrder(beforeRows = [], afterRows = []) {
 function generatePublishChanges(before, after) {
   const lines = [];
   const seenImages = new Set();
-  const beforeProducts = before?.products || {};
-  const afterProducts = after?.products || {};
+  const beforeProducts = { ...(before?.categoryDisplayCards || {}), ...(before?.products || {}) };
+  const afterProducts = { ...(after?.categoryDisplayCards || {}), ...(after?.products || {}) };
   const slugs = [...new Set([...Object.keys(beforeProducts), ...Object.keys(afterProducts)])].sort();
 
   slugs.forEach((slug) => {
@@ -464,6 +486,9 @@ function generatePublishChanges(before, after) {
       lines.push(`Created product/card: ${title}`);
       addPublishImageLine(lines, seenImages, `Added cutout image for ${title}`, current.cutoutImage);
       addPublishImageLine(lines, seenImages, `Added background image for ${title}`, current.backgroundImage);
+      normalizeImageChoices(current.imageChoices).forEach((choice) => {
+        addPublishImageLine(lines, seenImages, `Added image choice ${choice.label} for ${title}`, choice.image);
+      });
       if (current.categories.length) {
         lines.push(`Assigned ${title} to ${current.categories.map(categoryPublishLabel).join(' and ')}`);
       }
@@ -489,6 +514,17 @@ function generatePublishChanges(before, after) {
       lines.push(`Changed background image for ${title} from ${previous.backgroundImage || 'not set'} to ${current.backgroundImage || 'not set'}`);
       if (current.backgroundImage) seenImages.add(current.backgroundImage);
     }
+    const previousChoices = new Map(normalizeImageChoices(previous.imageChoices).map((choice) => [choice.image, choice]));
+    const currentChoices = new Map(normalizeImageChoices(current.imageChoices).map((choice) => [choice.image, choice]));
+    currentChoices.forEach((choice, image) => {
+      const oldChoice = previousChoices.get(image);
+      if (!oldChoice) lines.push(`Added image choice ${choice.label} to ${title}: ${image}`);
+      else if (oldChoice.label !== choice.label) lines.push(`Changed image choice label for ${title} from ${oldChoice.label} to ${choice.label}`);
+      seenImages.add(image);
+    });
+    previousChoices.forEach((choice, image) => {
+      if (!currentChoices.has(image)) lines.push(`Removed image choice ${choice.label} from ${title}: ${image}`);
+    });
     if (previous.visible !== current.visible) lines.push(`${current.visible ? 'Showed' : 'Hid'} ${title}`);
 
     const previousCategories = new Set(previous.categories || []);
@@ -511,6 +547,11 @@ function generatePublishChanges(before, after) {
   });
 
   lines.push(...summarizeHomepageOrder(before?.homepageCategoryOrder, after?.homepageCategoryOrder));
+  const beforeIgnored = new Set(before?.ignoredImagePaths || []);
+  const afterIgnored = new Set(after?.ignoredImagePaths || []);
+  afterIgnored.forEach((path) => {
+    if (!beforeIgnored.has(path)) lines.push(`Ignored non-product image: ${path}`);
+  });
   return [...new Set(lines)];
 }
 
@@ -529,6 +570,10 @@ function normalizePublishedBaseline(snapshot) {
     if (!product || typeof product !== 'object' || Array.isArray(product)) return;
     baseline.products[slug] = { ...(baseline.products[slug] || {}), ...product, slug };
   });
+  Object.entries(snapshot.categoryDisplayCards || {}).forEach(([slug, product]) => {
+    if (!product || typeof product !== 'object' || Array.isArray(product)) return;
+    baseline.categoryDisplayCards[slug] = { ...(baseline.categoryDisplayCards[slug] || {}), ...product, slug };
+  });
   (Array.isArray(snapshot.deletedProducts) ? snapshot.deletedProducts : []).forEach((slug) => {
     delete baseline.products[slug];
   });
@@ -536,6 +581,7 @@ function normalizePublishedBaseline(snapshot) {
   baseline.homepageCategoryOrder = Array.isArray(snapshot.homepageCategoryOrder)
     ? snapshot.homepageCategoryOrder.map((row) => Array.isArray(row) ? [...row] : [])
     : [];
+  baseline.ignoredImagePaths = Array.isArray(snapshot.ignoredImagePaths) ? [...snapshot.ignoredImagePaths] : [];
   return baseline;
 }
 
@@ -716,6 +762,7 @@ function applyAdminExport(data) {
   writeImageDraftEdits(data.imageDrafts || {});
   writeImageDraftPaths('dismissedImageDrafts', data.dismissedImageDrafts || []);
   writeImageDraftPaths('configuredImagePaths', data.configuredImagePaths || []);
+  writeImageDraftPaths('ignoredImagePaths', data.ignoredImagePaths || []);
   writePriceSettings(data.priceSettings || {});
   writeExtraImages(data.extraImages || {});
   writeCoupons(data.coupons || []);
@@ -1284,7 +1331,8 @@ function collectProductFormData(form) {
     stageBackgroundPosition: formData.get('stageBackgroundPosition').trim(),
     categories: current.categoryCard ? [] : formData.getAll('categories'),
     visible: current.categoryCard ? current.visible !== false : formData.has('visible'),
-    categoryOrder: { ...(current.categoryOrder || {}) }
+    categoryOrder: { ...(current.categoryOrder || {}) },
+    imageChoices: normalizeImageChoices(current.imageChoices)
   };
 }
 
@@ -1500,16 +1548,191 @@ function moveProductInSelectedSection(form, offset) {
   setStatus('Product order saved for the selected section.');
 }
 
+function effectiveAdminProducts() {
+  const saved = readAdminProducts();
+  const deleted = new Set(readDeletedProducts());
+  return allAdminProducts()
+    .filter((product) => !product.categoryCard && !deleted.has(product.slug))
+    .map((product) => ({ ...product, ...(saved[product.slug] || {}) }));
+}
+
+function effectiveAdminProduct(slug) {
+  return effectiveAdminProducts().find((product) => product.slug === slug) || null;
+}
+
+function productCategoryNames(product) {
+  const labels = new Map((window.MVPLUX_PRODUCT_CATEGORIES || []).map((category) => [category.key, category.label]));
+  return (product?.categories || []).map((category) => labels.get(category) || category).join(', ') || 'Uncategorized';
+}
+
+function parentProductPickerMarkup(selectedSlug = '', excludedSlug = '', selectName = 'parentProductSlug') {
+  const products = effectiveAdminProducts()
+    .filter((product) => product.slug !== excludedSlug)
+    .sort((left, right) => String(left.title || left.slug).localeCompare(String(right.title || right.slug)));
+  return `
+    <div class="admin-parent-product-picker">
+      <label>
+        Search product cards
+        <input type="search" data-parent-product-search placeholder="Search title, slug, or category">
+      </label>
+      <label>
+        Belongs to product card
+        <select name="${selectName}" data-parent-product-select required>
+          <option value="">Select a product card</option>
+          ${products.map((product) => `
+            <option value="${escapeAdminHtml(product.slug)}" ${product.slug === selectedSlug ? 'selected' : ''}
+              data-search="${escapeAdminHtml(`${product.title} ${product.slug} ${productCategoryNames(product)}`.toLowerCase())}">
+              ${escapeAdminHtml(product.title)} — ${escapeAdminHtml(product.slug)} — ${escapeAdminHtml(productCategoryNames(product))}
+            </option>
+          `).join('')}
+        </select>
+      </label>
+      <div class="admin-parent-product-preview" data-parent-product-preview></div>
+    </div>
+  `;
+}
+
+function bindParentProductPicker(scope) {
+  const search = scope.querySelector('[data-parent-product-search]');
+  const select = scope.querySelector('[data-parent-product-select]');
+  const preview = scope.querySelector('[data-parent-product-preview]');
+  if (!select) return;
+
+  const updatePreview = () => {
+    const product = effectiveAdminProduct(select.value);
+    if (!preview) return;
+    preview.innerHTML = product ? `
+      <img src="${escapeAdminHtml(product.cutoutImage || '')}" alt="">
+      <span><strong>${escapeAdminHtml(product.title)}</strong><br>${escapeAdminHtml(product.slug)}<br>${escapeAdminHtml(productCategoryNames(product))}</span>
+    ` : '<span>No parent product selected.</span>';
+  };
+
+  search?.addEventListener('input', () => {
+    const query = search.value.trim().toLowerCase();
+    [...select.options].forEach((option, index) => {
+      if (index === 0) return;
+      option.hidden = Boolean(query) && !String(option.dataset.search || '').includes(query);
+    });
+  });
+  select.addEventListener('change', updatePreview);
+  updatePreview();
+}
+
+function findProductImageOwner(path, excludedSlug = '') {
+  const imagePath = String(path || '').trim();
+  if (!imagePath) return null;
+  return effectiveAdminProducts().find((product) => (
+    product.slug !== excludedSlug
+    && (product.cutoutImage === imagePath || normalizeImageChoices(product.imageChoices).some((choice) => choice.image === imagePath))
+  )) || null;
+}
+
+function writeProductImageChoices(slug, choices) {
+  const normalized = normalizeImageChoices(choices);
+  const customProducts = readCustomProducts();
+  const customIndex = customProducts.findIndex((product) => product.slug === slug);
+  if (customIndex >= 0) {
+    customProducts[customIndex] = { ...customProducts[customIndex], imageChoices: normalized };
+    writeCustomProducts(customProducts);
+    return;
+  }
+  const saved = readAdminProducts();
+  saved[slug] = { ...(saved[slug] || {}), imageChoices: normalized };
+  writeAdminProducts(saved);
+}
+
+function addImageChoiceToProduct(parentSlug, choice, excludedSlug = '') {
+  const parent = effectiveAdminProduct(parentSlug);
+  if (!parent) throw new Error('Select an existing parent product card.');
+  const owner = findProductImageOwner(choice.image, excludedSlug);
+  if (owner) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
+  writeProductImageChoices(parentSlug, [...normalizeImageChoices(parent.imageChoices), choice]);
+  return parent;
+}
+
+function removeProductImageChoice(parentSlug, imagePath) {
+  const parent = effectiveAdminProduct(parentSlug);
+  if (!parent) return;
+  const choice = normalizeImageChoices(parent.imageChoices).find((item) => item.image === imagePath);
+  if (!choice || !window.confirm(`Remove “${choice.label}” from ${parent.title}? The image file will not be deleted.`)) return;
+  writeProductImageChoices(parentSlug, normalizeImageChoices(parent.imageChoices).filter((item) => item.image !== imagePath));
+  writeImageDraftPaths('configuredImagePaths', readImageDraftPaths('configuredImagePaths').filter((path) => path !== imagePath));
+  renderAdminProducts();
+  renderImageDrafts();
+  setStatus('Image choice removed. The physical image file was not changed.');
+}
+
+function moveCustomProductToExistingProduct(form) {
+  const sourceSlug = form.dataset.slug;
+  const source = readCustomProducts().find((product) => product.slug === sourceSlug);
+  const parentSlug = form.querySelector('[name="moveParentProductSlug"]')?.value || '';
+  const label = form.querySelector('[name="moveImageChoiceLabel"]')?.value.trim() || source?.title || 'Alternate image';
+  const parent = effectiveAdminProduct(parentSlug);
+  if (!source || !parent || parentSlug === sourceSlug) {
+    setStatus('Select a different existing product card.');
+    return;
+  }
+  if (!source.cutoutImage) {
+    setStatus('That standalone product does not have an image path to move.');
+    return;
+  }
+  if (!window.confirm(`Move ${source.title} into ${parent.title} as an image choice? The physical image file will be preserved.`)) return;
+
+  try {
+    const incomingChoices = [
+      { label, image: source.cutoutImage },
+      ...normalizeImageChoices(source.imageChoices)
+    ];
+    incomingChoices.forEach((choice) => {
+      const owner = findProductImageOwner(choice.image, sourceSlug);
+      if (owner) throw new Error(`Image ${choice.image} is already assigned to ${owner.title} (${owner.slug}).`);
+    });
+    writeProductImageChoices(parentSlug, [...normalizeImageChoices(parent.imageChoices), ...incomingChoices]);
+    writeCustomProducts(readCustomProducts().filter((product) => product.slug !== sourceSlug));
+    const archived = readArchivedProducts().filter((slug) => slug !== sourceSlug);
+    writeArchivedProducts(archived);
+    const history = getAdminLiveValue('productRelationshipHistory', []);
+    const entry = { action: 'moved-to-image-choice', sourceSlug, parentSlug, image: source.cutoutImage, date: new Date().toISOString() };
+    localStorage.setItem('mvpluxProductRelationshipHistory', JSON.stringify([...history, entry]));
+    updateAdminLiveSettings({ productRelationshipHistory: [...history, entry] });
+    saveAdminSettingsLive({ productRelationshipHistory: [...history, entry] });
+    renderAdminProducts();
+    renderImageDrafts();
+    setStatus('Standalone product moved into the selected product card. The image file was preserved.');
+  } catch (error) {
+    setStatus(error.message || 'Could not move that product.');
+  }
+}
+
+function productImageChoicesMarkup(value) {
+  const choices = normalizeImageChoices(value.imageChoices);
+  return `
+    <fieldset class="admin-image-choice-manager">
+      <legend>Image Choices For Selected Standee</legend>
+      ${choices.length ? choices.map((choice) => `
+        <div class="admin-image-choice-row">
+          <img src="${escapeAdminHtml(choice.image)}" alt="">
+          <span><strong>${escapeAdminHtml(choice.label)}</strong><br>${escapeAdminHtml(choice.image)}</span>
+          <button type="button" data-remove-image-choice="${escapeAdminHtml(choice.image)}">Remove image choice</button>
+        </div>
+      `).join('') : '<p class="admin-note">No alternate image choices assigned.</p>'}
+    </fieldset>
+  `;
+}
+
 function renderAdminProducts() {
-  const container = document.getElementById('adminProducts');
+  const approvedContainer = document.getElementById('approvedProducts');
+  const categoryContainer = document.getElementById('adminProducts');
+  const productContainers = [approvedContainer, categoryContainer].filter(Boolean);
   const saved = readAdminProducts();
   const archived = new Set(readArchivedProducts());
-  if (!container) return;
+  if (!productContainers.length) return;
 
   renderSavedProducts();
 
   const deleted = new Set(readDeletedProducts());
-  container.innerHTML = allAdminProducts().filter((product) => !archived.has(product.slug) && !deleted.has(product.slug)).map((product) => {
+  const availableProducts = allAdminProducts().filter((product) => !archived.has(product.slug) && !deleted.has(product.slug));
+  const productMarkup = (products) => products.map((product) => {
     const value = { ...product, ...(saved[product.slug] || {}) };
     return `
       <form class="admin-product-card" id="product-${product.slug}" data-slug="${product.slug}">
@@ -1533,6 +1756,12 @@ function renderAdminProducts() {
                 Card title
                 <input name="title" type="text" value="${value.title || ''}">
               </label>
+              ${product.categoryCard ? '' : `
+                <label>
+                  Product slug
+                  <input name="productSlug" type="text" value="${escapeAdminHtml(value.slug || product.slug)}" readonly>
+                </label>
+              `}
               <label>
                 Card description
                 <textarea name="description" rows="3">${value.description || ''}</textarea>
@@ -1558,6 +1787,19 @@ function renderAdminProducts() {
                 <input name="backgroundUpload" type="file" accept="image/*">
               </label>
             </fieldset>
+            ${product.categoryCard ? '' : productImageChoicesMarkup(value)}
+            ${value.custom === true ? `
+              <details class="admin-move-product-panel">
+                <summary>Move to existing product</summary>
+                ${parentProductPickerMarkup('', value.slug, 'moveParentProductSlug')}
+                <label>
+                  Image-choice label
+                  <input name="moveImageChoiceLabel" type="text" value="${escapeAdminHtml(value.title || '')}" placeholder="Alternate pose">
+                </label>
+                <button type="button" data-move-to-existing-product>Move to existing product</button>
+                <p class="admin-note">This removes only the standalone Admin product relationship. The physical image file is preserved.</p>
+              </details>
+            ` : ''}
             <fieldset>
               <legend>Size & Price</legend>
               <div class="admin-form-row">
@@ -1608,7 +1850,11 @@ function renderAdminProducts() {
     `;
   }).join('');
 
-  container.querySelectorAll('.admin-product-card').forEach((form) => {
+  if (approvedContainer) approvedContainer.innerHTML = productMarkup(availableProducts.filter((product) => !product.categoryCard));
+  if (categoryContainer) categoryContainer.innerHTML = productMarkup(availableProducts.filter((product) => product.categoryCard));
+
+  productContainers.forEach((container) => container.querySelectorAll('.admin-product-card').forEach((form) => {
+    bindParentProductPicker(form);
     updateAdminOriginalPrice(form);
     form.querySelectorAll('input, textarea').forEach((field) => {
       field.addEventListener('input', () => {
@@ -1655,11 +1901,19 @@ function renderAdminProducts() {
       });
     });
 
+    form.querySelectorAll('[data-remove-image-choice]').forEach((button) => {
+      button.addEventListener('click', () => removeProductImageChoice(form.dataset.slug, button.dataset.removeImageChoice));
+    });
+
+    form.querySelector('[data-move-to-existing-product]')?.addEventListener('click', () => {
+      moveCustomProductToExistingProduct(form);
+    });
+
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       saveProductForm(form);
     });
-  });
+  }));
 }
 
 function fillPriceSettingsForm() {
@@ -1780,15 +2034,18 @@ function imageDraftCategoryMarkup(selectedCategories = []) {
 
 function collectImageDraftForm(form) {
   const formData = new FormData(form);
-  const requestedSlug = formData.get('slug').trim();
+  const requestedSlug = String(formData.get('slug') || '').trim();
   return {
     path: form.dataset.imagePath,
-    title: formData.get('title').trim(),
+    purpose: String(formData.get('imagePurpose') || 'new-product'),
+    title: String(formData.get('title') || '').trim(),
     slug: requestedSlug ? makeSlug(requestedSlug) : '',
-    description: formData.get('description').trim(),
-    originalHeight: formData.get('originalHeight').trim(),
-    backgroundImage: formData.get('backgroundImage'),
-    categories: formData.getAll('categories')
+    description: String(formData.get('description') || '').trim(),
+    originalHeight: String(formData.get('originalHeight') || '').trim(),
+    backgroundImage: String(formData.get('backgroundImage') || ''),
+    categories: formData.getAll('categories'),
+    parentProductSlug: String(formData.get('parentProductSlug') || ''),
+    imageChoiceLabel: String(formData.get('imageChoiceLabel') || '').trim()
   };
 }
 
@@ -1801,12 +2058,18 @@ function saveImageDraftForm(form) {
 
 function publishImageDraft(form) {
   const draft = collectImageDraftForm(form);
+  if (draft.purpose !== 'new-product') return;
   if (!draft.title || !draft.slug || !draft.originalHeight) {
     setStatus('Add a title, slug, and original height before publishing.');
     return;
   }
   if (allAdminProducts().some((product) => product.slug === draft.slug)) {
     setStatus('That slug already belongs to another product.');
+    return;
+  }
+  const imageOwner = findProductImageOwner(draft.path);
+  if (imageOwner) {
+    setStatus(`That image is already assigned to ${imageOwner.title} (${imageOwner.slug}).`);
     return;
   }
 
@@ -1821,7 +2084,8 @@ function publishImageDraft(form) {
     originalHeight: draft.originalHeight,
     categories: draft.categories,
     visible: draft.categories.length > 0,
-    categoryOrder: Object.fromEntries(draft.categories.map((category) => [category, 999]))
+    categoryOrder: Object.fromEntries(draft.categories.map((category) => [category, 999])),
+    imageChoices: []
   });
   writeCustomProducts(products);
   writeImageDraftPaths('configuredImagePaths', [...readImageDraftPaths('configuredImagePaths'), draft.path]);
@@ -1830,16 +2094,49 @@ function publishImageDraft(form) {
   writeImageDraftEdits(edits);
   renderAdminProducts();
   renderImageDrafts();
-  setStatus(draft.categories.length ? 'Product published to its selected sections.' : 'Product saved as an uncategorized Admin record.');
+  setStatus(draft.categories.length ? 'Product added to Admin. Use Publish Changes to send it to the storefront.' : 'Product saved as an uncategorized Admin record.');
 }
 
-function deleteImageDraft(path) {
+function addDraftImageChoice(form) {
+  const draft = collectImageDraftForm(form);
+  if (draft.purpose !== 'image-choice' || !draft.parentProductSlug) {
+    setStatus('Select the product card this image belongs to.');
+    return;
+  }
+  try {
+    addImageChoiceToProduct(draft.parentProductSlug, {
+      label: draft.imageChoiceLabel || 'Alternate image',
+      image: draft.path
+    });
+    writeImageDraftPaths('configuredImagePaths', [...readImageDraftPaths('configuredImagePaths'), draft.path]);
+    const edits = readImageDraftEdits();
+    delete edits[draft.path];
+    writeImageDraftEdits(edits);
+    renderAdminProducts();
+    renderImageDrafts();
+    setStatus('Image choice added to the selected Admin product. Use Publish Changes to send it to the storefront.');
+  } catch (error) {
+    setStatus(error.message || 'Could not add that image choice.');
+  }
+}
+
+function ignoreImageDraft(path) {
   const drafts = readImageDraftEdits();
   delete drafts[path];
   writeImageDraftEdits(drafts);
-  writeImageDraftPaths('dismissedImageDrafts', [...readImageDraftPaths('dismissedImageDrafts'), path]);
+  writeImageDraftPaths('ignoredImagePaths', [...readImageDraftPaths('ignoredImagePaths'), path]);
   renderImageDrafts();
-  setStatus('Draft removed. The image file was not changed.');
+  setStatus('Image marked as non-product inventory. The image file was not changed.');
+}
+
+function updateImageDraftPurpose(form) {
+  const purpose = form.querySelector('[name="imagePurpose"]')?.value || 'new-product';
+  form.querySelectorAll('[data-draft-purpose]').forEach((section) => {
+    section.hidden = section.dataset.draftPurpose !== purpose;
+  });
+  form.querySelectorAll('[data-draft-action]').forEach((button) => {
+    button.hidden = button.dataset.draftAction !== purpose;
+  });
 }
 
 function renderImageDrafts() {
@@ -1848,8 +2145,13 @@ function renderImageDrafts() {
   const edits = readImageDraftEdits();
   const hiddenPaths = new Set([
     ...readImageDraftPaths('dismissedImageDrafts'),
-    ...readImageDraftPaths('configuredImagePaths')
+    ...readImageDraftPaths('configuredImagePaths'),
+    ...readImageDraftPaths('ignoredImagePaths')
   ]);
+  effectiveAdminProducts().forEach((product) => {
+    if (product.cutoutImage) hiddenPaths.add(product.cutoutImage);
+    normalizeImageChoices(product.imageChoices).forEach((choice) => hiddenPaths.add(choice.image));
+  });
   const drafts = imageDraftInventory.filter((draft) => draft?.path && !hiddenPaths.has(draft.path));
 
   if (!drafts.length) {
@@ -1859,33 +2161,51 @@ function renderImageDrafts() {
 
   container.innerHTML = drafts.map((inventoryDraft) => {
     const draft = { ...inventoryDraft, ...(edits[inventoryDraft.path] || {}) };
+    const purpose = draft.purpose || 'new-product';
     return `
       <form class="admin-product-card admin-image-draft" data-image-path="${draft.path}">
         <div class="admin-product-heading">
           <h3>${draft.title || 'Unpublished image draft'}</h3>
           <div class="admin-card-actions">
             <button type="button" data-save-image-draft>Save Draft</button>
-            <button type="button" data-publish-image-draft>Publish</button>
-            <button type="button" data-delete-image-draft>Delete Draft</button>
+            <button type="button" data-draft-action="new-product" data-publish-image-draft>Add Product</button>
+            <button type="button" data-draft-action="image-choice" data-add-image-choice>Add Image Choice</button>
+            <button type="button" data-draft-action="not-product" data-ignore-image>Ignore Image</button>
           </div>
         </div>
         <div class="admin-product-layout">
           <div class="admin-card-preview"><img class="admin-preview-cutout admin-draft-preview" src="${draft.path}" alt="Unpublished image preview"></div>
           <div class="admin-control-groups">
             <label>Image path<input type="text" value="${draft.path}" readonly></label>
-            <label>Title<input name="title" type="text" value="${draft.title || ''}"></label>
-            <label>Slug<input name="slug" type="text" value="${draft.slug || ''}"></label>
-            <label>Description<textarea name="description" rows="3">${draft.description || ''}</textarea></label>
-            <label>Original height<input name="originalHeight" type="text" value="${draft.originalHeight || ''}" placeholder="6'6 or 78"></label>
-            <label>Background
-              <select name="backgroundImage">
-                <option value="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg">Sci-fi stage</option>
-                <option value="images/FanBackgrounds/top-favorite-stage-gold.png">Gold stage</option>
-                <option value="images/FanBackgrounds/top-favorite-stage-premium.png">Premium stage</option>
-                <option value="images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg">Clean stage</option>
+            <label>Image purpose
+              <select name="imagePurpose">
+                <option value="new-product" ${purpose === 'new-product' ? 'selected' : ''}>New product card</option>
+                <option value="image-choice" ${purpose === 'image-choice' ? 'selected' : ''}>Image choice for an existing product</option>
+                <option value="not-product" ${purpose === 'not-product' ? 'selected' : ''}>Not a product image</option>
               </select>
             </label>
-            <fieldset><legend>Category assignments</legend><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
+            <div data-draft-purpose="new-product">
+              <label>Title<input name="title" type="text" value="${draft.title || ''}"></label>
+              <label>Slug<input name="slug" type="text" value="${draft.slug || ''}"></label>
+              <label>Description<textarea name="description" rows="3">${draft.description || ''}</textarea></label>
+              <label>Original height<input name="originalHeight" type="text" value="${draft.originalHeight || ''}" placeholder="6'6 or 78"></label>
+              <label>Background
+                <select name="backgroundImage">
+                  <option value="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg">Sci-fi stage</option>
+                  <option value="images/FanBackgrounds/top-favorite-stage-gold.png">Gold stage</option>
+                  <option value="images/FanBackgrounds/top-favorite-stage-premium.png">Premium stage</option>
+                  <option value="images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg">Clean stage</option>
+                </select>
+              </label>
+              <fieldset><legend>Category assignments</legend><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
+            </div>
+            <div data-draft-purpose="image-choice">
+              ${parentProductPickerMarkup(draft.parentProductSlug || '')}
+              <label>Image-choice label (optional)<input name="imageChoiceLabel" type="text" value="${draft.imageChoiceLabel || ''}" placeholder="Light, Dark, Print, Shade 1, Alternate pose"></label>
+            </div>
+            <div data-draft-purpose="not-product">
+              <p class="admin-note">Ignore this repository asset as non-product inventory. The physical image file will not be changed.</p>
+            </div>
           </div>
         </div>
       </form>
@@ -1895,9 +2215,13 @@ function renderImageDrafts() {
   container.querySelectorAll('.admin-image-draft').forEach((form) => {
     const background = edits[form.dataset.imagePath]?.backgroundImage;
     if (background) form.querySelector('[name="backgroundImage"]').value = background;
+    bindParentProductPicker(form);
+    updateImageDraftPurpose(form);
+    form.querySelector('[name="imagePurpose"]')?.addEventListener('change', () => updateImageDraftPurpose(form));
     form.querySelector('[data-save-image-draft]')?.addEventListener('click', () => saveImageDraftForm(form));
     form.querySelector('[data-publish-image-draft]')?.addEventListener('click', () => publishImageDraft(form));
-    form.querySelector('[data-delete-image-draft]')?.addEventListener('click', () => deleteImageDraft(form.dataset.imagePath));
+    form.querySelector('[data-add-image-choice]')?.addEventListener('click', () => addDraftImageChoice(form));
+    form.querySelector('[data-ignore-image]')?.addEventListener('click', () => ignoreImageDraft(form.dataset.imagePath));
   });
 }
 

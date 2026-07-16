@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260709-card-admin-sync" />
+  <link rel="stylesheet" href="style.css?v=20260716-product-publishing" />
 </head>
 <body>
   <header class="top-nav">
@@ -61,18 +61,30 @@
       <div id="adminImageDrafts" class="admin-product-list"></div>
     </section>
 
-    <section class="admin-panel">
+    <section class="admin-panel" id="approved-products">
       <div class="admin-panel-header">
-        <h2>Product Cards</h2>
+        <div>
+          <h2>Approved Products</h2>
+          <p class="admin-note">Real individual products from the fallback catalog and approved Admin records. These are included in Publish Changes.</p>
+        </div>
+        <div class="admin-panel-actions">
+          <button id="createAdminProduct" type="button">Create New Product</button>
+        </div>
+      </div>
+      <div id="savedProducts" class="admin-saved-products"></div>
+      <div id="approvedProducts" class="admin-product-list"></div>
+    </section>
+
+    <section class="admin-panel" id="category-display-cards">
+      <div class="admin-panel-header">
+        <h2>Category Display Cards</h2>
         <div class="admin-panel-actions">
           <button id="enableAdminAnywhere" type="button">Edit From Any Page</button>
           <button id="disableAdminAnywhere" type="button">Turn Off Page Editing</button>
-          <button id="createAdminProduct" type="button">Create New Card</button>
           <button id="resetAdminProducts" type="button">Clear Product Edits</button>
         </div>
       </div>
-      <p class="admin-note">Use Edit From Any Page to click text, double-click images to replace them, drag images to move them, resize from the gold corner, rotate from the toolbar, and save cards for later without deleting them.</p>
-      <div id="savedProducts" class="admin-saved-products"></div>
+      <p class="admin-note">Landing and category-navigation cards only. These are separate from individual approved products.</p>
       <div id="adminProducts" class="admin-product-list"></div>
     </section>
 
@@ -133,9 +145,9 @@
       <p id="adminStatus" class="admin-status"></p>
     </section>
 
-    <section class="admin-panel">
+    <section class="admin-panel" id="publish-changes">
       <div class="admin-panel-header">
-        <h2>Make Changes Permanent</h2>
+        <h2>Publish Changes</h2>
         <div class="admin-panel-actions">
           <button id="exportAdminChanges" type="button">Export Changes</button>
           <button id="copyAdminChanges" type="button">Copy Changes</button>
@@ -186,7 +198,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
   <script src="pricing.js?v=20260714-height-source"></script>
-  <script src="product-catalog.js?v=20260715-product-categories"></script>
-  <script src="admin.js?v=20260715-image-drafts"></script>
+  <script src="product-catalog.js?v=20260716-product-publishing"></script>
+  <script src="admin.js?v=20260716-product-publishing"></script>
 </body>
 </html>

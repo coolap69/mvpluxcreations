@@ -17,8 +17,18 @@ ROOT = Path(__file__).resolve().parent
 IMAGES_ROOT = ROOT / "images"
 OUTPUT = ROOT / "product-drafts.json"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-SOURCE_SUFFIXES = {".html", ".js", ".css"}
+SOURCE_SUFFIXES = {".html", ".js", ".css", ".json"}
 IMAGE_REFERENCE = re.compile(r"images/[A-Za-z0-9_./ -]+\.(?:png|jpe?g|webp|gif)", re.IGNORECASE)
+EXCLUDED_ASSET_DIRECTORIES = (
+    "images/Business/",
+    "images/FanBackgrounds/",
+    "images/FrontPageWeb/",
+    "images/Herobackgroundparts/",
+)
+EXCLUDED_ASSET_PATHS = {
+    "images/DinosaurCreatureStandees/notorch.jpg",
+    "images/DinosaurCreatureStandees/size.jpg",
+}
 
 
 def repository_images() -> list[str]:
@@ -32,11 +42,15 @@ def repository_images() -> list[str]:
 def associated_images() -> set[str]:
     references: set[str] = set()
     for path in ROOT.iterdir():
-        if not path.is_file() or path.suffix.lower() not in SOURCE_SUFFIXES:
+        if path == OUTPUT or not path.is_file() or path.suffix.lower() not in SOURCE_SUFFIXES:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
         references.update(match.group(0) for match in IMAGE_REFERENCE.finditer(text))
     return references
+
+
+def is_excluded_asset(image_path: str) -> bool:
+    return image_path in EXCLUDED_ASSET_PATHS or image_path.startswith(EXCLUDED_ASSET_DIRECTORIES)
 
 
 def existing_drafts() -> dict[str, dict[str, object]]:
@@ -50,12 +64,17 @@ def existing_drafts() -> dict[str, dict[str, object]]:
 
 
 def main() -> None:
-    associated = associated_images()
+    repository = repository_images()
+    associated = associated_images() & set(repository)
+    excluded = {
+        image_path for image_path in repository
+        if image_path not in associated and is_excluded_asset(image_path)
+    }
     previous = existing_drafts()
     drafts = []
 
-    for image_path in repository_images():
-        if image_path in associated:
+    for image_path in repository:
+        if image_path in excluded or image_path in associated:
             continue
         drafts.append(
             {
@@ -74,6 +93,9 @@ def main() -> None:
         )
 
     OUTPUT.write_text(json.dumps(drafts, indent=2) + "\n", encoding="utf-8")
+    print(f"Total supported images: {len(repository)}")
+    print(f"Associated product images: {len(associated)}")
+    print(f"Excluded website assets: {len(excluded)}")
     print(f"Wrote {len(drafts)} unpublished image drafts to {OUTPUT.name}.")
     print("No image files were modified.")
 

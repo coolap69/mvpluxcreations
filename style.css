@@ -5583,6 +5583,49 @@ button[aria-label="Add to cart"]::before {
   color: #eee;
 }
 
+.admin-parent-product-picker,
+.admin-move-product-panel,
+[data-draft-purpose] {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-parent-product-preview,
+.admin-image-choice-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(244,208,111,0.25);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.admin-parent-product-preview img,
+.admin-image-choice-row img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  background: rgba(255,255,255,0.08);
+}
+
+.admin-image-choice-manager {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-move-product-panel {
+  padding: 12px;
+  border: 1px solid rgba(244,208,111,0.3);
+  border-radius: 8px;
+}
+
+.admin-image-draft [hidden],
+.admin-image-draft button[hidden] {
+  display: none;
+}
+
 .admin-product-card fieldset {
   display: grid;
   gap: 10px;

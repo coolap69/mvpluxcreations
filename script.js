@@ -1870,6 +1870,21 @@ function ensureProductAdminSlugs(root = document) {
 
 window.mvpluxPublishedAdminSettings = null;
 
+function sanitizeProductImageChoices(choices = []) {
+  const seen = new Set();
+  return (Array.isArray(choices) ? choices : []).flatMap((choice) => {
+    const image = typeof choice?.image === 'string' ? choice.image.trim() : '';
+    if (!image || seen.has(image)) return [];
+    seen.add(image);
+    const stage = typeof choice?.stage === 'string' ? choice.stage.trim() : '';
+    return [{
+      label: typeof choice?.label === 'string' && choice.label.trim() ? choice.label.trim() : 'Alternate image',
+      image,
+      ...(stage ? { stage } : {})
+    }];
+  });
+}
+
 function sanitizePublishedProduct(slug, value) {
   if (!slug || !value || typeof value !== 'object' || Array.isArray(value)) return null;
   const product = { slug };
@@ -1877,6 +1892,7 @@ function sanitizePublishedProduct(slug, value) {
   if (typeof value.description === 'string') product.description = value.description;
   if (typeof value.cutoutImage === 'string' && value.cutoutImage.trim()) product.cutoutImage = value.cutoutImage;
   if (typeof value.backgroundImage === 'string' && value.backgroundImage.trim()) product.backgroundImage = value.backgroundImage;
+  if (Array.isArray(value.imageChoices)) product.imageChoices = sanitizeProductImageChoices(value.imageChoices);
   if ((typeof value.originalHeight === 'string' || typeof value.originalHeight === 'number') && String(value.originalHeight).trim()) {
     product.originalHeight = value.originalHeight;
   }
@@ -1904,6 +1920,11 @@ function validatePublishedAdminSettings(value) {
     const sanitized = sanitizePublishedProduct(slug, product);
     if (sanitized) products[slug] = sanitized;
   });
+  const categoryDisplayCards = {};
+  Object.entries(snapshot.categoryDisplayCards || {}).forEach(([slug, product]) => {
+    const sanitized = sanitizePublishedProduct(slug, product);
+    if (sanitized) categoryDisplayCards[slug] = sanitized;
+  });
 
   const homepageCategoryOrder = Array.isArray(snapshot.homepageCategoryOrder)
     ? snapshot.homepageCategoryOrder
@@ -1914,8 +1935,12 @@ function validatePublishedAdminSettings(value) {
   return {
     version: 1,
     products,
+    categoryDisplayCards,
     deletedProducts: Array.isArray(snapshot.deletedProducts)
       ? [...new Set(snapshot.deletedProducts.filter((slug) => typeof slug === 'string' && slug))]
+      : [],
+    ignoredImagePaths: Array.isArray(snapshot.ignoredImagePaths)
+      ? [...new Set(snapshot.ignoredImagePaths.filter((path) => typeof path === 'string' && path))]
       : [],
     homepageCategoryOrder
   };
@@ -1937,7 +1962,10 @@ async function loadPublishedAdminSettings() {
 }
 
 function getPublishedProducts() {
-  return window.mvpluxPublishedAdminSettings?.products || {};
+  return {
+    ...(window.mvpluxPublishedAdminSettings?.categoryDisplayCards || {}),
+    ...(window.mvpluxPublishedAdminSettings?.products || {})
+  };
 }
 
 function getAdminProducts() {
@@ -2011,6 +2039,8 @@ function getManagedProductCatalog() {
     if (!slug || deleted.has(slug)) return;
     const merged = { ...product, ...(overrides[slug] || {}) };
     merged.categories = Array.isArray(merged.categories) ? [...new Set(merged.categories)] : [];
+    merged.imageChoices = sanitizeProductImageChoices(merged.imageChoices)
+      .filter((choice) => choice.image !== merged.cutoutImage);
     merged.categoryOrder = merged.categoryOrder && typeof merged.categoryOrder === 'object'
       ? { ...merged.categoryOrder }
       : {};
@@ -2449,15 +2479,20 @@ function selectSportsOption(index) {
 function selectSportsStandee(key, shouldScroll = true) {
   const managed = getManagedProductBySlug(key);
   const catalogProduct = sportsStandeeCatalog[key];
+  const managedChoices = sanitizeProductImageChoices(managed?.imageChoices)
+    .filter((choice) => choice.image !== managed?.cutoutImage);
   const product = catalogProduct ? {
     ...catalogProduct,
     name: managed?.title || catalogProduct.name,
     description: managed?.description || catalogProduct.description,
     originalHeight: managed?.originalHeight || catalogProduct.originalHeight,
     backgroundImage: managed?.backgroundImage || catalogProduct.backgroundImage,
-    options: catalogProduct.options.map((option, index) => (
-      index === 0 && managed?.cutoutImage ? { ...option, image: managed.cutoutImage } : option
-    ))
+    options: sanitizeProductImageChoices([
+      ...catalogProduct.options.map((option, index) => (
+        index === 0 && managed?.cutoutImage ? { ...option, image: managed.cutoutImage } : option
+      )),
+      ...managedChoices
+    ])
   } : (managed ? {
     name: managed.title,
     sport: 'Sports Standee',
@@ -2465,8 +2500,8 @@ function selectSportsStandee(key, shouldScroll = true) {
     originalHeight: managed.originalHeight,
     backgroundImage: managed.backgroundImage,
     displayFit: {},
-    facts: [`Original size: ${formatHeight(managed.originalHeight || 78)}`, 'Sports', 'Options: 1 image'],
-    options: [{ label: 'No Background', image: managed.cutoutImage }]
+    facts: [`Original size: ${formatHeight(managed.originalHeight || 78)}`, 'Sports', `Options: ${managedChoices.length + 1} images`],
+    options: [{ label: 'Main image', image: managed.cutoutImage }, ...managedChoices]
   } : null);
   const optionStrip = document.getElementById('sportsOptionStrip');
   if (!product || !optionStrip) return;
@@ -2565,7 +2600,13 @@ function getKnownStandeeForCard(card) {
   const slug = card.dataset.productId || getStandeeSlug(title);
   const managed = getManagedProductBySlug(slug);
   const detailed = standeeCatalog[slug];
-  return detailed ? { ...detailed, ...managed, backgrounds: detailed.backgrounds, slug } : managed;
+  return detailed ? {
+    ...detailed,
+    ...managed,
+    backgrounds: detailed.backgrounds,
+    imageChoices: sanitizeProductImageChoices(managed?.imageChoices),
+    slug
+  } : managed;
 }
 
 function getCurrentProductCategory() {
@@ -2601,49 +2642,16 @@ function renderManagedCategoryPageProducts() {
     });
 
   if (category === 'sports') {
-    const productsBySlug = new Map(products.map((product) => [product.slug, product]));
-    const existingProductSlugs = new Set();
-    page.querySelectorAll('[data-sports-player]').forEach((card) => {
-      const product = productsBySlug.get(card.dataset.sportsPlayer);
-      card.hidden = !product;
-      if (!product) return;
-      if (card.matches('.sport-type-card')) return;
-      existingProductSlugs.add(product.slug);
-      card.dataset.productId = product.slug;
-      card.dataset.adminCardKey = product.slug;
-      const image = card.querySelector('img');
-      const title = card.querySelector('h3');
-      if (image && product.cutoutImage) image.src = product.cutoutImage;
-      if (title && product.title) title.textContent = product.title;
-    });
-
-    page.querySelectorAll('.sports-player-grid').forEach((grid) => {
-      [...grid.children]
-        .sort((a, b) => products.findIndex((product) => product.slug === a.dataset.sportsPlayer)
-          - products.findIndex((product) => product.slug === b.dataset.sportsPlayer))
-        .forEach((card) => grid.append(card));
-    });
-
-    const additionalProducts = products.filter((product) => !existingProductSlugs.has(product.slug));
-    let additionalPanel = page.querySelector('#additional-sports-products');
-    if (!additionalProducts.length) {
-      additionalPanel?.remove();
-      return;
-    }
-    if (!additionalPanel) {
-      additionalPanel = document.createElement('section');
-      additionalPanel.id = 'additional-sports-products';
-      additionalPanel.className = 'category-panel sports-roster-panel';
-      additionalPanel.innerHTML = '<h2>Additional Sports Standees</h2><div class="category-grid sports-player-grid"></div>';
-      page.querySelector('.sports-roster-panel:last-of-type')?.insertAdjacentElement('afterend', additionalPanel);
-    }
-    additionalPanel.querySelector('.category-grid').innerHTML = additionalProducts.map((product) => `
+    const grid = page.querySelector('.sports-player-grid');
+    if (!grid) return;
+    grid.innerHTML = products.map((product) => `
       <article class="category-card sports-player-card" data-sports-player="${product.slug}" data-product-id="${product.slug}" data-admin-card-key="${product.slug}">
         <img src="${product.cutoutImage}" alt="${product.title} standee">
         <h3>${product.title}</h3>
         <button type="button" onclick="selectSportsStandee('${product.slug}')">Select Standee</button>
       </article>
     `).join('');
+    grid.querySelector('.sports-player-card')?.classList.add('active');
     return;
   }
 
@@ -2676,6 +2684,19 @@ function selectGenericCategoryOption(state, options, index) {
 
 function buildGenericCategoryOptions(card, backgroundImages) {
   const product = getKnownStandeeForCard(card);
+  const imageChoices = sanitizeProductImageChoices(product?.imageChoices)
+    .filter((choice) => choice.image !== product?.cutoutImage);
+  if (product?.cutoutImage && imageChoices.length) {
+    const primaryChoice = product.backgrounds?.find((choice) => choice.image === product.cutoutImage);
+    const primaryLabel = primaryChoice?.name || 'Main image';
+    return [
+      { label: primaryLabel, image: product.cutoutImage, stage: primaryChoice?.stage || product.backgroundImage || getGenericCategoryFallbackStage() },
+      ...imageChoices.map((choice) => ({
+        ...choice,
+        stage: choice.stage || product.backgroundImage || getGenericCategoryFallbackStage()
+      }))
+    ];
+  }
   if (product?.backgrounds?.length) {
     return [...product.backgrounds]
       .map((background) => ({
@@ -2837,9 +2858,20 @@ function getStandeeBySlug(slug) {
       .map((key) => (window.MVPLUX_PRODUCT_CATEGORIES || []).find((category) => category.key === key)?.label)
       .filter(Boolean)
       .join(' / ') || detailed?.category || 'MVPLUXCREATIONS Standee';
-    product.backgrounds = detailed?.backgrounds?.length
-      ? detailed.backgrounds
-      : [{ name: 'Selected Background', image: product.image, stage: managed?.backgroundImage || getShowroomStageBackground() }];
+    const managedChoices = sanitizeProductImageChoices(managed?.imageChoices)
+      .filter((choice) => choice.image !== product.image);
+    product.backgrounds = managedChoices.length
+      ? [
+          { name: 'Main image', image: product.image, stage: managed?.backgroundImage || getShowroomStageBackground() },
+          ...managedChoices.map((choice) => ({
+            name: choice.label,
+            image: choice.image,
+            stage: managed?.backgroundImage || getShowroomStageBackground()
+          }))
+        ]
+      : detailed?.backgrounds?.length
+        ? detailed.backgrounds
+        : [{ name: 'Selected Background', image: product.image, stage: managed?.backgroundImage || getShowroomStageBackground() }];
     product.facts = detailed?.facts || ['Original size sets the starting price.', 'Custom sizes are available.'];
     return product;
   }
