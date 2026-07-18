@@ -1131,14 +1131,22 @@ function commerceEmptyMarkup(text) {
 }
 
 function orderCardMarkup(order) {
-  const sentToProduction = order.status === 'sent_to_production';
+  const status = order.status === 'sent_to_production' ? 'in_production' : String(order.status || 'new');
   const isTest = Boolean(order.is_test);
-  const paymentSubmitted = isTest && order.status === 'payment_submitted';
+  const nextAction = status === 'new'
+    ? { status: 'in_production', label: 'Start Production' }
+    : status === 'in_production'
+    ? { status: 'shipped', label: 'Mark Shipped' }
+    : status === 'shipped'
+    ? { status: 'completed', label: 'Mark Completed' }
+    : status === 'completed'
+    ? { status: 'archived', label: 'Archive Order' }
+    : null;
   return `
-    <article class="admin-commerce-card ${sentToProduction ? 'is-production-sent' : 'needs-production'} ${isTest ? 'is-test-record' : ''}">
+    <article class="admin-commerce-card ${status === 'in_production' ? 'is-production-sent' : ''} ${isTest ? 'is-test-record' : ''}">
       <div class="admin-commerce-card-head">
         <strong>${order.customer_name || 'Customer'}</strong>
-        <span>${isTest ? '<b class="test-record-badge">TEST</b> ' : ''}${order.status || 'new'}</span>
+        <span>${isTest ? '<b class="test-record-badge">TEST</b> ' : ''}${escapeAdminHtml(status.replace(/_/g, ' '))}</span>
       </div>
       <p>${adminListItems(order.items)}</p>
       <p><strong>Original:</strong> ${adminMoney(order.original_amount ?? order.subtotal)}${order.applied_discount_code ? ` · <strong>Code:</strong> ${escapeAdminHtml(order.applied_discount_code)} · <strong>Discount:</strong> ${adminMoney(order.discount_amount)}` : ''}</p>
@@ -1147,10 +1155,7 @@ function orderCardMarkup(order) {
       <p><strong>Ship:</strong> ${adminAddressText(order.shipping_address)}</p>
       ${order.notes ? `<p><strong>Notes:</strong> ${order.notes}</p>` : ''}
       <small>${adminDate(order.created_at)}</small>
-      <button class="admin-production-toggle ${sentToProduction ? 'is-sent' : ''}" type="button" data-toggle-production="${sentToProduction ? 'new' : 'sent_to_production'}" data-id="${order.id}">
-        ${sentToProduction ? 'Production Sent' : 'Needs Production'}
-      </button>
-      ${paymentSubmitted ? `<button class="admin-production-toggle" type="button" data-confirm-test-payment data-id="${escapeAdminHtml(order.id)}">Confirm Test Payment</button>` : ''}
+      ${nextAction ? `<button class="admin-production-toggle" type="button" data-order-status="${nextAction.status}" data-id="${escapeAdminHtml(order.id)}">${nextAction.label}</button>` : ''}
       ${isTest ? `<button class="admin-commerce-delete" type="button" data-delete-commerce="order" data-id="${escapeAdminHtml(order.id)}">Delete Test Record</button>` : ''}
     </article>
   `;
@@ -1190,11 +1195,18 @@ function offerCardMarkup(offer) {
   const details = parseOfferDetails(offer.message);
   const status = String(offer.status || 'pending').toLowerCase();
   const isMember = Boolean(offer.customer_id);
-  const canDecide = ['pending', 'countered', 'buyer_countered'].includes(status);
+  const canDecide = ['pending', 'buyer_countered'].includes(status);
   const canCounter = isMember && status === 'pending';
-  const statusLabel = status === 'accepted'
+  const statusLabel = ['accepted', 'accepted_awaiting_payment'].includes(status)
     ? 'accepted / awaiting payment'
     : status.replace(/_/g, ' ');
+  const responseOwner = status === 'countered'
+    ? 'Waiting for member response'
+    : status === 'buyer_countered'
+    ? 'Waiting for Admin final decision'
+    : status === 'payment_submitted'
+    ? 'Waiting for Admin payment confirmation'
+    : '';
   return `
     <article class="admin-commerce-card ${offer.is_test ? 'is-test-record' : ''}" data-offer-card="${escapeAdminHtml(offer.id)}">
       <div class="admin-commerce-card-head">
@@ -1216,6 +1228,7 @@ function offerCardMarkup(offer) {
       ${details.shipping ? `<p><strong>Shipping:</strong> ${escapeAdminHtml(details.shipping)}</p>` : ''}
       ${offer.seller_counter_amount ? `<p><strong>Admin counteroffer:</strong> ${adminMoney(offer.seller_counter_amount)}${offer.seller_counter_message ? ` · ${escapeAdminHtml(offer.seller_counter_message)}` : ''}</p>` : ''}
       ${offer.buyer_final_amount ? `<p><strong>Member counteroffer:</strong> ${adminMoney(offer.buyer_final_amount)}${offer.buyer_final_message ? ` · ${escapeAdminHtml(offer.buyer_final_message)}` : ''}</p>` : ''}
+      ${responseOwner ? `<p><strong>Next:</strong> ${escapeAdminHtml(responseOwner)}</p>` : ''}
       <small>${adminDate(offer.created_at)}</small>
       ${adminOfferHistoryMarkup(offer.id)}
       ${canDecide ? `
@@ -1232,6 +1245,9 @@ function offerCardMarkup(offer) {
           <button type="button" data-offer-action="counter" data-id="${escapeAdminHtml(offer.id)}">Send Counteroffer</button>
         </div>
       ` : ''}
+      ${offer.is_test && ['accepted', 'accepted_awaiting_payment'].includes(status) ? `<a class="admin-production-toggle" href="index.html?resumeOffer=${encodeURIComponent(offer.id)}">Continue Test Payment</a>` : ''}
+      ${status === 'payment_submitted' ? `<button class="admin-production-toggle" type="button" data-confirm-offer-payment data-id="${escapeAdminHtml(offer.id)}">Mark Payment Confirmed</button>` : ''}
+      ${['paid', 'declined'].includes(status) ? `<button type="button" data-offer-action="archive" data-id="${escapeAdminHtml(offer.id)}">Archive Offer</button>` : ''}
       ${offer.is_test ? `<button class="admin-commerce-delete" type="button" data-delete-commerce="offer" data-id="${escapeAdminHtml(offer.id)}">Delete Test Record</button>` : ''}
     </article>
   `;
@@ -1254,7 +1270,11 @@ async function updateAdminOffer(button) {
   if (action === 'accept' || action === 'decline') {
     const verb = action === 'accept' ? 'accept' : 'decline';
     if (!window.confirm(`${verb[0].toUpperCase()}${verb.slice(1)} this offer? The offer record will be kept.`)) return;
-    update.status = action === 'accept' ? 'accepted' : 'declined';
+    update.status = action === 'accept' ? 'accepted_awaiting_payment' : 'declined';
+  } else if (action === 'archive') {
+    if (!window.confirm('Archive this offer? Its record and full history will be preserved.')) return;
+    update.status = 'archived';
+    update.archived_at = new Date().toISOString();
   } else if (action === 'counter') {
     const amount = Number(String(card.querySelector('[data-offer-counter-amount]')?.value || '').replace(/[^0-9.]/g, ''));
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -1326,15 +1346,15 @@ function handleCommerceAdminClick(event) {
     return;
   }
 
-  const productionButton = event.target.closest?.('[data-toggle-production]');
-  if (productionButton) {
-    toggleOrderProductionStatus(productionButton);
+  const orderStatusButton = event.target.closest?.('[data-order-status]');
+  if (orderStatusButton) {
+    updateOrderStatus(orderStatusButton);
     return;
   }
 
-  const confirmTestPaymentButton = event.target.closest?.('[data-confirm-test-payment]');
-  if (confirmTestPaymentButton) {
-    confirmTestPayment(confirmTestPaymentButton);
+  const confirmPaymentButton = event.target.closest?.('[data-confirm-offer-payment]');
+  if (confirmPaymentButton) {
+    confirmOfferPayment(confirmPaymentButton);
     return;
   }
 
@@ -1343,64 +1363,78 @@ function handleCommerceAdminClick(event) {
   deleteCommerceRecord(button);
 }
 
-async function confirmTestPayment(button) {
+async function confirmOfferPayment(button) {
   const client = getAdminClient();
   const id = button?.dataset?.id;
-  if (!client || !id || !window.confirm('Confirm this simulated payment? No real money will be recorded.')) return;
+  if (!client || !id || !window.confirm('Confirm that payment was received? This creates exactly one related order.')) return;
   button.disabled = true;
   button.textContent = 'Confirming...';
-  const { error } = await client.rpc('update_test_order_status', {
-    p_order_id: id,
-    p_status: 'paid'
-  });
+  const { data, error } = await client.rpc('confirm_offer_payment', { p_offer_id: id });
   if (error) {
     button.disabled = false;
-    button.textContent = 'Confirm Test Payment';
-    setCommerceStatus(`Could not confirm the test payment. ${error.message || error}`);
+    button.textContent = 'Mark Payment Confirmed';
+    setCommerceStatus(`Could not confirm the payment. ${error.message || error}`);
     return;
   }
-  setCommerceStatus('Test payment confirmed. No real payment was recorded.');
+  setCommerceStatus(data?.created
+    ? 'Payment confirmed. The offer moved to Paid and one New Order was created.'
+    : 'Payment was already confirmed; the existing related order was preserved.');
   refreshCommerceAdmin();
 }
 
-async function toggleOrderProductionStatus(button) {
+async function updateOrderStatus(button) {
   const client = window.getMvpluxSupabaseClient?.();
   const id = button?.dataset?.id;
-  const nextStatus = button?.dataset?.toggleProduction || 'sent_to_production';
+  const nextStatus = button?.dataset?.orderStatus;
   if (!client || !id) return;
+
+  if (nextStatus === 'archived' && !window.confirm('Archive this order? The complete order record and history will be preserved.')) return;
 
   button.disabled = true;
   button.textContent = 'Saving...';
-  const { error } = await client
-    .from('order_requests')
-    .update({ status: nextStatus })
-    .eq('id', id);
+  const { error } = await client.rpc('admin_update_order_status', {
+    p_order_id: id,
+    p_status: nextStatus
+  });
 
   if (error) {
     button.disabled = false;
-    button.textContent = nextStatus === 'sent_to_production' ? 'Needs Production' : 'Production Sent';
-    setCommerceStatus('Could not update production status yet. Run the admin update SQL in Supabase, then try again.');
+    button.textContent = 'Try Again';
+    setCommerceStatus(`Could not update the order. ${error.message || error}`);
     return;
   }
 
-  setCommerceStatus(nextStatus === 'sent_to_production' ? 'Order marked sent to production.' : 'Order marked as needing production again.');
+  setCommerceStatus(`Order moved to ${nextStatus.replace(/_/g, ' ')}.`);
   refreshCommerceAdmin();
 }
 
 async function refreshCommerceAdmin() {
-  const ordersList = document.getElementById('adminOrdersList');
-  const offersList = document.getElementById('adminOffersList');
+  const offerLists = {
+    pending: document.getElementById('adminOffersPending'),
+    countered: document.getElementById('adminOffersCountered'),
+    accepted: document.getElementById('adminOffersAccepted'),
+    paid: document.getElementById('adminOffersPaid'),
+    declined: document.getElementById('adminOffersDeclined'),
+    archived: document.getElementById('adminOffersArchived')
+  };
+  const orderLists = {
+    new: document.getElementById('adminOrdersNew'),
+    in_production: document.getElementById('adminOrdersProduction'),
+    shipped: document.getElementById('adminOrdersShipped'),
+    completed: document.getElementById('adminOrdersCompleted'),
+    archived: document.getElementById('adminOrdersArchived')
+  };
   const client = window.getMvpluxSupabaseClient?.();
 
-  if (!ordersList || !offersList) return;
+  if (Object.values(offerLists).some((list) => !list) || Object.values(orderLists).some((list) => !list)) return;
   if (!client) {
     setCommerceStatus('Supabase is not loaded yet.');
     return;
   }
 
   setCommerceStatus('Loading orders and offers...');
-  ordersList.innerHTML = commerceEmptyMarkup('Loading orders...');
-  offersList.innerHTML = commerceEmptyMarkup('Loading offers...');
+  Object.values(orderLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup('Loading orders...'); });
+  Object.values(offerLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup('Loading offers...'); });
 
   const [ordersResponse, offersResponse] = await Promise.all([
     client.from('order_requests').select('*').order('created_at', { ascending: false }).limit(25),
@@ -1409,8 +1443,8 @@ async function refreshCommerceAdmin() {
 
   if (ordersResponse.error || offersResponse.error) {
     setCommerceStatus('Could not load orders/offers yet. Make sure you are signed in and the admin Supabase policy has been added.');
-    ordersList.innerHTML = commerceEmptyMarkup(ordersResponse.error?.message || 'Orders unavailable.');
-    offersList.innerHTML = commerceEmptyMarkup(offersResponse.error?.message || 'Offers unavailable.');
+    Object.values(orderLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup(ordersResponse.error?.message || 'Orders unavailable.'); });
+    Object.values(offerLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup(offersResponse.error?.message || 'Offers unavailable.'); });
     return;
   }
 
@@ -1429,13 +1463,39 @@ async function refreshCommerceAdmin() {
     });
   }
 
-  ordersList.innerHTML = ordersResponse.data?.length
-    ? ordersResponse.data.map(orderCardMarkup).join('')
-    : commerceEmptyMarkup('No orders yet.');
+  const offersByQueue = { pending: [], countered: [], accepted: [], paid: [], declined: [], archived: [] };
+  (offersResponse.data || []).forEach((offer) => {
+    const status = String(offer.status || 'pending');
+    const queue = status === 'pending'
+      ? 'pending'
+      : ['countered', 'buyer_countered'].includes(status)
+      ? 'countered'
+      : ['accepted', 'accepted_awaiting_payment', 'payment_pending', 'payment_submitted'].includes(status)
+      ? 'accepted'
+      : ['paid', 'completed'].includes(status)
+      ? 'paid'
+      : status === 'declined'
+      ? 'declined'
+      : 'archived';
+    offersByQueue[queue].push(offer);
+  });
+  Object.entries(offerLists).forEach(([queue, list]) => {
+    list.innerHTML = offersByQueue[queue].length
+      ? offersByQueue[queue].map(offerCardMarkup).join('')
+      : commerceEmptyMarkup(`No ${queue.replace(/_/g, ' ')} offers.`);
+  });
 
-  offersList.innerHTML = offersResponse.data?.length
-    ? offersResponse.data.map(offerCardMarkup).join('')
-    : commerceEmptyMarkup('No offers yet.');
+  const ordersByQueue = { new: [], in_production: [], shipped: [], completed: [], archived: [] };
+  (ordersResponse.data || []).forEach((order) => {
+    const status = order.status === 'sent_to_production' ? 'in_production' : String(order.status || 'new');
+    const queue = Object.prototype.hasOwnProperty.call(ordersByQueue, status) ? status : 'new';
+    ordersByQueue[queue].push(order);
+  });
+  Object.entries(orderLists).forEach(([queue, list]) => {
+    list.innerHTML = ordersByQueue[queue].length
+      ? ordersByQueue[queue].map(orderCardMarkup).join('')
+      : commerceEmptyMarkup(`No ${queue.replace(/_/g, ' ')} orders.`);
+  });
 
   setCommerceStatus(`Loaded ${ordersResponse.data?.length || 0} orders and ${offersResponse.data?.length || 0} offers.${historyError ? ' Apply the offer-history database migration to load dedicated timelines.' : ''}`);
 }

@@ -5437,6 +5437,31 @@ button[aria-label="Add to cart"]::before {
   margin-top: 14px;
 }
 
+.admin-commerce-section {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.admin-commerce-queues {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.admin-commerce-queues > section {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(244,208,111,0.2);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.16);
+}
+
+.admin-commerce-queues h4 {
+  margin: 0 0 8px;
+  color: #f4d06f;
+}
+
 .admin-commerce-grid h3 {
   margin: 0 0 10px;
   color: #f4d06f;
@@ -5612,6 +5637,58 @@ button[aria-label="Add to cart"]::before {
 
 .member-offer-timeline p {
   margin: 5px 0 0;
+}
+
+.guest-offer-summary {
+  align-self: center;
+}
+
+.guest-offer-summary[hidden],
+.offer-summary[hidden],
+#guestOfferAccountLink[hidden] {
+  display: none;
+}
+
+.guest-offer-summary h3,
+.guest-offer-summary p {
+  margin: 0 0 6px;
+}
+
+.guest-offer-summary h3 {
+  color: #f4d06f;
+  font-size: 18px;
+}
+
+.offer-membership-note a {
+  color: #f4d06f;
+  font-weight: 900;
+}
+
+.member-accepted-offer {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(244,208,111,0.48);
+  border-radius: 10px;
+  background: rgba(244,208,111,0.08);
+}
+
+.member-accepted-offer img {
+  width: 92px;
+  height: 92px;
+  object-fit: contain;
+}
+
+.member-accepted-offer p {
+  margin: 5px 0 10px;
+}
+
+.member-payment-status {
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(244,208,111,0.1);
 }
 
 @media (max-width: 720px) {

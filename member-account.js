@@ -63,11 +63,24 @@ function memberOfferMarkup(offer, history) {
   const details = memberOfferDetails(offer.message);
   const status = String(offer.status || 'pending');
   const awaitingResponse = status === 'countered';
+  const awaitingPayment = ['accepted', 'accepted_awaiting_payment'].includes(status);
+  const paymentSubmitted = status === 'payment_submitted';
+  const statusLabels = {
+    pending: 'Pending review',
+    countered: 'Admin counteroffer — your response is needed',
+    buyer_countered: 'Your counteroffer is awaiting Admin’s final decision',
+    accepted: 'Accepted / awaiting payment',
+    accepted_awaiting_payment: 'Accepted / awaiting payment',
+    payment_submitted: 'Payment submitted / awaiting confirmation',
+    paid: 'Completed / paid',
+    declined: 'Declined',
+    archived: 'Archived'
+  };
   return `
     <article class="member-offer-card" data-member-offer="${memberEscape(offer.id)}">
       <div class="member-offer-head">
         <h3>${memberEscape(offer.product_name || 'Selected standee')}</h3>
-        <span>${offer.is_test ? '<b class="test-record-badge">TEST</b> ' : ''}${memberEscape(status.replace(/_/g, ' '))}</span>
+        <span>${offer.is_test ? '<b class="test-record-badge">TEST</b> ' : ''}${memberEscape(statusLabels[status] || status.replace(/_/g, ' '))}</span>
       </div>
       <dl class="member-offer-details">
         <div><dt>Design</dt><dd>${memberEscape(details.design || 'Not recorded')}</dd></div>
@@ -82,6 +95,18 @@ function memberOfferMarkup(offer, history) {
         <div><dt>Created</dt><dd>${memberDate(offer.created_at)}</dd></div>
         <div><dt>Last updated</dt><dd>${memberDate(offer.updated_at || offer.created_at)}</dd></div>
       </dl>
+      ${awaitingPayment ? `
+        <div class="member-accepted-offer">
+          ${details.image ? `<img src="${memberEscape(details.image)}" alt="${memberEscape(offer.product_name || 'Selected product')} preview">` : ''}
+          <div>
+            <strong>Offer accepted</strong>
+            <p>Your offer has been accepted. Complete payment to confirm your order.</p>
+            <p>${memberEscape(offer.product_name || 'Selected product')} · ${memberEscape(details['selected size'] || 'Original size')} · ${memberMoney(offer.buyer_final_amount || offer.seller_counter_amount || offer.amount)}</p>
+            <a class="checkout-btn" href="index.html?resumeOffer=${encodeURIComponent(offer.id)}">Continue to Payment</a>
+          </div>
+        </div>
+      ` : ''}
+      ${paymentSubmitted ? '<p class="member-payment-status"><strong>Payment submitted — awaiting Admin confirmation.</strong></p>' : ''}
       ${awaitingResponse ? `
         <div class="member-offer-actions">
           <button type="button" data-member-offer-action="accept">Accept Counteroffer</button>
@@ -150,9 +175,15 @@ async function loadMemberAccount() {
     historyByOffer.get(event.offer_id).push(event);
   });
 
-  document.getElementById('memberOffersList').innerHTML = offers.length
-    ? offers.map((offer) => memberOfferMarkup(offer, historyByOffer.get(offer.id) || [])).join('')
-    : '<p>No offers yet.</p>';
+  const activeStatuses = new Set(['pending', 'countered', 'buyer_countered', 'accepted', 'accepted_awaiting_payment', 'payment_pending', 'payment_submitted']);
+  const activeOffers = offers.filter((offer) => activeStatuses.has(String(offer.status || 'pending')));
+  const pastOffers = offers.filter((offer) => !activeStatuses.has(String(offer.status || 'pending')));
+  document.getElementById('memberActiveOffersList').innerHTML = activeOffers.length
+    ? activeOffers.map((offer) => memberOfferMarkup(offer, historyByOffer.get(offer.id) || [])).join('')
+    : '<p>No active offers.</p>';
+  document.getElementById('memberPastOffersList').innerHTML = pastOffers.length
+    ? pastOffers.map((offer) => memberOfferMarkup(offer, historyByOffer.get(offer.id) || [])).join('')
+    : '<p>No past offers.</p>';
   document.getElementById('memberOrdersList').innerHTML = ordersResponse.data?.length
     ? ordersResponse.data.map((order) => `<article class="member-order-card"><strong>${order.is_test ? '<b class="test-record-badge">TEST</b> ' : ''}${memberEscape(order.status || 'new')}</strong><span>${memberMoney(order.total)} · ${memberDate(order.created_at)}</span></article>`).join('')
     : '<p>No orders yet.</p>';

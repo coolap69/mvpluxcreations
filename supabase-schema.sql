@@ -115,6 +115,8 @@ alter table public.order_requests add column if not exists original_amount numer
 alter table public.order_requests add column if not exists applied_discount_code text;
 alter table public.order_requests add column if not exists discount_amount numeric(10,2) not null default 0;
 alter table public.order_requests add column if not exists is_test boolean not null default false;
+alter table public.order_requests add column if not exists updated_at timestamptz not null default now();
+alter table public.order_requests add column if not exists archived_at timestamptz;
 
 alter table public.order_requests enable row level security;
 
@@ -145,6 +147,16 @@ create table if not exists public.offers (
 
 alter table public.offers add column if not exists updated_at timestamptz not null default now();
 alter table public.offers add column if not exists is_test boolean not null default false;
+alter table public.offers add column if not exists payment_method text;
+alter table public.offers add column if not exists payment_shipping_address jsonb;
+alter table public.offers add column if not exists payment_customer_phone text;
+alter table public.offers add column if not exists payment_items jsonb;
+alter table public.offers add column if not exists payment_notes text;
+alter table public.offers add column if not exists payment_submitted_at timestamptz;
+alter table public.offers add column if not exists archived_at timestamptz;
+alter table public.order_requests add column if not exists source_offer_id uuid references public.offers(id) on delete restrict;
+create unique index if not exists order_requests_source_offer_unique
+on public.order_requests (source_offer_id) where source_offer_id is not null;
 
 alter table public.offers enable row level security;
 
@@ -364,7 +376,7 @@ begin
 
   if p_action = 'accept' then
     update public.offers
-    set status = 'accepted',
+    set status = 'accepted_awaiting_payment',
         buyer_final_amount = current_offer.seller_counter_amount,
         buyer_final_message = 'Accepted admin counteroffer'
     where id = p_offer_id
@@ -418,13 +430,17 @@ set search_path = public
 as $$
 declare
   selected_size text;
+  selected_design text;
+  selected_background text;
 begin
   if new.customer_id is null then
     return new;
   end if;
 
   selected_size := nullif(trim(split_part(split_part(coalesce(new.message, ''), E'Selected size: ', 2), E'\n', 1)), '');
-  perform pg_advisory_xact_lock(hashtextextended(new.customer_id::text || '|' || lower(new.product_name) || '|' || coalesce(selected_size, ''), 0));
+  selected_design := nullif(trim(split_part(split_part(coalesce(new.message, ''), E'Design: ', 2), E'\n', 1)), '');
+  selected_background := nullif(trim(split_part(split_part(coalesce(new.message, ''), E'Background: ', 2), E'\n', 1)), '');
+  perform pg_advisory_xact_lock(hashtextextended(new.customer_id::text || '|' || lower(new.product_name) || '|' || coalesce(selected_size, '') || '|' || coalesce(selected_design, '') || '|' || coalesce(selected_background, ''), 0));
 
   if exists (
     select 1
@@ -432,7 +448,15 @@ begin
     where existing.customer_id = new.customer_id
       and lower(existing.product_name) = lower(new.product_name)
       and nullif(trim(split_part(split_part(coalesce(existing.message, ''), E'Selected size: ', 2), E'\n', 1)), '') is not distinct from selected_size
-      and existing.status in ('pending', 'countered', 'buyer_countered', 'accepted')
+      and (
+        nullif(trim(split_part(split_part(coalesce(existing.message, ''), E'Design: ', 2), E'\n', 1)), '') is null
+        or nullif(trim(split_part(split_part(coalesce(existing.message, ''), E'Design: ', 2), E'\n', 1)), '') is not distinct from selected_design
+      )
+      and (
+        nullif(trim(split_part(split_part(coalesce(existing.message, ''), E'Background: ', 2), E'\n', 1)), '') is null
+        or nullif(trim(split_part(split_part(coalesce(existing.message, ''), E'Background: ', 2), E'\n', 1)), '') is not distinct from selected_background
+      )
+      and existing.status in ('pending', 'countered', 'buyer_countered', 'accepted', 'accepted_awaiting_payment', 'payment_submitted')
   ) then
     raise exception 'An active offer already exists for this product and size.';
   end if;
@@ -520,10 +544,10 @@ begin
     history_type := 'member_counteroffer';
     history_amount := new.buyer_final_amount;
     history_message := new.buyer_final_message;
-  elsif new.status in ('accepted', 'declined', 'payment_pending', 'paid')
+  elsif new.status in ('accepted', 'accepted_awaiting_payment', 'declined', 'payment_pending', 'payment_submitted', 'paid', 'archived')
     and old.status is distinct from new.status then
     history_type := new.status;
-    history_amount := case when new.status = 'accepted' then coalesce(new.buyer_final_amount, new.seller_counter_amount, new.amount) else null end;
+    history_amount := case when new.status in ('accepted', 'accepted_awaiting_payment', 'payment_submitted', 'paid') then coalesce(new.buyer_final_amount, new.seller_counter_amount, new.amount) else null end;
   end if;
 
   if history_type is not null then
@@ -1046,6 +1070,162 @@ begin
 end;
 $$;
 
+create or replace function public.prepare_offer_payment(
+  p_offer_id uuid,
+  p_customer_name text,
+  p_customer_email text,
+  p_customer_phone text,
+  p_shipping_address jsonb,
+  p_items jsonb,
+  p_payment_method text,
+  p_notes text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_offer public.offers;
+  accepted_amount numeric(10,2);
+  item_amount numeric(10,2);
+  admin_access boolean;
+begin
+  if auth.uid() is null then raise exception 'Sign in is required.'; end if;
+  select * into current_offer from public.offers where id = p_offer_id for update;
+  admin_access := public.is_current_user_admin();
+  if current_offer.id is null or not (
+    current_offer.customer_id = auth.uid()
+    or (current_offer.is_test and admin_access)
+  ) then raise exception 'Accepted offer not found.'; end if;
+  if current_offer.status not in ('accepted', 'accepted_awaiting_payment') then raise exception 'This offer is not awaiting payment.'; end if;
+  if jsonb_typeof(coalesce(p_items, '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(p_items, '[]'::jsonb)) = 0 then raise exception 'Payment details require an order item.'; end if;
+  select coalesce(sum((item->>'price')::numeric), 0) into item_amount
+  from jsonb_array_elements(p_items) as selected(item);
+  accepted_amount := round(coalesce(current_offer.buyer_final_amount, current_offer.seller_counter_amount, current_offer.amount), 2);
+  if round(item_amount, 2) <> accepted_amount then raise exception 'Payment amount does not match the accepted offer.'; end if;
+
+  update public.offers
+  set status = 'accepted_awaiting_payment',
+      customer_name = coalesce(nullif(trim(p_customer_name), ''), customer_name),
+      customer_email = coalesce(nullif(trim(p_customer_email), ''), customer_email),
+      payment_customer_phone = nullif(trim(coalesce(p_customer_phone, '')), ''),
+      payment_shipping_address = coalesce(p_shipping_address, '{}'::jsonb),
+      payment_items = p_items,
+      payment_method = case when current_offer.is_test then 'TEST - no real payment' else nullif(trim(p_payment_method), '') end,
+      payment_notes = nullif(trim(coalesce(p_notes, '')), '')
+  where id = p_offer_id
+  returning * into current_offer;
+
+  return jsonb_build_object(
+    'offer_id', current_offer.id,
+    'original_amount', accepted_amount,
+    'final_amount', accepted_amount,
+    'is_test', current_offer.is_test
+  );
+end;
+$$;
+
+create or replace function public.submit_offer_payment(p_offer_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_offer public.offers;
+begin
+  if auth.uid() is null then raise exception 'Sign in is required.'; end if;
+  select * into current_offer from public.offers where id = p_offer_id for update;
+  if current_offer.id is null or not (
+    current_offer.customer_id = auth.uid()
+    or (current_offer.is_test and public.is_current_user_admin())
+  ) then raise exception 'Accepted offer not found.'; end if;
+  if current_offer.status not in ('accepted', 'accepted_awaiting_payment') then raise exception 'This offer is not ready for payment submission.'; end if;
+  if current_offer.payment_method is null or current_offer.payment_items is null then raise exception 'Complete the payment details first.'; end if;
+
+  update public.offers
+  set status = 'payment_submitted', payment_submitted_at = now()
+  where id = p_offer_id
+  returning * into current_offer;
+  return to_jsonb(current_offer);
+end;
+$$;
+
+create or replace function public.confirm_offer_payment(p_offer_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_offer public.offers;
+  related_order public.order_requests;
+  accepted_amount numeric(10,2);
+  created_order boolean := false;
+begin
+  if not public.is_current_user_admin() then raise exception 'Admin access is required.'; end if;
+  select * into current_offer from public.offers where id = p_offer_id for update;
+  if current_offer.id is null then raise exception 'Offer not found.'; end if;
+
+  select * into related_order from public.order_requests where source_offer_id = p_offer_id;
+  if current_offer.status = 'paid' and related_order.id is not null then
+    return jsonb_build_object('offer_id', current_offer.id, 'order_id', related_order.id, 'created', false, 'already_confirmed', true);
+  end if;
+  if current_offer.status <> 'payment_submitted' then raise exception 'Payment has not been submitted for this offer.'; end if;
+  if current_offer.payment_items is null or current_offer.payment_method is null then raise exception 'Payment details are incomplete.'; end if;
+
+  accepted_amount := round(coalesce(current_offer.buyer_final_amount, current_offer.seller_counter_amount, current_offer.amount), 2);
+  insert into public.order_requests (
+    source_offer_id, customer_id, customer_name, customer_email, customer_phone,
+    shipping_address, items, payment_method, subtotal, original_amount, customer_fee,
+    discount_amount, total, status, notes, is_test
+  ) values (
+    current_offer.id, current_offer.customer_id, current_offer.customer_name, current_offer.customer_email,
+    current_offer.payment_customer_phone, coalesce(current_offer.payment_shipping_address, '{}'::jsonb),
+    current_offer.payment_items, current_offer.payment_method, accepted_amount, accepted_amount, 0,
+    0, accepted_amount, 'new', current_offer.payment_notes, current_offer.is_test
+  ) on conflict (source_offer_id) where source_offer_id is not null do nothing
+  returning * into related_order;
+
+  if related_order.id is null then
+    select * into related_order from public.order_requests where source_offer_id = p_offer_id;
+  else
+    created_order := true;
+    insert into public.order_events (order_request_id, event_type, actor_user_id, is_test)
+    values (related_order.id, 'payment_confirmed_order_created', auth.uid(), current_offer.is_test);
+  end if;
+  if related_order.id is null then raise exception 'Could not create the related order.'; end if;
+
+  update public.offers set status = 'paid' where id = p_offer_id returning * into current_offer;
+  return jsonb_build_object('offer_id', current_offer.id, 'order_id', related_order.id, 'created', created_order, 'already_confirmed', false);
+end;
+$$;
+
+create or replace function public.admin_update_order_status(p_order_id uuid, p_status text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated public.order_requests;
+begin
+  if not public.is_current_user_admin() then raise exception 'Admin access is required.'; end if;
+  if p_status not in ('new', 'in_production', 'shipped', 'completed', 'archived') then raise exception 'Unsupported order status.'; end if;
+  update public.order_requests
+  set status = p_status,
+      updated_at = now(),
+      archived_at = case when p_status = 'archived' then now() else archived_at end
+  where id = p_order_id
+  returning * into updated;
+  if updated.id is null then raise exception 'Order not found.'; end if;
+  insert into public.order_events (order_request_id, event_type, actor_user_id, is_test)
+  values (updated.id, p_status, auth.uid(), updated.is_test);
+  return to_jsonb(updated);
+end;
+$$;
+
 create or replace function public.list_eligible_discounts()
 returns table (code text, description text, discount_type text, discount_value numeric, minimum_order_amount numeric, expires_at timestamptz)
 language sql
@@ -1087,6 +1267,10 @@ revoke all on function public.submit_order_request(text, text, text, jsonb, json
 revoke all on function public.submit_test_offer(text, text, text, numeric, text) from public;
 revoke all on function public.update_test_order_status(uuid, text) from public;
 revoke all on function public.record_test_order_event(uuid, text) from public;
+revoke all on function public.prepare_offer_payment(uuid, text, text, text, jsonb, jsonb, text, text) from public;
+revoke all on function public.submit_offer_payment(uuid) from public;
+revoke all on function public.confirm_offer_payment(uuid) from public;
+revoke all on function public.admin_update_order_status(uuid, text) from public;
 revoke all on function public.list_eligible_discounts() from public;
 
 grant execute on function public.get_admin_test_mode() to authenticated;
@@ -1096,6 +1280,10 @@ grant execute on function public.submit_order_request(text, text, text, jsonb, j
 grant execute on function public.submit_test_offer(text, text, text, numeric, text) to authenticated;
 grant execute on function public.update_test_order_status(uuid, text) to authenticated;
 grant execute on function public.record_test_order_event(uuid, text) to authenticated;
+grant execute on function public.prepare_offer_payment(uuid, text, text, text, jsonb, jsonb, text, text) to authenticated;
+grant execute on function public.submit_offer_payment(uuid) to authenticated;
+grant execute on function public.confirm_offer_payment(uuid) to authenticated;
+grant execute on function public.admin_update_order_status(uuid, text) to authenticated;
 grant execute on function public.list_eligible_discounts() to authenticated;
 grant select, insert, update on public.discount_codes to authenticated;
 grant select on public.discount_redemptions, public.order_events to authenticated;
