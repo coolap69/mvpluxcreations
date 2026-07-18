@@ -104,6 +104,7 @@ let adminLastSaveSucceeded = null;
 let adminLastSaveError = '';
 let adminLatestPublishError = '';
 let adminPublishedFileState = { reachable: false, publishedAt: null, commitHash: '' };
+let adminTestModeState = { enabled: false, customerType: 'guest' };
 
 function getAdminClient() {
   return window.getMvpluxSupabaseClient?.() || null;
@@ -227,6 +228,70 @@ async function requireSupabaseAdminAccess() {
   localStorage.setItem('mvpluxCustomerSignedIn', 'true');
   localStorage.setItem('mvpluxSignedInName', user.user_metadata?.screen_name || user.email?.split('@')[0] || 'Admin');
   return true;
+}
+
+function renderAdminTestMode() {
+  const enabled = Boolean(adminTestModeState.enabled);
+  const warning = document.getElementById('adminTestModeWarning');
+  const checkbox = document.getElementById('adminTestModeEnabled');
+  const customerType = document.getElementById('adminTestCustomerType');
+  if (warning) warning.hidden = !enabled;
+  if (checkbox) checkbox.checked = enabled;
+  if (customerType) {
+    customerType.value = adminTestModeState.customerType || 'guest';
+    customerType.disabled = !enabled;
+  }
+  document.body.classList.toggle('admin-test-mode-active', enabled);
+}
+
+async function loadAdminTestMode() {
+  const client = getAdminClient();
+  if (!client) return;
+  const { data, error } = await client.rpc('get_admin_test_mode');
+  if (error) {
+    setCommerceStatus(`Test Mode is unavailable until its database migration is applied. ${error.message || error}`);
+    return;
+  }
+  adminTestModeState = {
+    enabled: Boolean(data?.enabled),
+    customerType: data?.customer_type === 'member' ? 'member' : 'guest'
+  };
+  renderAdminTestMode();
+}
+
+function setupAdminTestMode() {
+  const form = document.getElementById('adminTestModeForm');
+  const checkbox = document.getElementById('adminTestModeEnabled');
+  checkbox?.addEventListener('change', () => {
+    const customerType = document.getElementById('adminTestCustomerType');
+    if (customerType) customerType.disabled = !checkbox.checked;
+  });
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const client = getAdminClient();
+    const button = form.querySelector('button[type="submit"]');
+    if (!client || !button) return;
+    button.disabled = true;
+    button.textContent = 'Saving...';
+    const enabled = Boolean(checkbox?.checked);
+    const customerType = document.getElementById('adminTestCustomerType')?.value === 'member' ? 'member' : 'guest';
+    const { data, error } = await client.rpc('set_admin_test_mode', {
+      p_enabled: enabled,
+      p_customer_type: customerType
+    });
+    button.disabled = false;
+    button.textContent = 'Save Test Mode';
+    if (error) {
+      setCommerceStatus(`Could not save Test Mode. ${error.message || error}`);
+      await loadAdminTestMode();
+      return;
+    }
+    adminTestModeState = { enabled: Boolean(data?.enabled), customerType: data?.customer_type || customerType };
+    renderAdminTestMode();
+    setCommerceStatus(enabled
+      ? 'TEST MODE enabled. No real payment destinations or customer emails will be used for test records.'
+      : 'Test Mode is off. Normal customer behavior is active.');
+  });
 }
 
 const extraImageItems = [
@@ -1067,13 +1132,16 @@ function commerceEmptyMarkup(text) {
 
 function orderCardMarkup(order) {
   const sentToProduction = order.status === 'sent_to_production';
+  const isTest = Boolean(order.is_test);
+  const paymentSubmitted = isTest && order.status === 'payment_submitted';
   return `
-    <article class="admin-commerce-card ${sentToProduction ? 'is-production-sent' : 'needs-production'}">
+    <article class="admin-commerce-card ${sentToProduction ? 'is-production-sent' : 'needs-production'} ${isTest ? 'is-test-record' : ''}">
       <div class="admin-commerce-card-head">
         <strong>${order.customer_name || 'Customer'}</strong>
-        <span>${order.status || 'new'}</span>
+        <span>${isTest ? '<b class="test-record-badge">TEST</b> ' : ''}${order.status || 'new'}</span>
       </div>
       <p>${adminListItems(order.items)}</p>
+      <p><strong>Original:</strong> ${adminMoney(order.original_amount ?? order.subtotal)}${order.applied_discount_code ? ` · <strong>Code:</strong> ${escapeAdminHtml(order.applied_discount_code)} · <strong>Discount:</strong> ${adminMoney(order.discount_amount)}` : ''}</p>
       <p><strong>Total:</strong> ${adminMoney(order.total)} · <strong>Pay:</strong> ${order.payment_method || 'Not chosen'}</p>
       <p><strong>Email:</strong> ${order.customer_email || 'Not provided'} · <strong>Phone:</strong> ${order.customer_phone || 'Not provided'}</p>
       <p><strong>Ship:</strong> ${adminAddressText(order.shipping_address)}</p>
@@ -1082,26 +1150,136 @@ function orderCardMarkup(order) {
       <button class="admin-production-toggle ${sentToProduction ? 'is-sent' : ''}" type="button" data-toggle-production="${sentToProduction ? 'new' : 'sent_to_production'}" data-id="${order.id}">
         ${sentToProduction ? 'Production Sent' : 'Needs Production'}
       </button>
-      <button class="admin-commerce-delete" type="button" data-delete-commerce="order" data-id="${order.id}">Delete Test Order</button>
+      ${paymentSubmitted ? `<button class="admin-production-toggle" type="button" data-confirm-test-payment data-id="${escapeAdminHtml(order.id)}">Confirm Test Payment</button>` : ''}
+      ${isTest ? `<button class="admin-commerce-delete" type="button" data-delete-commerce="order" data-id="${escapeAdminHtml(order.id)}">Delete Test Record</button>` : ''}
     </article>
   `;
 }
 
-function offerCardMarkup(offer) {
+function parseOfferDetails(message) {
+  const details = {};
+  String(message || '').split('\n').forEach((line) => {
+    const separator = line.indexOf(':');
+    if (separator < 0) return;
+    const key = line.slice(0, separator).trim().toLowerCase();
+    details[key] = line.slice(separator + 1).trim();
+  });
+  return details;
+}
+
+let adminOfferHistoryById = new Map();
+
+function adminOfferHistoryMarkup(offerId) {
+  const history = adminOfferHistoryById.get(offerId) || [];
+  if (!history.length) return '<p><strong>Offer history:</strong> No dedicated history recorded yet.</p>';
   return `
-    <article class="admin-commerce-card">
+    <ol class="admin-offer-history">
+      ${history.map((event) => `
+        <li>
+          <strong>${escapeAdminHtml(String(event.event_type || event.message_type || 'update').replace(/_/g, ' '))}</strong>
+          <span>${escapeAdminHtml(event.sender_type || 'system')} · ${escapeAdminHtml(adminDate(event.created_at))}</span>
+          ${event.amount != null ? `<b>${adminMoney(event.amount)}</b>` : ''}
+          ${event.message ? `<p>${escapeAdminHtml(event.message)}</p>` : ''}
+        </li>
+      `).join('')}
+    </ol>
+  `;
+}
+
+function offerCardMarkup(offer) {
+  const details = parseOfferDetails(offer.message);
+  const status = String(offer.status || 'pending').toLowerCase();
+  const isMember = Boolean(offer.customer_id);
+  const canDecide = ['pending', 'countered', 'buyer_countered'].includes(status);
+  const canCounter = isMember && status === 'pending';
+  const statusLabel = status === 'accepted'
+    ? 'accepted / awaiting payment'
+    : status.replace(/_/g, ' ');
+  return `
+    <article class="admin-commerce-card ${offer.is_test ? 'is-test-record' : ''}" data-offer-card="${escapeAdminHtml(offer.id)}">
       <div class="admin-commerce-card-head">
-        <strong>${offer.customer_name || 'Customer'}</strong>
-        <span>${offer.status || 'pending'}</span>
+        <strong>${escapeAdminHtml(offer.customer_name || 'Customer')}</strong>
+        <span>${offer.is_test ? '<b class="test-record-badge">TEST</b> ' : ''}${escapeAdminHtml(statusLabel)}</span>
       </div>
-      <p>${offer.product_name || 'Selected item'}</p>
+      <p><strong>Customer:</strong> ${escapeAdminHtml(offer.customer_name || 'Customer')} · ${isMember ? 'Signed-in member' : 'Guest'}</p>
+      <p><strong>Email:</strong> ${escapeAdminHtml(offer.customer_email || 'Not provided')}</p>
+      <p><strong>Product:</strong> ${escapeAdminHtml(offer.product_name || 'Selected item')}</p>
+      <p><strong>Design:</strong> ${escapeAdminHtml(details.design || 'Not provided')}</p>
+      <p><strong>Description:</strong> ${escapeAdminHtml(details.description || 'Not provided')}</p>
+      <p><strong>Selected size:</strong> ${escapeAdminHtml(details['selected size'] || 'Not provided')}</p>
+      <p><strong>Original height:</strong> ${escapeAdminHtml(details['original height'] || 'Not provided')}</p>
+      <p><strong>Background/display:</strong> ${escapeAdminHtml(details.background || 'Not provided')}</p>
+      <p><strong>Normal asking price:</strong> ${escapeAdminHtml(details['asking price'] || 'Not provided')}</p>
       <p><strong>Offer:</strong> ${adminMoney(offer.amount)}</p>
-      <p><strong>Email:</strong> ${offer.customer_email || 'Not provided'}</p>
-      ${offer.message ? `<p><strong>Details:</strong> ${String(offer.message).replace(/\n/g, ' | ')}</p>` : ''}
+      <p><strong>Comment:</strong> ${escapeAdminHtml(details.message || 'No comment')}</p>
+      ${details.phone ? `<p><strong>Phone:</strong> ${escapeAdminHtml(details.phone)}</p>` : ''}
+      ${details.shipping ? `<p><strong>Shipping:</strong> ${escapeAdminHtml(details.shipping)}</p>` : ''}
+      ${offer.seller_counter_amount ? `<p><strong>Admin counteroffer:</strong> ${adminMoney(offer.seller_counter_amount)}${offer.seller_counter_message ? ` · ${escapeAdminHtml(offer.seller_counter_message)}` : ''}</p>` : ''}
+      ${offer.buyer_final_amount ? `<p><strong>Member counteroffer:</strong> ${adminMoney(offer.buyer_final_amount)}${offer.buyer_final_message ? ` · ${escapeAdminHtml(offer.buyer_final_message)}` : ''}</p>` : ''}
       <small>${adminDate(offer.created_at)}</small>
-      <button class="admin-commerce-delete" type="button" data-delete-commerce="offer" data-id="${offer.id}">Delete Test Offer</button>
+      ${adminOfferHistoryMarkup(offer.id)}
+      ${canDecide ? `
+        <div class="admin-offer-actions">
+          <button type="button" data-offer-action="accept" data-id="${escapeAdminHtml(offer.id)}">Accept Offer</button>
+          <button type="button" data-offer-action="decline" data-id="${escapeAdminHtml(offer.id)}">Decline Offer</button>
+          ${canCounter ? `<button type="button" data-offer-action="show-counter" data-id="${escapeAdminHtml(offer.id)}">Send Counteroffer</button>` : ''}
+        </div>
+      ` : ''}
+      ${canCounter ? `
+        <div class="admin-offer-counter-form" hidden>
+          <label>Counteroffer amount<input type="text" inputmode="decimal" data-offer-counter-amount></label>
+          <label>Message (optional)<textarea data-offer-counter-message></textarea></label>
+          <button type="button" data-offer-action="counter" data-id="${escapeAdminHtml(offer.id)}">Send Counteroffer</button>
+        </div>
+      ` : ''}
+      ${offer.is_test ? `<button class="admin-commerce-delete" type="button" data-delete-commerce="offer" data-id="${escapeAdminHtml(offer.id)}">Delete Test Record</button>` : ''}
     </article>
   `;
+}
+
+async function updateAdminOffer(button) {
+  const client = window.getMvpluxSupabaseClient?.();
+  const action = button?.dataset?.offerAction;
+  const id = button?.dataset?.id;
+  const card = button?.closest?.('[data-offer-card]');
+  if (!client || !action || !id || !card) return;
+
+  if (action === 'show-counter') {
+    const form = card.querySelector('.admin-offer-counter-form');
+    if (form) form.hidden = !form.hidden;
+    return;
+  }
+
+  const update = {};
+  if (action === 'accept' || action === 'decline') {
+    const verb = action === 'accept' ? 'accept' : 'decline';
+    if (!window.confirm(`${verb[0].toUpperCase()}${verb.slice(1)} this offer? The offer record will be kept.`)) return;
+    update.status = action === 'accept' ? 'accepted' : 'declined';
+  } else if (action === 'counter') {
+    const amount = Number(String(card.querySelector('[data-offer-counter-amount]')?.value || '').replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setCommerceStatus('Enter a valid counteroffer amount.');
+      return;
+    }
+    update.status = 'countered';
+    update.seller_counter_amount = Number(amount.toFixed(2));
+    update.seller_counter_message = card.querySelector('[data-offer-counter-message]')?.value?.trim() || null;
+  } else {
+    return;
+  }
+
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = 'Saving...';
+  const { error } = await client.from('offers').update(update).eq('id', id).select('id, status').single();
+  if (error) {
+    button.disabled = false;
+    button.textContent = originalText;
+    setCommerceStatus(`Could not update the offer. ${error.message || error}`);
+    return;
+  }
+  setCommerceStatus(action === 'counter' ? 'Counteroffer saved.' : `Offer ${update.status}.`);
+  refreshCommerceAdmin();
 }
 
 async function deleteCommerceRecord(button) {
@@ -1112,7 +1290,7 @@ async function deleteCommerceRecord(button) {
 
   if (!client || !table || !id) return;
 
-  const label = type === 'order' ? 'test order' : 'test offer';
+  const label = `test ${type}`;
   if (button.dataset.confirmDelete !== 'true') {
     button.dataset.confirmDelete = 'true';
     button.textContent = 'Click Again To Delete';
@@ -1120,7 +1298,7 @@ async function deleteCommerceRecord(button) {
     setTimeout(() => {
       if (button.dataset.confirmDelete === 'true') {
         button.dataset.confirmDelete = 'false';
-        button.textContent = type === 'order' ? 'Delete Test Order' : 'Delete Test Offer';
+        button.textContent = 'Delete Test Record';
       }
     }, 6000);
     return;
@@ -1129,10 +1307,10 @@ async function deleteCommerceRecord(button) {
   button.disabled = true;
   button.textContent = 'Deleting...';
 
-  const { error } = await client.from(table).delete().eq('id', id);
+  const { error } = await client.from(table).delete().eq('id', id).eq('is_test', true);
   if (error) {
     button.disabled = false;
-    button.textContent = type === 'order' ? 'Delete Test Order' : 'Delete Test Offer';
+    button.textContent = 'Delete Test Record';
     setCommerceStatus('Could not delete yet. Run the admin delete SQL in Supabase, then try again.');
     return;
   }
@@ -1142,15 +1320,47 @@ async function deleteCommerceRecord(button) {
 }
 
 function handleCommerceAdminClick(event) {
+  const offerButton = event.target.closest?.('[data-offer-action]');
+  if (offerButton) {
+    updateAdminOffer(offerButton);
+    return;
+  }
+
   const productionButton = event.target.closest?.('[data-toggle-production]');
   if (productionButton) {
     toggleOrderProductionStatus(productionButton);
     return;
   }
 
+  const confirmTestPaymentButton = event.target.closest?.('[data-confirm-test-payment]');
+  if (confirmTestPaymentButton) {
+    confirmTestPayment(confirmTestPaymentButton);
+    return;
+  }
+
   const button = event.target.closest?.('[data-delete-commerce]');
   if (!button) return;
   deleteCommerceRecord(button);
+}
+
+async function confirmTestPayment(button) {
+  const client = getAdminClient();
+  const id = button?.dataset?.id;
+  if (!client || !id || !window.confirm('Confirm this simulated payment? No real money will be recorded.')) return;
+  button.disabled = true;
+  button.textContent = 'Confirming...';
+  const { error } = await client.rpc('update_test_order_status', {
+    p_order_id: id,
+    p_status: 'paid'
+  });
+  if (error) {
+    button.disabled = false;
+    button.textContent = 'Confirm Test Payment';
+    setCommerceStatus(`Could not confirm the test payment. ${error.message || error}`);
+    return;
+  }
+  setCommerceStatus('Test payment confirmed. No real payment was recorded.');
+  refreshCommerceAdmin();
 }
 
 async function toggleOrderProductionStatus(button) {
@@ -1204,6 +1414,21 @@ async function refreshCommerceAdmin() {
     return;
   }
 
+  adminOfferHistoryById = new Map();
+  let historyError = null;
+  if (offersResponse.data?.length) {
+    const historyResponse = await client
+      .from('offer_messages')
+      .select('*')
+      .in('offer_id', offersResponse.data.map((offer) => offer.id))
+      .order('created_at', { ascending: true });
+    historyError = historyResponse.error;
+    (historyResponse.data || []).forEach((event) => {
+      if (!adminOfferHistoryById.has(event.offer_id)) adminOfferHistoryById.set(event.offer_id, []);
+      adminOfferHistoryById.get(event.offer_id).push(event);
+    });
+  }
+
   ordersList.innerHTML = ordersResponse.data?.length
     ? ordersResponse.data.map(orderCardMarkup).join('')
     : commerceEmptyMarkup('No orders yet.');
@@ -1212,7 +1437,7 @@ async function refreshCommerceAdmin() {
     ? offersResponse.data.map(offerCardMarkup).join('')
     : commerceEmptyMarkup('No offers yet.');
 
-  setCommerceStatus(`Loaded ${ordersResponse.data?.length || 0} orders and ${offersResponse.data?.length || 0} offers.`);
+  setCommerceStatus(`Loaded ${ordersResponse.data?.length || 0} orders and ${offersResponse.data?.length || 0} offers.${historyError ? ' Apply the offer-history database migration to load dedicated timelines.' : ''}`);
 }
 
 function clamp(value, min, max) {
@@ -2311,33 +2536,167 @@ function setupPriceRules() {
   });
 }
 
+let adminDiscountCodes = [];
+
+function setCouponStatus(message) {
+  const status = document.getElementById('adminCouponStatus');
+  if (status) status.textContent = message || '';
+}
+
+function couponDateInputValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const local = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+  return local.toISOString().slice(0, 16);
+}
+
+function clearCouponForm() {
+  const form = document.getElementById('couponForm');
+  form?.reset();
+  if (document.getElementById('couponId')) document.getElementById('couponId').value = '';
+  if (document.getElementById('couponActive')) document.getElementById('couponActive').checked = true;
+  if (document.getElementById('couponMinimum')) document.getElementById('couponMinimum').value = '0';
+}
+
+function fillCouponForm(coupon) {
+  const values = {
+    couponId: coupon.id,
+    couponCode: coupon.code,
+    couponDescription: coupon.description,
+    couponType: coupon.discount_type,
+    couponValue: coupon.discount_value,
+    couponStartsAt: couponDateInputValue(coupon.starts_at),
+    couponExpiresAt: couponDateInputValue(coupon.expires_at),
+    couponTotalLimit: coupon.total_usage_limit,
+    couponCustomerLimit: coupon.per_customer_usage_limit,
+    couponAudience: coupon.audience,
+    couponMinimum: coupon.minimum_order_amount,
+    couponProduct: coupon.product_restriction,
+    couponCategory: coupon.category_restriction
+  };
+  Object.entries(values).forEach(([id, value]) => {
+    const input = document.getElementById(id);
+    if (input) input.value = value ?? '';
+  });
+  document.getElementById('couponActive').checked = Boolean(coupon.active);
+  document.getElementById('couponOfferStacking').checked = Boolean(coupon.allow_offer_stacking);
+  document.getElementById('couponForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function renderDiscountCodes() {
+  const list = document.getElementById('adminCouponList');
+  if (!list) return;
+  list.innerHTML = adminDiscountCodes.length ? adminDiscountCodes.map((coupon) => `
+    <article class="admin-commerce-card" data-discount-code="${escapeAdminHtml(coupon.id)}">
+      <div class="admin-commerce-card-head"><strong>${escapeAdminHtml(coupon.code)}</strong><span>${coupon.active ? 'active' : 'inactive'}</span></div>
+      <p>${escapeAdminHtml(coupon.description || 'No description')}</p>
+      <p><strong>Discount:</strong> ${coupon.discount_type === 'fixed' ? adminMoney(coupon.discount_value) : `${Number(coupon.discount_value)}%`} · <strong>Audience:</strong> ${coupon.audience === 'member' ? 'Members only' : 'Public'}</p>
+      <p><strong>Dates:</strong> ${coupon.starts_at ? adminDate(coupon.starts_at) : 'Now'} to ${coupon.expires_at ? adminDate(coupon.expires_at) : 'No expiration'}</p>
+      <p><strong>Limits:</strong> ${coupon.total_usage_limit || 'Unlimited'} total · ${coupon.per_customer_usage_limit || 'Unlimited'} per customer</p>
+      <p><strong>Minimum:</strong> ${adminMoney(coupon.minimum_order_amount)} · <strong>Offer stacking:</strong> ${coupon.allow_offer_stacking ? 'Allowed' : 'Not allowed'}</p>
+      ${coupon.product_restriction ? `<p><strong>Product:</strong> ${escapeAdminHtml(coupon.product_restriction)}</p>` : ''}
+      ${coupon.category_restriction ? `<p><strong>Category:</strong> ${escapeAdminHtml(coupon.category_restriction)}</p>` : ''}
+      <button type="button" data-edit-discount="${escapeAdminHtml(coupon.id)}">Edit</button>
+      <button type="button" data-toggle-discount="${escapeAdminHtml(coupon.id)}">${coupon.active ? 'Deactivate' : 'Activate'}</button>
+    </article>
+  `).join('') : commerceEmptyMarkup('No discount codes yet.');
+}
+
+async function loadDiscountCodes() {
+  const client = getAdminClient();
+  if (!client) return;
+  const { data, error } = await client.from('discount_codes').select('*').order('created_at', { ascending: false });
+  if (error) {
+    setCouponStatus(`Discount codes are unavailable until the database migration is applied. ${error.message || error}`);
+    return;
+  }
+  adminDiscountCodes = data || [];
+  renderDiscountCodes();
+  setCouponStatus(`Loaded ${adminDiscountCodes.length} discount code${adminDiscountCodes.length === 1 ? '' : 's'}.`);
+}
+
 function setupCoupons() {
   const form = document.getElementById('couponForm');
-  const codeInput = document.getElementById('couponCode');
-  const discountInput = document.getElementById('couponDiscount');
-  const saved = readCoupons()[0];
-
-  if (saved) {
-    codeInput.value = saved.code || '';
-    discountInput.value = saved.discount || '';
-  }
-
-  form?.addEventListener('submit', (event) => {
+  form?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const coupon = {
-      code: codeInput?.value.trim() || '',
-      discount: discountInput?.value.trim() || ''
+    const client = getAdminClient();
+    const button = form.querySelector('button[type="submit"]');
+    const code = document.getElementById('couponCode')?.value.trim().toUpperCase() || '';
+    const discountType = document.getElementById('couponType')?.value;
+    const discountValue = Number(document.getElementById('couponValue')?.value);
+    if (!client || !button || !code || !Number.isFinite(discountValue) || discountValue <= 0 || (discountType === 'percentage' && discountValue > 100)) {
+      setCouponStatus('Enter a code and a valid discount value. Percentage discounts cannot exceed 100.');
+      return;
+    }
+    const nullableNumber = (id) => {
+      const value = document.getElementById(id)?.value;
+      return value ? Number(value) : null;
     };
-    writeCoupons(coupon.code && coupon.discount ? [coupon] : []);
-    setStatus('Coupon saved live.');
+    const nullableDate = (id) => {
+      const value = document.getElementById(id)?.value;
+      return value ? new Date(value).toISOString() : null;
+    };
+    const coupon = {
+      code,
+      description: document.getElementById('couponDescription')?.value.trim() || null,
+      discount_type: discountType,
+      discount_value: Number(discountValue.toFixed(2)),
+      active: Boolean(document.getElementById('couponActive')?.checked),
+      starts_at: nullableDate('couponStartsAt'),
+      expires_at: nullableDate('couponExpiresAt'),
+      total_usage_limit: nullableNumber('couponTotalLimit'),
+      per_customer_usage_limit: nullableNumber('couponCustomerLimit'),
+      audience: document.getElementById('couponAudience')?.value,
+      minimum_order_amount: nullableNumber('couponMinimum') || 0,
+      product_restriction: document.getElementById('couponProduct')?.value.trim() || null,
+      category_restriction: document.getElementById('couponCategory')?.value.trim() || null,
+      allow_offer_stacking: Boolean(document.getElementById('couponOfferStacking')?.checked)
+    };
+    if (coupon.starts_at && coupon.expires_at && new Date(coupon.expires_at) <= new Date(coupon.starts_at)) {
+      setCouponStatus('Expiration must be after the start date.');
+      return;
+    }
+    button.disabled = true;
+    button.textContent = 'Saving...';
+    const id = document.getElementById('couponId')?.value;
+    const query = id
+      ? client.from('discount_codes').update(coupon).eq('id', id)
+      : client.from('discount_codes').insert(coupon);
+    const { error } = await query;
+    button.disabled = false;
+    button.textContent = 'Save Discount Code';
+    if (error) {
+      setCouponStatus(`Could not save the discount code. ${error.message || error}`);
+      return;
+    }
+    clearCouponForm();
+    await loadDiscountCodes();
+    setCouponStatus(`Discount code ${code} saved.`);
   });
 
-  document.getElementById('clearCoupons')?.addEventListener('click', () => {
-    codeInput.value = '';
-    discountInput.value = '';
-    writeCoupons([]);
-    setStatus('Coupon cleared live.');
+  document.getElementById('clearCouponForm')?.addEventListener('click', clearCouponForm);
+  document.getElementById('adminCouponList')?.addEventListener('click', async (event) => {
+    const editButton = event.target.closest?.('[data-edit-discount]');
+    if (editButton) {
+      const coupon = adminDiscountCodes.find((item) => item.id === editButton.dataset.editDiscount);
+      if (coupon) fillCouponForm(coupon);
+      return;
+    }
+    const toggleButton = event.target.closest?.('[data-toggle-discount]');
+    if (!toggleButton) return;
+    const coupon = adminDiscountCodes.find((item) => item.id === toggleButton.dataset.toggleDiscount);
+    if (!coupon) return;
+    toggleButton.disabled = true;
+    const { error } = await getAdminClient().from('discount_codes').update({ active: !coupon.active }).eq('id', coupon.id);
+    if (error) {
+      toggleButton.disabled = false;
+      setCouponStatus(`Could not update the code. ${error.message || error}`);
+      return;
+    }
+    await loadDiscountCodes();
   });
+  loadDiscountCodes();
 }
 
 let imageDraftInventory = [];
@@ -2618,6 +2977,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   clearLegacyAdminBrowserStorage();
   await loadImageDraftInventory();
   const hasAdminAccess = await requireSupabaseAdminAccess();
+  setupAdminTestMode();
+  if (hasAdminAccess) await loadAdminTestMode();
   await loadAdminLiveSettings().catch(() => {});
   renderImageDrafts();
   await loadPublishedPublishBaseline();

@@ -111,6 +111,11 @@ create table if not exists public.order_requests (
   created_at timestamptz not null default now()
 );
 
+alter table public.order_requests add column if not exists original_amount numeric(10,2);
+alter table public.order_requests add column if not exists applied_discount_code text;
+alter table public.order_requests add column if not exists discount_amount numeric(10,2) not null default 0;
+alter table public.order_requests add column if not exists is_test boolean not null default false;
+
 alter table public.order_requests enable row level security;
 
 create policy "Anyone can create order requests"
@@ -134,14 +139,27 @@ create table if not exists public.offers (
   seller_counter_message text,
   buyer_final_amount numeric(10,2),
   buyer_final_message text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
+
+alter table public.offers add column if not exists updated_at timestamptz not null default now();
+alter table public.offers add column if not exists is_test boolean not null default false;
 
 alter table public.offers enable row level security;
 
-create policy "Anyone can create offers"
+drop policy if exists "Anyone can create offers" on public.offers;
+drop policy if exists "Guests can create guest offers" on public.offers;
+create policy "Guests can create guest offers"
 on public.offers for insert
-with check (true);
+to anon
+with check (customer_id is null);
+
+drop policy if exists "Members can create their own offers" on public.offers;
+create policy "Members can create their own offers"
+on public.offers for insert
+to authenticated
+with check (customer_id = auth.uid());
 
 create policy "Customers can view their own offers"
 on public.offers for select
@@ -174,7 +192,66 @@ create table if not exists public.admin_profiles (
   created_at timestamptz not null default now()
 );
 
+alter table public.admin_profiles add column if not exists test_mode_enabled boolean not null default false;
+alter table public.admin_profiles add column if not exists test_customer_type text not null default 'guest';
+
 alter table public.admin_profiles enable row level security;
+
+create table if not exists public.offer_messages (
+  id uuid primary key default gen_random_uuid(),
+  offer_id uuid not null references public.offers(id) on delete cascade,
+  sender_user_id uuid references auth.users(id) on delete set null,
+  sender_type text not null check (sender_type in ('guest', 'member', 'admin', 'system')),
+  message_type text not null,
+  event_type text not null,
+  amount numeric(10,2),
+  message text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.offer_messages add column if not exists is_test boolean not null default false;
+
+create index if not exists offer_messages_offer_created_idx
+on public.offer_messages (offer_id, created_at);
+
+alter table public.offer_messages enable row level security;
+
+insert into public.offer_messages (
+  offer_id, sender_user_id, sender_type, message_type, event_type, amount, created_at
+)
+select
+  offers.id,
+  offers.customer_id,
+  case when offers.customer_id is null then 'guest' else 'member' end,
+  'customer_offer',
+  'customer_offer',
+  offers.amount,
+  offers.created_at
+from public.offers
+where not exists (
+  select 1 from public.offer_messages
+  where offer_messages.offer_id = offers.id
+    and offer_messages.event_type = 'customer_offer'
+);
+
+insert into public.offer_messages (
+  offer_id, sender_user_id, sender_type, message_type, event_type, message, created_at
+)
+select
+  offers.id,
+  offers.customer_id,
+  case when offers.customer_id is null then 'guest' else 'member' end,
+  'customer_comment',
+  'customer_comment',
+  nullif(trim(split_part(coalesce(offers.message, ''), E'Message: ', 2)), ''),
+  offers.created_at
+from public.offers
+where nullif(trim(split_part(coalesce(offers.message, ''), E'Message: ', 2)), '') is not null
+  and not exists (
+    select 1 from public.offer_messages
+    where offer_messages.offer_id = offers.id
+      and offer_messages.event_type = 'customer_comment'
+  );
 
 drop policy if exists "Admins can view their admin profile" on public.admin_profiles;
 create policy "Admins can view their admin profile"
@@ -217,6 +294,23 @@ using (exists (
   where admin_profiles.user_id = auth.uid()
 ));
 
+drop policy if exists "Members can view their own offer history" on public.offer_messages;
+create policy "Members can view their own offer history"
+on public.offer_messages for select
+using (exists (
+  select 1 from public.offers
+  where offers.id = offer_messages.offer_id
+    and offers.customer_id = auth.uid()
+));
+
+drop policy if exists "Admins can view all offer history" on public.offer_messages;
+create policy "Admins can view all offer history"
+on public.offer_messages for select
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
 drop policy if exists "Admins can delete offers" on public.offers;
 create policy "Admins can delete offers"
 on public.offers for delete
@@ -225,12 +319,243 @@ using (exists (
   where admin_profiles.user_id = auth.uid()
 ));
 
+drop policy if exists "Admins can update offers" on public.offers;
+create policy "Admins can update offers"
+on public.offers for update
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+))
+with check (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
+
+create or replace function public.respond_to_member_offer(
+  p_offer_id uuid,
+  p_action text,
+  p_amount numeric default null,
+  p_message text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_offer public.offers;
+begin
+  if auth.uid() is null then
+    raise exception 'Sign in is required.';
+  end if;
+
+  select * into current_offer
+  from public.offers
+  where id = p_offer_id
+    and customer_id = auth.uid()
+  for update;
+
+  if current_offer.id is null then
+    raise exception 'Offer not found.';
+  end if;
+  if current_offer.status <> 'countered' then
+    raise exception 'This offer is not awaiting a member response.';
+  end if;
+
+  if p_action = 'accept' then
+    update public.offers
+    set status = 'accepted',
+        buyer_final_amount = current_offer.seller_counter_amount,
+        buyer_final_message = 'Accepted admin counteroffer'
+    where id = p_offer_id
+    returning * into current_offer;
+  elsif p_action = 'decline' then
+    update public.offers
+    set status = 'declined'
+    where id = p_offer_id
+    returning * into current_offer;
+  elsif p_action = 'counter' then
+    if p_amount is null or p_amount <= 0 then
+      raise exception 'Enter a valid counteroffer amount.';
+    end if;
+    update public.offers
+    set status = 'buyer_countered',
+        buyer_final_amount = round(p_amount, 2),
+        buyer_final_message = nullif(trim(coalesce(p_message, '')), '')
+    where id = p_offer_id
+    returning * into current_offer;
+  else
+    raise exception 'Unsupported offer response.';
+  end if;
+
+  return to_jsonb(current_offer);
+end;
+$$;
+
+revoke all on function public.respond_to_member_offer(uuid, text, numeric, text) from public;
+grant execute on function public.respond_to_member_offer(uuid, text, numeric, text) to authenticated;
+
+create or replace function public.set_offer_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists set_offer_updated_at on public.offers;
+create trigger set_offer_updated_at
+before update on public.offers
+for each row execute function public.set_offer_updated_at();
+
+create or replace function public.prevent_duplicate_active_member_offer()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  selected_size text;
+begin
+  if new.customer_id is null then
+    return new;
+  end if;
+
+  selected_size := nullif(trim(split_part(split_part(coalesce(new.message, ''), E'Selected size: ', 2), E'\n', 1)), '');
+  perform pg_advisory_xact_lock(hashtextextended(new.customer_id::text || '|' || lower(new.product_name) || '|' || coalesce(selected_size, ''), 0));
+
+  if exists (
+    select 1
+    from public.offers existing
+    where existing.customer_id = new.customer_id
+      and lower(existing.product_name) = lower(new.product_name)
+      and nullif(trim(split_part(split_part(coalesce(existing.message, ''), E'Selected size: ', 2), E'\n', 1)), '') is not distinct from selected_size
+      and existing.status in ('pending', 'countered', 'buyer_countered', 'accepted')
+  ) then
+    raise exception 'An active offer already exists for this product and size.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists prevent_duplicate_active_member_offer on public.offers;
+create trigger prevent_duplicate_active_member_offer
+before insert on public.offers
+for each row execute function public.prevent_duplicate_active_member_offer();
+
+create or replace function public.record_new_offer_history()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  customer_comment text;
+begin
+  insert into public.offer_messages (
+    offer_id, sender_user_id, sender_type, message_type, event_type, amount, message, is_test
+  ) values (
+    new.id,
+    new.customer_id,
+    case when new.customer_id is null then 'guest' else 'member' end,
+    'customer_offer',
+    'customer_offer',
+    new.amount,
+    null,
+    new.is_test
+  );
+
+  customer_comment := nullif(trim(split_part(coalesce(new.message, ''), E'Message: ', 2)), '');
+  if customer_comment is not null then
+    insert into public.offer_messages (
+      offer_id, sender_user_id, sender_type, message_type, event_type, message, is_test
+    ) values (
+      new.id,
+      new.customer_id,
+      case when new.customer_id is null then 'guest' else 'member' end,
+      'customer_comment',
+      'customer_comment',
+      customer_comment,
+      new.is_test
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists record_new_offer_history on public.offers;
+create trigger record_new_offer_history
+after insert on public.offers
+for each row execute function public.record_new_offer_history();
+
+create or replace function public.record_offer_update_history()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  actor_type text;
+  history_type text;
+  history_amount numeric(10,2);
+  history_message text;
+begin
+  actor_type := case
+    when exists (select 1 from public.admin_profiles where user_id = auth.uid()) then 'admin'
+    when auth.uid() = new.customer_id then 'member'
+    else 'system'
+  end;
+
+  if new.status = 'countered' and (
+    old.status is distinct from new.status
+    or old.seller_counter_amount is distinct from new.seller_counter_amount
+    or old.seller_counter_message is distinct from new.seller_counter_message
+  ) then
+    history_type := 'admin_counteroffer';
+    history_amount := new.seller_counter_amount;
+    history_message := new.seller_counter_message;
+  elsif new.status = 'buyer_countered' and old.status is distinct from new.status then
+    history_type := 'member_counteroffer';
+    history_amount := new.buyer_final_amount;
+    history_message := new.buyer_final_message;
+  elsif new.status in ('accepted', 'declined', 'payment_pending', 'paid')
+    and old.status is distinct from new.status then
+    history_type := new.status;
+    history_amount := case when new.status = 'accepted' then coalesce(new.buyer_final_amount, new.seller_counter_amount, new.amount) else null end;
+  end if;
+
+  if history_type is not null then
+    insert into public.offer_messages (
+      offer_id, sender_user_id, sender_type, message_type, event_type, amount, message, is_test
+    ) values (
+      new.id,
+      auth.uid(),
+      actor_type,
+      history_type,
+      history_type,
+      history_amount,
+      history_message,
+      new.is_test
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists record_offer_update_history on public.offers;
+create trigger record_offer_update_history
+after update on public.offers
+for each row execute function public.record_offer_update_history();
+
 grant usage on schema public to anon, authenticated;
 grant select on public.categories, public.products, public.product_images to anon, authenticated;
 grant insert on public.order_requests, public.offers to anon, authenticated;
 grant select on public.order_requests, public.offers, public.admin_profiles to authenticated;
+grant select on public.offer_messages to authenticated;
 grant delete on public.order_requests, public.offers to authenticated;
-grant update on public.order_requests to authenticated;
+grant update on public.order_requests, public.offers to authenticated;
 
 -- Live admin edits.
 -- This stores small text/image-position edits made from Admin Mode so they stay live
@@ -348,3 +673,429 @@ using (exists (
 
 grant insert on public.fan_votes to anon, authenticated;
 grant select on public.fan_votes to authenticated;
+
+-- Secure discount codes and Admin-only workflow simulation.
+create table if not exists public.discount_codes (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  description text,
+  discount_type text not null check (discount_type in ('percentage', 'fixed')),
+  discount_value numeric(10,2) not null check (discount_value > 0),
+  active boolean not null default true,
+  starts_at timestamptz,
+  expires_at timestamptz,
+  total_usage_limit integer check (total_usage_limit is null or total_usage_limit > 0),
+  per_customer_usage_limit integer check (per_customer_usage_limit is null or per_customer_usage_limit > 0),
+  audience text not null default 'public' check (audience in ('public', 'member')),
+  minimum_order_amount numeric(10,2) not null default 0 check (minimum_order_amount >= 0),
+  product_restriction text,
+  category_restriction text,
+  allow_offer_stacking boolean not null default false,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint discount_percentage_max check (discount_type <> 'percentage' or discount_value <= 100),
+  constraint discount_dates_valid check (expires_at is null or starts_at is null or expires_at > starts_at)
+);
+
+create unique index if not exists discount_codes_upper_code_unique
+on public.discount_codes (upper(code));
+
+create table if not exists public.discount_redemptions (
+  id uuid primary key default gen_random_uuid(),
+  discount_code_id uuid not null references public.discount_codes(id) on delete restrict,
+  customer_id uuid references auth.users(id) on delete set null,
+  guest_email text,
+  order_request_id uuid references public.order_requests(id) on delete cascade,
+  offer_id uuid references public.offers(id) on delete cascade,
+  original_amount numeric(10,2) not null,
+  discount_amount numeric(10,2) not null,
+  final_amount numeric(10,2) not null,
+  is_test boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists discount_redemptions_code_idx on public.discount_redemptions (discount_code_id);
+create index if not exists discount_redemptions_customer_idx on public.discount_redemptions (customer_id, discount_code_id);
+create index if not exists discount_redemptions_guest_idx on public.discount_redemptions (lower(guest_email), discount_code_id);
+
+create table if not exists public.order_events (
+  id uuid primary key default gen_random_uuid(),
+  order_request_id uuid not null references public.order_requests(id) on delete cascade,
+  event_type text not null,
+  actor_user_id uuid references auth.users(id) on delete set null,
+  is_test boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+alter table public.discount_codes enable row level security;
+alter table public.discount_redemptions enable row level security;
+alter table public.order_events enable row level security;
+
+drop policy if exists "Admins manage discount codes" on public.discount_codes;
+create policy "Admins manage discount codes" on public.discount_codes for all
+using (exists (select 1 from public.admin_profiles where user_id = auth.uid()))
+with check (exists (select 1 from public.admin_profiles where user_id = auth.uid()));
+
+drop policy if exists "Members view their discount redemptions" on public.discount_redemptions;
+create policy "Members view their discount redemptions" on public.discount_redemptions for select
+using (customer_id = auth.uid());
+
+drop policy if exists "Admins view all discount redemptions" on public.discount_redemptions;
+create policy "Admins view all discount redemptions" on public.discount_redemptions for select
+using (exists (select 1 from public.admin_profiles where user_id = auth.uid()));
+
+drop policy if exists "Members view their order events" on public.order_events;
+create policy "Members view their order events" on public.order_events for select
+using (exists (
+  select 1 from public.order_requests
+  where order_requests.id = order_events.order_request_id
+    and order_requests.customer_id = auth.uid()
+));
+
+drop policy if exists "Admins view all order events" on public.order_events;
+create policy "Admins view all order events" on public.order_events for select
+using (exists (select 1 from public.admin_profiles where user_id = auth.uid()));
+
+create or replace function public.is_current_user_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (select 1 from public.admin_profiles where user_id = auth.uid());
+$$;
+
+create or replace function public.get_admin_test_mode()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  profile public.admin_profiles;
+begin
+  select * into profile from public.admin_profiles where user_id = auth.uid();
+  if profile.user_id is null then
+    return jsonb_build_object('enabled', false, 'customer_type', 'guest');
+  end if;
+  return jsonb_build_object(
+    'enabled', profile.test_mode_enabled,
+    'customer_type', profile.test_customer_type
+  );
+end;
+$$;
+
+create or replace function public.set_admin_test_mode(p_enabled boolean, p_customer_type text default 'guest')
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile public.admin_profiles;
+begin
+  if p_customer_type not in ('guest', 'member') then
+    raise exception 'Unsupported test customer type.';
+  end if;
+  update public.admin_profiles
+  set test_mode_enabled = coalesce(p_enabled, false),
+      test_customer_type = p_customer_type
+  where user_id = auth.uid()
+  returning * into profile;
+  if profile.user_id is null then raise exception 'Admin access is required.'; end if;
+  return jsonb_build_object('enabled', profile.test_mode_enabled, 'customer_type', profile.test_customer_type);
+end;
+$$;
+
+create or replace function public.validate_discount_code(
+  p_code text,
+  p_original_amount numeric,
+  p_customer_email text default null,
+  p_product_names text[] default array[]::text[],
+  p_categories text[] default array[]::text[],
+  p_is_negotiated_offer boolean default false
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  selected public.discount_codes;
+  total_uses integer;
+  customer_uses integer;
+  discount numeric(10,2);
+  effective_member boolean;
+  admin_test_guest boolean;
+begin
+  if nullif(trim(coalesce(p_code, '')), '') is null then
+    return jsonb_build_object('valid', false, 'message', 'Enter a discount code.');
+  end if;
+  select * into selected from public.discount_codes where upper(code) = upper(trim(p_code));
+  if selected.id is null then return jsonb_build_object('valid', false, 'message', 'Discount code not found.'); end if;
+  if not selected.active then return jsonb_build_object('valid', false, 'message', 'This discount code is inactive.'); end if;
+  if selected.starts_at is not null and now() < selected.starts_at then return jsonb_build_object('valid', false, 'message', 'This discount code has not started yet.'); end if;
+  if selected.expires_at is not null and now() >= selected.expires_at then return jsonb_build_object('valid', false, 'message', 'This discount code has expired.'); end if;
+  if coalesce(p_original_amount, 0) < selected.minimum_order_amount then return jsonb_build_object('valid', false, 'message', format('Minimum order amount is $%s.', selected.minimum_order_amount)); end if;
+
+  select exists (
+    select 1 from public.admin_profiles
+    where user_id = auth.uid() and test_mode_enabled and test_customer_type = 'guest'
+  ) into admin_test_guest;
+  effective_member := auth.uid() is not null and not admin_test_guest;
+  if selected.audience = 'member' and not effective_member then return jsonb_build_object('valid', false, 'message', 'This discount is for signed-in members only.'); end if;
+  if p_is_negotiated_offer and not selected.allow_offer_stacking then return jsonb_build_object('valid', false, 'message', 'Discount codes cannot be combined with this negotiated offer.'); end if;
+  if selected.product_restriction is not null and not exists (
+    select 1 from unnest(coalesce(p_product_names, array[]::text[])) value
+    where lower(value) in (lower(selected.product_restriction), lower(selected.product_restriction || ' - Accepted Offer'))
+  ) then return jsonb_build_object('valid', false, 'message', 'This code does not apply to the selected product.'); end if;
+  if selected.category_restriction is not null and not exists (
+    select 1 from unnest(coalesce(p_categories, array[]::text[])) value where lower(value) = lower(selected.category_restriction)
+  ) then return jsonb_build_object('valid', false, 'message', 'This code does not apply to the selected category.'); end if;
+
+  select count(*) into total_uses from public.discount_redemptions where discount_code_id = selected.id and not is_test;
+  if selected.total_usage_limit is not null and total_uses >= selected.total_usage_limit then return jsonb_build_object('valid', false, 'message', 'This discount code has reached its usage limit.'); end if;
+  if effective_member then
+    select count(*) into customer_uses from public.discount_redemptions where discount_code_id = selected.id and customer_id = auth.uid() and not is_test;
+  else
+    select count(*) into customer_uses from public.discount_redemptions where discount_code_id = selected.id and lower(guest_email) = lower(trim(coalesce(p_customer_email, ''))) and not is_test;
+  end if;
+  if selected.per_customer_usage_limit is not null and customer_uses >= selected.per_customer_usage_limit then return jsonb_build_object('valid', false, 'message', 'You have already used this discount the maximum number of times.'); end if;
+
+  discount := case selected.discount_type
+    when 'percentage' then round(coalesce(p_original_amount, 0) * selected.discount_value / 100, 2)
+    else selected.discount_value
+  end;
+  discount := least(greatest(discount, 0), greatest(coalesce(p_original_amount, 0), 0));
+  return jsonb_build_object(
+    'valid', true,
+    'code', selected.code,
+    'discount_type', selected.discount_type,
+    'discount_value', selected.discount_value,
+    'discount_amount', discount,
+    'original_amount', greatest(coalesce(p_original_amount, 0), 0),
+    'final_amount', greatest(coalesce(p_original_amount, 0) - discount, 0),
+    'message', 'Discount code applied.'
+  );
+end;
+$$;
+
+create or replace function public.submit_order_request(
+  p_customer_name text,
+  p_customer_email text,
+  p_customer_phone text,
+  p_shipping_address jsonb,
+  p_items jsonb,
+  p_payment_method text,
+  p_original_amount numeric,
+  p_notes text,
+  p_discount_code text default null,
+  p_is_negotiated_offer boolean default false,
+  p_is_test boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  selected public.discount_codes;
+  validation jsonb;
+  new_order public.order_requests;
+  effective_customer_id uuid;
+  test_profile public.admin_profiles;
+  product_names text[];
+  categories text[];
+  discount numeric(10,2) := 0;
+  final_amount numeric(10,2);
+  items_amount numeric(10,2);
+begin
+  if coalesce(p_original_amount, 0) < 0 then raise exception 'Original amount cannot be negative.'; end if;
+  if jsonb_typeof(coalesce(p_items, '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(p_items, '[]'::jsonb)) = 0 then raise exception 'At least one order item is required.'; end if;
+  if p_is_test then
+    select * into test_profile from public.admin_profiles where user_id = auth.uid() and test_mode_enabled for update;
+    if test_profile.user_id is null then raise exception 'Admin Test Mode is not enabled.'; end if;
+    effective_customer_id := case when test_profile.test_customer_type = 'member' then auth.uid() else null end;
+  else
+    effective_customer_id := auth.uid();
+  end if;
+
+  select
+    coalesce(array_agg(value->>'name'), array[]::text[]),
+    coalesce(array_agg(value->>'category') filter (where nullif(value->>'category', '') is not null), array[]::text[]),
+    coalesce(sum((value->>'price')::numeric), 0)
+  into product_names, categories, items_amount
+  from jsonb_array_elements(p_items) as item(value);
+  if round(items_amount, 2) <> round(p_original_amount, 2) then raise exception 'Order subtotal does not match the submitted items.'; end if;
+
+  if nullif(trim(coalesce(p_discount_code, '')), '') is not null then
+    select * into selected from public.discount_codes where upper(code) = upper(trim(p_discount_code)) for update;
+    if selected.id is null then raise exception 'Discount code not found.'; end if;
+    validation := public.validate_discount_code(selected.code, p_original_amount, p_customer_email, product_names, categories, p_is_negotiated_offer);
+    if not coalesce((validation->>'valid')::boolean, false) then raise exception '%', validation->>'message'; end if;
+    discount := (validation->>'discount_amount')::numeric;
+  end if;
+  final_amount := greatest(round(coalesce(p_original_amount, 0) - discount, 2), 0);
+
+  insert into public.order_requests (
+    customer_id, customer_name, customer_email, customer_phone, shipping_address, items,
+    payment_method, subtotal, original_amount, customer_fee, applied_discount_code,
+    discount_amount, total, status, notes, is_test
+  ) values (
+    effective_customer_id, nullif(trim(p_customer_name), ''), nullif(trim(p_customer_email), ''),
+    nullif(trim(coalesce(p_customer_phone, '')), ''), coalesce(p_shipping_address, '{}'::jsonb), p_items,
+    case when p_is_test then 'TEST - no real payment' else p_payment_method end,
+    p_original_amount, p_original_amount, 0, selected.code, discount, final_amount, 'new', p_notes, p_is_test
+  ) returning * into new_order;
+
+  insert into public.order_events (order_request_id, event_type, actor_user_id, is_test)
+  values (new_order.id, 'order_submitted', auth.uid(), p_is_test);
+
+  if selected.id is not null then
+    insert into public.discount_redemptions (
+      discount_code_id, customer_id, guest_email, order_request_id,
+      original_amount, discount_amount, final_amount, is_test
+    ) values (
+      selected.id, effective_customer_id, case when effective_customer_id is null then lower(trim(p_customer_email)) else null end,
+      new_order.id, p_original_amount, discount, final_amount, p_is_test
+    );
+  end if;
+
+  return jsonb_build_object(
+    'order_id', new_order.id,
+    'discount_code', new_order.applied_discount_code,
+    'discount_amount', new_order.discount_amount,
+    'original_amount', new_order.original_amount,
+    'final_amount', new_order.total,
+    'is_test', new_order.is_test
+  );
+end;
+$$;
+
+create or replace function public.submit_test_offer(
+  p_product_name text,
+  p_customer_name text,
+  p_customer_email text,
+  p_amount numeric,
+  p_message text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  profile public.admin_profiles;
+  new_offer public.offers;
+begin
+  select * into profile from public.admin_profiles where user_id = auth.uid() and test_mode_enabled for update;
+  if profile.user_id is null then raise exception 'Admin Test Mode is not enabled.'; end if;
+  if coalesce(p_amount, 0) <= 0 then raise exception 'Enter a valid offer amount.'; end if;
+  insert into public.offers (
+    product_name, customer_id, customer_name, customer_email, amount, message, status, is_test
+  ) values (
+    p_product_name,
+    case when profile.test_customer_type = 'member' then auth.uid() else null end,
+    nullif(trim(p_customer_name), ''), nullif(trim(p_customer_email), ''), round(p_amount, 2), p_message, 'pending', true
+  ) returning * into new_offer;
+  return to_jsonb(new_offer);
+end;
+$$;
+
+create or replace function public.update_test_order_status(p_order_id uuid, p_status text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  updated public.order_requests;
+begin
+  if not public.is_current_user_admin() then raise exception 'Admin access is required.'; end if;
+  if p_status not in ('payment_submitted', 'paid') then raise exception 'Unsupported test order status.'; end if;
+  update public.order_requests set status = p_status
+  where id = p_order_id and is_test
+  returning * into updated;
+  if updated.id is null then raise exception 'Test order not found.'; end if;
+  insert into public.order_events (order_request_id, event_type, actor_user_id, is_test)
+  values (updated.id, p_status, auth.uid(), true);
+  return to_jsonb(updated);
+end;
+$$;
+
+create or replace function public.record_test_order_event(p_order_id uuid, p_event_type text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  selected public.order_requests;
+begin
+  if not public.is_current_user_admin() then raise exception 'Admin access is required.'; end if;
+  if p_event_type not in ('continue_to_payment', 'payment_instructions_opened') then raise exception 'Unsupported test event.'; end if;
+  select * into selected from public.order_requests where id = p_order_id and is_test;
+  if selected.id is null then raise exception 'Test order not found.'; end if;
+  insert into public.order_events (order_request_id, event_type, actor_user_id, is_test)
+  values (selected.id, p_event_type, auth.uid(), true);
+  return jsonb_build_object('recorded', true, 'event_type', p_event_type);
+end;
+$$;
+
+create or replace function public.list_eligible_discounts()
+returns table (code text, description text, discount_type text, discount_value numeric, minimum_order_amount numeric, expires_at timestamptz)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select code, description, discount_type, discount_value, minimum_order_amount, expires_at
+  from public.discount_codes
+  where auth.uid() is not null
+    and active
+    and audience in ('public', 'member')
+    and (starts_at is null or starts_at <= now())
+    and (expires_at is null or expires_at > now())
+    and (total_usage_limit is null or total_usage_limit > (
+      select count(*) from public.discount_redemptions where discount_code_id = discount_codes.id and not is_test
+    ))
+    and (per_customer_usage_limit is null or per_customer_usage_limit > (
+      select count(*) from public.discount_redemptions where discount_code_id = discount_codes.id and customer_id = auth.uid() and not is_test
+    ))
+  order by created_at desc;
+$$;
+
+drop policy if exists "Admins can delete order requests" on public.order_requests;
+create policy "Admins can delete test order requests" on public.order_requests for delete
+using (is_test and public.is_current_user_admin());
+
+drop policy if exists "Anyone can create order requests" on public.order_requests;
+
+drop policy if exists "Admins can delete offers" on public.offers;
+create policy "Admins can delete test offers" on public.offers for delete
+using (is_test and public.is_current_user_admin());
+
+revoke all on function public.is_current_user_admin() from public;
+revoke all on function public.get_admin_test_mode() from public;
+revoke all on function public.set_admin_test_mode(boolean, text) from public;
+revoke all on function public.validate_discount_code(text, numeric, text, text[], text[], boolean) from public;
+revoke all on function public.submit_order_request(text, text, text, jsonb, jsonb, text, numeric, text, text, boolean, boolean) from public;
+revoke all on function public.submit_test_offer(text, text, text, numeric, text) from public;
+revoke all on function public.update_test_order_status(uuid, text) from public;
+revoke all on function public.record_test_order_event(uuid, text) from public;
+revoke all on function public.list_eligible_discounts() from public;
+
+grant execute on function public.get_admin_test_mode() to authenticated;
+grant execute on function public.set_admin_test_mode(boolean, text) to authenticated;
+grant execute on function public.validate_discount_code(text, numeric, text, text[], text[], boolean) to anon, authenticated;
+grant execute on function public.submit_order_request(text, text, text, jsonb, jsonb, text, numeric, text, text, boolean, boolean) to anon, authenticated;
+grant execute on function public.submit_test_offer(text, text, text, numeric, text) to authenticated;
+grant execute on function public.update_test_order_status(uuid, text) to authenticated;
+grant execute on function public.record_test_order_event(uuid, text) to authenticated;
+grant execute on function public.list_eligible_discounts() to authenticated;
+grant select, insert, update on public.discount_codes to authenticated;
+grant select on public.discount_redemptions, public.order_events to authenticated;

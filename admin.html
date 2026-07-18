@@ -37,6 +37,17 @@
       </div>
       <p class="admin-note">Review checkout requests and offers saved from the live website. If these do not load, run the admin SQL shown in <strong>supabase-schema.sql</strong> for your logged-in Supabase user.</p>
       <div id="adminSignedInAs" class="admin-status"></div>
+      <div id="adminTestModeWarning" class="admin-test-mode-warning" hidden>TEST MODE — No real payment will be requested, sent, captured, or recorded.</div>
+      <form id="adminTestModeForm" class="admin-test-mode-form">
+        <label><input id="adminTestModeEnabled" type="checkbox"> Enable Admin Test Mode</label>
+        <label>Simulated customer
+          <select id="adminTestCustomerType">
+            <option value="guest">Guest</option>
+            <option value="member">Signed-in member</option>
+          </select>
+        </label>
+        <button type="submit">Save Test Mode</button>
+      </form>
       <div id="commerceAdminStatus" class="admin-status"></div>
       <div class="admin-commerce-grid">
         <div>
@@ -136,22 +147,44 @@
       <div id="adminExtraImages" class="admin-extra-image-list"></div>
     </section>
 
-    <section class="admin-panel">
+    <section class="admin-panel" id="discount-codes">
       <div class="admin-panel-header">
-        <h2>Coupon / Discount</h2>
-        <button id="clearCoupons" type="button">Clear Coupon</button>
+        <h2>Special Discount Codes</h2>
       </div>
-      <form id="couponForm" class="admin-coupon-form">
+      <p class="admin-note">Codes are validated by Supabase when an order is submitted. Coupons do not stack with negotiated offers unless explicitly enabled.</p>
+      <form id="couponForm" class="admin-coupon-form admin-discount-form">
+        <input id="couponId" type="hidden">
         <label>
-          Coupon code
+          Code
           <input id="couponCode" type="text" placeholder="Example: MVP10" />
         </label>
         <label>
-          Discount percent
-          <input id="couponDiscount" type="number" min="0" max="100" step="1" placeholder="10" />
+          Description
+          <input id="couponDescription" type="text" placeholder="Member summer discount" />
         </label>
-        <button type="submit">Save Coupon</button>
+        <label>Discount type
+          <select id="couponType"><option value="percentage">Percentage</option><option value="fixed">Fixed dollar amount</option></select>
+        </label>
+        <label>Discount value<input id="couponValue" type="number" min="0.01" step="0.01" required></label>
+        <label><input id="couponActive" type="checkbox" checked> Active</label>
+        <label>Start date<input id="couponStartsAt" type="datetime-local"></label>
+        <label>Expiration date<input id="couponExpiresAt" type="datetime-local"></label>
+        <label>Total usage limit<input id="couponTotalLimit" type="number" min="1" step="1"></label>
+        <label>Per-customer usage limit<input id="couponCustomerLimit" type="number" min="1" step="1"></label>
+        <label>Availability
+          <select id="couponAudience"><option value="public">Public</option><option value="member">Signed-in members only</option></select>
+        </label>
+        <label>Minimum order amount<input id="couponMinimum" type="number" min="0" step="0.01" value="0"></label>
+        <label>Product restriction (optional)<input id="couponProduct" type="text" placeholder="Exact product title"></label>
+        <label>Category restriction (optional)<input id="couponCategory" type="text" placeholder="Category slug"></label>
+        <label><input id="couponOfferStacking" type="checkbox"> Allow with negotiated offers</label>
+        <div class="admin-panel-actions">
+          <button type="submit">Save Discount Code</button>
+          <button id="clearCouponForm" type="button">New Code</button>
+        </div>
       </form>
+      <div id="adminCouponStatus" class="admin-status" aria-live="polite"></div>
+      <div id="adminCouponList" class="admin-commerce-list"></div>
       <p id="adminStatus" class="admin-status"></p>
     </section>
 

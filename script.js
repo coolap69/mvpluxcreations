@@ -6,6 +6,11 @@ let activeOfferState = null;
 const supportEmail = 'support@mvpluxcreations.com';
 let currentCheckoutPaymentMethod = 'zelle';
 let currentCheckoutOrderNumber = '';
+let currentCheckoutOrderId = '';
+let checkoutDiscountState = null;
+let checkoutReceiptState = null;
+let storefrontTestMode = { enabled: false, customerType: 'guest' };
+let currentCheckoutIsTest = false;
 
 function showSiteMessage(message, type = 'info') {
   let messageBox = document.getElementById('siteMessageBox');
@@ -157,6 +162,10 @@ function addToCart(name, price, image = '') {
 
 function resetCheckoutSubmissionState() {
   currentCheckoutOrderNumber = '';
+  currentCheckoutOrderId = '';
+  checkoutDiscountState = null;
+  checkoutReceiptState = null;
+  currentCheckoutIsTest = false;
   const successNotice = document.getElementById('checkoutSuccessNotice');
   const orderNumberEl = document.getElementById('checkoutOrderNumber');
   if (successNotice) {
@@ -166,8 +175,9 @@ function resetCheckoutSubmissionState() {
   if (orderNumberEl) orderNumberEl.textContent = '';
 }
 
-function checkoutAcceptedOffer(name, price) {
+function checkoutAcceptedOffer(name, price, isTest = false) {
   resetCheckoutSubmissionState();
+  currentCheckoutIsTest = Boolean(isTest);
   const acceptedItem = {
     name: `${name || 'Selected item'} - Accepted Offer`,
     price: Number(price) || 0,
@@ -219,6 +229,7 @@ function updateCart() {
 function removeFromCart(index) {
   const removed = cart.splice(index, 1)[0];
   if (removed) {
+    checkoutDiscountState = null;
     cartTotal = Math.max(0, cartTotal - removed.price);
     updateCart();
   }
@@ -287,6 +298,14 @@ function getAutoAcceptResult(offerAmount, askingPrice, heightInches) {
 function openOffer(productName, offerMeta = {}) {
   ensureCommerceModals();
   const offerProduct = document.getElementById('offerProduct');
+  const offerDesign = document.getElementById('offerDesign');
+  const offerDescription = document.getElementById('offerDescription');
+  const offerSelectedSize = document.getElementById('offerSelectedSize');
+  const offerOriginalHeight = document.getElementById('offerOriginalHeight');
+  const offerBackground = document.getElementById('offerBackground');
+  const offerSizeStatus = document.getElementById('offerSizeStatus');
+  const offerAskingPrice = document.getElementById('offerAskingPrice');
+  const offerThumbnail = document.getElementById('offerThumbnail');
   const offerModal = document.getElementById('offerModal');
   const signedInName = getSignedInName();
   activeOfferState = {
@@ -294,6 +313,19 @@ function openOffer(productName, offerMeta = {}) {
     askingPrice: Number(offerMeta.askingPrice || offerMeta.price || 0),
     selectedHeight: Number(offerMeta.selectedHeight || 0),
     sizeLabel: offerMeta.sizeLabel || '',
+    designLabel: offerMeta.designLabel || 'Primary image',
+    description: offerMeta.description || '',
+    originalHeight: Number(offerMeta.originalHeight || 0),
+    backgroundLabel: offerMeta.backgroundLabel || 'Standard display',
+    sizeStatus: offerMeta.sizeStatus || '',
+    thumbnailPath: offerMeta.thumbnailPath || '',
+    imageOptions: Array.isArray(offerMeta.imageOptions) ? offerMeta.imageOptions : [],
+    selectedImageIndex: Number(offerMeta.selectedImageIndex || 0),
+    finishOptions: Array.isArray(offerMeta.finishOptions) ? offerMeta.finishOptions : [],
+    selectedFinishIndex: Number(offerMeta.selectedFinishIndex || 0),
+    supportsCustomSize: Boolean(offerMeta.supportsCustomSize),
+    sourceBuilder: offerMeta.sourceBuilder || null,
+    memberUser: null,
     buyerOffer: null,
     sellerCounter: null,
     buyerCounterUsed: false,
@@ -301,8 +333,22 @@ function openOffer(productName, offerMeta = {}) {
   };
 
   if (offerProduct) offerProduct.textContent = productName;
+  if (offerDesign) offerDesign.textContent = activeOfferState.designLabel;
+  if (offerDescription) offerDescription.textContent = activeOfferState.description || 'Custom standee made to the selected size and design.';
+  if (offerSelectedSize) offerSelectedSize.textContent = activeOfferState.sizeLabel || 'Selected size';
+  if (offerOriginalHeight) offerOriginalHeight.textContent = activeOfferState.originalHeight ? formatHeight(activeOfferState.originalHeight) : 'Not specified';
+  if (offerBackground) offerBackground.textContent = activeOfferState.backgroundLabel;
+  if (offerSizeStatus) offerSizeStatus.textContent = activeOfferState.sizeStatus || 'Original size selected';
+  if (offerAskingPrice) offerAskingPrice.textContent = activeOfferState.askingPrice ? formatMoney(activeOfferState.askingPrice) : 'Shown price';
+  if (offerThumbnail) {
+    offerThumbnail.src = activeOfferState.thumbnailPath;
+    offerThumbnail.alt = `${activeOfferState.designLabel} preview`;
+  }
+  const offerSubmitButton = document.querySelector('#offerForm button[type="submit"]');
+  if (offerSubmitButton) offerSubmitButton.disabled = false;
   updateOfferBoard(productName, signedInName);
   if (offerModal) offerModal.style.display = 'flex';
+  loadLatestMemberOffer(productName);
 }
 
 function closeModals() {
@@ -339,6 +385,15 @@ function getCheckoutSubtotal() {
   return getCheckoutItems().reduce((sum, item) => sum + (Number(item.price) || 0), 0);
 }
 
+function getCurrentCheckoutCategory() {
+  const page = (window.location.pathname.split('/').pop() || 'index.html').toLowerCase();
+  const category = (window.MVPLUX_PRODUCT_CATEGORIES || []).find((item) => {
+    const pages = item.pages || (item.page ? [item.page] : []);
+    return pages.some((candidate) => String(candidate).toLowerCase() === page);
+  });
+  return category?.key || '';
+}
+
 function formValue(form, name) {
   return form?.elements?.[name]?.value?.trim() || '';
 }
@@ -367,6 +422,83 @@ async function getCommerceUser(client) {
   if (!client?.auth?.getSession) return null;
   const { data } = await client.auth.getSession();
   return data?.session?.user || null;
+}
+
+function renderStorefrontTestMode() {
+  let warning = document.getElementById('storefrontTestModeWarning');
+  if (!storefrontTestMode.enabled) {
+    warning?.remove();
+    document.body.classList.remove('storefront-test-mode');
+    return;
+  }
+  if (!warning) {
+    document.body.insertAdjacentHTML('afterbegin', '<div id="storefrontTestModeWarning" class="admin-test-mode-warning storefront-test-warning">TEST MODE — No real payment will be requested, sent, captured, or recorded.</div>');
+    warning = document.getElementById('storefrontTestModeWarning');
+  }
+  document.body.classList.add('storefront-test-mode');
+}
+
+async function loadStorefrontTestMode() {
+  const client = window.getMvpluxSupabaseClient?.();
+  if (!client?.auth) return;
+  const { data: sessionData } = await client.auth.getSession();
+  if (!sessionData?.session?.user) return;
+  const { data, error } = await client.rpc('get_admin_test_mode');
+  if (error || !data?.enabled) return;
+  storefrontTestMode = {
+    enabled: true,
+    customerType: data.customer_type === 'member' ? 'member' : 'guest'
+  };
+  renderStorefrontTestMode();
+}
+
+function checkoutIsNegotiatedOffer() {
+  return getCheckoutItems().some((item) => String(item.name || '').includes('Accepted Offer'));
+}
+
+function checkoutIsTestRecord() {
+  return currentCheckoutIsTest || storefrontTestMode.enabled;
+}
+
+async function applyCheckoutDiscount() {
+  const input = document.getElementById('checkoutDiscountCode');
+  const status = document.getElementById('checkoutDiscountStatus');
+  const code = input?.value.trim().toUpperCase() || '';
+  if (!code) {
+    checkoutDiscountState = null;
+    if (status) status.textContent = 'Enter a discount code.';
+    updateCheckoutDisplay();
+    return;
+  }
+  const client = getCommerceClient();
+  if (!client) return;
+  const button = document.getElementById('applyCheckoutDiscount');
+  if (button) button.disabled = true;
+  if (status) status.textContent = 'Checking code...';
+  const items = getCheckoutItems();
+  const { data, error } = await client.rpc('validate_discount_code', {
+    p_code: code,
+    p_original_amount: Number(getCheckoutSubtotal().toFixed(2)),
+    p_customer_email: document.querySelector('#checkoutModal [name="email"]')?.value?.trim() || null,
+    p_product_names: items.map((item) => item.name || ''),
+    p_categories: items.map((item) => item.category || getCurrentCheckoutCategory()).filter(Boolean),
+    p_is_negotiated_offer: checkoutIsNegotiatedOffer()
+  });
+  if (button) button.disabled = false;
+  if (error || !data?.valid) {
+    checkoutDiscountState = null;
+    if (status) status.textContent = error?.message || data?.message || 'This discount code is not valid.';
+    updateCheckoutDisplay();
+    return;
+  }
+  checkoutDiscountState = {
+    code: data.code,
+    amount: Number(data.discount_amount) || 0,
+    final: Number(data.final_amount) || 0
+  };
+  if (input) input.value = data.code;
+  if (status) status.textContent = `${data.code} applied.`;
+  updateCheckoutDisplay();
 }
 
 function paymentMethodButtonMarkup(key, method) {
@@ -400,7 +532,7 @@ function paymentModalMarkup() {
           <span id="paymentOrderNoteText">Please include your order number in the payment note. Your order will be processed after payment is confirmed.</span>
         </div>
         <button id="paymentOptionLink" type="button" class="submit-btn">Open Secure Payment Page</button>
-        <p class="payment-option-disclaimer">Zelle is preferred because there are no processing fees. PayPal, Venmo, and Cash App are accepted for convenience.</p>
+        <p id="paymentOptionDisclaimer" class="payment-option-disclaimer">Zelle is preferred because there are no processing fees. PayPal, Venmo, and Cash App are accepted for convenience.</p>
       </div>
     </div>
   `;
@@ -441,8 +573,26 @@ async function copyZellePhoneNumber() {
   }
 }
 
-function markPaymentCompleted() {
+async function markPaymentCompleted() {
   const orderNumber = currentCheckoutOrderNumber || 'your order number';
+  if (checkoutIsTestRecord()) {
+    const client = getCommerceClient();
+    if (!client || !currentCheckoutOrderId) {
+      showSiteMessage('Submit the test order before simulating payment.', 'error');
+      return;
+    }
+    const { error } = await client.rpc('update_test_order_status', {
+      p_order_id: currentCheckoutOrderId,
+      p_status: 'payment_submitted'
+    });
+    if (error) {
+      showSiteMessage(`Could not record the test payment step. ${error.message || error}`, 'error');
+      return;
+    }
+    showSiteMessage(`TEST payment submitted for ${orderNumber}. No payment destination was opened and no real money was recorded.`, 'success');
+    closePaymentOption();
+    return;
+  }
   showSiteMessage(`Thank you. Payment marked as completed for ${orderNumber}. MVPLUXCREATIONS will confirm it soon.`, 'success');
 }
 
@@ -461,7 +611,36 @@ function openPaymentOption(key = currentCheckoutPaymentMethod) {
   const qr = document.getElementById('paymentOptionQr');
   const note = document.getElementById('paymentOrderNoteText');
   const link = document.getElementById('paymentOptionLink');
+  const disclaimer = document.getElementById('paymentOptionDisclaimer');
   const orderNumber = currentCheckoutOrderNumber || '';
+
+  if (checkoutIsTestRecord()) {
+    if (title) title.textContent = 'TEST Payment Simulation';
+    if (intro) intro.textContent = 'No real payment information or payment destination will be used.';
+    if (qr) qr.innerHTML = '<strong>TEST</strong><span>This simulates opening payment instructions.</span>';
+    if (note) note.textContent = orderNumber ? `Simulated payment for ${orderNumber}.` : 'Submit the test order first.';
+    if (link) {
+      link.textContent = 'Simulate Payment Submitted';
+      link.disabled = !currentCheckoutOrderId;
+      link.onclick = markPaymentCompleted;
+    }
+    if (disclaimer) disclaimer.hidden = true;
+    if (modal) modal.style.display = 'flex';
+    if (currentCheckoutOrderId) {
+      const testClient = window.getMvpluxSupabaseClient?.();
+      if (testClient) {
+        testClient.rpc('record_test_order_event', {
+          p_order_id: currentCheckoutOrderId,
+          p_event_type: 'payment_instructions_opened'
+        }).then(({ error }) => {
+          if (error) showSiteMessage(`Could not record the test payment step. ${error.message || error}`, 'error');
+        });
+      }
+    }
+    return;
+  }
+
+  if (disclaimer) disclaimer.hidden = false;
 
   if (title) title.textContent = method.label;
   if (intro) intro.textContent = method.note;
@@ -508,12 +687,13 @@ function checkoutModalMarkup() {
       <div class="modal-content checkout-modal-content">
         <button class="close-modal" onclick="closeModals()">x</button>
         <h2>Checkout / Pay</h2>
+        <div class="checkout-test-mode-note" data-checkout-test-warning hidden>TEST MODE — No real payment will be requested, sent, captured, or recorded.</div>
         <p class="checkout-intro">Choose how you want to pay. Zelle is preferred because there are no processing fees. PayPal, Venmo, and Cash App are accepted for convenience.</p>
         <p class="checkout-email-note">Please include your order number in the payment note. Your order will be processed after payment is confirmed.</p>
         <div id="checkoutAcceptedOfferNotice" class="checkout-accepted-offer-notice"></div>
         <div id="checkoutSuccessNotice" class="checkout-success-notice">
           <strong>Order request sent</strong>
-          <span>Thank you. MVPLUXCREATIONS received your request. Use one of the payment options below and include your order number in the payment note.</span>
+          <span id="checkoutSuccessMessage">Thank you. MVPLUXCREATIONS received your request. Use one of the payment options below and include your order number in the payment note.</span>
           <div id="checkoutOrderNumber" class="checkout-order-number"></div>
           <div class="payment-action-row">${paymentActions}</div>
           <button type="button" class="payment-completed-btn" onclick="markPaymentCompleted()">I've Completed Payment</button>
@@ -538,6 +718,11 @@ function checkoutModalMarkup() {
             <input type="text" name="country" autocomplete="shipping country-name" placeholder="Country" value="United States">
           </fieldset>
           <textarea name="notes" placeholder="Order notes: size, deadline, special request"></textarea>
+          <div class="checkout-discount-entry">
+            <label for="checkoutDiscountCode">Discount code</label>
+            <div><input id="checkoutDiscountCode" name="discountCode" type="text" autocomplete="off" placeholder="Enter code"><button id="applyCheckoutDiscount" type="button" onclick="applyCheckoutDiscount()">Apply</button></div>
+            <p id="checkoutDiscountStatus" aria-live="polite"></p>
+          </div>
           <label class="policy-check">
             <input type="checkbox" required>
             <span>I understand this is a custom-made item. Production starts after payment and design/order details are confirmed, and returns/cancellations are not accepted after production begins unless the item arrives damaged or MVPLUXCREATIONS made an error.</span>
@@ -561,57 +746,66 @@ function offerModalMarkup() {
       <div class="modal-content checkout-modal-content">
         <button class="close-modal" onclick="closeModals()">x</button>
         <h2>Make an Offer</h2>
-        <p id="offerProduct"></p>
-        <div id="offerAccountNotice" class="offer-account-notice"></div>
+        <p id="offerIntro">Enter the price you would like to offer. You can also add an optional comment.</p>
+        <div class="offer-summary-layout">
+          <div id="memberOfferThumbnailWrap" class="member-offer-thumbnail" hidden>
+            <img id="offerThumbnail" src="" alt="Selected design preview">
+          </div>
+          <dl class="offer-summary">
+            <div><dt>Product</dt><dd id="offerProduct"></dd></div>
+            <div><dt>Design</dt><dd id="offerDesign"></dd></div>
+            <div><dt>Description</dt><dd id="offerDescription"></dd></div>
+            <div><dt>Selected size</dt><dd id="offerSelectedSize"></dd></div>
+            <div><dt>Original height</dt><dd id="offerOriginalHeight"></dd></div>
+            <div><dt>Background/display</dt><dd id="offerBackground"></dd></div>
+            <div class="offer-size-status-row"><dt>Size selection</dt><dd id="offerSizeStatus"></dd></div>
+            <div><dt>Normal/asking price</dt><dd id="offerAskingPrice"></dd></div>
+          </dl>
+        </div>
+        <p id="offerMembershipNote" class="offer-membership-note"></p>
+        <div id="memberOfferConfigurator" class="member-offer-configurator" hidden>
+          <section>
+            <h3>Size</h3>
+            <div id="memberOfferSizeOptions" class="member-offer-size-options"></div>
+          </section>
+          <section id="memberOfferImageSection">
+            <h3>Design / Background</h3>
+            <div id="memberOfferImageOptions" class="member-offer-image-options"></div>
+          </section>
+          <section id="memberOfferFinishSection">
+            <h3>Display Option</h3>
+            <div id="memberOfferFinishOptions" class="member-offer-size-options"></div>
+          </section>
+        </div>
         <div id="offerMessageBoard" class="offer-message-board"></div>
+        <a id="offerHistoryLink" class="offer-history-link" href="account.html#my-offers" hidden>View Offer History</a>
         <div id="offerSentActions" class="offer-sent-actions">
           <button type="button" class="checkout-btn" onclick="closeModals()">Close</button>
         </div>
         <form id="offerForm" class="checkout-form offer-form" onsubmit="submitOfferRequest(event)">
           <div class="offer-guest-fields">
-            <input type="text" name="name" placeholder="Your name">
-            <input type="email" name="email" placeholder="Your email">
-            <input type="tel" name="phone" placeholder="Phone number">
-            <fieldset class="checkout-address-fields">
-              <legend>Shipping address if offer is accepted</legend>
-              <input type="text" name="address1" autocomplete="shipping address-line1" placeholder="Street address">
-              <input type="text" name="address2" autocomplete="shipping address-line2" placeholder="Apt, suite, unit (optional)">
-              <div class="checkout-address-row">
-                <input type="text" name="city" autocomplete="shipping address-level2" placeholder="City">
-                <input type="text" name="state" autocomplete="shipping address-level1" placeholder="State">
-                <input type="text" name="zip" autocomplete="shipping postal-code" placeholder="ZIP">
-              </div>
-            </fieldset>
+            <label>Name<input type="text" name="name" autocomplete="name" placeholder="Your name"></label>
+            <label>Email<input type="email" name="email" autocomplete="email" placeholder="Your email"></label>
           </div>
-          <input type="text" name="amount" inputmode="decimal" placeholder="$ Offer amount" required>
-          <select name="message">
-            <option value="">No extra note</option>
-            <option value="Please confirm design details before payment.">Confirm design first</option>
-            <option value="I need this as soon as possible.">Need it fast</option>
-            <option value="I want to discuss payment method.">Discuss payment method</option>
-            <option value="I want help choosing the best size.">Help choosing size</option>
-          </select>
-          <label class="policy-check">
-            <input type="checkbox" required>
-            <span>I understand I can send one offer. If MVPLUXCREATIONS sends a counteroffer, I can accept it or send one final counteroffer.</span>
+          <label>Offer amount
+            <input type="text" name="amount" inputmode="decimal" placeholder="$ Offer amount" required>
           </label>
-          <button class="submit-btn" type="submit">Send Offer Request</button>
+          <label>Comment (optional)
+            <textarea name="comment" placeholder="Add a comment if you would like"></textarea>
+          </label>
+          <button class="submit-btn" type="submit">Send Offer</button>
         </form>
-        <div id="sellerCounterTools" class="seller-counter-tools">
-          <h3>Seller Counteroffer</h3>
-          <input type="text" id="sellerCounterAmount" placeholder="Counteroffer amount">
-          <textarea id="sellerCounterMessage" placeholder="Counteroffer message"></textarea>
-          <button type="button" class="submit-btn" onclick="sendSellerCounterOffer()">Send Counteroffer</button>
-        </div>
         <div id="buyerCounterTools" class="buyer-counter-tools">
           <button type="button" class="checkout-btn" onclick="acceptSellerCounterOffer()">Accept Counteroffer</button>
-          <button type="button" class="submit-btn" onclick="showBuyerFinalCounter()">Send Final Counteroffer</button>
+          <button type="button" class="checkout-btn" onclick="declineSellerCounterOffer()">Decline Counteroffer</button>
+          <button type="button" class="submit-btn" onclick="showBuyerFinalCounter()">Send Another Counteroffer</button>
           <div id="buyerFinalCounterBox" class="buyer-final-counter-box">
-            <input type="text" id="buyerFinalCounterAmount" placeholder="Final counter amount">
-            <textarea id="buyerFinalCounterMessage" placeholder="Final counter message"></textarea>
-            <button type="button" class="submit-btn" onclick="sendBuyerFinalCounterOffer()">Send Final Counter</button>
+            <input type="text" id="buyerFinalCounterAmount" placeholder="Your counteroffer amount">
+            <textarea id="buyerFinalCounterMessage" placeholder="Comment (optional)"></textarea>
+            <button type="button" class="submit-btn" onclick="sendBuyerFinalCounterOffer()">Send Counteroffer</button>
           </div>
         </div>
+        <button id="continueOfferPayment" type="button" class="submit-btn" onclick="continueAcceptedOfferPayment()" hidden>Continue to Payment</button>
       </div>
     </div>
   `;
@@ -651,21 +845,35 @@ function updateCheckoutDisplay() {
   const feeSummary = document.getElementById('checkoutFeeSummary');
   const acceptedNotice = document.getElementById('checkoutAcceptedOfferNotice');
   const successNotice = document.getElementById('checkoutSuccessNotice');
+  const successMessage = document.getElementById('checkoutSuccessMessage');
   const selectedMethod = currentCheckoutPaymentMethod || 'zelle';
   const items = getCheckoutItems();
-  const subtotal = getCheckoutSubtotal();
+  const receipt = successNotice?.dataset.sent ? checkoutReceiptState : null;
+  const subtotal = receipt?.originalAmount ?? getCheckoutSubtotal();
   const totals = calculateCustomerPaidTotal(subtotal, selectedMethod);
+  const displayedDiscount = receipt?.discount || checkoutDiscountState;
+  const discountAmount = Math.min(totals.subtotal, Math.max(0, Number(displayedDiscount?.amount) || 0));
+  const finalTotal = receipt?.finalAmount ?? Math.max(0, totals.total - discountAmount);
   const acceptedOfferItem = items.find((item) => String(item.name || '').includes('Accepted Offer'));
+  const testWarning = document.querySelector('[data-checkout-test-warning]');
+  if (testWarning) testWarning.hidden = !checkoutIsTestRecord();
 
   if (acceptedNotice) {
     acceptedNotice.style.display = acceptedOfferItem ? 'block' : 'none';
     acceptedNotice.innerHTML = acceptedOfferItem
-      ? `<strong>Offer accepted</strong><span>Your accepted offer is ready for checkout. Add shipping information and choose how you want to pay.</span>`
+      ? checkoutIsTestRecord()
+        ? '<strong>TEST offer accepted</strong><span>Continue through the simulation only. Do not send money.</span>'
+        : '<strong>Offer accepted</strong><span>Your accepted offer is ready for checkout. Add shipping information and choose how you want to pay.</span>'
       : '';
   }
 
   if (successNotice && !successNotice.dataset.sent) {
     successNotice.style.display = 'none';
+  }
+  if (successMessage) {
+    successMessage.textContent = checkoutIsTestRecord()
+      ? 'Test order received. Do not send money; use only the simulated payment controls.'
+      : 'Thank you. MVPLUXCREATIONS received your request. Use one of the payment options below and include your order number in the payment note.';
   }
 
   if (summary) {
@@ -676,10 +884,11 @@ function updateCheckoutDisplay() {
 
   if (feeSummary) {
     feeSummary.innerHTML = `
-      <div><span>Item total</span><strong>${formatMoney(totals.subtotal)}</strong></div>
+      <div><span>Original price</span><strong>${formatMoney(totals.subtotal)}</strong></div>
+      ${displayedDiscount ? `<div><span>Discount code: ${escapeOfferText(displayedDiscount.code)}</span><strong>-${formatMoney(discountAmount)}</strong></div>` : ''}
       <div><span>Shipping</span><strong>Free</strong></div>
-      <div class="checkout-total-line"><span>Total to pay</span><strong>${formatMoney(totals.total)}</strong></div>
-      <p>${totals.method.note}</p>
+      <div class="checkout-total-line"><span>Final price</span><strong>${formatMoney(finalTotal)}</strong></div>
+      <p>${checkoutIsTestRecord() ? 'TEST MODE — no real payment will be requested.' : totals.method.note}</p>
     `;
   }
 }
@@ -714,33 +923,54 @@ async function submitCheckoutRequest(event) {
   const orderNumber = createOrderNumber();
   const customerNotes = formValue(form, 'notes');
 
-  const payload = {
-    customer_id: user?.id || null,
-    customer_name: formValue(form, 'name') || 'Customer',
-    customer_email: formValue(form, 'email') || user?.email || '',
-    customer_phone: formValue(form, 'phone') || null,
-    shipping_address: {
+  const shippingAddress = {
       address1: formValue(form, 'address1'),
       address2: formValue(form, 'address2'),
       city: formValue(form, 'city'),
       state: formValue(form, 'state'),
       zip: formValue(form, 'zip'),
       country: formValue(form, 'country') || 'United States'
-    },
-    items: items.map((item) => ({
+  };
+  const orderItems = items.map((item) => ({
       name: item.name,
       price: Number(item.price) || 0,
-      image: item.image || ''
-    })),
-    payment_method: totals.method.label,
-    subtotal: Number(totals.subtotal.toFixed(2)),
-    customer_fee: 0,
-    total: Number(totals.total.toFixed(2)),
-    status: 'new',
-    notes: [`Order number: ${orderNumber}`, customerNotes ? `Customer notes: ${customerNotes}` : ''].filter(Boolean).join('\n')
-  };
+      image: item.image || '',
+      category: item.category || getCurrentCheckoutCategory()
+    }));
 
-  const { error } = await client.from('order_requests').insert(payload);
+  let { data, error } = await client.rpc('submit_order_request', {
+    p_customer_name: formValue(form, 'name') || user?.user_metadata?.screen_name || 'Customer',
+    p_customer_email: formValue(form, 'email') || user?.email || '',
+    p_customer_phone: formValue(form, 'phone') || null,
+    p_shipping_address: shippingAddress,
+    p_items: orderItems,
+    p_payment_method: totals.method.label,
+    p_original_amount: Number(totals.subtotal.toFixed(2)),
+    p_notes: [`Order number: ${orderNumber}`, customerNotes ? `Customer notes: ${customerNotes}` : ''].filter(Boolean).join('\n'),
+    p_discount_code: formValue(form, 'discountCode') || null,
+    p_is_negotiated_offer: checkoutIsNegotiatedOffer(),
+    p_is_test: checkoutIsTestRecord()
+  });
+  const missingSecureOrderRpc = ['PGRST202', '42883'].includes(error?.code)
+    || String(error?.message || '').includes('submit_order_request');
+  if (error && missingSecureOrderRpc && !formValue(form, 'discountCode') && !checkoutIsTestRecord()) {
+    const fallback = await client.from('order_requests').insert({
+      customer_id: user?.id || null,
+      customer_name: formValue(form, 'name') || user?.user_metadata?.screen_name || 'Customer',
+      customer_email: formValue(form, 'email') || user?.email || '',
+      customer_phone: formValue(form, 'phone') || null,
+      shipping_address: shippingAddress,
+      items: orderItems,
+      payment_method: totals.method.label,
+      subtotal: Number(totals.subtotal.toFixed(2)),
+      customer_fee: 0,
+      total: Number(totals.total.toFixed(2)),
+      status: 'new',
+      notes: [`Order number: ${orderNumber}`, customerNotes ? `Customer notes: ${customerNotes}` : ''].filter(Boolean).join('\n')
+    });
+    data = null;
+    error = fallback.error;
+  }
   submitButton.disabled = false;
   submitButton.textContent = 'Submit Order Request';
 
@@ -752,17 +982,30 @@ async function submitCheckoutRequest(event) {
   const successNotice = document.getElementById('checkoutSuccessNotice');
   const orderNumberEl = document.getElementById('checkoutOrderNumber');
   currentCheckoutOrderNumber = orderNumber;
+  currentCheckoutOrderId = data?.order_id || '';
+  checkoutReceiptState = {
+    originalAmount: Number(data?.original_amount ?? totals.subtotal),
+    discount: data?.discount_code ? { code: data.discount_code, amount: Number(data.discount_amount) || 0 } : null,
+    finalAmount: Number(data?.final_amount ?? totals.total)
+  };
   if (successNotice) {
     successNotice.dataset.sent = 'true';
     successNotice.style.display = 'grid';
   }
   if (orderNumberEl) {
-    orderNumberEl.textContent = `Order number: ${orderNumber}. Include this in the payment note.`;
+    orderNumberEl.textContent = checkoutIsTestRecord()
+      ? `TEST order number: ${orderNumber}. No real payment should be sent.`
+      : `Order number: ${orderNumber}. Include this in the payment note.`;
   }
   form.reset();
   cart = [];
   cartTotal = 0;
   currentBuyNowItem = null;
+  checkoutDiscountState = data?.discount_code ? {
+    code: data.discount_code,
+    amount: Number(data.discount_amount) || 0,
+    final: Number(data.final_amount) || 0
+  } : null;
   updateCart();
   updateCheckoutDisplay();
 }
@@ -772,62 +1015,235 @@ function moneyFromText(value) {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function commentFromOfferDetails(message) {
+  const commentLine = String(message || '').split('\n').find((line) => line.startsWith('Message:'));
+  return commentLine ? commentLine.slice('Message:'.length).trim() : '';
+}
+
+function escapeOfferText(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function offerMessageMarkup(type, title, body) {
   return `
     <div class="offer-message offer-message-${type}">
-      <strong>${title}</strong>
-      <p>${body}</p>
+      <strong>${escapeOfferText(title)}</strong>
+      <p>${escapeOfferText(body)}</p>
+    </div>
+  `;
+}
+
+function updateOfferSummaryDisplay() {
+  if (!activeOfferState) return;
+  const values = {
+    offerDesign: activeOfferState.designLabel,
+    offerSelectedSize: activeOfferState.sizeLabel,
+    offerBackground: activeOfferState.backgroundLabel,
+    offerSizeStatus: activeOfferState.sizeStatus,
+    offerAskingPrice: activeOfferState.askingPrice ? formatMoney(activeOfferState.askingPrice) : 'Enter a valid size'
+  };
+  Object.entries(values).forEach(([id, value]) => {
+    const element = document.getElementById(id);
+    if (element) element.textContent = value || 'Not specified';
+  });
+  const thumbnail = document.getElementById('offerThumbnail');
+  if (thumbnail && activeOfferState.thumbnailPath) {
+    thumbnail.src = activeOfferState.thumbnailPath;
+    thumbnail.alt = `${activeOfferState.designLabel || 'Selected design'} preview`;
+  }
+}
+
+function selectedMemberFinishOption() {
+  return activeOfferState?.finishOptions?.[activeOfferState.selectedFinishIndex] || {
+    label: 'Back Stand Included',
+    extra: 0
+  };
+}
+
+function refreshMemberOfferPrice() {
+  if (!activeOfferState?.memberUser) return;
+  const height = Number(activeOfferState.selectedHeight) || 0;
+  const basePrice = calculateCutoutPrice(height, activeOfferState.sourceBuilder);
+  const finish = selectedMemberFinishOption();
+  activeOfferState.askingPrice = basePrice ? basePrice + Number(finish.extra || 0) : 0;
+  activeOfferState.backgroundLabel = [activeOfferState.designLabel, finish.label]
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .join(' · ');
+  activeOfferState.validSelection = Boolean(height && activeOfferState.askingPrice);
+  updateOfferSummaryDisplay();
+  const sendButton = document.querySelector('#offerForm button[type="submit"]');
+  if (sendButton) sendButton.disabled = !activeOfferState.validSelection;
+}
+
+function selectMemberOfferSize(mode) {
+  if (!activeOfferState?.memberUser) return;
+  const originalButton = document.querySelector('[data-member-offer-size="original"]');
+  const customButton = document.querySelector('[data-member-offer-size="custom"]');
+  const customBox = document.getElementById('memberOfferCustomSizeBox');
+  originalButton?.classList.toggle('active', mode === 'original');
+  customButton?.classList.toggle('active', mode === 'custom');
+  if (customBox) customBox.hidden = mode !== 'custom';
+
+  if (mode === 'custom') {
+    activeOfferState.sizeStatus = 'Custom size selected';
+    updateMemberOfferCustomSize(document.getElementById('memberOfferCustomHeight')?.value || '');
+    document.getElementById('memberOfferCustomHeight')?.focus();
+    return;
+  }
+  activeOfferState.selectedHeight = activeOfferState.originalHeight;
+  activeOfferState.sizeLabel = formatHeight(activeOfferState.originalHeight);
+  activeOfferState.sizeStatus = 'Original size selected';
+  refreshMemberOfferPrice();
+}
+
+function updateMemberOfferCustomSize(value) {
+  if (!activeOfferState?.memberUser) return;
+  const height = parseHeightToInches(value);
+  activeOfferState.selectedHeight = height;
+  activeOfferState.sizeLabel = height ? formatHeight(height) : 'Enter a valid custom size';
+  activeOfferState.sizeStatus = 'Custom size selected';
+  refreshMemberOfferPrice();
+}
+
+function selectMemberOfferImage(index) {
+  if (!activeOfferState?.memberUser) return;
+  const option = activeOfferState.imageOptions?.[index];
+  if (!option) return;
+  activeOfferState.selectedImageIndex = index;
+  activeOfferState.designLabel = option.label;
+  activeOfferState.thumbnailPath = option.image;
+  document.querySelectorAll('[data-member-offer-image]').forEach((button) => {
+    button.classList.toggle('active', Number(button.dataset.memberOfferImage) === index);
+  });
+  refreshMemberOfferPrice();
+}
+
+function selectMemberOfferFinish(index) {
+  if (!activeOfferState?.memberUser || !activeOfferState.finishOptions?.[index]) return;
+  activeOfferState.selectedFinishIndex = index;
+  document.querySelectorAll('[data-member-offer-finish]').forEach((button) => {
+    button.classList.toggle('active', Number(button.dataset.memberOfferFinish) === index);
+  });
+  refreshMemberOfferPrice();
+}
+
+function renderMemberOfferConfigurator() {
+  if (!activeOfferState?.memberUser) return;
+  const configurator = document.getElementById('memberOfferConfigurator');
+  const sizeOptions = document.getElementById('memberOfferSizeOptions');
+  const imageOptions = document.getElementById('memberOfferImageOptions');
+  const finishOptions = document.getElementById('memberOfferFinishOptions');
+  const imageSection = document.getElementById('memberOfferImageSection');
+  const finishSection = document.getElementById('memberOfferFinishSection');
+  if (!configurator || !sizeOptions || !imageOptions || !finishOptions) return;
+
+  sizeOptions.innerHTML = `
+    <button type="button" class="${activeOfferState.sizeStatus !== 'Custom size selected' ? 'active' : ''}" data-member-offer-size="original" onclick="selectMemberOfferSize('original')">Original ${escapeOfferText(formatHeight(activeOfferState.originalHeight))}</button>
+    ${activeOfferState.supportsCustomSize ? `<button type="button" class="${activeOfferState.sizeStatus === 'Custom size selected' ? 'active' : ''}" data-member-offer-size="custom" onclick="selectMemberOfferSize('custom')">Custom Size</button>` : ''}
+    ${activeOfferState.supportsCustomSize ? `<div id="memberOfferCustomSizeBox" class="member-offer-custom-size" ${activeOfferState.sizeStatus === 'Custom size selected' ? '' : 'hidden'}><input id="memberOfferCustomHeight" type="text" value="${activeOfferState.sizeStatus === 'Custom size selected' ? escapeOfferText(activeOfferState.sizeLabel) : ''}" placeholder="Type height: 5'8 or 68" oninput="updateMemberOfferCustomSize(this.value)"></div>` : ''}
+  `;
+
+  imageOptions.innerHTML = activeOfferState.imageOptions.map((option, index) => `
+    <button type="button" class="${index === activeOfferState.selectedImageIndex ? 'active' : ''}" data-member-offer-image="${index}" onclick="selectMemberOfferImage(${index})">
+      <img src="${escapeOfferText(option.image)}" alt="">
+      <span>${escapeOfferText(option.label)}</span>
+    </button>
+  `).join('');
+  imageSection.hidden = activeOfferState.imageOptions.length <= 1;
+
+  finishOptions.innerHTML = activeOfferState.finishOptions.map((option, index) => `
+    <button type="button" class="${index === activeOfferState.selectedFinishIndex ? 'active' : ''}" data-member-offer-finish="${index}" onclick="selectMemberOfferFinish(${index})">${escapeOfferText(option.label)}</button>
+  `).join('');
+  finishSection.hidden = activeOfferState.finishOptions.length <= 1;
+  configurator.hidden = false;
+  refreshMemberOfferPrice();
+}
+
+function offerExistingStateMarkup() {
+  if (!activeOfferState?.buyerOffer) return '';
+  const statusLabels = {
+    pending: 'Pending review',
+    sent: 'Pending review',
+    countered: 'Admin sent a counteroffer',
+    buyer_countered: 'Your counteroffer is awaiting Admin’s final decision',
+    accepted: 'Accepted — awaiting payment',
+    declined: 'Declined'
+  };
+  return `
+    <div class="offer-existing-state">
+      <div><span>Original asking price</span><strong>${escapeOfferText(activeOfferState.originalAskingPrice ? formatMoney(activeOfferState.originalAskingPrice) : formatMoney(activeOfferState.askingPrice))}</strong></div>
+      <div><span>Your original offer</span><strong>${escapeOfferText(formatMoney(activeOfferState.buyerOffer.amount))}</strong></div>
+      ${activeOfferState.buyerOffer.message ? `<div><span>Your message</span><strong>${escapeOfferText(activeOfferState.buyerOffer.message)}</strong></div>` : ''}
+      ${activeOfferState.sellerCounter ? `<div><span>Admin counteroffer</span><strong>${escapeOfferText(formatMoney(activeOfferState.sellerCounter.amount))}</strong></div>` : ''}
+      ${activeOfferState.sellerCounter?.message ? `<div><span>Admin message</span><strong>${escapeOfferText(activeOfferState.sellerCounter.message)}</strong></div>` : ''}
+      ${activeOfferState.buyerFinalCounter ? `<div><span>Your latest counteroffer</span><strong>${escapeOfferText(formatMoney(activeOfferState.buyerFinalCounter.amount))}</strong></div>` : ''}
+      <div><span>Status</span><strong>${escapeOfferText(statusLabels[activeOfferState.status] || activeOfferState.status || 'Pending review')}</strong></div>
+      <div><span>Last updated</span><strong>${escapeOfferText(activeOfferState.lastUpdated ? new Date(activeOfferState.lastUpdated).toLocaleString() : 'Not recorded')}</strong></div>
     </div>
   `;
 }
 
 function updateOfferBoard(productName = activeOfferState?.productName || '', signedInName = getSignedInName()) {
-  const notice = document.getElementById('offerAccountNotice');
+  const membershipNote = document.getElementById('offerMembershipNote');
   const board = document.getElementById('offerMessageBoard');
   const form = document.getElementById('offerForm');
   const guestFields = form?.querySelector('.offer-guest-fields');
-  const sellerTools = document.getElementById('sellerCounterTools');
   const buyerTools = document.getElementById('buyerCounterTools');
   const sentActions = document.getElementById('offerSentActions');
+  const configurator = document.getElementById('memberOfferConfigurator');
+  const thumbnailWrap = document.getElementById('memberOfferThumbnailWrap');
+  const intro = document.getElementById('offerIntro');
+  const historyLink = document.getElementById('offerHistoryLink');
+  const continuePayment = document.getElementById('continueOfferPayment');
+  const summaryLayout = document.querySelector('.offer-summary-layout');
+  const isMember = Boolean(activeOfferState?.memberUser || signedInName);
 
-  if (notice) {
-    notice.style.display = signedInName ? 'none' : 'block';
-    notice.textContent = signedInName ? '' : 'Fill out your contact and shipping details so we can add them to the order if your offer is accepted.';
+  if (membershipNote) {
+    membershipNote.textContent = isMember
+      ? 'Signed-in members can receive and send counteroffers.'
+      : 'No account is required to submit an offer. Signed-in members can receive and send counteroffers.';
   }
+  if (intro) {
+    intro.textContent = isMember
+      ? 'Choose your size and display option, then enter the price you would like to offer.'
+      : 'Enter the price you would like to offer. You can also add an optional comment.';
+  }
+  if (thumbnailWrap) thumbnailWrap.hidden = !isMember;
+  summaryLayout?.classList.toggle('member-mode', isMember);
 
   if (guestFields) {
-    guestFields.style.display = signedInName ? 'none' : 'grid';
+    guestFields.style.display = isMember ? 'none' : 'grid';
     guestFields.querySelectorAll('input').forEach((input) => {
-      input.required = !signedInName && ['name', 'email', 'phone', 'address1', 'city', 'state', 'zip'].includes(input.name);
+      input.required = !isMember && ['name', 'email'].includes(input.name);
     });
   }
 
   if (board) {
-    const messages = [
-      offerMessageMarkup('system', productName || 'Selected item', 'Send one offer. MVPLUXCREATIONS can accept it or send one counteroffer.')
-    ];
-    if (activeOfferState?.buyerOffer) {
+    const messages = [];
+    if (activeOfferState?.buyerOffer && isMember) {
+      messages.push(offerExistingStateMarkup());
+    } else if (activeOfferState?.buyerOffer) {
       messages.push(offerMessageMarkup('buyer', 'Buyer offer', `${formatMoney(activeOfferState.buyerOffer.amount)}${activeOfferState.buyerOffer.message ? ` - ${activeOfferState.buyerOffer.message}` : ''}`));
-    }
-    if (activeOfferState?.sellerCounter) {
-      messages.push(offerMessageMarkup('seller', 'MVPLUXCREATIONS counteroffer', `${formatMoney(activeOfferState.sellerCounter.amount)}${activeOfferState.sellerCounter.message ? ` - ${activeOfferState.sellerCounter.message}` : ''}`));
-    }
-    if (activeOfferState?.buyerCounterUsed) {
-      messages.push(offerMessageMarkup('buyer', 'Buyer final counteroffer', `${formatMoney(activeOfferState.buyerFinalCounter.amount)}${activeOfferState.buyerFinalCounter.message ? ` - ${activeOfferState.buyerFinalCounter.message}` : ''}`));
-    }
-    if (activeOfferState?.status === 'accepted') {
-      messages.push(offerMessageMarkup('system', 'Offer accepted', 'Continue to checkout when payment details are ready.'));
-    }
-    if (activeOfferState?.status === 'sent' || activeOfferState?.status === 'pending') {
-      messages.push(offerMessageMarkup('system', 'Offer sent', 'Thanks, we received your offer. MVPLUXCREATIONS will review it and reply with an acceptance or counteroffer.'));
+      if (activeOfferState.status === 'sent' || activeOfferState.status === 'pending') {
+        messages.push(offerMessageMarkup('system', 'Offer sent', 'Thanks, we received your offer. MVPLUXCREATIONS will review it.'));
+      }
     }
     board.innerHTML = messages.join('');
+    board.style.display = messages.length ? 'grid' : 'none';
   }
 
   if (form) form.style.display = activeOfferState?.buyerOffer ? 'none' : 'grid';
-  if (sellerTools) sellerTools.style.display = 'none';
-  if (buyerTools) buyerTools.style.display = activeOfferState?.sellerCounter && !activeOfferState?.buyerCounterUsed && activeOfferState?.status !== 'accepted' ? 'grid' : 'none';
+  if (configurator) configurator.hidden = !isMember || Boolean(activeOfferState?.buyerOffer);
+  if (buyerTools) buyerTools.style.display = isMember && activeOfferState?.sellerCounter && activeOfferState?.status === 'countered' ? 'grid' : 'none';
   if (sentActions) sentActions.style.display = activeOfferState?.status === 'sent' || activeOfferState?.status === 'pending' ? 'flex' : 'none';
+  if (historyLink) historyLink.hidden = !isMember || !activeOfferState?.buyerOffer;
+  if (continuePayment) continuePayment.hidden = !isMember || activeOfferState?.status !== 'accepted';
 }
 
 async function submitOfferRequest(event) {
@@ -847,52 +1263,85 @@ async function submitOfferRequest(event) {
   submitButton.textContent = 'Sending...';
   const user = await getCommerceUser(client);
 
+  if (user) {
+    if (!activeOfferState?.validSelection) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Send Offer';
+      showSiteMessage('Choose a valid available size before sending your offer.', 'error');
+      return;
+    }
+    let existingOffer;
+    try {
+      existingOffer = await findMemberOfferForSelection(client, user.id, activeOfferState.productName, activeOfferState.sizeLabel);
+    } catch (error) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Send Offer';
+      showSiteMessage(`Could not verify your current offers. ${error.message || error}`, 'error');
+      return;
+    }
+    if (existingOffer && ['pending', 'countered', 'buyer_countered', 'accepted'].includes(existingOffer.status)) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Send Offer';
+      applyExistingMemberOffer(existingOffer);
+      showSiteMessage('You already have an active offer for this product and size.', 'error');
+      return;
+    }
+  }
+
   activeOfferState = activeOfferState || { productName: document.getElementById('offerProduct')?.textContent || 'Selected item' };
   activeOfferState.buyerOffer = {
     amount,
-    message: form.message?.value?.trim() || '',
-    name: formValue(form, 'name') || getSignedInName() || 'Customer',
-    email: formValue(form, 'email') || user?.email || '',
-    phone: formValue(form, 'phone') || 'Not provided',
-    shippingAddress: {
-      address1: formValue(form, 'address1'),
-      address2: formValue(form, 'address2'),
-      city: formValue(form, 'city'),
-      state: formValue(form, 'state'),
-      zip: formValue(form, 'zip')
-    }
+    message: form.comment?.value?.trim() || '',
+    name: user?.user_metadata?.screen_name || formValue(form, 'name') || getSignedInName() || 'Customer',
+    email: formValue(form, 'email') || user?.email || ''
   };
-  const autoAccept = getAutoAcceptResult(amount, activeOfferState.askingPrice, activeOfferState.selectedHeight);
-  activeOfferState.autoAccept = autoAccept;
-  activeOfferState.status = autoAccept.accepted ? 'accepted' : 'pending';
+  activeOfferState.status = 'pending';
   updateOfferBoard();
 
   const offerDetails = [
+    activeOfferState.designLabel ? `Design: ${activeOfferState.designLabel}` : '',
+    activeOfferState.memberUser && activeOfferState.thumbnailPath ? `Image: ${activeOfferState.thumbnailPath}` : '',
+    activeOfferState.description ? `Description: ${activeOfferState.description}` : '',
     activeOfferState.sizeLabel ? `Selected size: ${activeOfferState.sizeLabel}` : '',
+    activeOfferState.originalHeight ? `Original height: ${formatHeight(activeOfferState.originalHeight)}` : '',
+    activeOfferState.backgroundLabel ? `Background: ${activeOfferState.backgroundLabel}` : '',
+    activeOfferState.sizeStatus ? `Size status: ${activeOfferState.sizeStatus}` : '',
     activeOfferState.askingPrice ? `Asking price: ${formatMoney(activeOfferState.askingPrice)}` : '',
-    activeOfferState.buyerOffer.phone && activeOfferState.buyerOffer.phone !== 'Not provided' ? `Phone: ${activeOfferState.buyerOffer.phone}` : '',
-    activeOfferState.buyerOffer.shippingAddress?.address1 ? `Shipping: ${[
-      activeOfferState.buyerOffer.shippingAddress.address1,
-      activeOfferState.buyerOffer.shippingAddress.address2,
-      activeOfferState.buyerOffer.shippingAddress.city,
-      activeOfferState.buyerOffer.shippingAddress.state,
-      activeOfferState.buyerOffer.shippingAddress.zip
-    ].filter(Boolean).join(', ')}` : '',
     activeOfferState.buyerOffer.message ? `Message: ${activeOfferState.buyerOffer.message}` : ''
   ].filter(Boolean).join('\n');
 
-  const { error } = await client.from('offers').insert({
+  const payload = {
     product_name: activeOfferState.productName || 'Selected item',
     customer_id: user?.id || null,
     customer_name: activeOfferState.buyerOffer.name,
     customer_email: activeOfferState.buyerOffer.email,
     amount: Number(amount.toFixed(2)),
     message: offerDetails || null,
-    status: activeOfferState.status
-  });
+    status: 'pending'
+  };
+  let data;
+  let error;
+  if (storefrontTestMode.enabled) {
+    const response = await client.rpc('submit_test_offer', {
+      p_product_name: payload.product_name,
+      p_customer_name: payload.customer_name,
+      p_customer_email: payload.customer_email,
+      p_amount: payload.amount,
+      p_message: payload.message
+    });
+    data = response.data;
+    error = response.error;
+  } else {
+    const insertQuery = client.from('offers').insert(payload);
+    const response = user
+      ? await insertQuery.select('id, status, seller_counter_amount, seller_counter_message, buyer_final_amount, buyer_final_message').single()
+      : await insertQuery;
+    data = response.data;
+    error = response.error;
+  }
 
   submitButton.disabled = false;
-  submitButton.textContent = 'Send Offer Request';
+  submitButton.textContent = 'Send Offer';
 
   if (error) {
     showSiteMessage(`Could not send the offer yet. Please try again or contact ${supportEmail}. ${error.message || error}`, 'error');
@@ -902,33 +1351,119 @@ async function submitOfferRequest(event) {
     return;
   }
 
-  if (autoAccept.accepted) {
-    checkoutAcceptedOffer(activeOfferState.productName, amount);
-    return;
-  }
-
+  if (data?.id) activeOfferState.id = data.id;
+  activeOfferState.isTest = Boolean(data?.is_test || storefrontTestMode.enabled);
   activeOfferState.status = 'sent';
   updateOfferBoard();
 }
 
-function sendSellerCounterOffer() {
-  const amount = moneyFromText(document.getElementById('sellerCounterAmount')?.value);
-  const message = document.getElementById('sellerCounterMessage')?.value?.trim() || '';
-  if (!amount) {
-    showSiteMessage('Enter a valid counteroffer amount.', 'error');
-    return;
-  }
-
-  activeOfferState.sellerCounter = { amount, message };
-  activeOfferState.status = 'countered';
-  updateOfferBoard();
+async function loadLatestMemberOffer(productName) {
+  const client = window.getMvpluxSupabaseClient?.();
+  const user = await getCommerceUser(client);
+  if (!client || !user || !activeOfferState || activeOfferState.productName !== productName) return;
+  activeOfferState.memberUser = user;
+  renderMemberOfferConfigurator();
+  updateOfferBoard(productName, true);
+  const { data, error } = await client
+    .from('offers')
+    .select('*')
+    .eq('customer_id', user.id)
+    .eq('product_name', productName)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error || !activeOfferState || activeOfferState.productName !== productName) return;
+  const existing = (data || []).find((offer) => {
+    const details = offerDetailsFromMessage(offer.message);
+    return !details['selected size'] || details['selected size'] === activeOfferState.sizeLabel;
+  });
+  if (existing) applyExistingMemberOffer(existing);
 }
 
-function acceptSellerCounterOffer() {
-  if (!activeOfferState?.sellerCounter) return;
-  activeOfferState.status = 'accepted';
+function offerDetailsFromMessage(message) {
+  const details = {};
+  String(message || '').split('\n').forEach((line) => {
+    const separator = line.indexOf(':');
+    if (separator < 0) return;
+    details[line.slice(0, separator).trim().toLowerCase()] = line.slice(separator + 1).trim();
+  });
+  return details;
+}
+
+async function findMemberOfferForSelection(client, userId, productName, sizeLabel) {
+  const { data, error } = await client
+    .from('offers')
+    .select('*')
+    .eq('customer_id', userId)
+    .eq('product_name', productName)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return (data || []).find((offer) => offerDetailsFromMessage(offer.message)['selected size'] === sizeLabel) || null;
+}
+
+function applyExistingMemberOffer(offer) {
+  if (!activeOfferState || !offer) return;
+  const details = offerDetailsFromMessage(offer.message);
+  activeOfferState.id = offer.id;
+  activeOfferState.buyerOffer = { amount: Number(offer.amount), message: details.message || '' };
+  activeOfferState.sellerCounter = offer.seller_counter_amount
+    ? { amount: Number(offer.seller_counter_amount), message: offer.seller_counter_message || '' }
+    : null;
+  activeOfferState.buyerFinalCounter = offer.buyer_final_amount
+    ? { amount: Number(offer.buyer_final_amount), message: offer.buyer_final_message || '' }
+    : null;
+  activeOfferState.status = offer.status || 'pending';
+  activeOfferState.isTest = Boolean(offer.is_test);
+  activeOfferState.lastUpdated = offer.updated_at || offer.created_at;
+  activeOfferState.originalAskingPrice = moneyFromText(details['asking price']) || activeOfferState.askingPrice;
+  activeOfferState.designLabel = details.design || activeOfferState.designLabel;
+  activeOfferState.description = details.description || activeOfferState.description;
+  activeOfferState.sizeLabel = details['selected size'] || activeOfferState.sizeLabel;
+  activeOfferState.originalHeight = parseHeightToInches(details['original height']) || activeOfferState.originalHeight;
+  activeOfferState.backgroundLabel = details.background || activeOfferState.backgroundLabel;
+  activeOfferState.thumbnailPath = details.image || activeOfferState.thumbnailPath;
+  updateOfferSummaryDisplay();
+  updateOfferBoard(activeOfferState.productName, true);
+}
+
+function continueAcceptedOfferPayment() {
+  if (!activeOfferState || activeOfferState.status !== 'accepted') return;
+  const acceptedAmount = activeOfferState.buyerFinalCounter?.amount
+    || activeOfferState.sellerCounter?.amount
+    || activeOfferState.buyerOffer?.amount;
+  checkoutAcceptedOffer(activeOfferState.productName, acceptedAmount, activeOfferState.isTest);
+}
+
+async function respondToSellerCounter(action, amount = null, message = '') {
+  const client = getCommerceClient();
+  if (!client || !activeOfferState?.id) {
+    showSiteMessage('This member offer cannot be updated yet. Please reopen the offer and try again.', 'error');
+    return false;
+  }
+  const { error } = await client.rpc('respond_to_member_offer', {
+    p_offer_id: activeOfferState.id,
+    p_action: action,
+    p_amount: amount,
+    p_message: message || null
+  });
+  if (error) {
+    showSiteMessage(`Could not update the offer. ${error.message || error}`, 'error');
+    return false;
+  }
+  activeOfferState.status = action === 'counter' ? 'buyer_countered' : action === 'accept' ? 'accepted' : 'declined';
+  if (action === 'counter') activeOfferState.buyerFinalCounter = { amount, message };
   updateOfferBoard();
-  checkoutAcceptedOffer(activeOfferState.productName, activeOfferState.sellerCounter.amount);
+  return true;
+}
+
+async function acceptSellerCounterOffer() {
+  if (!activeOfferState?.sellerCounter) return;
+  await respondToSellerCounter('accept');
+}
+
+async function declineSellerCounterOffer() {
+  if (!activeOfferState?.sellerCounter) return;
+  await respondToSellerCounter('decline');
 }
 
 function showBuyerFinalCounter() {
@@ -936,7 +1471,7 @@ function showBuyerFinalCounter() {
   if (box) box.style.display = 'grid';
 }
 
-function sendBuyerFinalCounterOffer() {
+async function sendBuyerFinalCounterOffer() {
   const amount = moneyFromText(document.getElementById('buyerFinalCounterAmount')?.value);
   const message = document.getElementById('buyerFinalCounterMessage')?.value?.trim() || '';
   if (!amount) {
@@ -944,10 +1479,10 @@ function sendBuyerFinalCounterOffer() {
     return;
   }
 
-  activeOfferState.buyerFinalCounter = { amount, message };
-  activeOfferState.buyerCounterUsed = true;
-  activeOfferState.status = 'final-counter';
-  updateOfferBoard();
+  if (await respondToSellerCounter('counter', amount, message)) {
+    const box = document.getElementById('buyerFinalCounterBox');
+    if (box) box.style.display = 'none';
+  }
 }
 
 function openCustomForm() {
@@ -1687,9 +2222,9 @@ function setupAuthState() {
   if (isSignedIn) {
     document.querySelectorAll('.sign-in-link').forEach((link) => {
       link.textContent = signedInName || 'Signed In';
-      link.removeAttribute('href');
+      link.setAttribute('href', 'account.html');
       link.setAttribute('aria-current', 'true');
-      link.setAttribute('role', 'button');
+      link.removeAttribute('role');
     });
 
     document.querySelectorAll('.sign-up-link').forEach((link) => {
@@ -2012,14 +2547,6 @@ function getAdminProducts() {
     );
   } catch (error) {
     return {};
-  }
-}
-
-function getAdminCoupons() {
-  try {
-    return window.mvpluxLiveAdminSettings?.coupons || JSON.parse(localStorage.getItem('mvpluxAdminCoupons') || '[]');
-  } catch (error) {
-    return [];
   }
 }
 
@@ -2575,7 +3102,11 @@ function bindSportsShowroomClicks() {
       event.preventDefault();
       const section = document.getElementById(sportJump.dataset.sportJump);
       selectSportsStandee(sportJump.dataset.sportsPlayer, false);
-      section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (section) {
+        const headerHeight = document.querySelector('.top-nav')?.getBoundingClientRect().height || 0;
+        const top = section.getBoundingClientRect().top + window.scrollY - headerHeight - 16;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      }
       return;
     }
     const playerCard = event.target.closest?.('[data-sports-player]');
@@ -3491,19 +4022,6 @@ function bindUniversalSizeBuilderEvents() {
 
 function toggleAdminSizeEditor() {
   document.body.classList.toggle('show-size-admin');
-}
-
-function renderCouponBanner() {
-  const coupons = getAdminCoupons().filter((coupon) => coupon.code && coupon.discount);
-  const shop = document.getElementById('shop');
-  if (!shop || !coupons.length || document.querySelector('.coupon-banner')) return;
-
-  const coupon = coupons[0];
-  shop.insertAdjacentHTML('afterbegin', `
-    <div class="coupon-banner">
-      Use code <strong>${coupon.code}</strong> for ${coupon.discount}% off eligible orders.
-    </div>
-  `);
 }
 
 function installSizeAdmin(builder) {
@@ -5330,10 +5848,49 @@ function installInlineAdminMode() {
 function getSelectedProduct(button) {
   const card = button.closest('.product-card, .showroom-purchase-card, .standee-purchase-panel, .category-featured-info');
   const builder = card?.querySelector('.size-builder');
+  const pageContext = card?.closest('.standee-detail-page')
+    || card?.closest('.sports-showroom, .generic-showroom')
+    || card;
+  const activeChoice = pageContext?.querySelector('.standee-background-picker button.active, .category-option-strip button.active, .sports-option-strip button.active');
+  const choiceLabel = activeChoice?.querySelector('span')?.textContent?.trim() || '';
+  const mainImage = pageContext?.querySelector('#sportsMainImage, .generic-main-image, .standee-main-cutout, .product-cutout');
+  const thumbnailPath = mainImage?.getAttribute('src') || '';
+  const imageLabel = mainImage?.getAttribute('alt')?.replace(/\s+preview$/i, '').trim() || '';
+  const imageOptions = [...(pageContext?.querySelectorAll('.standee-background-picker button, .category-option-strip button, .sports-option-strip button') || [])]
+    .map((option) => ({
+      label: option.querySelector('span')?.textContent?.trim() || option.querySelector('img')?.alt || 'Image option',
+      image: option.querySelector('img')?.getAttribute('src') || '',
+      active: option.classList.contains('active')
+    }))
+    .filter((option) => option.image);
+  if (!imageOptions.length && thumbnailPath) {
+    imageOptions.push({ label: choiceLabel || imageLabel || 'Primary image', image: thumbnailPath, active: true });
+  }
+  const selectedImageIndex = Math.max(0, imageOptions.findIndex((option) => option.active || option.image === thumbnailPath));
+  const description = card?.querySelector('.product-description, #sportsSelectedDescription, .generic-selected-description')?.textContent?.trim()
+    || pageContext?.querySelector('#sportsSelectedDescription, .generic-selected-description, .standee-purchase-panel > p')?.textContent?.trim()
+    || '';
 
   if (!builder) {
-    const productName = card?.querySelector('.product-title-link, h1, h2, .generic-selected-name, #sportsSelectedName')?.textContent || 'Custom Standee';
-    return { card, builder: null, productName, price: getCurrentBasePrice(), valid: true };
+    const baseProductName = card?.querySelector('.product-title-link, h1, h2, .generic-selected-name, #sportsSelectedName')?.textContent?.trim() || 'Custom Standee';
+    return {
+      card,
+      builder: null,
+      productName: baseProductName,
+      baseProductName,
+      price: getCurrentBasePrice(),
+      designLabel: choiceLabel || imageLabel || 'Primary image',
+      backgroundLabel: choiceLabel || 'Standard display',
+      description,
+      thumbnailPath,
+      imageOptions,
+      selectedImageIndex,
+      finishOptions: [],
+      selectedFinishIndex: 0,
+      supportsCustomSize: false,
+      sizeStatus: 'Selected product configuration',
+      valid: true
+    };
   }
 
   const baseProductName = builder.dataset.productName || 'Custom Standee';
@@ -5343,7 +5900,16 @@ function getSelectedProduct(button) {
   const originalHeight = parseHeightToInches(builder.dataset.originalHeight || '') || parseInt(builder.dataset.originalHeight || '0', 10);
   const selectedHeight = isCustom ? customHeight : originalHeight;
   const sizeLabel = selectedHeight ? formatHeight(selectedHeight) : (isCustom ? 'Custom Size' : 'Original Size');
-  const productName = `${baseProductName} - ${sizeLabel} - ${getFinishLabel(builder)}`;
+  const finishLabel = getFinishLabel(builder);
+  const finishOptions = [...builder.querySelectorAll('.finish-choice input')].map((input) => ({
+    label: input.closest('.finish-choice')?.querySelector('span')?.textContent?.trim() || input.value,
+    value: input.value,
+    extra: Number(input.dataset.finishExtra || 0),
+    selected: input.checked
+  }));
+  if (!finishOptions.length) finishOptions.push({ label: finishLabel, value: 'current', extra: getFinishExtra(builder), selected: true });
+  const selectedFinishIndex = Math.max(0, finishOptions.findIndex((option) => option.selected));
+  const productName = `${baseProductName} - ${sizeLabel} - ${finishLabel}`;
   const basePrice = calculateCutoutPrice(selectedHeight, builder);
   const price = addFinishToPrice(basePrice, builder);
 
@@ -5351,10 +5917,30 @@ function getSelectedProduct(button) {
 
   // If no valid price or zero price, do NOT allow purchase
   if (!price || price <= 0) {
-    return { card, builder, productName, price: 0, selectedHeight, sizeLabel, valid: false };
+    return { card, builder, productName, baseProductName, price: 0, selectedHeight, originalHeight, sizeLabel, valid: false };
   }
 
-  return { card, builder, productName, price, selectedHeight, sizeLabel, valid: true };
+  return {
+    card,
+    builder,
+    productName,
+    baseProductName,
+    price,
+    selectedHeight,
+    originalHeight,
+    sizeLabel,
+    designLabel: choiceLabel || imageLabel || 'Primary image',
+    backgroundLabel: choiceLabel || finishLabel || 'Standard display',
+    description,
+    thumbnailPath,
+    imageOptions,
+    selectedImageIndex,
+    finishOptions,
+    selectedFinishIndex,
+    supportsCustomSize: Boolean(customRadio),
+    sizeStatus: isCustom ? 'Custom size selected' : 'Original size selected',
+    valid: true
+  };
 }
 
 function addSelectedToCart(button) {
@@ -5386,10 +5972,22 @@ function openSelectedOffer(button) {
     showSiteMessage('Please enter a valid custom height before making an offer.', 'error');
     return;
   }
-  openOffer(selected.productName || 'Selected Standee', {
+  openOffer(selected.baseProductName || selected.productName || 'Selected Standee', {
     askingPrice: selected.price,
     selectedHeight: selected.selectedHeight,
-    sizeLabel: selected.sizeLabel
+    sizeLabel: selected.sizeLabel,
+    originalHeight: selected.originalHeight,
+    designLabel: selected.designLabel,
+    backgroundLabel: selected.backgroundLabel,
+    description: selected.description,
+    sizeStatus: selected.sizeStatus,
+    thumbnailPath: selected.thumbnailPath,
+    imageOptions: selected.imageOptions,
+    selectedImageIndex: selected.selectedImageIndex,
+    finishOptions: selected.finishOptions,
+    selectedFinishIndex: selected.selectedFinishIndex,
+    supportsCustomSize: selected.supportsCustomSize,
+    sourceBuilder: selected.builder
   });
 }
 
@@ -5461,13 +6059,13 @@ function bindBuyerImagePurchaseJumps() {
 /* ---------------- PAGE INIT ---------------- */
 document.addEventListener('DOMContentLoaded', async function () {
   await syncSupabaseAuthState().catch(() => {});
+  await loadStorefrontTestMode().catch(() => {});
   setupAuthState();
   updateCart();
   showInfoSlide(0);
   normalizeFrontPageCategoryLinks();
   await loadPublishedAdminSettings();
   await loadLiveAdminSettings().catch(() => {});
-  renderCouponBanner();
   bindProductCarouselDragGuard();
   bindBuyerImagePurchaseJumps();
   bindFanCardCommerce();
