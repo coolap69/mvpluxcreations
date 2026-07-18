@@ -54,25 +54,25 @@
       <form class="auth-form" id="signinForm">
         <label>
           Email
-          <input id="signinEmail" type="email" placeholder="you@example.com" autocomplete="email" required />
+          <input id="signinEmail" type="email" placeholder="you@example.com" />
         </label>
         <label>
           Password
           <span class="password-field">
-            <input id="signinPassword" type="password" placeholder="Password" autocomplete="current-password" required />
+            <input id="signinPassword" type="password" placeholder="Password" />
             <button class="password-toggle" type="button" aria-label="Show password" onclick="togglePasswordVisibility(this)">👁</button>
           </span>
         </label>
         <button type="submit">Sign In</button>
       </form>
 
-      <p id="signedInNotice" class="auth-switch" role="status" aria-live="polite"></p>
+      <p id="signedInNotice" class="auth-switch"></p>
       <p class="auth-switch">Need an account? <a href="signup.html">Sign up</a></p>
     </section>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="supabase-config.js?v=20260716-auth-fix"></script>
+  <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
   <script src="pricing.js?v=20260714-height-source"></script>
-  <script src="script.js?v=20260716-auth-fix"></script>
+  <script src="script.js?v=20260709-card-admin-sync"></script>
 </body>
 </html>
