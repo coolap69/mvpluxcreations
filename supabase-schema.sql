@@ -24,7 +24,7 @@ create or replace function public.handle_new_user_profile()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 begin
   insert into public.profiles (id, screen_name, email)
@@ -324,24 +324,7 @@ using (exists (
 ));
 
 drop policy if exists "Admins can delete offers" on public.offers;
-create policy "Admins can delete offers"
-on public.offers for delete
-using (exists (
-  select 1 from public.admin_profiles
-  where admin_profiles.user_id = auth.uid()
-));
-
 drop policy if exists "Admins can update offers" on public.offers;
-create policy "Admins can update offers"
-on public.offers for update
-using (exists (
-  select 1 from public.admin_profiles
-  where admin_profiles.user_id = auth.uid()
-))
-with check (exists (
-  select 1 from public.admin_profiles
-  where admin_profiles.user_id = auth.uid()
-));
 
 create or replace function public.respond_to_member_offer(
   p_offer_id uuid,
@@ -352,28 +335,80 @@ create or replace function public.respond_to_member_offer(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   current_offer public.offers;
+  admin_access boolean;
 begin
   if auth.uid() is null then
     raise exception 'Sign in is required.';
   end if;
 
-  select * into current_offer
-  from public.offers
-  where id = p_offer_id
-    and customer_id = auth.uid()
-  for update;
+  admin_access := exists (select 1 from public.admin_profiles where user_id = auth.uid());
+  select * into current_offer from public.offers where id = p_offer_id for update;
 
   if current_offer.id is null then
     raise exception 'Offer not found.';
   end if;
-  if current_offer.status <> 'countered' then
-    raise exception 'This offer is not awaiting a member response.';
+
+  -- An Admin Test Mode member offer is owned by the signed-in Admin. Process
+  -- its pending member response before applying the caller's Admin role.
+  if current_offer.customer_id = auth.uid()
+    and current_offer.status = 'countered'
+    and p_action in ('accept', 'decline', 'counter') then
+    if p_action = 'accept' then
+      update public.offers
+      set status = 'accepted_awaiting_payment',
+          buyer_final_amount = current_offer.seller_counter_amount,
+          buyer_final_message = 'Accepted admin counteroffer'
+      where id = p_offer_id
+      returning * into current_offer;
+    elsif p_action = 'decline' then
+      update public.offers
+      set status = 'declined'
+      where id = p_offer_id
+      returning * into current_offer;
+    else
+      if p_amount is null or p_amount <= 0 then
+        raise exception 'Enter a valid counteroffer amount.';
+      end if;
+      update public.offers
+      set status = 'buyer_countered',
+          buyer_final_amount = round(p_amount, 2),
+          buyer_final_message = nullif(trim(coalesce(p_message, '')), '')
+      where id = p_offer_id
+      returning * into current_offer;
+    end if;
+    return to_jsonb(current_offer);
   end if;
 
+  if admin_access then
+    if p_action in ('accept', 'decline') and current_offer.status not in ('pending', 'buyer_countered') then
+      raise exception 'This offer is not awaiting an Admin decision.';
+    end if;
+    if p_action = 'accept' then
+      update public.offers set status = 'accepted_awaiting_payment' where id = p_offer_id returning * into current_offer;
+    elsif p_action = 'decline' then
+      update public.offers set status = 'declined' where id = p_offer_id returning * into current_offer;
+    elsif p_action = 'counter' then
+      if current_offer.status <> 'pending' then raise exception 'Only a pending offer can receive an Admin counteroffer.'; end if;
+      if current_offer.customer_id is null then raise exception 'Only a signed-in member offer can receive a counteroffer.'; end if;
+      if p_amount is null or p_amount <= 0 then raise exception 'Enter a valid counteroffer amount.'; end if;
+      update public.offers
+      set status = 'countered', seller_counter_amount = round(p_amount, 2), seller_counter_message = nullif(trim(coalesce(p_message, '')), '')
+      where id = p_offer_id returning * into current_offer;
+    elsif p_action = 'archive' then
+      if current_offer.status not in ('paid', 'completed', 'declined') then raise exception 'Only a completed or declined offer can be archived.'; end if;
+      update public.offers set status = 'archived', archived_at = now() where id = p_offer_id returning * into current_offer;
+    else
+      raise exception 'Unsupported Admin offer response.';
+    end if;
+    return to_jsonb(current_offer);
+  end if;
+
+  if current_offer.customer_id is distinct from auth.uid() then raise exception 'Offer not found.'; end if;
+  if current_offer.status <> 'countered' then raise exception 'This offer is not awaiting a member response.'; end if;
   if p_action = 'accept' then
     update public.offers
     set status = 'accepted_awaiting_payment',
@@ -578,8 +613,8 @@ grant select on public.categories, public.products, public.product_images to ano
 grant insert on public.order_requests, public.offers to anon, authenticated;
 grant select on public.order_requests, public.offers, public.admin_profiles to authenticated;
 grant select on public.offer_messages to authenticated;
-grant delete on public.order_requests, public.offers to authenticated;
-grant update on public.order_requests, public.offers to authenticated;
+grant delete on public.order_requests to authenticated;
+grant update on public.order_requests to authenticated;
 
 -- Live admin edits.
 -- This stores small text/image-position edits made from Admin Mode so they stay live
@@ -588,16 +623,23 @@ grant update on public.order_requests, public.offers to authenticated;
 create table if not exists public.site_edits (
   page_key text primary key,
   edits jsonb not null default '{}'::jsonb,
+  revision bigint not null default 0,
   updated_by uuid references auth.users(id) on delete set null,
   updated_at timestamptz not null default now()
 );
 
+alter table public.site_edits add column if not exists revision bigint not null default 0;
+
 alter table public.site_edits enable row level security;
 
 drop policy if exists "Anyone can view site edits" on public.site_edits;
-create policy "Anyone can view site edits"
+drop policy if exists "Admins can view site edits" on public.site_edits;
+create policy "Admins can view site edits"
 on public.site_edits for select
-using (true);
+using (exists (
+  select 1 from public.admin_profiles
+  where admin_profiles.user_id = auth.uid()
+));
 
 drop policy if exists "Admins can create site edits" on public.site_edits;
 create policy "Admins can create site edits"
@@ -627,8 +669,55 @@ using (exists (
   where admin_profiles.user_id = auth.uid()
 ));
 
-grant select on public.site_edits to anon, authenticated;
+revoke select on public.site_edits from anon;
+grant select on public.site_edits to authenticated;
 grant insert, update, delete on public.site_edits to authenticated;
+
+create or replace function public.save_site_edits(
+  p_page_key text,
+  p_edits jsonb,
+  p_expected_revision bigint,
+  p_replace boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  current_row public.site_edits;
+begin
+  if not exists (select 1 from public.admin_profiles where user_id = auth.uid()) then
+    raise exception 'Admin access is required.';
+  end if;
+  if nullif(trim(coalesce(p_page_key, '')), '') is null or p_edits is null or jsonb_typeof(p_edits) <> 'object' then
+    raise exception 'A page key and JSON object are required.';
+  end if;
+
+  select * into current_row from public.site_edits where page_key = p_page_key for update;
+  if current_row.page_key is null then
+    if coalesce(p_expected_revision, 0) <> 0 then
+      raise exception using errcode = '40001', message = 'Admin state changed. Reload before saving again.';
+    end if;
+    insert into public.site_edits (page_key, edits, revision, updated_by, updated_at)
+    values (p_page_key, p_edits, 1, auth.uid(), now())
+    returning * into current_row;
+  else
+    if current_row.revision <> coalesce(p_expected_revision, -1) then
+      raise exception using errcode = '40001', message = 'Admin state changed. Reload before saving again.';
+    end if;
+    update public.site_edits
+    set edits = case when p_replace then p_edits else current_row.edits || p_edits end,
+        revision = current_row.revision + 1,
+        updated_by = auth.uid(),
+        updated_at = now()
+    where page_key = p_page_key
+    returning * into current_row;
+  end if;
+
+  return jsonb_build_object('page_key', current_row.page_key, 'edits', current_row.edits, 'revision', current_row.revision, 'updated_at', current_row.updated_at);
+end;
+$$;
 
 create table if not exists public.fan_votes (
   id uuid primary key default gen_random_uuid(),
@@ -937,6 +1026,16 @@ declare
   discount numeric(10,2) := 0;
   final_amount numeric(10,2);
   items_amount numeric(10,2);
+  item_value jsonb;
+  selected_height numeric;
+  submitted_price numeric;
+  expected_price numeric;
+  price_settings jsonb;
+  two_foot_price numeric;
+  three_foot_price numeric;
+  full_height numeric;
+  full_price numeric;
+  extra_inch_price numeric;
 begin
   if coalesce(p_original_amount, 0) < 0 then raise exception 'Original amount cannot be negative.'; end if;
   if jsonb_typeof(coalesce(p_items, '[]'::jsonb)) <> 'array' or jsonb_array_length(coalesce(p_items, '[]'::jsonb)) = 0 then raise exception 'At least one order item is required.'; end if;
@@ -948,11 +1047,36 @@ begin
     effective_customer_id := auth.uid();
   end if;
 
+  select edits #> '{lastPublishedSnapshot,priceSettings}' into price_settings
+  from public.site_edits where page_key = 'admin-global';
+  two_foot_price := coalesce(nullif((price_settings->>'twoFootPrice')::numeric, 0), 35.00);
+  three_foot_price := coalesce(nullif((price_settings->>'threeFootPrice')::numeric, 0), 50.00);
+  full_height := coalesce(nullif((price_settings->>'fullHeight')::numeric, 0), 78);
+  full_price := coalesce(nullif((price_settings->>'fullPrice')::numeric, 0), 129.99);
+  extra_inch_price := coalesce(nullif((price_settings->>'extraInchPrice')::numeric, 0), 2.00);
+
+  items_amount := 0;
+  for item_value in select value from jsonb_array_elements(p_items) as entries(value)
+  loop
+    if jsonb_typeof(item_value) <> 'object' then raise exception 'Every order item must be an object.'; end if;
+    selected_height := (item_value->>'selected_height')::numeric;
+    submitted_price := (item_value->>'price')::numeric;
+    if selected_height < 24 or selected_height > 120 then raise exception 'Order item height must be between 24 and 120 inches.'; end if;
+    if coalesce((item_value->>'finish_extra')::numeric, 0) <> 0 then raise exception 'Unsupported finish price.'; end if;
+    expected_price := case
+      when selected_height <= 36 then two_foot_price + ((selected_height - 24) * ((three_foot_price - two_foot_price) / 12))
+      when selected_height <= full_height then three_foot_price + ((selected_height - 36) * ((full_price - three_foot_price) / greatest(1, full_height - 36)))
+      else full_price + ((selected_height - full_height) * extra_inch_price)
+    end;
+    expected_price := round(expected_price, 2);
+    if round(submitted_price, 2) <> expected_price then raise exception 'Order item price does not match the published server price.'; end if;
+    items_amount := items_amount + expected_price;
+  end loop;
+
   select
     coalesce(array_agg(value->>'name'), array[]::text[]),
-    coalesce(array_agg(value->>'category') filter (where nullif(value->>'category', '') is not null), array[]::text[]),
-    coalesce(sum((value->>'price')::numeric), 0)
-  into product_names, categories, items_amount
+    coalesce(array_agg(value->>'category') filter (where nullif(value->>'category', '') is not null), array[]::text[])
+  into product_names, categories
   from jsonb_array_elements(p_items) as item(value);
   if round(items_amount, 2) <> round(p_original_amount, 2) then raise exception 'Order subtotal does not match the submitted items.'; end if;
 
@@ -1256,11 +1380,68 @@ using (is_test and public.is_current_user_admin());
 drop policy if exists "Anyone can create order requests" on public.order_requests;
 
 drop policy if exists "Admins can delete offers" on public.offers;
-create policy "Admins can delete test offers" on public.offers for delete
-using (is_test and public.is_current_user_admin());
+drop policy if exists "Admins can delete test offers" on public.offers;
+drop policy if exists "Only test offers may be permanently deleted" on public.offers;
+
+create or replace function public.delete_test_offer(p_offer_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  selected public.offers;
+  deleted_offers integer := 0;
+  deleted_orders integer := 0;
+begin
+  if not public.is_current_user_admin() then raise exception 'Admin access is required.'; end if;
+  select * into selected from public.offers where id = p_offer_id for update;
+  if selected.id is null then raise exception 'Test offer not found.'; end if;
+  if not selected.is_test then raise exception 'Real offers cannot be permanently deleted.'; end if;
+  if exists (select 1 from public.order_requests where source_offer_id = p_offer_id and not is_test) then
+    raise exception 'A real order is linked to this offer and was preserved.';
+  end if;
+  delete from public.order_requests where source_offer_id = p_offer_id and is_test;
+  get diagnostics deleted_orders = row_count;
+  delete from public.offers where id = p_offer_id and is_test;
+  get diagnostics deleted_offers = row_count;
+  return jsonb_build_object('deleted_offers', deleted_offers, 'deleted_orders', deleted_orders);
+end;
+$$;
+
+create or replace function public.delete_all_test_offers()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  deleted_offers integer := 0;
+  deleted_orders integer := 0;
+begin
+  if not public.is_current_user_admin() then raise exception 'Admin access is required.'; end if;
+  perform 1 from public.offers where is_test for update;
+  if exists (
+    select 1 from public.order_requests orders
+    join public.offers offers on offers.id = orders.source_offer_id
+    where offers.is_test and not orders.is_test
+  ) then
+    raise exception 'A real order is linked to a test offer. No test offers were deleted.';
+  end if;
+  delete from public.order_requests
+  where is_test and source_offer_id in (select id from public.offers where is_test);
+  get diagnostics deleted_orders = row_count;
+  delete from public.offers where is_test;
+  get diagnostics deleted_offers = row_count;
+  return jsonb_build_object('deleted_offers', deleted_offers, 'deleted_orders', deleted_orders);
+end;
+$$;
+
+revoke update, delete on public.offers from anon, authenticated;
 
 revoke all on function public.is_current_user_admin() from public;
 revoke all on function public.get_admin_test_mode() from public;
+revoke all on function public.save_site_edits(text,jsonb,bigint,boolean) from public;
 revoke all on function public.set_admin_test_mode(boolean, text) from public;
 revoke all on function public.validate_discount_code(text, numeric, text, text[], text[], boolean) from public;
 revoke all on function public.submit_order_request(text, text, text, jsonb, jsonb, text, numeric, text, text, boolean, boolean) from public;
@@ -1272,8 +1453,11 @@ revoke all on function public.submit_offer_payment(uuid) from public;
 revoke all on function public.confirm_offer_payment(uuid) from public;
 revoke all on function public.admin_update_order_status(uuid, text) from public;
 revoke all on function public.list_eligible_discounts() from public;
+revoke all on function public.delete_test_offer(uuid) from public;
+revoke all on function public.delete_all_test_offers() from public;
 
 grant execute on function public.get_admin_test_mode() to authenticated;
+grant execute on function public.save_site_edits(text,jsonb,bigint,boolean) to authenticated;
 grant execute on function public.set_admin_test_mode(boolean, text) to authenticated;
 grant execute on function public.validate_discount_code(text, numeric, text, text[], text[], boolean) to anon, authenticated;
 grant execute on function public.submit_order_request(text, text, text, jsonb, jsonb, text, numeric, text, text, boolean, boolean) to anon, authenticated;
@@ -1285,5 +1469,7 @@ grant execute on function public.submit_offer_payment(uuid) to authenticated;
 grant execute on function public.confirm_offer_payment(uuid) to authenticated;
 grant execute on function public.admin_update_order_status(uuid, text) to authenticated;
 grant execute on function public.list_eligible_discounts() to authenticated;
+grant execute on function public.delete_test_offer(uuid) to authenticated;
+grant execute on function public.delete_all_test_offers() to authenticated;
 grant select, insert, update on public.discount_codes to authenticated;
 grant select on public.discount_redemptions, public.order_events to authenticated;

@@ -96,6 +96,7 @@ function clearLegacyAdminBrowserStorage() {
 }
 
 let adminLiveSettings = null;
+let adminLiveRevision = 0;
 let adminHomepageLiveEdits = {};
 let adminPageLiveEdits = {};
 let adminSaveQueue = Promise.resolve(true);
@@ -105,6 +106,20 @@ let adminLastSaveError = '';
 let adminLatestPublishError = '';
 let adminPublishedFileState = { reachable: false, publishedAt: null, commitHash: '' };
 let adminTestModeState = { enabled: false, customerType: 'guest' };
+
+function logAdminInitializationException(section, error) {
+  const stack = String(error?.stack || '');
+  const location = stack.match(/((?:https?:\/\/|file:\/\/|\/)[^\s():]+):(\d+):(\d+)/);
+  console.error('[ADMIN] Initialization exception', {
+    section,
+    file: location?.[1] || 'unknown',
+    line: location ? Number(location[2]) : 'unknown',
+    column: location ? Number(location[3]) : 'unknown',
+    type: error?.name || error?.constructor?.name || typeof error,
+    message: error?.message || String(error),
+    stack
+  });
+}
 
 function getAdminClient() {
   return window.getMvpluxSupabaseClient?.() || null;
@@ -128,14 +143,16 @@ async function loadAdminLiveSettings() {
 
   const { data, error } = await client
     .from('site_edits')
-    .select('page_key, edits');
+    .select('page_key, edits, revision');
 
   if (error) {
     adminLastSaveError = `Supabase reload failed: ${error.message || 'unknown error'}`;
     renderAdminDiagnostics();
     return null;
   }
-  adminLiveSettings = data?.find((row) => row.page_key === 'admin-global')?.edits || {};
+  const globalRow = data?.find((row) => row.page_key === 'admin-global');
+  adminLiveSettings = globalRow?.edits || {};
+  adminLiveRevision = Number(globalRow?.revision) || 0;
   adminHomepageLiveEdits = data?.find((row) => row.page_key === 'index.html')?.edits || {};
   adminPageLiveEdits = Object.fromEntries(
     (data || [])
@@ -159,16 +176,15 @@ async function saveAdminSettingsLive(patch) {
       const user = sessionData?.session?.user;
       if (!user) throw new Error('Sign in as admin to save live.');
 
-      const nextSettings = { ...(adminLiveSettings || {}) };
-      const { error } = await client
-        .from('site_edits')
-        .upsert({
-          page_key: 'admin-global',
-          edits: nextSettings,
-          updated_by: user.id,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'page_key' });
+      const expectedRevision = adminLiveRevision;
+      const { data, error } = await client.rpc('save_site_edits', {
+        p_page_key: 'admin-global',
+        p_edits: patch || {},
+        p_expected_revision: expectedRevision,
+        p_replace: false
+      });
       if (error) throw error;
+      adminLiveRevision = Number(data?.revision) || (expectedRevision + 1);
 
       adminLastSaveSucceeded = true;
       adminLastSaveError = '';
@@ -197,37 +213,44 @@ async function waitForAdminSaves() {
 }
 
 async function requireSupabaseAdminAccess() {
-  const client = getAdminClient();
-  if (!client?.auth) {
-    setCommerceStatus('Supabase is not loaded yet.');
-    return false;
-  }
+  console.log('[ADMIN] Authorization started');
+  try {
+    const client = getAdminClient();
+    if (!client?.auth) {
+      setCommerceStatus('Supabase is not loaded yet.');
+      return false;
+    }
 
-  const { data: sessionData } = await client.auth.getSession();
-  const user = sessionData?.session?.user;
-  if (!user) {
-    window.location.href = 'signin.html';
-    return false;
-  }
+    const { data: sessionData } = await client.auth.getSession();
+    const user = sessionData?.session?.user;
+    if (!user) {
+      window.location.href = 'signin.html';
+      return false;
+    }
 
-  setAdminSignedInAs(`Signed in as ${user.email || 'admin user'}`);
+    setAdminSignedInAs(`Signed in as ${user.email || 'admin user'}`);
 
-  const { data, error } = await client
-    .from('admin_profiles')
-    .select('user_id')
-    .eq('user_id', user.id)
-    .maybeSingle();
+    const { data, error } = await client
+      .from('admin_profiles')
+      .select('user_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
 
-  if (error || !data) {
+    if (error || !data) {
+      localStorage.removeItem('mvpluxAdminSignedIn');
+      setCommerceStatus(`You are signed in as ${user.email || 'this account'}, but it is not admin yet. In Supabase, add this user ID to admin_profiles: ${user.id}`);
+      return false;
+    }
+
     localStorage.removeItem('mvpluxAdminSignedIn');
-    setCommerceStatus(`You are signed in as ${user.email || 'this account'}, but it is not admin yet. In Supabase, add this user ID to admin_profiles: ${user.id}`);
-    return false;
+    localStorage.setItem('mvpluxCustomerSignedIn', 'true');
+    localStorage.setItem('mvpluxSignedInName', user.user_metadata?.screen_name || user.email?.split('@')[0] || 'Admin');
+    console.log('[ADMIN] Authorization passed');
+    return true;
+  } catch (error) {
+    logAdminInitializationException('Authorization', error);
+    throw error;
   }
-
-  localStorage.removeItem('mvpluxAdminSignedIn');
-  localStorage.setItem('mvpluxCustomerSignedIn', 'true');
-  localStorage.setItem('mvpluxSignedInName', user.user_metadata?.screen_name || user.email?.split('@')[0] || 'Admin');
-  return true;
 }
 
 function renderAdminTestMode() {
@@ -541,6 +564,7 @@ function publishableSnapshotProduct(baseProduct, value, archived) {
 function buildDefaultPublishBaseline() {
   return {
     version: 1,
+    priceSettings: window.MVPLUX_PRICING.normalizePriceSettings({}),
     products: Object.fromEntries(adminCharacterProducts.map((product) => [product.slug, publishableProduct(product)])),
     categoryDisplayCards: Object.fromEntries(adminProducts.map((product) => [product.slug, publishableProduct(product)])),
     deletedProducts: [],
@@ -571,6 +595,7 @@ function buildCurrentPublishSnapshot() {
 
   return {
     version: 1,
+    priceSettings: window.MVPLUX_PRICING.normalizePriceSettings(readPriceSettings()),
     products,
     categoryDisplayCards,
     deletedProducts: [...deleted].sort(),
@@ -619,6 +644,9 @@ function summarizeHomepageOrder(beforeRows = [], afterRows = []) {
 function generatePublishChanges(before, after) {
   const lines = [];
   const seenImages = new Set();
+  if (JSON.stringify(before?.priceSettings || {}) !== JSON.stringify(after?.priceSettings || {})) {
+    lines.push('Updated published price settings');
+  }
   const beforeProducts = { ...(before?.categoryDisplayCards || {}), ...(before?.products || {}) };
   const afterProducts = { ...(after?.categoryDisplayCards || {}), ...(after?.products || {}) };
   const slugs = [...new Set([...Object.keys(beforeProducts), ...Object.keys(afterProducts)])].sort();
@@ -752,6 +780,7 @@ function normalizePublishedBaseline(snapshot) {
   baseline.pageVisualStates = snapshot.pageVisualStates && typeof snapshot.pageVisualStates === 'object'
     ? structuredClone(snapshot.pageVisualStates)
     : {};
+  baseline.priceSettings = window.MVPLUX_PRICING.normalizePriceSettings(snapshot.priceSettings || {});
   return baseline;
 }
 
@@ -1248,7 +1277,7 @@ function offerCardMarkup(offer) {
       ${offer.is_test && ['accepted', 'accepted_awaiting_payment'].includes(status) ? `<a class="admin-production-toggle" href="index.html?resumeOffer=${encodeURIComponent(offer.id)}">Continue Test Payment</a>` : ''}
       ${status === 'payment_submitted' ? `<button class="admin-production-toggle" type="button" data-confirm-offer-payment data-id="${escapeAdminHtml(offer.id)}">Mark Payment Confirmed</button>` : ''}
       ${['paid', 'declined'].includes(status) ? `<button type="button" data-offer-action="archive" data-id="${escapeAdminHtml(offer.id)}">Archive Offer</button>` : ''}
-      ${offer.is_test ? `<button class="admin-commerce-delete" type="button" data-delete-commerce="offer" data-id="${escapeAdminHtml(offer.id)}">Delete Test Record</button>` : ''}
+      ${offer.is_test ? `<button class="admin-commerce-delete" type="button" data-delete-test-offer data-id="${escapeAdminHtml(offer.id)}">Delete Test Offer</button>` : ''}
     </article>
   `;
 }
@@ -1266,24 +1295,17 @@ async function updateAdminOffer(button) {
     return;
   }
 
-  const update = {};
   if (action === 'accept' || action === 'decline') {
     const verb = action === 'accept' ? 'accept' : 'decline';
     if (!window.confirm(`${verb[0].toUpperCase()}${verb.slice(1)} this offer? The offer record will be kept.`)) return;
-    update.status = action === 'accept' ? 'accepted_awaiting_payment' : 'declined';
   } else if (action === 'archive') {
     if (!window.confirm('Archive this offer? Its record and full history will be preserved.')) return;
-    update.status = 'archived';
-    update.archived_at = new Date().toISOString();
   } else if (action === 'counter') {
     const amount = Number(String(card.querySelector('[data-offer-counter-amount]')?.value || '').replace(/[^0-9.]/g, ''));
     if (!Number.isFinite(amount) || amount <= 0) {
       setCommerceStatus('Enter a valid counteroffer amount.');
       return;
     }
-    update.status = 'countered';
-    update.seller_counter_amount = Number(amount.toFixed(2));
-    update.seller_counter_message = card.querySelector('[data-offer-counter-message]')?.value?.trim() || null;
   } else {
     return;
   }
@@ -1291,22 +1313,82 @@ async function updateAdminOffer(button) {
   button.disabled = true;
   const originalText = button.textContent;
   button.textContent = 'Saving...';
-  const { error } = await client.from('offers').update(update).eq('id', id).select('id, status').single();
+  const amount = action === 'counter'
+    ? Number(String(card.querySelector('[data-offer-counter-amount]')?.value || '').replace(/[^0-9.]/g, ''))
+    : null;
+  const message = action === 'counter'
+    ? card.querySelector('[data-offer-counter-message]')?.value?.trim() || null
+    : null;
+  const { error } = await client.rpc('respond_to_member_offer', {
+    p_offer_id: id,
+    p_action: action,
+    p_amount: amount,
+    p_message: message
+  });
   if (error) {
     button.disabled = false;
     button.textContent = originalText;
     setCommerceStatus(`Could not update the offer. ${error.message || error}`);
     return;
   }
-  setCommerceStatus(action === 'counter' ? 'Counteroffer saved.' : `Offer ${update.status}.`);
-  refreshCommerceAdmin();
+  await refreshCommerceAdmin();
+  const successMessages = {
+    accept: 'Offer accepted and moved to Accepted / Awaiting Payment.',
+    decline: 'Offer declined and moved to Declined.',
+    counter: 'Counteroffer saved and moved to Counteroffers.',
+    archive: 'Offer archived.'
+  };
+  setCommerceStatus(successMessages[action] || 'Offer updated.');
+}
+
+async function deleteTestOffer(button) {
+  const client = getAdminClient();
+  const id = button?.dataset?.id;
+  if (!client || !id || !window.confirm('Delete this TEST offer permanently? Only a server-verified test offer and any linked TEST order will be removed. Real customer records cannot be deleted.')) return;
+  button.disabled = true;
+  button.textContent = 'Deleting...';
+  const { data, error } = await client.rpc('delete_test_offer', { p_offer_id: id });
+  if (error) {
+    button.disabled = false;
+    button.textContent = 'Delete Test Offer';
+    setCommerceStatus(`Could not delete the test offer. ${error.message || error}`);
+    return;
+  }
+  await refreshCommerceAdmin();
+  setCommerceStatus(`Deleted ${Number(data?.deleted_offers) || 0} test offer${Number(data?.deleted_offers) === 1 ? '' : 's'}${Number(data?.deleted_orders) ? ` and ${Number(data.deleted_orders)} linked test order${Number(data.deleted_orders) === 1 ? '' : 's'}` : ''}.`);
+}
+
+async function deleteAllTestOffers() {
+  const client = getAdminClient();
+  if (!client) return;
+  const confirmation = window.prompt('This permanently deletes every TEST offer and only linked orders separately marked TEST. Real offers, real orders, and customer accounts are preserved. Type DELETE ALL TEST OFFERS to continue.');
+  if (confirmation !== 'DELETE ALL TEST OFFERS') {
+    if (confirmation !== null) setCommerceStatus('Delete All Test Offers canceled: confirmation text did not match.');
+    return;
+  }
+  const button = document.getElementById('deleteAllTestOffers');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Deleting Test Offers...';
+  }
+  const { data, error } = await client.rpc('delete_all_test_offers');
+  if (button) {
+    button.disabled = false;
+    button.textContent = 'Delete All Test Offers';
+  }
+  if (error) {
+    setCommerceStatus(`Could not delete test offers. ${error.message || error}`);
+    return;
+  }
+  await refreshCommerceAdmin();
+  setCommerceStatus(`Deleted ${Number(data?.deleted_offers) || 0} test offers${Number(data?.deleted_orders) ? ` and ${Number(data.deleted_orders)} linked test orders` : ''}. Real records were preserved.`);
 }
 
 async function deleteCommerceRecord(button) {
   const client = window.getMvpluxSupabaseClient?.();
   const type = button?.dataset?.deleteCommerce;
   const id = button?.dataset?.id;
-  const table = type === 'order' ? 'order_requests' : type === 'offer' ? 'offers' : '';
+  const table = type === 'order' ? 'order_requests' : '';
 
   if (!client || !table || !id) return;
 
@@ -1355,6 +1437,12 @@ function handleCommerceAdminClick(event) {
   const confirmPaymentButton = event.target.closest?.('[data-confirm-offer-payment]');
   if (confirmPaymentButton) {
     confirmOfferPayment(confirmPaymentButton);
+    return;
+  }
+
+  const testOfferButton = event.target.closest?.('[data-delete-test-offer]');
+  if (testOfferButton) {
+    deleteTestOffer(testOfferButton);
     return;
   }
 
@@ -3034,7 +3122,9 @@ async function loadImageDraftInventory() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  clearLegacyAdminBrowserStorage();
+  console.log('[ADMIN] DOMContentLoaded');
+  try {
+    clearLegacyAdminBrowserStorage();
   await loadImageDraftInventory();
   const hasAdminAccess = await requireSupabaseAdminAccess();
   setupAdminTestMode();
@@ -3099,6 +3189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   document.getElementById('refreshCommerceAdmin')?.addEventListener('click', refreshCommerceAdmin);
+  document.getElementById('deleteAllTestOffers')?.addEventListener('click', deleteAllTestOffers);
 
   document.getElementById('exportAdminChanges')?.addEventListener('click', downloadAdminChanges);
   document.getElementById('copyAdminChanges')?.addEventListener('click', copyAdminChanges);
@@ -3109,5 +3200,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     importAdminChangesFromFile(event.target.files?.[0]);
     event.target.value = '';
   });
-  renderAdminExportPreview();
+    renderAdminExportPreview();
+  } catch (error) {
+    logAdminInitializationException('DOMContentLoaded', error);
+    throw error;
+  }
 });

@@ -71,37 +71,42 @@ async function authenticateAdmin(request: Request) {
 
 async function readAdminGlobal(supabaseUrl: string, anonKey: string, authorization: string) {
   const response = await fetch(
-    `${supabaseUrl}/rest/v1/site_edits?page_key=eq.admin-global&select=edits`,
+    `${supabaseUrl}/rest/v1/site_edits?page_key=eq.admin-global&select=edits,revision`,
     { headers: { Authorization: authorization, apikey: anonKey } }
   );
   const rows = await readJson(response);
   if (!response.ok) throw new PublishError('supabase-read', 502, 'ADMIN_STATE_READ_FAILED', 'Could not read Admin publish history.');
-  return Array.isArray(rows) && rows[0]?.edits ? rows[0].edits : {};
+  return {
+    edits: Array.isArray(rows) && rows[0]?.edits ? rows[0].edits as Record<string, unknown> : {},
+    revision: Array.isArray(rows) ? Number(rows[0]?.revision) || 0 : 0
+  };
 }
 
-async function writeAdminGlobal(
+async function patchAdminGlobal(
   supabaseUrl: string,
   anonKey: string,
   authorization: string,
-  edits: Record<string, unknown>,
-  userId: string
+  createPatch: (settings: Record<string, unknown>) => Record<string, unknown>
 ) {
-  const response = await fetch(`${supabaseUrl}/rest/v1/site_edits?on_conflict=page_key`, {
-    method: 'POST',
-    headers: {
-      Authorization: authorization,
-      apikey: anonKey,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates,return=minimal'
-    },
-    body: JSON.stringify({
-      page_key: 'admin-global',
-      edits,
-      updated_by: userId,
-      updated_at: new Date().toISOString()
-    })
-  });
-  if (!response.ok) throw new PublishError('supabase-history-write', 502, 'PUBLISH_HISTORY_SAVE_FAILED', 'GitHub committed the snapshot, but publish history could not be saved.');
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await readAdminGlobal(supabaseUrl, anonKey, authorization);
+    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/save_site_edits`, {
+      method: 'POST',
+      headers: { Authorization: authorization, apikey: anonKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        p_page_key: 'admin-global',
+        p_edits: createPatch(current.edits),
+        p_expected_revision: current.revision,
+        p_replace: false
+      })
+    });
+    const result = await readJson(response);
+    if (response.ok) return result;
+    if (result?.code !== '40001') {
+      throw new PublishError('supabase-history-write', 502, 'PUBLISH_HISTORY_SAVE_FAILED', result?.message || 'GitHub committed the snapshot, but publish history could not be saved.');
+    }
+  }
+  throw new PublishError('supabase-history-write', 409, 'ADMIN_STATE_CONFLICT', 'Admin state kept changing while publish history was saved. The GitHub commit succeeded; refresh deployment results to reconcile history.');
 }
 
 function githubHeaders(token: string) {
@@ -155,6 +160,12 @@ function validatePublishedSnapshot(value: unknown) {
   }
   const snapshot = value as Record<string, unknown>;
   if (snapshot.version !== 1) throw new PublishError('validation', 400, 'INVALID_SNAPSHOT_VERSION', 'Published snapshot version must be 1.');
+  const priceSettings = snapshot.priceSettings as Record<string, unknown>;
+  if (!priceSettings || typeof priceSettings !== 'object' || Array.isArray(priceSettings)
+    || !['twoFootPrice', 'threeFootPrice', 'fullHeight', 'fullPrice', 'extraInchPrice']
+      .every((field) => Number.isFinite(Number(priceSettings[field])) && Number(priceSettings[field]) > 0)) {
+    throw new PublishError('validation', 400, 'INVALID_PRICE_SETTINGS', 'Published price settings are missing or invalid.');
+  }
   for (const collectionName of ['products', 'categoryDisplayCards']) {
     const collection = snapshot[collectionName];
     if (!collection || typeof collection !== 'object' || Array.isArray(collection)) {
@@ -230,6 +241,24 @@ function validatePublishImageFiles(value: unknown): PublishImageFile[] {
   return files;
 }
 
+function snapshotImagePaths(snapshot: unknown) {
+  const paths = new Set<string>();
+  const value = snapshot as Record<string, unknown>;
+  for (const collectionName of ['products', 'categoryDisplayCards']) {
+    const collection = value?.[collectionName] as Record<string, Record<string, unknown>>;
+    for (const product of Object.values(collection || {})) {
+      for (const path of [product.cutoutImage, product.backgroundImage]) {
+        if (isRepositoryImagePath(path)) paths.add(path as string);
+      }
+      for (const choice of Array.isArray(product.imageChoices) ? product.imageChoices : []) {
+        if (isRepositoryImagePath(choice?.image)) paths.add(choice.image);
+        if (isRepositoryImagePath(choice?.stage)) paths.add(choice.stage);
+      }
+    }
+  }
+  return paths;
+}
+
 async function deploymentResult(token: string, owner: string, repo: string, commitHash: string) {
   try {
     const deployments = await githubRequest(
@@ -268,15 +297,16 @@ async function publishSnapshot(
   const baseTreeHash = parentCommit?.tree?.sha || '';
   if (!baseTreeHash) throw new Error('Could not determine the current GitHub tree.');
 
-  if (imageFiles.length) {
-    const currentTree = await githubRequest(token, `/repos/${owner}/${repo}/git/trees/${baseTreeHash}?recursive=1`);
-    if (currentTree?.truncated) throw new Error('Could not safely verify whether selected image paths already exist.');
-    const existingPaths = new Set(
-      Array.isArray(currentTree?.tree) ? currentTree.tree.map((entry: { path?: string }) => entry.path).filter(Boolean) : []
-    );
-    const existingImage = imageFiles.find((file) => existingPaths.has(file.path));
-    if (existingImage) throw new Error(`Selected image already exists in GitHub: ${existingImage.path}`);
-  }
+  const currentTree = await githubRequest(token, `/repos/${owner}/${repo}/git/trees/${baseTreeHash}?recursive=1`);
+  if (currentTree?.truncated) throw new Error('Could not safely verify published image paths.');
+  const existingPaths = new Set<string>(
+    Array.isArray(currentTree?.tree) ? currentTree.tree.map((entry: { path?: string }) => entry.path).filter(Boolean) : []
+  );
+  const existingImage = imageFiles.find((file) => existingPaths.has(file.path));
+  if (existingImage) throw new Error(`Selected image already exists in GitHub: ${existingImage.path}`);
+  const selectedPaths = new Set(imageFiles.map((file) => file.path));
+  const missingImage = [...snapshotImagePaths(snapshot)].find((path) => !existingPaths.has(path) && !selectedPaths.has(path));
+  if (missingImage) throw new PublishError('validation', 400, 'MISSING_PUBLISHED_IMAGE', `Published image is missing from GitHub and was not selected for upload: ${missingImage}`);
 
   const settingsBlob = await githubRequest(token, `/repos/${owner}/${repo}/git/blobs`, {
     method: 'POST',
@@ -326,7 +356,7 @@ Deno.serve(async (request) => {
   if (request.method !== 'POST') return jsonResponse(request, { error: 'Method not allowed.' }, 405);
 
   try {
-    const { supabaseUrl, anonKey, authorization, user } = await authenticateAdmin(request);
+    const { supabaseUrl, anonKey, authorization } = await authenticateAdmin(request);
     const token = requiredEnvironment('GITHUB_TOKEN');
     const owner = requiredEnvironment('GITHUB_OWNER');
     const repo = requiredEnvironment('GITHUB_REPO');
@@ -334,7 +364,8 @@ Deno.serve(async (request) => {
     const payload = await request.json().catch(() => {
       throw new PublishError('validation', 400, 'INVALID_JSON', 'Request body must be valid JSON.');
     });
-    const settings = await readAdminGlobal(supabaseUrl, anonKey, authorization);
+    const initialAdminState = await readAdminGlobal(supabaseUrl, anonKey, authorization);
+    const settings = initialAdminState.edits;
     const existingHistory = Array.isArray(settings.publishHistory) ? settings.publishHistory : [];
 
     if (payload?.action === 'refresh-history') {
@@ -346,9 +377,13 @@ Deno.serve(async (request) => {
         const result = checkedResult === 'unknown' ? entry.deploymentResult || 'unknown' : checkedResult;
         publishHistory.push({ ...entry, deploymentResult: result });
       }
-      const retainedHistory = [...existingHistory.slice(0, -25), ...publishHistory];
-      await writeAdminGlobal(supabaseUrl, anonKey, authorization, { ...settings, publishHistory: retainedHistory }, user.id);
-      return jsonResponse(request, { publishHistory: retainedHistory });
+      const refreshedByCommit = new Map(publishHistory.map((entry) => [entry.commitHash, entry]));
+      const saved = await patchAdminGlobal(supabaseUrl, anonKey, authorization, (latest) => ({
+        publishHistory: (Array.isArray(latest.publishHistory) ? latest.publishHistory : []).map((entry) => (
+          refreshedByCommit.get(entry.commitHash) || entry
+        ))
+      }));
+      return jsonResponse(request, { publishHistory: saved?.edits?.publishHistory || publishHistory });
     }
 
     if (payload?.action !== 'publish') return jsonResponse(request, { error: 'Unknown publisher action.', stage: 'validation', code: 'UNKNOWN_ACTION' }, 400);
@@ -387,12 +422,14 @@ Deno.serve(async (request) => {
       deploymentResult: result,
       snapshotFingerprint: fingerprint
     };
-    const publishHistory = [...existingHistory, historyEntry];
-    await writeAdminGlobal(supabaseUrl, anonKey, authorization, {
-      ...settings,
-      lastPublishedSnapshot: snapshot,
-      publishHistory
-    }, user.id);
+    const saved = await patchAdminGlobal(supabaseUrl, anonKey, authorization, (latest) => {
+      const latestHistory = Array.isArray(latest.publishHistory) ? latest.publishHistory : [];
+      const publishHistory = latestHistory.some((entry) => entry.commitHash === historyEntry.commitHash)
+        ? latestHistory
+        : [...latestHistory, historyEntry];
+      return { lastPublishedSnapshot: snapshot, publishHistory };
+    });
+    const publishHistory = saved?.edits?.publishHistory || [...existingHistory, historyEntry];
 
     return jsonResponse(request, {
       commitHash: publication.commitHash,

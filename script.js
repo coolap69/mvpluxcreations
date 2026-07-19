@@ -153,10 +153,19 @@ function getSelectedProductImage(selected) {
   return getDisplayImageFrom(document.querySelector('.sports-showroom, .generic-showroom, .standee-detail-page')) || '';
 }
 
-function addToCart(name, price, image = '') {
+function checkoutItemDetails(details = {}) {
+  const settings = getPriceSettingsForBuilder();
+  return {
+    selectedHeight: Number(details.selectedHeight) || settings.fullHeight,
+    finishExtra: Number(details.finishExtra) || 0,
+    productSlug: String(details.productSlug || '').trim()
+  };
+}
+
+function addToCart(name, price, image = '', details = {}) {
   ensureCartShell();
   resetCheckoutSubmissionState();
-  cart.push({ name, price, image: image || '' });
+  cart.push({ name, price, image: image || '', ...checkoutItemDetails(details) });
   cartTotal += price;
   updateCart();
 }
@@ -244,14 +253,14 @@ function toggleCart() {
 }
 
 /* ---------------- BUY / OFFER MODALS ---------------- */
-function openBuyNow(title, price, image) {
+function openBuyNow(title, price, image, details = {}) {
   ensureCommerceModals();
   resetCheckoutSubmissionState();
   const modalTitle = document.getElementById('modalTitle');
   const modalPrice = document.getElementById('modalPrice');
   const modalImage = document.getElementById('modalImage');
   const buyModal = document.getElementById('buyModal');
-  currentBuyNowItem = { name: title, price: Number(price) || 0, image: image || '' };
+  currentBuyNowItem = { name: title, price: Number(price) || 0, image: image || '', ...checkoutItemDetails(details) };
 
   if (modalTitle) modalTitle.textContent = title;
   if (modalPrice) modalPrice.textContent = '$' + price.toFixed(2);
@@ -972,7 +981,10 @@ async function submitCheckoutRequest(event) {
       name: item.name,
       price: Number(item.price) || 0,
       image: item.image || '',
-      category: item.category || getCurrentCheckoutCategory()
+      category: item.category || getCurrentCheckoutCategory(),
+      product_slug: item.productSlug || '',
+      selected_height: Number(item.selectedHeight) || getPriceSettingsForBuilder().fullHeight,
+      finish_extra: Number(item.finishExtra) || 0
     }));
 
   const commonNotes = [`Order number: ${orderNumber}`, customerNotes ? `Customer notes: ${customerNotes}` : ''].filter(Boolean).join('\n');
@@ -1007,26 +1019,6 @@ async function submitCheckoutRequest(event) {
     });
     data = response.data;
     error = response.error;
-    const missingSecureOrderRpc = ['PGRST202', '42883'].includes(error?.code)
-      || String(error?.message || '').includes('submit_order_request');
-    if (error && missingSecureOrderRpc && !formValue(form, 'discountCode') && !checkoutIsTestRecord()) {
-      const fallback = await client.from('order_requests').insert({
-        customer_id: user?.id || null,
-        customer_name: formValue(form, 'name') || user?.user_metadata?.screen_name || 'Customer',
-        customer_email: formValue(form, 'email') || user?.email || '',
-        customer_phone: formValue(form, 'phone') || null,
-        shipping_address: shippingAddress,
-        items: orderItems,
-        payment_method: totals.method.label,
-        subtotal: Number(totals.subtotal.toFixed(2)),
-        customer_fee: 0,
-        total: Number(totals.total.toFixed(2)),
-        status: 'new',
-        notes: commonNotes
-      });
-      data = null;
-      error = fallback.error;
-    }
   }
   submitButton.disabled = false;
   submitButton.textContent = 'Submit Order Request';
@@ -2107,40 +2099,61 @@ async function canCurrentUserUseAdminMode() {
   return checkCurrentUserAdminAccess({ showMessages: true });
 }
 
+function logAdminInitializationException(section, error) {
+  const stack = String(error?.stack || '');
+  const location = stack.match(/((?:https?:\/\/|file:\/\/|\/)[^\s():]+):(\d+):(\d+)/);
+  console.error('[ADMIN] Initialization exception', {
+    section,
+    file: location?.[1] || 'unknown',
+    line: location ? Number(location[2]) : 'unknown',
+    column: location ? Number(location[3]) : 'unknown',
+    type: error?.name || error?.constructor?.name || typeof error,
+    message: error?.message || String(error),
+    stack
+  });
+}
+
 async function checkCurrentUserAdminAccess(options = {}) {
-  const showMessages = options.showMessages !== false;
-  const client = getSupabaseClient();
-  if (!client?.auth) {
-    if (showMessages) showSiteMessage('Admin mode is still loading. Try again in a moment.', 'error');
-    return false;
+  console.log('[ADMIN] Authorization started');
+  try {
+    const showMessages = options.showMessages !== false;
+    const client = getSupabaseClient();
+    if (!client?.auth) {
+      if (showMessages) showSiteMessage('Admin mode is still loading. Try again in a moment.', 'error');
+      return false;
+    }
+
+    const { data: sessionData } = await client.auth.getSession();
+    const user = sessionData?.session?.user;
+    if (!user) {
+      localStorage.removeItem('mvpluxIsAdminApproved');
+      localStorage.removeItem('mvpluxAdminAnywhere');
+      if (showMessages) showSiteMessage('Please sign in first, then turn on Admin Mode.', 'error');
+      return false;
+    }
+
+    const { data, error } = await client
+      .from('admin_profiles')
+      .select('user_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (error || !data) {
+      localStorage.removeItem('mvpluxIsAdminApproved');
+      localStorage.removeItem('mvpluxAdminAnywhere');
+      if (showMessages) showSiteMessage('This signed-in account is not approved for Admin Mode yet.', 'error');
+      return false;
+    }
+
+    const adminLabel = user.user_metadata?.screen_name || user.email || 'Admin';
+    localStorage.setItem('mvpluxIsAdminApproved', 'true');
+    localStorage.setItem('mvpluxSignedInName', adminLabel);
+    console.log('[ADMIN] Authorization passed');
+    return true;
+  } catch (error) {
+    logAdminInitializationException('Authorization', error);
+    throw error;
   }
-
-  const { data: sessionData } = await client.auth.getSession();
-  const user = sessionData?.session?.user;
-  if (!user) {
-    localStorage.removeItem('mvpluxIsAdminApproved');
-    localStorage.removeItem('mvpluxAdminAnywhere');
-    if (showMessages) showSiteMessage('Please sign in first, then turn on Admin Mode.', 'error');
-    return false;
-  }
-
-  const { data, error } = await client
-    .from('admin_profiles')
-    .select('user_id')
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  if (error || !data) {
-    localStorage.removeItem('mvpluxIsAdminApproved');
-    localStorage.removeItem('mvpluxAdminAnywhere');
-    if (showMessages) showSiteMessage('This signed-in account is not approved for Admin Mode yet.', 'error');
-    return false;
-  }
-
-  const adminLabel = user.user_metadata?.screen_name || user.email || 'Admin';
-  localStorage.setItem('mvpluxIsAdminApproved', 'true');
-  localStorage.setItem('mvpluxSignedInName', adminLabel);
-  return true;
 }
 
 function addAdminModeButtonIfMissing() {
@@ -2397,7 +2410,10 @@ function parseHeightToInches(value) {
 
 function getAdminPriceSettings() {
   try {
-    return window.mvpluxLiveAdminSettings?.priceSettings || JSON.parse(localStorage.getItem('mvpluxAdminPriceSettings') || '{}');
+    if (isInlineAdminEditingEnabled() && window.mvpluxLiveAdminSettings?.priceSettings) {
+      return window.mvpluxLiveAdminSettings.priceSettings;
+    }
+    return window.mvpluxPublishedAdminSettings?.priceSettings || {};
   } catch (error) {
     return {};
   }
@@ -2626,6 +2642,7 @@ function validatePublishedAdminSettings(value) {
 
   return {
     version: 1,
+    priceSettings: window.MVPLUX_PRICING.normalizePriceSettings(snapshot.priceSettings || {}),
     products,
     categoryDisplayCards,
     deletedProducts: Array.isArray(snapshot.deletedProducts)
@@ -2767,7 +2784,7 @@ async function loadLiveAdminSettings() {
 
   const { data, error } = await client
     .from('site_edits')
-    .select('edits')
+    .select('edits, revision')
     .eq('page_key', 'admin-global')
     .maybeSingle();
 
@@ -2777,6 +2794,7 @@ async function loadLiveAdminSettings() {
   }
 
   window.mvpluxLiveAdminSettings = data?.edits || {};
+  window.mvpluxLiveAdminRevision = Number(data?.revision) || 0;
   return window.mvpluxLiveAdminSettings;
 }
 
@@ -2784,27 +2802,29 @@ function updateLiveAdminSettingsLocal(patch) {
   window.mvpluxLiveAdminSettings = { ...(window.mvpluxLiveAdminSettings || {}), ...(patch || {}) };
 }
 
-async function saveLiveAdminSettings(patch) {
-  const client = getSupabaseClient();
-  if (!client?.from || !client?.auth) return false;
+let liveAdminSaveQueue = Promise.resolve(true);
 
-  const { data: sessionData } = await client.auth.getSession();
-  const user = sessionData?.session?.user;
-  if (!user) return false;
-
-  const nextSettings = { ...(window.mvpluxLiveAdminSettings || {}), ...(patch || {}) };
-  updateLiveAdminSettingsLocal(nextSettings);
-
-  const { error } = await client
-    .from('site_edits')
-    .upsert({
-      page_key: 'admin-global',
-      edits: nextSettings,
-      updated_by: user.id,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'page_key' });
-
-  return !error;
+function saveLiveAdminSettings(patch) {
+  updateLiveAdminSettingsLocal(patch);
+  const save = async () => {
+    const client = getSupabaseClient();
+    if (!client?.from || !client?.auth) return false;
+    const { data: sessionData } = await client.auth.getSession();
+    if (!sessionData?.session?.user) return false;
+    const expectedRevision = Number(window.mvpluxLiveAdminRevision) || 0;
+    const { data, error } = await client.rpc('save_site_edits', {
+      p_page_key: 'admin-global',
+      p_edits: patch || {},
+      p_expected_revision: expectedRevision,
+      p_replace: false
+    });
+    if (error) return false;
+    window.mvpluxLiveAdminRevision = Number(data?.revision) || (expectedRevision + 1);
+    return true;
+  };
+  const result = liveAdminSaveQueue.then(save, save);
+  liveAdminSaveQueue = result.then(() => true, () => true);
+  return result;
 }
 
 const standeeCatalog = {
@@ -4200,6 +4220,8 @@ let inlineAdminHasUnsavedLocalChanges = false;
 let inlineAdminLastToolbarAction = { action: '', time: 0 };
 let inlineAdminResizeActive = false;
 let inlineAdminLiveEdits = null;
+let inlineAdminLiveRevisions = {};
+let inlineAdminSaveQueue = Promise.resolve(true);
 let inlineAdminAutoSaveTimer = null;
 
 const INLINE_ADMIN_DRAFT_KEY = 'mvpluxInlineAdminDraftV2';
@@ -4331,10 +4353,6 @@ function isInlineAdminBackgroundImage(image) {
   return image?.matches?.('.hero-bg, .fan-card-bg, .fan-gallery-bg, .product-stage-bg, .background-carousel img');
 }
 
-function isCodeControlledShopImage(image) {
-  return image?.matches?.('.hero-group');
-}
-
 function rememberInlineAdminImageFallbacks(root = document) {
   root.querySelectorAll?.('img')?.forEach((image) => {
     if (!image.dataset.adminFallbackSrc) {
@@ -4365,7 +4383,7 @@ async function loadInlineAdminLiveEdits() {
   const page = inlineAdminPageKey();
   const { data, error } = await client
     .from('site_edits')
-    .select('page_key, edits')
+    .select('page_key, edits, revision')
     .eq('page_key', page)
     .maybeSingle();
 
@@ -4376,50 +4394,55 @@ async function loadInlineAdminLiveEdits() {
 
   inlineAdminLiveEdits = inlineAdminLiveEdits || {};
   inlineAdminLiveEdits[page] = data?.edits || {};
+  inlineAdminLiveRevisions[page] = Number(data?.revision) || 0;
   return inlineAdminLiveEdits;
 }
 
-async function saveInlineAdminEditsLive() {
-  const client = getSupabaseClient();
-  if (!client?.from || !client?.auth) {
-    updateInlineAdminToolbarState('Live save unavailable');
-    return false;
-  }
-
-  const { data: sessionData } = await client.auth.getSession();
-  const user = sessionData?.session?.user;
-  if (!user) {
-    updateInlineAdminToolbarState('Sign in as admin to save live');
-    return false;
-  }
-
+function saveInlineAdminEditsLive() {
   const page = inlineAdminPageKey();
-  const edits = getInlineAdminDraft()[page] || {};
-  const { error } = await client
-    .from('site_edits')
-    .upsert({
-      page_key: page,
-      edits,
-      updated_by: user.id,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'page_key' });
-
-  if (error) {
-    console.warn('Live admin save failed:', error);
-    updateInlineAdminToolbarState(getLiveAdminSaveErrorMessage(error));
-    return false;
-  }
-
-  inlineAdminLiveEdits = inlineAdminLiveEdits || {};
-  inlineAdminLiveEdits[page] = edits;
-  inlineAdminHasUnsavedLocalChanges = false;
-  updateInlineAdminToolbarState('Saved live automatically');
-  return true;
+  const edits = structuredClone(getInlineAdminDraft()[page] || {});
+  const save = async () => {
+    const client = getSupabaseClient();
+    if (!client?.from || !client?.auth) {
+      updateInlineAdminToolbarState('Live save unavailable');
+      return false;
+    }
+    const { data: sessionData } = await client.auth.getSession();
+    if (!sessionData?.session?.user) {
+      updateInlineAdminToolbarState('Sign in as admin to save live');
+      return false;
+    }
+    const expectedRevision = Number(inlineAdminLiveRevisions[page]) || 0;
+    const { data, error } = await client.rpc('save_site_edits', {
+      p_page_key: page,
+      p_edits: edits,
+      p_expected_revision: expectedRevision,
+      p_replace: true
+    });
+    if (error) {
+      console.warn('Live admin save failed:', error);
+      updateInlineAdminToolbarState(getLiveAdminSaveErrorMessage(error));
+      return false;
+    }
+    inlineAdminLiveEdits = inlineAdminLiveEdits || {};
+    inlineAdminLiveEdits[page] = edits;
+    inlineAdminLiveRevisions[page] = Number(data?.revision) || (expectedRevision + 1);
+    inlineAdminHasUnsavedLocalChanges = false;
+    updateInlineAdminToolbarState('Saved live automatically');
+    return true;
+  };
+  const result = inlineAdminSaveQueue.then(save, save);
+  inlineAdminSaveQueue = result.then(() => true, () => true);
+  return result;
 }
 
 function getLiveAdminSaveErrorMessage(error) {
   const code = String(error?.code || '').trim();
   const message = String(error?.message || error || '').toLowerCase();
+
+  if (code === '40001' || message.includes('admin state changed')) {
+    return 'Live save conflict: reload before editing again';
+  }
 
   if (code === '42P01' || message.includes('site_edits') || message.includes('does not exist')) {
     return 'Live save failed: run admin SQL';
@@ -4458,7 +4481,6 @@ function applyInlineAdminEdits() {
     if (!element) return;
     if (element.closest('.auth-form')) return;
     if (element.matches('.product-image-link')) return;
-    if (element.tagName === 'IMG' && isCodeControlledShopImage(element)) return;
     if (element.tagName !== 'IMG' && element.closest('[data-stage-choice]')) {
       if (applyOriginalSizeFromEditedText(element, edit.text || '')) return;
       if (isLockedStageChoiceAdminText(element)) return;
@@ -4520,6 +4542,10 @@ function applyImageVisualState(image, state = {}) {
 
 function ensureInlineAdminImageBaseTransform(image) {
   if (!image || image.style.getPropertyValue('--admin-base-transform')) return;
+  if (image.matches('.hero-group')) {
+    image.style.setProperty('--admin-base-transform', 'translate(0, 0)');
+    return;
+  }
   const computedTransform = getComputedStyle(image).transform;
   image.style.setProperty('--admin-base-transform', computedTransform && computedTransform !== 'none' ? computedTransform : 'translate(0, 0)');
 }
@@ -5497,7 +5523,7 @@ function removeManagedProductFromCurrentSection(card) {
   updateInlineAdminToolbarState('Removed from this section; product retained');
 }
 
-function moveManagedProductInCurrentSection(card, offset) {
+async function moveManagedProductInCurrentSection(card, offset) {
   const slug = card?.dataset.productId;
   const category = getCurrentProductCategory();
   const products = getManagedProductCatalog()
@@ -5509,9 +5535,31 @@ function moveManagedProductInCurrentSection(card, offset) {
   const current = products[index];
   const currentOrder = Number(current.categoryOrder?.[category]) || index;
   const targetOrder = Number(target.categoryOrder?.[category]) || index + offset;
-  saveManagedProductPatch(current.slug, { categoryOrder: { ...(current.categoryOrder || {}), [category]: targetOrder } });
-  saveManagedProductPatch(target.slug, { categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder } });
-  renderManagedCategoryPageProducts();
+  const savedProducts = { ...getAdminProducts() };
+  savedProducts[current.slug] = {
+    ...(savedProducts[current.slug] || {}),
+    categoryOrder: { ...(current.categoryOrder || {}), [category]: targetOrder }
+  };
+  savedProducts[target.slug] = {
+    ...(savedProducts[target.slug] || {}),
+    categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder }
+  };
+  if (!await saveLiveAdminSettings({ products: savedProducts })) {
+    updateInlineAdminToolbarState('Section order was not saved');
+    return;
+  }
+  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(savedProducts));
+  const grid = card.parentElement;
+  const renderedCards = new Map(
+    [...(grid?.querySelectorAll?.(':scope > .category-card[data-product-id]') || [])]
+      .map((item) => [item.dataset.productId, item])
+  );
+  const reorderedProducts = [...products];
+  [reorderedProducts[index], reorderedProducts[index + offset]] = [reorderedProducts[index + offset], reorderedProducts[index]];
+  if (grid) reorderedProducts.forEach((product) => {
+    const productCard = renderedCards.get(product.slug);
+    if (productCard) grid.append(productCard);
+  });
   updateInlineAdminToolbarState('Section order saved');
 }
 
@@ -5574,7 +5622,7 @@ function ensureInlineAdminCardControls() {
         </div></details>
       ` : ''}
     `;
-    controls.addEventListener('click', (event) => {
+    controls.addEventListener('click', async (event) => {
       event.stopPropagation();
       const actionControl = event.target.closest('[data-admin-card-action]');
       if (!actionControl) return;
@@ -5602,7 +5650,7 @@ function ensureInlineAdminCardControls() {
             : direction === 'right' ? 1
               : direction === 'up' ? -columnCount
                 : columnCount;
-          moveManagedProductInCurrentSection(card, offset);
+          await moveManagedProductInCurrentSection(card, offset);
         } else {
           moveHomepageCategoryCard(card, action.slice(5));
         }
@@ -5789,11 +5837,13 @@ function turnOffInlineAdminMode() {
 }
 
 function installInlineAdminMode() {
+  console.log('[ADMIN] installInlineAdminMode entered');
   if (document.body.dataset.inlineAdminReady) return;
-  document.body.dataset.inlineAdminReady = 'true';
-  document.body.classList.add('admin-anywhere-on');
+  try {
+    document.body.dataset.inlineAdminReady = 'true';
+    document.body.classList.add('admin-anywhere-on');
 
-  document.body.insertAdjacentHTML('beforeend', `
+    document.body.insertAdjacentHTML('beforeend', `
     <div class="admin-mode-badge" role="status">
       <strong>ADMIN MODE ON</strong>
       <span>${getInlineAdminLabel()}</span>
@@ -5828,119 +5878,142 @@ function installInlineAdminMode() {
       </div>
       <button type="button" class="admin-toolbar-resize-handle" id="adminToolbarResizeHandle" title="Resize admin tools" aria-label="Resize admin tools"></button>
     </div>
-  `);
-  bindInlineAdminToolbarControls();
-  bindInlineAdminToolbarDragResize();
-  forceAdminToolbarHiddenForThisUpdate();
-  applyInlineAdminToolbarPrefs();
+    `);
+    bindInlineAdminToolbarControls();
+    bindInlineAdminToolbarDragResize();
+    console.log('[ADMIN] Toolbar created');
+  } catch (error) {
+    logAdminInitializationException('Toolbar creation', error);
+    throw error;
+  }
 
-  applyInlineHiddenCards();
-  ensureInlineAdminCardControls();
+  try {
+    forceAdminToolbarHiddenForThisUpdate();
+    applyInlineAdminToolbarPrefs();
+    console.log('[ADMIN] Toolbar preferences loaded');
+  } catch (error) {
+    logAdminInitializationException('Toolbar preferences', error);
+    throw error;
+  }
 
-  document.addEventListener('pointerdown', handleInlineAdminToolbarPress, true);
-  document.addEventListener('pointerup', handleInlineAdminToolbarPress, true);
-  document.addEventListener('mousedown', handleInlineAdminToolbarPress, true);
-  document.addEventListener('mouseup', handleInlineAdminToolbarPress, true);
-  document.addEventListener('click', handleInlineAdminToolbarPress, true);
-  document.addEventListener('keydown', handleInlineAdminToolbarKey, true);
-  document.addEventListener('click', handleInlineAdminImageSelect, true);
+  try {
+    applyInlineHiddenCards();
+    ensureInlineAdminCardControls();
+    console.log('[ADMIN] Hidden cards processed');
+  } catch (error) {
+    logAdminInitializationException('Hidden cards', error);
+    throw error;
+  }
 
-  window.addEventListener('keydown', (event) => {
-    if (!document.body.classList.contains('admin-anywhere-on')) return;
-    const key = event.key.toLowerCase();
-    const active = document.activeElement;
-    const typing = active?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(active?.tagName);
+  try {
+    document.addEventListener('pointerdown', handleInlineAdminToolbarPress, true);
+    document.addEventListener('pointerup', handleInlineAdminToolbarPress, true);
+    document.addEventListener('mousedown', handleInlineAdminToolbarPress, true);
+    document.addEventListener('mouseup', handleInlineAdminToolbarPress, true);
+    document.addEventListener('click', handleInlineAdminToolbarPress, true);
+    document.addEventListener('keydown', handleInlineAdminToolbarKey, true);
+    document.addEventListener('click', handleInlineAdminImageSelect, true);
 
-    if ((event.metaKey || event.ctrlKey) && key === 's') {
-      event.preventDefault();
-      commitInlineAdminEdits();
-    }
+    window.addEventListener('keydown', (event) => {
+      if (!document.body.classList.contains('admin-anywhere-on')) return;
+      const key = event.key.toLowerCase();
+      const active = document.activeElement;
+      const typing = active?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(active?.tagName);
 
-    if ((event.metaKey || event.ctrlKey) && key === 'z' && !event.shiftKey) {
-      event.preventDefault();
-      undoInlineAdminEdit();
-    }
+      if ((event.metaKey || event.ctrlKey) && key === 's') {
+        event.preventDefault();
+        commitInlineAdminEdits();
+      }
 
-    if ((event.metaKey || event.ctrlKey) && (key === 'y' || (key === 'z' && event.shiftKey))) {
-      event.preventDefault();
-      redoInlineAdminEdit();
-    }
+      if ((event.metaKey || event.ctrlKey) && key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        undoInlineAdminEdit();
+      }
 
-    if (!typing && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key)) {
-      const step = event.altKey ? 1 : 2;
-      event.preventDefault();
-      if (key === 'arrowleft') nudgeSelectedInlineAdminImage(-step, 0);
-      if (key === 'arrowright') nudgeSelectedInlineAdminImage(step, 0);
-      if (key === 'arrowup') nudgeSelectedInlineAdminImage(0, -step);
-      if (key === 'arrowdown') nudgeSelectedInlineAdminImage(0, step);
-    }
-  });
+      if ((event.metaKey || event.ctrlKey) && (key === 'y' || (key === 'z' && event.shiftKey))) {
+        event.preventDefault();
+        redoInlineAdminEdit();
+      }
 
-  document.querySelectorAll('h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
-    if (element.closest('.admin-anywhere-toolbar, .cart-panel, .auth-form, script, style, .password-field')) return;
-    if (element.closest('.fan-vote-meter, .fan-carousel-dots')) return;
-    if (element.matches('.product-image-link')) return;
-    if (isLockedStageChoiceAdminText(element)) return;
-    if (isLockedSizeBuilderAdminText(element)) return;
-    inlineAdminKey(element);
-    element.contentEditable = 'true';
-    element.spellcheck = false;
-    element.classList.add('admin-editable-text');
-    element.addEventListener('focus', () => {
-      element._adminBeforeSnapshot = getInlineAdminSnapshot(element);
+      if (!typing && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key)) {
+        const step = event.altKey ? 1 : 2;
+        event.preventDefault();
+        if (key === 'arrowleft') nudgeSelectedInlineAdminImage(-step, 0);
+        if (key === 'arrowright') nudgeSelectedInlineAdminImage(step, 0);
+        if (key === 'arrowup') nudgeSelectedInlineAdminImage(0, -step);
+        if (key === 'arrowdown') nudgeSelectedInlineAdminImage(0, step);
+      }
     });
-    element.addEventListener('click', (event) => {
-      if (element.closest('.top-nav')) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }, true);
-    element.addEventListener('input', () => {
-      if (syncOriginalSizeFromEditedText(element)) return;
-      saveInlineAdminEdit(element, { text: element.textContent.trim() });
-    });
-    element.addEventListener('blur', () => {
-      syncOriginalSizeFromEditedText(element);
-      pushInlineAdminHistory(element._adminBeforeSnapshot, getInlineAdminSnapshot(element));
-      delete element._adminBeforeSnapshot;
-    });
-  });
+  } catch (error) {
+    logAdminInitializationException('Inline control listeners', error);
+    throw error;
+  }
 
-  document.querySelectorAll('img').forEach((image) => {
-    if (image.closest('.admin-anywhere-toolbar')) return;
-    if (isCodeControlledShopImage(image)) {
-      image.classList.remove('admin-transformable-image', 'admin-editable-image', 'admin-image-selected');
-      image.style.removeProperty('--admin-x');
-      image.style.removeProperty('--admin-y');
-      image.style.removeProperty('--admin-scale');
-      image.style.removeProperty('--admin-rotate');
-      image.style.removeProperty('--admin-base-transform');
-      image.style.removeProperty('transform');
-      image.style.removeProperty('left');
-      image.style.removeProperty('bottom');
-      image.style.removeProperty('height');
-      image.style.removeProperty('width');
-      image.style.removeProperty('top');
-      return;
-    }
-    if (!image.closest('.hero-stage')) {
-      image.loading = 'lazy';
-      image.decoding = 'async';
-    }
-    inlineAdminKey(image);
-    ensureInlineAdminImageBaseTransform(image);
-    image.classList.add('admin-editable-image');
-    if (!isInlineAdminBackgroundImage(image)) image.classList.add('admin-transformable-image');
-    const saved = getInlineAdminPageEdits()[inlineAdminKey(image)] || {};
-    image._adminImageState = {
-      x: safeAdminImageNumber(saved.x, 0, -140, 140),
-      y: safeAdminImageNumber(saved.y, 0, -140, 140),
-      scale: safeAdminImageNumber(saved.scale, 1, 0.45, 2.1),
-      rotate: safeAdminImageNumber(saved.rotate, 0, -28, 28),
-      locked: !!saved.locked
-    };
-    renderInlineAdminImageState(image);
+  try {
+    document.querySelectorAll('.admin-card-controls[contenteditable], .admin-card-controls [contenteditable]').forEach((control) => {
+      control.removeAttribute('contenteditable');
+      control.classList.remove('admin-editable-text');
+    });
+    document.querySelectorAll('h1,h2,h3,h4,p,a,button,span,label,strong,li').forEach((element) => {
+      if (element.closest('.admin-anywhere-toolbar, .admin-card-controls, .cart-panel, .auth-form, script, style, .password-field')) return;
+      if (element.closest('.fan-vote-meter, .fan-carousel-dots')) return;
+      if (element.matches('.product-image-link')) return;
+      if (isLockedStageChoiceAdminText(element)) return;
+      if (isLockedSizeBuilderAdminText(element)) return;
+      inlineAdminKey(element);
+      element.contentEditable = 'true';
+      element.spellcheck = false;
+      element.classList.add('admin-editable-text');
+      element.addEventListener('focus', () => {
+        element._adminBeforeSnapshot = getInlineAdminSnapshot(element);
+      });
+      element.addEventListener('click', (event) => {
+        if (element.closest('.admin-card-controls')) return;
+        if (element.closest('.top-nav')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
+      element.addEventListener('input', () => {
+        if (syncOriginalSizeFromEditedText(element)) return;
+        saveInlineAdminEdit(element, { text: element.textContent.trim() });
+      });
+      element.addEventListener('blur', () => {
+        syncOriginalSizeFromEditedText(element);
+        pushInlineAdminHistory(element._adminBeforeSnapshot, getInlineAdminSnapshot(element));
+        delete element._adminBeforeSnapshot;
+      });
+    });
+    console.log('[ADMIN] Text initialization complete');
+  } catch (error) {
+    logAdminInitializationException('Text initialization', error);
+    throw error;
+  }
 
-    image.addEventListener('pointerdown', (event) => {
+  try {
+    console.log('[ADMIN] Image loop entered');
+    const totalImages = document.querySelectorAll('img').length;
+    let pointerListenersAttached = 0;
+    document.querySelectorAll('img').forEach((image) => {
+      if (image.closest('.admin-anywhere-toolbar')) return;
+      if (!image.closest('.hero-stage')) {
+        image.loading = 'lazy';
+        image.decoding = 'async';
+      }
+      inlineAdminKey(image);
+      ensureInlineAdminImageBaseTransform(image);
+      image.classList.add('admin-editable-image');
+      if (!isInlineAdminBackgroundImage(image)) image.classList.add('admin-transformable-image');
+      const saved = getInlineAdminPageEdits()[inlineAdminKey(image)] || {};
+      image._adminImageState = {
+        x: safeAdminImageNumber(saved.x, 0, -140, 140),
+        y: safeAdminImageNumber(saved.y, 0, -140, 140),
+        scale: safeAdminImageNumber(saved.scale, 1, 0.45, 2.1),
+        rotate: safeAdminImageNumber(saved.rotate, 0, -28, 28),
+        locked: !!saved.locked
+      };
+      renderInlineAdminImageState(image);
+
+      image.addEventListener('pointerdown', (event) => {
       if (event.target?.id === 'adminImageResizeHandle') return;
       if (image._adminImageState?.locked) return;
       if (event.altKey) return;
@@ -5970,20 +6043,35 @@ function installInlineAdminMode() {
 
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', stop);
-    });
+      });
+      pointerListenersAttached += 1;
 
-    image.addEventListener('dblclick', async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      replaceInlineAdminImage(image);
+      image.addEventListener('dblclick', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        replaceInlineAdminImage(image);
+      });
     });
-  });
+    console.log('[ADMIN] Pointer listener attached (count total images)', {
+      totalImages,
+      pointerListenersAttached
+    });
+  } catch (error) {
+    logAdminInitializationException('Image initialization', error);
+    throw error;
+  }
 
-  window.addEventListener('scroll', updateInlineAdminResizeHandle, { passive: true });
-  window.addEventListener('scroll', updateInlineAdminLockButtons, { passive: true });
-  window.addEventListener('resize', updateInlineAdminResizeHandle);
-  window.addEventListener('resize', updateInlineAdminLockButtons);
-  updateInlineAdminToolbarState();
+  try {
+    window.addEventListener('scroll', updateInlineAdminResizeHandle, { passive: true });
+    window.addEventListener('scroll', updateInlineAdminLockButtons, { passive: true });
+    window.addEventListener('resize', updateInlineAdminResizeHandle);
+    window.addEventListener('resize', updateInlineAdminLockButtons);
+    updateInlineAdminToolbarState();
+    console.log('[ADMIN] installInlineAdminMode completed');
+  } catch (error) {
+    logAdminInitializationException('Inline Admin completion', error);
+    throw error;
+  }
 }
 
 function getSelectedProduct(button) {
@@ -6092,7 +6180,11 @@ function addSelectedToCart(button) {
     return;
   }
 
-  addToCart(selected.productName, selected.price, getSelectedProductImage(selected));
+  addToCart(selected.productName, selected.price, getSelectedProductImage(selected), {
+    selectedHeight: selected.selectedHeight,
+    finishExtra: getFinishExtra(selected.builder),
+    productSlug: selected.builder?.dataset.adminSlug || ''
+  });
 }
 
 function buySelectedNow(button) {
@@ -6104,7 +6196,11 @@ function buySelectedNow(button) {
   }
 
   const img = getSelectedProductImage(selected);
-  openBuyNow(selected.productName, selected.price, img);
+  openBuyNow(selected.productName, selected.price, img, {
+    selectedHeight: selected.selectedHeight,
+    finishExtra: getFinishExtra(selected.builder),
+    productSlug: selected.builder?.dataset.adminSlug || ''
+  });
 }
 
 function openSelectedOffer(button) {
@@ -6199,7 +6295,9 @@ function bindBuyerImagePurchaseJumps() {
 
 /* ---------------- PAGE INIT ---------------- */
 document.addEventListener('DOMContentLoaded', async function () {
-  await syncSupabaseAuthState().catch(() => {});
+  console.log('[ADMIN] DOMContentLoaded');
+  try {
+    await syncSupabaseAuthState().catch(() => {});
   await loadStorefrontTestMode().catch(() => {});
   setupAuthState();
   updateCart();
@@ -6263,17 +6361,22 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   applyInlineAdminEdits();
 
-  const isAuthPage = Boolean(document.querySelector('.auth-page'));
-  if (!isAuthPage && isInlineAdminEditingEnabled()) {
-    checkCurrentUserAdminAccess({ showMessages: false })
-      .then((canUseAdmin) => {
-        if (canUseAdmin) {
-          installInlineAdminMode();
-          updateAdminModeToggleButtons();
-        }
-      })
-      .catch(() => {
-        localStorage.removeItem('mvpluxAdminAnywhere');
-      });
+    const isAuthPage = Boolean(document.querySelector('.auth-page'));
+    if (!isAuthPage && isInlineAdminEditingEnabled()) {
+      checkCurrentUserAdminAccess({ showMessages: false })
+        .then((canUseAdmin) => {
+          if (canUseAdmin) {
+            installInlineAdminMode();
+            updateAdminModeToggleButtons();
+          }
+        })
+        .catch((error) => {
+          logAdminInitializationException('Admin mode restoration', error);
+          localStorage.removeItem('mvpluxAdminAnywhere');
+        });
+    }
+  } catch (error) {
+    logAdminInitializationException('DOMContentLoaded', error);
+    throw error;
   }
 });

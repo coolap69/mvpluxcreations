@@ -4038,6 +4038,10 @@ body .auth-card .password-field input {
   filter: drop-shadow(0 20px 18px rgba(0,0,0,0.68)) !important;
 }
 
+.category-featured-art img.admin-transformable-image {
+  transform: var(--admin-base-transform) translate(var(--admin-x), var(--admin-y)) scale(var(--admin-scale)) rotate(var(--admin-rotate)) !important;
+}
+
 .category-featured-art.wide-standee-image img {
   bottom: calc(var(--showroom-image-bottom, 5%) - 60px) !important;
 }
@@ -4351,6 +4355,7 @@ body .auth-card .password-field input {
 }
 
 .category-card {
+  position: relative !important;
   display: grid !important;
   gap: 10px !important;
   padding: 14px !important;
@@ -5666,13 +5671,21 @@ button[aria-label="Add to cart"]::before {
 
 .member-accepted-offer {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   padding: 12px;
   border: 1px solid rgba(244,208,111,0.48);
   border-radius: 10px;
   background: rgba(244,208,111,0.08);
+}
+
+.member-accepted-offer:has(> img) {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
+.member-accepted-offer > div {
+  min-width: 0;
 }
 
 .member-accepted-offer img {
@@ -5683,6 +5696,14 @@ button[aria-label="Add to cart"]::before {
 
 .member-accepted-offer p {
   margin: 5px 0 10px;
+}
+
+.member-accepted-offer .checkout-btn {
+  display: inline-flex;
+  width: auto;
+  max-width: 100%;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .member-payment-status {
