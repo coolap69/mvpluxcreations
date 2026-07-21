@@ -160,6 +160,9 @@ function validatePublishedSnapshot(value: unknown) {
   }
   const snapshot = value as Record<string, unknown>;
   if (snapshot.version !== 1) throw new PublishError('validation', 400, 'INVALID_SNAPSHOT_VERSION', 'Published snapshot version must be 1.');
+  if (snapshot.schemaVersion !== undefined && (!Number.isInteger(Number(snapshot.schemaVersion)) || Number(snapshot.schemaVersion) < 1)) {
+    throw new PublishError('validation', 400, 'INVALID_SCHEMA_VERSION', 'schemaVersion must be a positive integer.');
+  }
   const priceSettings = snapshot.priceSettings as Record<string, unknown>;
   if (!priceSettings || typeof priceSettings !== 'object' || Array.isArray(priceSettings)
     || !['twoFootPrice', 'threeFootPrice', 'fullHeight', 'fullPrice', 'extraInchPrice']
@@ -227,6 +230,42 @@ function validatePublishedSnapshot(value: unknown) {
       }
     }
   }
+  const categories = snapshot.categories;
+  if (categories !== undefined) {
+    if (!categories || typeof categories !== 'object' || Array.isArray(categories)) {
+      throw new PublishError('validation', 400, 'INVALID_CATEGORIES', 'categories must be an object.');
+    }
+    for (const [key, rawCategory] of Object.entries(categories as Record<string, unknown>)) {
+      const category = rawCategory as Record<string, unknown>;
+      const card = category?.card as Record<string, unknown> | undefined;
+      if (!key || !category || typeof category !== 'object' || Array.isArray(category) || category.key !== key) {
+        throw new PublishError('validation', 400, 'INVALID_CATEGORY', `Invalid category record: ${key || 'unknown'}.`);
+      }
+      if (card?.image && !isRepositoryImagePath(card.image)) throw new PublishError('validation', 400, 'INVALID_CATEGORY_IMAGE', `Category ${key} has an invalid card image.`);
+      if (card?.backgroundImage && !isRepositoryImagePath(card.backgroundImage)) throw new PublishError('validation', 400, 'INVALID_CATEGORY_BACKGROUND', `Category ${key} has an invalid card background.`);
+      const settings = category.displaySettings as Record<string, unknown> | undefined;
+      if (settings?.backgroundImage && !isRepositoryImagePath(settings.backgroundImage)) throw new PublishError('validation', 400, 'INVALID_CATEGORY_BACKGROUND', `Category ${key} has an invalid display background.`);
+    }
+  }
+  const globalDisplay = snapshot.globalDisplaySettings as Record<string, unknown> | undefined;
+  if (globalDisplay?.backgroundImage && !isRepositoryImagePath(globalDisplay.backgroundImage)) {
+    throw new PublishError('validation', 400, 'INVALID_GLOBAL_BACKGROUND', 'Global display background is invalid.');
+  }
+  const pageContent = snapshot.pageContent;
+  if (pageContent !== undefined) {
+    if (!pageContent || typeof pageContent !== 'object' || Array.isArray(pageContent)) {
+      throw new PublishError('validation', 400, 'INVALID_PAGE_CONTENT', 'pageContent must be an object.');
+    }
+    for (const [pageKey, rawEntries] of Object.entries(pageContent as Record<string, unknown>)) {
+      if (!pageKey || !rawEntries || typeof rawEntries !== 'object' || Array.isArray(rawEntries)) throw new PublishError('validation', 400, 'INVALID_PAGE_CONTENT', `Invalid page content for ${pageKey || 'unknown page'}.`);
+      for (const [elementKey, rawEntry] of Object.entries(rawEntries as Record<string, unknown>)) {
+        const entry = rawEntry as Record<string, unknown>;
+        if (!elementKey || !entry || typeof entry !== 'object' || Array.isArray(entry) || (entry.src && !isRepositoryImagePath(entry.src))) {
+          throw new PublishError('validation', 400, 'INVALID_PAGE_CONTENT', `Invalid page content entry on ${pageKey}.`);
+        }
+      }
+    }
+  }
   return snapshot;
 }
 
@@ -269,6 +308,19 @@ function snapshotImagePaths(snapshot: unknown) {
   }
   for (const path of Object.values((value?.extraImages || {}) as Record<string, unknown>)) {
     if (isRepositoryImagePath(path)) paths.add(path as string);
+  }
+  for (const category of Object.values((value?.categories || {}) as Record<string, Record<string, unknown>>)) {
+    const card = category?.card as Record<string, unknown> | undefined;
+    const display = category?.displaySettings as Record<string, unknown> | undefined;
+    for (const path of [card?.image, card?.backgroundImage, display?.backgroundImage]) {
+      if (isRepositoryImagePath(path)) paths.add(path as string);
+    }
+  }
+  const globalDisplay = value?.globalDisplaySettings as Record<string, unknown> | undefined;
+  const globalBackground = globalDisplay?.backgroundImage;
+  if (isRepositoryImagePath(globalBackground)) paths.add(globalBackground as string);
+  for (const entries of Object.values((value?.pageContent || {}) as Record<string, Record<string, Record<string, unknown>>>)) {
+    for (const entry of Object.values(entries || {})) if (isRepositoryImagePath(entry?.src)) paths.add(entry.src as string);
   }
   return paths;
 }
@@ -316,8 +368,6 @@ async function publishSnapshot(
   const existingPaths = new Set<string>(
     Array.isArray(currentTree?.tree) ? currentTree.tree.map((entry: { path?: string }) => entry.path).filter(Boolean) : []
   );
-  const existingImage = imageFiles.find((file) => existingPaths.has(file.path));
-  if (existingImage) throw new Error(`Selected image already exists in GitHub: ${existingImage.path}`);
   const selectedPaths = new Set(imageFiles.map((file) => file.path));
   const missingImage = [...snapshotImagePaths(snapshot)].find((path) => !existingPaths.has(path) && !selectedPaths.has(path));
   if (missingImage) throw new PublishError('validation', 400, 'MISSING_PUBLISHED_IMAGE', `Published image is missing from GitHub and was not selected for upload: ${missingImage}`);
@@ -334,6 +384,13 @@ async function publishSnapshot(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: file.content, encoding: 'base64' })
     });
+    const existingEntry = Array.isArray(currentTree?.tree)
+      ? currentTree.tree.find((entry: { path?: string; sha?: string }) => entry.path === file.path)
+      : null;
+    if (existingEntry) {
+      if (existingEntry.sha !== blob.sha) throw new Error(`Selected image path already exists in GitHub with different content: ${file.path}`);
+      continue;
+    }
     imageEntries.push({ path: file.path, mode: '100644', type: 'blob', sha: blob.sha });
   }
 

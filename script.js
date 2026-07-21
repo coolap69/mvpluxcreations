@@ -2047,8 +2047,33 @@ function isAdminSignedIn() {
   return false;
 }
 
+const ADMIN_VIEW_MODE_KEY = 'mvpluxAdminViewModeV2';
+
+function adminArchitectureViewModesEnabled() {
+  return window.mvpluxLiveAdminSettings?.adminArchitectureV2?.enabled === true;
+}
+
+function getAdminViewMode() {
+  if (!adminArchitectureViewModesEnabled()) {
+    return localStorage.getItem('mvpluxAdminAnywhere') === 'true' ? 'edit' : 'published';
+  }
+  const stored = localStorage.getItem(ADMIN_VIEW_MODE_KEY);
+  if (['edit', 'preview', 'published'].includes(stored)) return stored;
+  return localStorage.getItem('mvpluxAdminAnywhere') === 'true' ? 'edit' : 'preview';
+}
+
 function isInlineAdminEditingEnabled() {
-  return localStorage.getItem('mvpluxAdminAnywhere') === 'true';
+  return getAdminViewMode() === 'edit';
+}
+
+function isPrivateAdminPreviewEnabled() {
+  return adminArchitectureViewModesEnabled()
+    && localStorage.getItem('mvpluxIsAdminApproved') === 'true'
+    && getAdminViewMode() === 'preview';
+}
+
+function shouldUsePrivateAdminState() {
+  return isInlineAdminEditingEnabled() || isPrivateAdminPreviewEnabled();
 }
 
 function getInlineAdminLabel() {
@@ -2162,9 +2187,15 @@ async function checkCurrentUserAdminAccess(options = {}) {
 
 function addAdminModeButtonIfMissing() {
   document.querySelectorAll('.auth-links').forEach((links) => {
-    if (links.querySelector('[data-admin-mode-toggle]')) return;
+    if (links.querySelector('[data-admin-mode-toggle], [data-admin-view-controls]')) return;
     const signout = links.querySelector('[data-auth-signout]');
-    const buttonHtml = '<button type="button" class="admin-header-link" data-admin-mode-toggle>Admin Mode</button>';
+    const buttonHtml = adminArchitectureViewModesEnabled()
+      ? `<span class="admin-view-controls" data-admin-view-controls aria-label="Admin view mode">
+          <button type="button" class="admin-header-link" data-admin-view-mode="edit">Edit</button>
+          <button type="button" class="admin-header-link" data-admin-view-mode="preview">Preview Changes</button>
+          <button type="button" class="admin-header-link" data-admin-view-mode="published">Published View</button>
+        </span>`
+      : '<button type="button" class="admin-header-link" data-admin-mode-toggle>Admin Mode</button>';
     if (signout) {
       signout.insertAdjacentHTML('beforebegin', buttonHtml);
     } else {
@@ -2178,6 +2209,18 @@ function addAdminModeButtonIfMissing() {
     updateAdminModeToggleButtons();
     button.addEventListener('click', () => toggleCurrentPageAdminMode(button));
   });
+  document.querySelectorAll('[data-admin-view-mode]').forEach((button) => {
+    if (button.dataset.adminViewReady) return;
+    button.dataset.adminViewReady = 'true';
+    button.addEventListener('click', () => setAdminViewMode(button.dataset.adminViewMode));
+  });
+  updateAdminModeToggleButtons();
+}
+
+function refreshAdminViewControls() {
+  document.querySelectorAll('[data-admin-mode-toggle], [data-admin-view-controls]').forEach((control) => control.remove());
+  addAdminModeButtonIfMissing();
+  renderAdminViewModeLabel();
 }
 
 async function revealAdminControlsIfApproved() {
@@ -2216,6 +2259,43 @@ function updateAdminModeToggleButtons() {
     button.textContent = enabled ? 'Admin Off' : 'Admin Mode';
     button.classList.toggle('admin-mode-toggle-off', enabled);
   });
+  const mode = getAdminViewMode();
+  document.querySelectorAll('[data-admin-view-mode]').forEach((button) => {
+    const active = button.dataset.adminViewMode === mode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+async function setAdminViewMode(mode) {
+  if (!['edit', 'preview', 'published'].includes(mode)) return;
+  if (!await flushInlineOwnedFieldSaves() || !await flushInlineOwnedDisplaySaves()) {
+    showSiteMessage('View unchanged because a product or category edit could not be saved.', 'error');
+    return;
+  }
+  if (isInlineAdminEditingEnabled() && inlineAdminHasUnsavedLocalChanges) {
+    updateInlineAdminToolbarState('Saving before changing view…');
+    if (!await commitInlineAdminEdits()) {
+      showSiteMessage('View unchanged because an Admin edit could not be saved.', 'error');
+      return;
+    }
+  }
+  localStorage.setItem(ADMIN_VIEW_MODE_KEY, mode);
+  if (mode === 'edit') localStorage.setItem('mvpluxAdminAnywhere', 'true');
+  else localStorage.removeItem('mvpluxAdminAnywhere');
+  window.location.reload();
+}
+
+function renderAdminViewModeLabel() {
+  document.querySelector('[data-admin-view-label]')?.remove();
+  if (!adminArchitectureViewModesEnabled() || localStorage.getItem('mvpluxIsAdminApproved') !== 'true') return;
+  const mode = getAdminViewMode();
+  const labels = {
+    edit: 'Edit Mode — private changes auto-save',
+    preview: 'Previewing Unpublished Changes',
+    published: 'Viewing Published Version'
+  };
+  document.body.insertAdjacentHTML('beforeend', `<div class="admin-view-mode-label" data-admin-view-label data-mode="${mode}">${labels[mode]}</div>`);
 }
 
 async function toggleCurrentPageAdminMode(button) {
@@ -2414,7 +2494,7 @@ function parseHeightToInches(value) {
 
 function getAdminPriceSettings() {
   try {
-    if (isInlineAdminEditingEnabled() && window.mvpluxLiveAdminSettings?.priceSettings) {
+    if (shouldUsePrivateAdminState() && window.mvpluxLiveAdminSettings?.priceSettings) {
       return window.mvpluxLiveAdminSettings.priceSettings;
     }
     return window.mvpluxPublishedAdminSettings?.priceSettings || {};
@@ -2428,6 +2508,9 @@ function getPriceSettingsForBuilder(builder = null) {
 }
 
 function calculateCutoutPrice(inches, builder = null) {
+  const override = Number(builder?.dataset.originalPriceOverride);
+  const originalHeight = Number(builder?.dataset.originalHeight);
+  if (Number.isFinite(override) && override >= 0 && Number(inches) === originalHeight) return override;
   return window.MVPLUX_PRICING.calculateHeightPrice(inches, getPriceSettingsForBuilder(builder));
 }
 
@@ -2569,6 +2652,19 @@ window.mvpluxLiveAdminStateLoaded = false;
 let storefrontAdminPotentiallyStale = false;
 let storefrontPendingConflict = null;
 const storefrontAdminSaveChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('mvplux-admin-saves-v1') : null;
+const STOREFRONT_CATEGORY_CARD_MAP = {
+  'sport-legend-standee': 'sports',
+  'movie-character-standee': 'movie-characters',
+  'people-public-figure-standee': 'people-public-figures',
+  'music-artist-standee': 'music-artists',
+  'faith-celebration-standee': 'faith-celebration',
+  'holiday-standee': 'holiday',
+  'fan-request-standee': 'fan-requests',
+  'dinosaur-party-standee': 'dinosaur-animal',
+  'game-fantasy-standee': 'video-game-fantasy',
+  'custom-photo-standee': 'custom-photo',
+  'small-standee-party-pack': 'small-party-packs'
+};
 
 function announceStorefrontAdminSave(scope, revision, keys = []) {
   const message = { source: storefrontAdminTabId, scope, revision, keys, savedAt: new Date().toISOString() };
@@ -2611,11 +2707,17 @@ function sanitizePublishedProduct(slug, value) {
   const product = { slug };
   if (typeof value.title === 'string' && value.title.trim()) product.title = value.title;
   if (typeof value.description === 'string') product.description = value.description;
+  if (typeof value.funFact === 'string') product.funFact = value.funFact;
   if (typeof value.cutoutImage === 'string' && value.cutoutImage.trim()) product.cutoutImage = value.cutoutImage;
   if (typeof value.backgroundImage === 'string' && value.backgroundImage.trim()) product.backgroundImage = value.backgroundImage;
   if (Array.isArray(value.imageChoices)) product.imageChoices = sanitizeProductImageChoices(value.imageChoices);
   if ((typeof value.originalHeight === 'string' || typeof value.originalHeight === 'number') && String(value.originalHeight).trim()) {
     product.originalHeight = value.originalHeight;
+  }
+  if (Number.isFinite(Number(value.priceOverride)) && value.priceOverride !== '' && value.priceOverride !== null) product.priceOverride = Number(value.priceOverride);
+  if (Number.isFinite(Number(value.productOrder))) product.productOrder = Number(value.productOrder);
+  if (value.displayOverrides && typeof value.displayOverrides === 'object' && !Array.isArray(value.displayOverrides)) {
+    product.displayOverrides = structuredClone(value.displayOverrides);
   }
   ['cutoutHeight', 'cutoutLeft', 'cutoutBottom', 'logoWidth', 'logoTop', 'stageBackgroundPosition'].forEach((field) => {
     if ((typeof value[field] === 'string' || typeof value[field] === 'number') && String(value[field]).trim()) {
@@ -2669,8 +2771,27 @@ function validatePublishedAdminSettings(value) {
     if (Object.keys(sanitizedStates).length) pageVisualStates[pageKey.toLowerCase()] = sanitizedStates;
   });
 
+  const categories = {};
+  Object.entries(snapshot.categories || {}).forEach(([key, category]) => {
+    if (!key || !category || typeof category !== 'object' || Array.isArray(category)) return;
+    categories[key] = structuredClone(category);
+  });
+  const pageContent = {};
+  Object.entries(snapshot.pageContent || {}).forEach(([pageKey, entries]) => {
+    if (!pageKey || !entries || typeof entries !== 'object' || Array.isArray(entries)) return;
+    pageContent[pageKey.toLowerCase()] = Object.fromEntries(Object.entries(entries).flatMap(([elementKey, entry]) => {
+      if (!elementKey || !entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+      const sanitized = {};
+      if (typeof entry.text === 'string') sanitized.text = entry.text;
+      if (typeof entry.src === 'string' && /^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i.test(entry.src) && !entry.src.includes('..')) sanitized.src = entry.src;
+      if (entry.visible === false) sanitized.visible = false;
+      return Object.keys(sanitized).length ? [[elementKey, sanitized]] : [];
+    }));
+  });
+
   return {
     version: 1,
+    schemaVersion: Number(snapshot.schemaVersion) || 1,
     priceSettings: window.MVPLUX_PRICING.normalizePriceSettings(snapshot.priceSettings || {}),
     products,
     categoryDisplayCards,
@@ -2687,6 +2808,10 @@ function validatePublishedAdminSettings(value) {
       )))
       : {},
     homepageCategoryOrder,
+    categories,
+    categorySettings: snapshot.categorySettings && typeof snapshot.categorySettings === 'object' ? structuredClone(snapshot.categorySettings) : {},
+    globalDisplaySettings: snapshot.globalDisplaySettings && typeof snapshot.globalDisplaySettings === 'object' ? structuredClone(snapshot.globalDisplaySettings) : {},
+    pageContent,
     pageVisualStates
   };
 }
@@ -2716,8 +2841,22 @@ function getPublishedProducts() {
 function getAdminProducts() {
   try {
     const publishedProducts = getPublishedProducts();
-    if (!isInlineAdminEditingEnabled()) return { ...publishedProducts };
+    if (!shouldUsePrivateAdminState()) return { ...publishedProducts };
     const liveProducts = window.mvpluxLiveAdminSettings?.products || {};
+    const liveCategoryCards = Object.fromEntries(Object.entries(window.mvpluxLiveAdminSettings?.categories || {}).map(([categoryKey, category]) => {
+      const slug = Object.entries(STOREFRONT_CATEGORY_CARD_MAP).find(([, key]) => key === categoryKey)?.[0]
+        || `${categoryKey}-category-card`;
+      return [slug, {
+        slug,
+        title: category.card?.title || category.title,
+        description: category.card?.description || category.description,
+        cutoutImage: category.card?.image || '',
+        backgroundImage: category.card?.backgroundImage || '',
+        visible: category.visible !== false && category.card?.visible !== false,
+        productOrder: category.card?.order ?? category.order,
+        categoryCard: true
+      }];
+    }));
     const emergencyBackup = window.mvpluxLiveAdminStateLoaded
       ? {}
       : JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
@@ -2725,6 +2864,7 @@ function getAdminProducts() {
     const productSlugs = new Set([
       ...Object.keys(publishedProducts),
       ...Object.keys(liveProducts),
+      ...Object.keys(liveCategoryCards),
       ...Object.keys(emergencyBackup)
     ]);
 
@@ -2734,6 +2874,7 @@ function getAdminProducts() {
         {
           ...(publishedProducts[slug] || {}),
           ...(liveProducts[slug] || {}),
+          ...(liveCategoryCards[slug] || {}),
           ...(emergencyBackup[slug] || {})
         }
       ])
@@ -2743,9 +2884,31 @@ function getAdminProducts() {
   }
 }
 
+function getAdminCategories() {
+  if (shouldUsePrivateAdminState()) return window.mvpluxLiveAdminSettings?.categories || {};
+  return window.mvpluxPublishedAdminSettings?.categories || {};
+}
+
+function getAdminGlobalDisplaySettings() {
+  if (shouldUsePrivateAdminState()) return window.mvpluxLiveAdminSettings?.globalDisplaySettings || {};
+  return window.mvpluxPublishedAdminSettings?.globalDisplaySettings || {};
+}
+
+function resolveStorefrontProductDisplay(product = {}) {
+  const categoryKey = getCurrentProductCategory()
+    || (Array.isArray(product.categories) ? product.categories[0] : '');
+  const category = getAdminCategories()[categoryKey] || {};
+  return {
+    backgroundPosition: 'center center',
+    ...getAdminGlobalDisplaySettings(),
+    ...(category.displaySettings || {}),
+    ...(product.displayOverrides || {})
+  };
+}
+
 function getAdminCustomProducts() {
   try {
-    if (!isInlineAdminEditingEnabled()) {
+    if (!shouldUsePrivateAdminState()) {
       return Object.values(getPublishedProducts()).filter((product) => product.custom === true);
     }
     if (window.mvpluxLiveAdminStateLoaded) return window.mvpluxLiveAdminSettings?.customProducts || [];
@@ -2757,7 +2920,7 @@ function getAdminCustomProducts() {
 
 function getAdminDeletedProducts() {
   try {
-    if (!isInlineAdminEditingEnabled()) return window.mvpluxPublishedAdminSettings?.deletedProducts || [];
+    if (!shouldUsePrivateAdminState()) return window.mvpluxPublishedAdminSettings?.deletedProducts || [];
     if (window.mvpluxLiveAdminStateLoaded) return window.mvpluxLiveAdminSettings?.deletedProducts || [];
     return JSON.parse(localStorage.getItem('mvpluxDeletedProducts') || '[]');
   } catch (error) {
@@ -2794,7 +2957,7 @@ function getManagedProductBySlug(slug) {
 
 function getAdminArchivedProducts() {
   try {
-    if (!isInlineAdminEditingEnabled()) {
+    if (!shouldUsePrivateAdminState()) {
       return Object.values(getPublishedProducts()).filter((product) => product.visible === false).map((product) => product.slug);
     }
     if (window.mvpluxLiveAdminStateLoaded) return window.mvpluxLiveAdminSettings?.savedForLaterProducts || [];
@@ -2806,7 +2969,7 @@ function getAdminArchivedProducts() {
 
 function getAdminExtraImages() {
   try {
-    if (!isInlineAdminEditingEnabled()) return window.mvpluxPublishedAdminSettings?.extraImages || {};
+    if (!shouldUsePrivateAdminState()) return window.mvpluxPublishedAdminSettings?.extraImages || {};
     if (window.mvpluxLiveAdminStateLoaded) return window.mvpluxLiveAdminSettings?.extraImages || {};
     return JSON.parse(localStorage.getItem('mvpluxAdminExtraImages') || '{}');
   } catch (error) {
@@ -2906,6 +3069,9 @@ function showStorefrontAdminConflict(details, retry, keepLatest = null, cancel =
 
 async function saveStorefrontProductPatch(slug, patch, baseRecord, force = false) {
   if (!slug || !Object.keys(patch || {}).length) return false;
+  if (patch.approvalStatus === undefined) {
+    patch = { ...patch, draftStatus: patch.draftStatus || 'ready', approvalStatus: 'draft', updatedAt: patch.updatedAt || new Date().toISOString() };
+  }
   updateInlineAdminToolbarState('Saving');
   try {
     const latest = await fetchAuthoritativeStorefrontAdminGlobal();
@@ -2949,10 +3115,55 @@ async function saveStorefrontProductPatch(slug, patch, baseRecord, force = false
     announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`products:${slug}`]);
     document.getElementById('adminInlineConflictActions')?.setAttribute('hidden', '');
     storefrontPendingConflict = null;
-    updateInlineAdminToolbarState('Saved');
+    updateInlineAdminToolbarState('Saved Privately');
     return true;
   } catch (error) {
     updateInlineAdminToolbarState(`Error — not saved: ${error?.message || error}`);
+    return false;
+  }
+}
+
+async function saveStorefrontCategoryPatch(categoryKey, section, patch, baseCategory, force = false) {
+  if (!categoryKey || !Object.keys(patch || {}).length) return false;
+  updateInlineAdminToolbarState('Saving…');
+  try {
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const latestCategory = latest.edits.categories?.[categoryKey] || {};
+    const utils = await adminStateUtilsPromise;
+    const baseSection = section ? baseCategory?.[section] || {} : baseCategory || {};
+    const latestSection = section ? latestCategory?.[section] || {} : latestCategory;
+    const analysis = utils.analyzeRecordPatch(baseSection, latestSection, patch);
+    window.mvpluxLiveAdminSettings = latest.edits;
+    window.mvpluxLiveAdminRevision = latest.revision;
+    window.mvpluxLiveAdminStateLoaded = true;
+    storefrontAdminPotentiallyStale = false;
+    if (!force && !analysis.canRebase) {
+      showStorefrontAdminConflict(analysis, () => saveStorefrontCategoryPatch(categoryKey, section, patch, latestCategory, true));
+      return false;
+    }
+    const approvalStatus = patch.approvalStatus || 'draft';
+    const category = section
+      ? { ...latestCategory, [section]: { ...latestSection, ...patch }, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus }
+      : { ...latestCategory, ...patch, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus };
+    const categories = { ...(latest.edits.categories || {}), [categoryKey]: category };
+    const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
+      p_page_key: 'admin-global',
+      p_edits: { categories },
+      p_expected_revision: latest.revision,
+      p_replace: false
+    });
+    if (error) throw error;
+    window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, categories };
+    window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
+    announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`categories:${categoryKey}:${section || 'root'}`]);
+    updateInlineAdminToolbarState('Saved Privately');
+    return true;
+  } catch (error) {
+    if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
+      showStorefrontAdminConflict({ conflictingFields: [`categories:${categoryKey}:${section || 'root'}`] }, null);
+    } else {
+      updateInlineAdminToolbarState(`Error — not saved: ${error?.message || error}`);
+    }
     return false;
   }
 }
@@ -2995,7 +3206,7 @@ async function saveStorefrontProductPatches(recordPatches, baseRecords = {}) {
     window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
     localStorage.setItem('mvpluxAdminProducts', JSON.stringify(window.mvpluxLiveAdminSettings.products || products));
     announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, entries.map(([slug]) => `products:${slug}`));
-    updateInlineAdminToolbarState('Saved');
+    updateInlineAdminToolbarState('Saved Privately');
     return true;
   } catch (error) {
     if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
@@ -3039,7 +3250,7 @@ async function saveStorefrontListMembershipPatch(collectionKey, entry, present, 
     window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
     if (storageKey) localStorage.setItem(storageKey, JSON.stringify(window.mvpluxLiveAdminSettings[collectionKey] || values));
     announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`${collectionKey}:${entry}`]);
-    updateInlineAdminToolbarState('Saved');
+    updateInlineAdminToolbarState('Saved Privately');
     return true;
   } catch (error) {
     if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
@@ -3084,7 +3295,7 @@ function saveLiveAdminSettings(patch) {
       window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, ...(patch || {}) };
       window.mvpluxLiveAdminRevision = Number(data?.revision) || (latest.revision + 1);
       announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, Object.keys(patch || {}));
-      updateInlineAdminToolbarState('Saved');
+      updateInlineAdminToolbarState('Saved Privately');
       return true;
     } catch (error) {
       if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
@@ -3409,7 +3620,12 @@ function updateShowroomPurchase(state, productName, originalHeight, slug) {
   state.builder.dataset.adminSlug = productSlug;
   state.builder.dataset.originalHeight = String(height);
   state.builder.dataset.originalPrice = String(price);
-  delete state.builder.dataset.originalPriceOverride;
+  const priceOverride = getAdminProducts()[productSlug]?.priceOverride;
+  if (priceOverride !== undefined && priceOverride !== null && priceOverride !== '') {
+    state.builder.dataset.originalPriceOverride = String(priceOverride);
+  } else {
+    delete state.builder.dataset.originalPriceOverride;
+  }
 
   const radios = state.builder.querySelectorAll('.showroom-size-buttons input[type="radio"]');
   radios.forEach((radio) => {
@@ -3600,10 +3816,45 @@ function getKnownStandeeForCard(card) {
 }
 
 function getCurrentProductCategory() {
+  const requested = new URLSearchParams(window.location.search).get('category');
+  if (requested && getAdminCategories()[requested]) return requested;
   const file = window.location.pathname.split('/').pop() || 'index.html';
   return (window.MVPLUX_PRODUCT_CATEGORIES || []).find((category) => (
     category.page === file || category.pages?.includes(file)
-  ))?.key || '';
+  ))?.key || Object.values(getAdminCategories()).find((category) => String(category.page || '').split('?')[0] === file)?.key || '';
+}
+
+function setupDynamicCategoryPage() {
+  if (!document.body.matches('[data-dynamic-category-page]')) return;
+  const category = getAdminCategories()[getCurrentProductCategory()];
+  if (!category) return;
+  const heading = document.querySelector('.category-hero h1');
+  const intro = document.querySelector('.category-hero p');
+  if (heading) heading.textContent = category.title || category.key;
+  if (intro) intro.textContent = category.description || 'Choose a standee and preview the available display options.';
+  document.title = `${category.title || category.key} | MVPLUXCREATIONS`;
+}
+
+function renderNormalizedHomepageCategoryCards() {
+  if (inlineAdminPageKey() !== 'index.html') return;
+  const grids = [...document.querySelectorAll('.featured-category-row .product-grid')];
+  const grid = grids[grids.length - 1];
+  if (!grid) return;
+  const represented = new Set([...document.querySelectorAll('.product-card .size-builder[data-admin-slug]')].map((builder) => STOREFRONT_CATEGORY_CARD_MAP[builder.dataset.adminSlug]).filter(Boolean));
+  Object.values(getAdminCategories())
+    .filter((category) => category.visible !== false && category.card?.visible !== false && !represented.has(category.key))
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
+    .forEach((category) => {
+      const slug = `${category.key}-category-card`;
+      if (grid.querySelector(`[data-admin-category-key="${CSS.escape(category.key)}"]`)) return;
+      const page = category.page || `category.html?category=${encodeURIComponent(category.key)}`;
+      grid.insertAdjacentHTML('beforeend', `
+        <div class="product-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}">
+          <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview" style="background-image:url('${escapeHtml(category.card?.backgroundImage || '')}')"><img class="product-cutout" src="${escapeHtml(category.card?.image || '')}" alt=""></div></a>
+          <h3><a href="${escapeHtml(page)}" class="product-title-link">${escapeHtml(category.card?.title || category.title || category.key)}</a></h3>
+          <p class="product-description">${escapeHtml(category.card?.description || category.description || '')}</p>
+        </div>`);
+    });
 }
 
 function managedCategoryCardMarkup(product) {
@@ -4086,6 +4337,7 @@ function applyAdminProductOverrides(builder) {
   const stage = card.querySelector('.product-stage-preview');
   const stageImage = card.querySelector('.product-stage-bg');
   const logo = card.querySelector('.product-stage-logo');
+  const display = resolveStorefrontProductDisplay(override);
 
   if (override.title && titleLink) titleLink.textContent = override.title;
   if (override.description && description) description.textContent = override.description;
@@ -4093,26 +4345,38 @@ function applyAdminProductOverrides(builder) {
     cutout.src = override.cutoutImage;
     cutout.dataset.adminFallbackSrc = override.cutoutImage;
   }
-  if (override.backgroundImage && stage) {
-    stage.style.backgroundImage = `url("${override.backgroundImage}")`;
+  const resolvedBackground = override.backgroundImage || display.backgroundImage;
+  if (resolvedBackground && stage) {
+    stage.style.backgroundImage = `url("${resolvedBackground}")`;
     if (stageImage) {
-      stageImage.src = override.backgroundImage;
-      stageImage.dataset.adminFallbackSrc = override.backgroundImage;
+      stageImage.src = resolvedBackground;
+      stageImage.dataset.adminFallbackSrc = resolvedBackground;
     }
   }
-  if (override.stageBackgroundPosition && stage) stage.style.backgroundPosition = override.stageBackgroundPosition;
+  if ((display.backgroundPosition || override.stageBackgroundPosition) && stage) {
+    stage.style.backgroundPosition = display.backgroundPosition || override.stageBackgroundPosition;
+  }
   if (stage) {
-    if (String(override.cutoutHeight || '').trim()) stage.style.setProperty('--category-cutout-height', `${safeAdminImageNumber(override.cutoutHeight, 78, 30, 100)}%`);
-    if (String(override.cutoutLeft || '').trim()) stage.style.setProperty('--category-cutout-x', `${safeAdminImageNumber(override.cutoutLeft, 50, 0, 100)}%`);
-    if (String(override.cutoutBottom || '').trim()) stage.style.setProperty('--category-cutout-bottom', `${safeAdminImageNumber(override.cutoutBottom, 22, 0, 60)}%`);
-    if (String(override.logoWidth || '').trim()) stage.style.setProperty('--category-logo-width', `${safeAdminImageNumber(override.logoWidth, 82, 30, 100)}%`);
-    if (String(override.logoTop || '').trim()) stage.style.setProperty('--category-logo-top', `${safeAdminImageNumber(override.logoTop, -4, -20, 40)}%`);
+    const standeeSize = display.standeeSizePercent ?? override.cutoutHeight;
+    const standeeLeft = display.standeeLeftPercent ?? override.cutoutLeft;
+    const standeeVertical = display.standeeVerticalPercent ?? override.cutoutBottom;
+    const logoSize = display.logoSizePercent ?? override.logoWidth;
+    const logoVertical = display.logoVerticalPercent ?? override.logoTop;
+    if (String(standeeSize ?? '').trim()) stage.style.setProperty('--category-cutout-height', `${safeAdminImageNumber(standeeSize, 78, 30, 140)}%`);
+    if (String(standeeLeft ?? '').trim()) stage.style.setProperty('--category-cutout-x', `${safeAdminImageNumber(standeeLeft, 50, -50, 150)}%`);
+    if (String(standeeVertical ?? '').trim()) stage.style.setProperty('--category-cutout-bottom', `${safeAdminImageNumber(standeeVertical, 22, -50, 100)}%`);
+    if (String(logoSize ?? '').trim()) stage.style.setProperty('--category-logo-width', `${safeAdminImageNumber(logoSize, 82, 10, 150)}%`);
+    if (String(logoVertical ?? '').trim()) stage.style.setProperty('--category-logo-top', `${safeAdminImageNumber(logoVertical, -4, -50, 100)}%`);
   }
   if (override.originalHeight) {
     const overrideHeight = parseHeightToInches(String(override.originalHeight)) || parseInt(override.originalHeight, 10);
     if (overrideHeight) builder.dataset.originalHeight = String(overrideHeight);
   }
-  delete builder.dataset.originalPriceOverride;
+  if (override.priceOverride !== undefined && override.priceOverride !== null && override.priceOverride !== '') {
+    builder.dataset.originalPriceOverride = String(override.priceOverride);
+  } else {
+    delete builder.dataset.originalPriceOverride;
+  }
 }
 
 function updateBuilderOriginalDisplay(builder) {
@@ -4174,9 +4438,14 @@ async function saveAdminProductHeightFromBuilder(builder, inches) {
 }
 
 async function saveAdminProductImageFromElement(image) {
-  const card = image?.closest?.('.product-card');
+  if (!image) return false;
+  const owned = inlineAdminOwnedField(image);
+  if (newStorefrontAdminArchitectureEnabled() && owned) {
+    return persistInlineOwnedField(image, owned, image.getAttribute('src') || image.src || '');
+  }
+  const card = image.closest?.('.product-card');
   const builder = card?.querySelector?.('.size-builder');
-  if (!image || !builder || !image.classList.contains('product-cutout')) return;
+  if (!builder || !image.classList.contains('product-cutout')) return false;
   ensureProductAdminSlugs(card);
   const slug = getBuilderAdminSlug(builder);
   const baseRecord = getManagedProductBySlug(slug) || {};
@@ -4248,7 +4517,7 @@ function syncOriginalSizeForBuilder(builder, textValue) {
   setBuilderOriginalHeight(builder, inches);
   syncMatchingOriginalHeights(builder, inches);
   saveAdminProductHeightFromBuilder(builder, inches);
-  saveOriginalHeightPageEdit(builder, inches);
+  if (!newStorefrontAdminArchitectureEnabled()) saveOriginalHeightPageEdit(builder, inches);
   return true;
 }
 
@@ -4479,6 +4748,7 @@ function installSizeAdmin(builder) {
 /* ---------------- SITE-WIDE ADMIN MODE ---------------- */
 let inlineAdminDraftEdits = null;
 let inlineAdminSelectedImage = null;
+let inlineAdminSelectedRecordElement = null;
 let inlineAdminUndoStack = [];
 let inlineAdminRedoStack = [];
 let inlineAdminDirty = false;
@@ -4593,16 +4863,51 @@ function getInlineAdminLivePageEdits() {
   return inlineAdminLiveEdits[inlineAdminPageKey()] || {};
 }
 
+function newStorefrontAdminArchitectureEnabled() {
+  return Boolean(window.mvpluxLiveAdminSettings && (
+    window.mvpluxLiveAdminSettings.adminArchitectureV2?.enabled === true
+    ||
+    (window.mvpluxLiveAdminSettings.products && typeof window.mvpluxLiveAdminSettings.products === 'object')
+    || (window.mvpluxLiveAdminSettings.categories && typeof window.mvpluxLiveAdminSettings.categories === 'object')
+  ));
+}
+
+function withoutProductOwnedPageValues(pageEdits = {}) {
+  if (!newStorefrontAdminArchitectureEnabled()) return { ...(pageEdits || {}) };
+  const filtered = {};
+  Object.entries(pageEdits || {}).forEach(([key, edit]) => {
+    const productText = /^product-.+-(?:title-link|title-heading|description|original-choice|original-size-label)$/i.test(key);
+    const productHeight = /^product-height-.+/i.test(key);
+    if (productText || productHeight) return;
+    const productImage = /^product-.+-(?:product-cutout|product-stage-bg)$/i.test(key);
+    if (productImage && edit && typeof edit === 'object') {
+      const { src: _src, text: _text, originalHeight: _height, ...pageOnlyState } = edit;
+      if (Object.keys(pageOnlyState).length) filtered[key] = pageOnlyState;
+      return;
+    }
+    filtered[key] = edit;
+  });
+  return filtered;
+}
+
 function getInlineAdminPageEdits() {
-  const publishedPageEdits = window.mvpluxPublishedAdminSettings?.pageVisualStates?.[inlineAdminPageKey()] || {};
+  const publishedContent = window.mvpluxPublishedAdminSettings?.pageContent?.[inlineAdminPageKey()] || {};
+  const publishedVisuals = window.mvpluxPublishedAdminSettings?.pageVisualStates?.[inlineAdminPageKey()] || {};
+  const publishedPageEdits = { ...publishedContent };
+  Object.entries(publishedVisuals).forEach(([key, visual]) => {
+    publishedPageEdits[key] = { ...(publishedPageEdits[key] || {}), ...visual };
+  });
   const livePageEdits = getInlineAdminLivePageEdits();
 
-  if (!isInlineAdminEditingEnabled()) {
-    return { ...publishedPageEdits };
+  if (!shouldUsePrivateAdminState()) {
+    return withoutProductOwnedPageValues(publishedPageEdits);
   }
 
+  if (isPrivateAdminPreviewEnabled()) {
+    return withoutProductOwnedPageValues({ ...publishedPageEdits, ...livePageEdits });
+  }
   const draftPageEdits = getInlineAdminDraft()[inlineAdminPageKey()] || {};
-  return { ...publishedPageEdits, ...livePageEdits, ...draftPageEdits };
+  return withoutProductOwnedPageValues({ ...publishedPageEdits, ...livePageEdits, ...draftPageEdits });
 }
 
 function inlineAdminPageKey() {
@@ -4638,6 +4943,141 @@ function getProductCardTextAdminKey(element) {
     return '';
   }
   return '';
+}
+
+function inlineAdminProductSlugForElement(element) {
+  const context = element?.closest?.('.product-card, .sports-showroom, .generic-showroom, .standee-detail-page, .showroom-purchase-card, .standee-purchase-panel');
+  const builder = element?.closest?.('.size-builder') || context?.querySelector?.('.size-builder');
+  if (builder?.dataset.adminSlug) return builder.dataset.adminSlug;
+  if (context?.dataset.adminSlug) return context.dataset.adminSlug;
+  if (element?.id === 'sportsMainImage' || element?.closest?.('.sports-showroom')) return selectedSportsStandeeKey || '';
+  return '';
+}
+
+function inlineAdminOwnedField(element) {
+  if (!newStorefrontAdminArchitectureEnabled() || !element) return null;
+  const slug = inlineAdminProductSlugForElement(element);
+  if (!slug) return null;
+  const categoryKey = element.closest?.('[data-admin-category-key]')?.dataset.adminCategoryKey || STOREFRONT_CATEGORY_CARD_MAP[slug];
+  let field = '';
+  if (element.matches?.('.product-title-link') || (element.matches?.('h3') && element.querySelector?.('.product-title-link'))) field = 'title';
+  else if (element.matches?.('.product-description')) field = 'description';
+  else if (element.matches?.('[data-product-fun-fact], .product-fun-fact')) field = 'funFact';
+  else if (element.matches?.('.product-cutout, .standee-main-cutout, .generic-main-image, #sportsMainImage')) field = 'cutoutImage';
+  else if (element.matches?.('.product-stage-bg')) field = 'backgroundImage';
+  if (!field) return null;
+  return categoryKey
+    ? { type: 'category-card', categoryKey, slug, field: field === 'cutoutImage' ? 'image' : field }
+    : { type: 'product', slug, field };
+}
+
+const inlineOwnedFieldTimers = new Map();
+const inlineOwnedDisplayTimers = new Map();
+
+async function persistInlineOwnedField(element, owned, value) {
+  if (!owned) return false;
+  if (owned.type === 'category-card') {
+    const base = window.mvpluxLiveAdminSettings?.categories?.[owned.categoryKey] || {};
+    return saveStorefrontCategoryPatch(owned.categoryKey, 'card', { [owned.field]: value }, base);
+  }
+  const base = getManagedProductBySlug(owned.slug) || {};
+  return saveStorefrontProductPatch(owned.slug, { [owned.field]: value, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'draft' }, base);
+}
+
+function scheduleInlineOwnedFieldSave(element, owned, value, delay = 650) {
+  const key = `${owned.type}:${owned.categoryKey || owned.slug}:${owned.field}`;
+  window.clearTimeout(inlineOwnedFieldTimers.get(key));
+  element.dataset.adminOwnedDirty = 'true';
+  inlineAdminHasUnsavedLocalChanges = true;
+  updateInlineAdminToolbarState('Unsaved changes');
+  const timer = window.setTimeout(async () => {
+    inlineOwnedFieldTimers.delete(key);
+    const saved = await persistInlineOwnedField(element, owned, value);
+    if (saved) delete element.dataset.adminOwnedDirty;
+    inlineAdminHasUnsavedLocalChanges = inlineOwnedFieldTimers.size > 0 || Boolean(inlineAdminDirtyKeys[inlineAdminPageKey()]?.size);
+    if (saved && !inlineAdminHasUnsavedLocalChanges) updateInlineAdminToolbarState('Saved Privately');
+  }, delay);
+  inlineOwnedFieldTimers.set(key, timer);
+}
+
+async function flushInlineOwnedFieldSaves() {
+  if (!inlineOwnedFieldTimers.size) return true;
+  const pendingElements = [...document.querySelectorAll('[data-admin-owned-dirty="true"]')];
+  inlineOwnedFieldTimers.forEach((timer) => window.clearTimeout(timer));
+  inlineOwnedFieldTimers.clear();
+  for (const element of pendingElements) {
+    const owned = inlineAdminOwnedField(element);
+    if (!owned) continue;
+    const value = element.tagName === 'IMG' ? element.getAttribute('src') || '' : element.textContent.trim();
+    if (!await persistInlineOwnedField(element, owned, value)) return false;
+    delete element.dataset.adminOwnedDirty;
+  }
+  inlineAdminHasUnsavedLocalChanges = Boolean(inlineAdminDirtyKeys[inlineAdminPageKey()]?.size);
+  return true;
+}
+
+function scheduleInlineOwnedDisplaySave(image, state, delay = 450) {
+  if (!newStorefrontAdminArchitectureEnabled()) return false;
+  const owned = inlineAdminOwnedField(image);
+  if (!owned || owned.type !== 'product') return false;
+  const key = `display:${owned.slug}`;
+  window.clearTimeout(inlineOwnedDisplayTimers.get(key));
+  image.dataset.adminOwnedDisplayDirty = 'true';
+  inlineAdminHasUnsavedLocalChanges = true;
+  updateInlineAdminToolbarState('Unsaved changes');
+  inlineOwnedDisplayTimers.set(key, window.setTimeout(async () => {
+    inlineOwnedDisplayTimers.delete(key);
+    const base = getManagedProductBySlug(owned.slug) || {};
+    const displayOverrides = {
+      ...(base.displayOverrides || {}),
+      imageTransform: {
+        x: Number(state.x) || 0,
+        y: Number(state.y) || 0,
+        scale: Number(state.scale) || 1,
+        rotate: Number(state.rotate) || 0
+      }
+    };
+    const saved = await saveStorefrontProductPatch(owned.slug, {
+      displayOverrides,
+      updatedAt: new Date().toISOString(),
+      draftStatus: 'ready',
+      approvalStatus: 'draft'
+    }, base);
+    if (saved) delete image.dataset.adminOwnedDisplayDirty;
+    inlineAdminHasUnsavedLocalChanges = inlineOwnedFieldTimers.size > 0
+      || inlineOwnedDisplayTimers.size > 0
+      || Boolean(inlineAdminDirtyKeys[inlineAdminPageKey()]?.size);
+  }, delay));
+  return true;
+}
+
+async function flushInlineOwnedDisplaySaves() {
+  if (!inlineOwnedDisplayTimers.size) return true;
+  const pending = [...document.querySelectorAll('img[data-admin-owned-display-dirty="true"]')];
+  inlineOwnedDisplayTimers.forEach((timer) => window.clearTimeout(timer));
+  inlineOwnedDisplayTimers.clear();
+  for (const image of pending) {
+    const state = image._adminImageState || {};
+    const owned = inlineAdminOwnedField(image);
+    if (!owned || owned.type !== 'product') continue;
+    const base = getManagedProductBySlug(owned.slug) || {};
+    if (!await saveStorefrontProductPatch(owned.slug, {
+      displayOverrides: {
+        ...(base.displayOverrides || {}),
+        imageTransform: {
+          x: Number(state.x) || 0,
+          y: Number(state.y) || 0,
+          scale: Number(state.scale) || 1,
+          rotate: Number(state.rotate) || 0
+        }
+      },
+      updatedAt: new Date().toISOString(),
+      draftStatus: 'ready',
+      approvalStatus: 'draft'
+    }, base)) return false;
+    delete image.dataset.adminOwnedDisplayDirty;
+  }
+  return true;
 }
 
 function inlineAdminKey(element) {
@@ -4823,7 +5263,7 @@ function saveInlineAdminEditsLive() {
     storefrontPendingConflict = null;
     document.getElementById('adminInlineConflictActions')?.setAttribute('hidden', '');
     announceStorefrontAdminSave(page, inlineAdminLiveRevisions[page], dirtyKeys);
-    updateInlineAdminToolbarState(inlineAdminHasUnsavedLocalChanges ? 'Unsaved changes remain' : 'Saved');
+    updateInlineAdminToolbarState(inlineAdminHasUnsavedLocalChanges ? 'Unsaved changes remain' : 'Saved Privately');
     return true;
   };
   const result = inlineAdminSaveQueue.then(save, save);
@@ -4949,9 +5389,30 @@ function saveInlineAdminEdit(element, patch) {
   const edits = getInlineAdminDraft();
   const page = inlineAdminPageKey();
   const key = inlineAdminKey(element);
+  let pagePatch = { ...(patch || {}) };
+  const owned = inlineAdminOwnedField(element);
+  if (owned) {
+    if (element.tagName === 'IMG' && owned.type === 'product'
+      && ['x', 'y', 'scale', 'rotate'].some((field) => pagePatch[field] !== undefined)) {
+      scheduleInlineOwnedDisplaySave(element, pagePatch);
+    }
+    delete pagePatch.text;
+    delete pagePatch.src;
+    delete pagePatch.originalHeight;
+    if (element.tagName === 'IMG' && owned.type === 'product') {
+      delete pagePatch.x;
+      delete pagePatch.y;
+      delete pagePatch.scale;
+      delete pagePatch.rotate;
+    }
+    delete pagePatch.locked;
+    if (!Object.keys(pagePatch).length) return;
+  }
+  pagePatch.approvalStatus = 'draft';
+  pagePatch.updatedAt = new Date().toISOString();
   markInlineAdminElementDirty(page, key);
   edits[page] = edits[page] || {};
-  edits[page][key] = { ...(edits[page][key] || {}), ...patch };
+  edits[page][key] = { ...(edits[page][key] || {}), ...pagePatch };
   writeInlineAdminEdits(edits);
   inlineAdminDirty = true;
   inlineAdminHasUnsavedLocalChanges = true;
@@ -4972,7 +5433,7 @@ async function commitInlineAdminEdits() {
   const saved = await saveInlineAdminEditsLive();
   if (saved) {
     inlineAdminDirty = Boolean(inlineAdminDirtyKeys[inlineAdminPageKey()]?.size);
-    updateInlineAdminToolbarState(inlineAdminDirty ? 'Unsaved changes remain' : 'Saved');
+    updateInlineAdminToolbarState(inlineAdminDirty ? 'Unsaved changes remain' : 'Saved Privately');
   }
   return saved;
 }
@@ -5044,7 +5505,9 @@ function applyInlineAdminSnapshot(snapshot) {
   }
 
   element.textContent = snapshot.text || '';
-  saveInlineAdminEdit(element, { text: element.textContent.trim() });
+  const owned = inlineAdminOwnedField(element);
+  if (owned) scheduleInlineOwnedFieldSave(element, owned, element.textContent.trim(), 0);
+  else saveInlineAdminEdit(element, { text: element.textContent.trim() });
 }
 
 function snapshotsMatch(first, second) {
@@ -5122,6 +5585,7 @@ function selectInlineAdminImage(image) {
   }
 
   inlineAdminSelectedImage = image;
+  inlineAdminSelectedRecordElement = image;
   image?.classList.add('admin-image-selected');
   const label = isInlineAdminBackgroundImage(image)
     ? 'Background selected'
@@ -6072,6 +6536,380 @@ function ensureInlineAdminCardControls() {
   });
 }
 
+function inlineRecordContext(element = inlineAdminSelectedRecordElement || inlineAdminSelectedImage) {
+  const owned = inlineAdminOwnedField(element);
+  if (owned) return owned;
+  const card = element?.closest?.('.product-card, .category-card');
+  const builder = card?.querySelector?.('.size-builder');
+  const slug = builder?.dataset.adminSlug || card?.dataset.productId || '';
+  if (!slug) return null;
+  const categoryKey = card?.dataset.adminCategoryKey || STOREFRONT_CATEGORY_CARD_MAP[slug];
+  return categoryKey ? { type: 'category-card', categoryKey, slug } : { type: 'product', slug };
+}
+
+function inlineImageChoiceLines(choices = []) {
+  return (Array.isArray(choices) ? choices : [])
+    .map((choice) => `${choice.label || 'Alternate image'} | ${choice.image || ''}`)
+    .join('\n');
+}
+
+function parseInlineImageChoiceLines(value = '') {
+  const seen = new Set();
+  return String(value).split(/\r?\n/).flatMap((line) => {
+    const [labelPart, ...pathParts] = line.split('|');
+    const image = pathParts.join('|').trim();
+    if (!image || !image.startsWith('images/') || image.includes('..') || seen.has(image)) return [];
+    seen.add(image);
+    return [{ label: labelPart.trim() || 'Alternate image', image }];
+  });
+}
+
+function ensureInlineRecordEditor() {
+  let panel = document.getElementById('adminInlineRecordEditor');
+  if (panel) return panel;
+  panel = document.createElement('aside');
+  panel.id = 'adminInlineRecordEditor';
+  panel.className = 'admin-inline-record-editor';
+  panel.hidden = true;
+  panel.innerHTML = `
+    <div class="admin-inline-record-heading">
+      <strong data-inline-record-title>Edit selected item</strong>
+      <button type="button" data-inline-record-close aria-label="Close">×</button>
+    </div>
+    <form data-inline-record-form></form>
+    <p data-inline-record-status aria-live="polite"></p>
+  `;
+  document.body.appendChild(panel);
+  panel.querySelector('[data-inline-record-close]')?.addEventListener('click', () => { panel.hidden = true; });
+  panel.querySelector('[data-inline-record-form]')?.addEventListener('submit', saveInlineRecordEditor);
+  panel.querySelector('[data-inline-record-form]')?.addEventListener('click', async (event) => {
+    const reset = event.target.closest('[data-inline-reset-product-display]');
+    const archive = event.target.closest('[data-inline-archive-product]');
+    const previewCategory = event.target.closest('[data-inline-preview-category]');
+    const applyCategory = event.target.closest('[data-inline-apply-category]');
+    const clearCategoryOverrides = event.target.closest('[data-inline-clear-category-overrides]');
+    const resetSelectedOverrides = event.target.closest('[data-inline-reset-selected-overrides]');
+    const resetCategory = event.target.closest('[data-inline-reset-category]');
+    if (!reset && !archive && !previewCategory && !applyCategory && !clearCategoryOverrides && !resetSelectedOverrides && !resetCategory) return;
+    event.preventDefault();
+    if (previewCategory) {
+      const status = panel.querySelector('[data-inline-record-status]');
+      status.textContent = 'Preview uses these values in this panel. Save privately to apply them across this Admin preview.';
+      return;
+    }
+    if (applyCategory || clearCategoryOverrides || resetSelectedOverrides || resetCategory) {
+      const status = panel.querySelector('[data-inline-record-status]');
+      status.textContent = 'Saving…';
+      const saved = await saveInlineCategoryDisplayAction(panel, {
+        clearAll: Boolean(clearCategoryOverrides),
+        resetSelected: Boolean(resetSelectedOverrides),
+        resetCategory: Boolean(resetCategory)
+      });
+      status.textContent = saved ? 'Saved privately — customers cannot see this yet.' : 'Not saved.';
+      if (saved) openInlineRecordEditor(inlineAdminSelectedRecordElement || inlineAdminSelectedImage);
+      return;
+    }
+    const slug = panel.dataset.recordKey;
+    const base = panel._baseRecord || getManagedProductBySlug(slug) || {};
+    if (reset) {
+      if (!window.confirm('Reset this product so it uses its category display settings?')) return;
+      const saved = await saveStorefrontProductPatch(slug, { displayOverrides: {}, updatedAt: new Date().toISOString() }, base);
+      if (saved) openInlineRecordEditor(inlineAdminSelectedRecordElement || inlineAdminSelectedImage);
+    }
+    if (archive) {
+      if (!window.confirm('Archive this product? Its record and physical images will be preserved.')) return;
+      const saved = await saveStorefrontProductPatch(slug, {
+        visible: false,
+        draftStatus: 'archived',
+        updatedAt: new Date().toISOString()
+      }, base);
+      if (saved) panel.hidden = true;
+    }
+  });
+  return panel;
+}
+
+function inlineProductEditorMarkup(product = {}) {
+  const categoryOptions = (window.MVPLUX_PRODUCT_CATEGORIES || []).map((category) => {
+    const key = String(category.key || '');
+    return `<label><input type="checkbox" name="categories" value="${escapeHtml(key)}" ${(product.categories || []).includes(key) ? 'checked' : ''}> ${escapeHtml(category.label || key)}</label>`;
+  }).join('');
+  const display = product.displayOverrides || {};
+  return `
+    <details open><summary>Product information</summary>
+      <label>Title<input name="title" value="${escapeHtml(product.title || '')}"></label>
+      <label>Description<textarea name="description">${escapeHtml(product.description || '')}</textarea></label>
+      <label>Fun fact<textarea name="funFact">${escapeHtml(product.funFact || '')}</textarea></label>
+      <label>Original height<input name="originalHeight" value="${escapeHtml(String(product.originalHeight || ''))}"></label>
+      <label>Price override<input name="priceOverride" type="number" min="0" step="0.01" value="${escapeHtml(String(product.priceOverride ?? ''))}"></label>
+    </details>
+    <details><summary>Images</summary>
+      <label>Main image<input name="cutoutImage" value="${escapeHtml(product.cutoutImage || '')}"></label>
+      <label>Background<input name="backgroundImage" value="${escapeHtml(product.backgroundImage || '')}"></label>
+      <label>Image choices <small>One per line: Label | images/path.png</small><textarea name="imageChoices">${escapeHtml(inlineImageChoiceLines(product.imageChoices))}</textarea></label>
+    </details>
+    <details><summary>Categories</summary><div class="admin-inline-category-options">${categoryOptions || '<small>No categories loaded.</small>'}</div></details>
+    <details><summary>Display</summary>
+      <p class="admin-note">Leave fields blank to use category settings.</p>
+      <label>Background position<input name="backgroundPosition" value="${escapeHtml(display.backgroundPosition || '')}"></label>
+      <label>Standee size %<input name="standeeSizePercent" type="number" value="${escapeHtml(String(display.standeeSizePercent ?? ''))}"></label>
+      <label>Left / right %<input name="standeeLeftPercent" type="number" value="${escapeHtml(String(display.standeeLeftPercent ?? ''))}"></label>
+      <label>Up / down %<input name="standeeVerticalPercent" type="number" value="${escapeHtml(String(display.standeeVerticalPercent ?? ''))}"></label>
+      <button type="button" data-inline-reset-product-display>Reset Product to Category Settings</button>
+    </details>
+    <details><summary>Visibility and order</summary>
+      <label><input name="visible" type="checkbox" ${product.visible !== false ? 'checked' : ''}> Visible</label>
+      <label>Exact product order<input name="productOrder" type="number" value="${escapeHtml(String(product.productOrder ?? ''))}"></label>
+      <button type="button" data-inline-archive-product>Archive</button>
+    </details>
+    <button type="submit">Save Product Privately</button>
+  `;
+}
+
+function inlineCategoryEditorMarkup(category = {}) {
+  const card = category.card || {};
+  const display = category.displaySettings || {};
+  const products = Object.values(getAdminProducts()).filter((product) => (product.categories || []).includes(category.key));
+  const overrideProducts = products.filter((product) => Object.keys(product.displayOverrides || {}).length);
+  return `
+    <details open><summary>Category information</summary>
+      <label>Title<input name="title" value="${escapeHtml(category.title || '')}"></label>
+      <label>Description<textarea name="description">${escapeHtml(category.description || '')}</textarea></label>
+      <label>Page<input name="page" value="${escapeHtml(category.page || '')}"></label>
+      <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> Visible</label>
+      <label>Order<input name="order" type="number" value="${escapeHtml(String(category.order ?? 0))}"></label>
+    </details>
+    <details open><summary>Category card</summary>
+      <label>Card title<input name="cardTitle" value="${escapeHtml(card.title || '')}"></label>
+      <label>Card description<textarea name="cardDescription">${escapeHtml(card.description || '')}</textarea></label>
+      <label>Card image<input name="cardImage" value="${escapeHtml(card.image || '')}"></label>
+      <label>Card background<input name="cardBackgroundImage" value="${escapeHtml(card.backgroundImage || '')}"></label>
+      <label><input name="cardVisible" type="checkbox" ${card.visible !== false ? 'checked' : ''}> Card visible</label>
+      <label>Card order<input name="cardOrder" type="number" value="${escapeHtml(String(card.order ?? 0))}"></label>
+    </details>
+    <details open><summary>Category-wide display settings</summary>
+      <p class="admin-note">These defaults affect products without an individual override.</p>
+      <label>Background image<input name="displayBackgroundImage" value="${escapeHtml(display.backgroundImage || '')}"></label>
+      <label>Background position<input name="displayBackgroundPosition" value="${escapeHtml(display.backgroundPosition || 'center center')}"></label>
+      <label>Standee size %<input name="displayStandeeSizePercent" type="number" value="${escapeHtml(String(display.standeeSizePercent ?? ''))}"></label>
+      <label>Left / right %<input name="displayStandeeLeftPercent" type="number" value="${escapeHtml(String(display.standeeLeftPercent ?? ''))}"></label>
+      <label>Up / down %<input name="displayStandeeVerticalPercent" type="number" value="${escapeHtml(String(display.standeeVerticalPercent ?? ''))}"></label>
+      <label>Logo size %<input name="displayLogoSizePercent" type="number" value="${escapeHtml(String(display.logoSizePercent ?? ''))}"></label>
+      <label>Logo up / down %<input name="displayLogoVerticalPercent" type="number" value="${escapeHtml(String(display.logoVerticalPercent ?? ''))}"></label>
+      <p>${products.length} products total; ${overrideProducts.length} have individual overrides.</p>
+      <div class="admin-inline-category-products">${overrideProducts.map((product) => `<label><input type="checkbox" name="resetOverrideSlugs" value="${escapeHtml(product.slug)}"> ${escapeHtml(product.title || product.slug)}</label>`).join('') || '<small>No products have overrides.</small>'}</div>
+      <button type="button" data-inline-preview-category>Preview Category Changes</button>
+      <button type="button" data-inline-apply-category>Apply to Entire Category</button>
+      <button type="button" data-inline-clear-category-overrides>Update Defaults and Clear All Individual Overrides</button>
+      <button type="button" data-inline-reset-selected-overrides>Reset Selected Products to Category Settings</button>
+      <button type="button" data-inline-reset-category>Reset Category to Global Defaults</button>
+    </details>
+    <button type="submit">Save Category Privately</button>
+  `;
+}
+
+function categoryDisplaySettingsFromForm(form) {
+  const data = new FormData(form);
+  const settings = {
+    backgroundPosition: String(data.get('displayBackgroundPosition') || 'center center').trim() || 'center center'
+  };
+  const image = String(data.get('displayBackgroundImage') || '').trim();
+  if (image) settings.backgroundImage = image;
+  const fields = ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent', 'logoSizePercent', 'logoVerticalPercent'];
+  fields.forEach((field) => {
+    const formName = `display${field.charAt(0).toUpperCase()}${field.slice(1)}`;
+    const value = String(data.get(formName) || '').trim();
+    if (value !== '' && Number.isFinite(Number(value))) settings[field] = Number(value);
+  });
+  return settings;
+}
+
+async function saveInlineCategoryDisplayAction(panel, { clearAll = false, resetSelected = false, resetCategory = false } = {}) {
+  const categoryKey = panel.dataset.recordKey;
+  const baseCategory = panel._baseRecord || {};
+  const products = Object.values(getAdminProducts()).filter((product) => (product.categories || []).includes(categoryKey));
+  const overrideProducts = products.filter((product) => Object.keys(product.displayOverrides || {}).length);
+  let settings = resetCategory ? { backgroundPosition: 'center center' } : categoryDisplaySettingsFromForm(panel.querySelector('form'));
+  if (resetCategory && !window.confirm('Reset this category to the global display defaults?')) return false;
+  if (clearAll && !window.confirm(`Update the category defaults and clear individual overrides for ${overrideProducts.length} product(s)?`)) return false;
+  if (!clearAll && !resetSelected && !resetCategory && !window.confirm(`Save category defaults for ${products.length} product(s)? ${overrideProducts.length} individual override(s) will remain unchanged.`)) return false;
+  const savedCategory = await saveStorefrontCategoryPatch(categoryKey, 'displaySettings', settings, baseCategory);
+  if (!savedCategory) return false;
+  const slugs = clearAll
+    ? overrideProducts.map((product) => product.slug)
+    : resetSelected
+      ? new FormData(panel.querySelector('form')).getAll('resetOverrideSlugs')
+      : [];
+  if (slugs.length) {
+    const patches = Object.fromEntries(slugs.map((slug) => [slug, { displayOverrides: {}, updatedAt: new Date().toISOString() }]));
+    const bases = Object.fromEntries(slugs.map((slug) => [slug, getManagedProductBySlug(slug) || {}]));
+    if (!await saveStorefrontProductPatches(patches, bases)) return false;
+  }
+  return true;
+}
+
+function changedInlineFields(base, candidate, fields) {
+  return Object.fromEntries(fields.flatMap((field) => JSON.stringify(base?.[field]) === JSON.stringify(candidate?.[field]) ? [] : [[field, candidate[field]]]));
+}
+
+async function saveInlineRecordEditor(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const panel = form.closest('#adminInlineRecordEditor');
+  const status = panel.querySelector('[data-inline-record-status]');
+  const data = new FormData(form);
+  const base = panel._baseRecord || {};
+  status.textContent = 'Saving…';
+  if (panel.dataset.recordType === 'category-card') {
+    const candidate = {
+      title: String(data.get('title') || '').trim(),
+      description: String(data.get('description') || '').trim(),
+      page: String(data.get('page') || '').trim(),
+      visible: data.has('visible'),
+      order: Number(data.get('order') || 0)
+    };
+    const cardCandidate = {
+      title: String(data.get('cardTitle') || '').trim(),
+      description: String(data.get('cardDescription') || '').trim(),
+      image: String(data.get('cardImage') || '').trim(),
+      backgroundImage: String(data.get('cardBackgroundImage') || '').trim(),
+      visible: data.has('cardVisible'),
+      order: Number(data.get('cardOrder') || 0)
+    };
+    const displayCandidate = categoryDisplaySettingsFromForm(form);
+    const rootPatch = changedInlineFields(base, candidate, ['title', 'description', 'page', 'visible', 'order']);
+    const cardPatch = changedInlineFields(base.card || {}, cardCandidate, ['title', 'description', 'image', 'backgroundImage', 'visible', 'order']);
+    const displayPatch = JSON.stringify(base.displaySettings || {}) === JSON.stringify(displayCandidate) ? {} : displayCandidate;
+    let saved = true;
+    if (Object.keys(rootPatch).length) saved = await saveStorefrontCategoryPatch(panel.dataset.recordKey, '', rootPatch, base);
+    if (saved && Object.keys(cardPatch).length) {
+      const refreshed = window.mvpluxLiveAdminSettings?.categories?.[panel.dataset.recordKey] || base;
+      saved = await saveStorefrontCategoryPatch(panel.dataset.recordKey, 'card', cardPatch, refreshed);
+    }
+    if (saved && Object.keys(displayPatch).length) {
+      const refreshed = window.mvpluxLiveAdminSettings?.categories?.[panel.dataset.recordKey] || base;
+      saved = await saveStorefrontCategoryPatch(panel.dataset.recordKey, 'displaySettings', displayPatch, refreshed);
+    }
+    status.textContent = saved ? 'Saved privately — customers cannot see this yet.' : 'Save failed — your changes remain in this panel.';
+    if (saved) panel._baseRecord = structuredClone(window.mvpluxLiveAdminSettings?.categories?.[panel.dataset.recordKey] || { ...base, ...rootPatch, card: { ...(base.card || {}), ...cardPatch } });
+    return;
+  }
+
+  const displayOverrides = { ...(base.displayOverrides || {}) };
+  ['backgroundPosition', 'standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent'].forEach((field) => {
+    const value = String(data.get(field) || '').trim();
+    if (!value) delete displayOverrides[field];
+    else displayOverrides[field] = field === 'backgroundPosition' ? value : Number(value);
+  });
+  const candidate = {
+    title: String(data.get('title') || '').trim(),
+    description: String(data.get('description') || '').trim(),
+    funFact: String(data.get('funFact') || '').trim(),
+    originalHeight: String(data.get('originalHeight') || '').trim(),
+    priceOverride: String(data.get('priceOverride') || '').trim() === '' ? null : Number(data.get('priceOverride')),
+    cutoutImage: String(data.get('cutoutImage') || '').trim(),
+    backgroundImage: String(data.get('backgroundImage') || '').trim(),
+    imageChoices: parseInlineImageChoiceLines(data.get('imageChoices')),
+    categories: data.getAll('categories'),
+    visible: data.has('visible'),
+    productOrder: String(data.get('productOrder') || '').trim() === '' ? null : Number(data.get('productOrder')),
+    displayOverrides
+  };
+  const fields = ['title', 'description', 'funFact', 'originalHeight', 'priceOverride', 'cutoutImage', 'backgroundImage', 'imageChoices', 'categories', 'visible', 'productOrder', 'displayOverrides'];
+  const patch = changedInlineFields(base, candidate, fields);
+  if (!Object.keys(patch).length) {
+    status.textContent = 'No changes to save.';
+    return;
+  }
+  patch.updatedAt = new Date().toISOString();
+  patch.draftStatus = 'ready';
+  patch.approvalStatus = 'draft';
+  const saved = await saveStorefrontProductPatch(panel.dataset.recordKey, patch, base);
+  status.textContent = saved ? 'Saved privately — customers cannot see this yet.' : 'Save failed — your changes remain in this panel.';
+  if (saved) panel._baseRecord = structuredClone({ ...base, ...patch });
+}
+
+function openInlineRecordEditor(element = inlineAdminSelectedRecordElement || inlineAdminSelectedImage) {
+  const context = inlineRecordContext(element);
+  if (!context) {
+    updateInlineAdminToolbarState('Select a product or category card first');
+    return;
+  }
+  const panel = ensureInlineRecordEditor();
+  const form = panel.querySelector('[data-inline-record-form]');
+  const status = panel.querySelector('[data-inline-record-status]');
+  status.textContent = '';
+  panel.dataset.recordType = context.type;
+  panel.dataset.recordKey = context.categoryKey || context.slug;
+  if (context.type === 'category-card') {
+    const category = structuredClone(window.mvpluxLiveAdminSettings?.categories?.[context.categoryKey] || {});
+    panel._baseRecord = category;
+    panel.querySelector('[data-inline-record-title]').textContent = `Edit category: ${category.title || context.categoryKey}`;
+    form.innerHTML = inlineCategoryEditorMarkup(category);
+  } else {
+    const product = structuredClone(getManagedProductBySlug(context.slug) || {});
+    panel._baseRecord = product;
+    panel.querySelector('[data-inline-record-title]').textContent = `Edit product: ${product.title || context.slug}`;
+    form.innerHTML = inlineProductEditorMarkup(product);
+  }
+  panel.hidden = false;
+}
+
+async function markSelectedInlineAdminReady() {
+  const element = inlineAdminSelectedRecordElement || inlineAdminSelectedImage;
+  if (!element) {
+    updateInlineAdminToolbarState('Select the edited item first');
+    return false;
+  }
+  updateInlineAdminToolbarState('Saving…');
+  if (!await flushInlineOwnedFieldSaves() || !await flushInlineOwnedDisplaySaves() || !await saveInlineAdminEditsLive()) return false;
+  const context = inlineRecordContext(element);
+  if (context?.type === 'product') {
+    const base = getManagedProductBySlug(context.slug) || {};
+    const saved = await saveStorefrontProductPatch(context.slug, {
+      approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString()
+    }, base);
+    if (saved) updateInlineAdminToolbarState('Ready to publish');
+    return saved;
+  }
+  if (context?.type === 'category-card') {
+    const base = window.mvpluxLiveAdminSettings?.categories?.[context.categoryKey] || {};
+    const saved = await saveStorefrontCategoryPatch(context.categoryKey, '', {
+      approvalStatus: 'approved', draftStatus: 'ready'
+    }, base);
+    if (saved) updateInlineAdminToolbarState('Ready to publish');
+    return saved;
+  }
+  const client = getSupabaseClient();
+  const page = inlineAdminPageKey();
+  const key = inlineAdminKey(element);
+  const { data: row, error: loadError } = await client.from('site_edits').select('edits, revision').eq('page_key', page).maybeSingle();
+  if (loadError) {
+    updateInlineAdminToolbarState(`Error — not saved: ${loadError.message || loadError}`);
+    return false;
+  }
+  const latest = row?.edits?.[key];
+  if (!latest) {
+    updateInlineAdminToolbarState('Save this page edit before marking it Ready');
+    return false;
+  }
+  const { data, error } = await client.rpc('save_site_edits', {
+    p_page_key: page,
+    p_edits: { [key]: { ...latest, approvalStatus: 'approved', updatedAt: new Date().toISOString() } },
+    p_expected_revision: Number(row?.revision) || 0,
+    p_replace: false
+  });
+  if (error) {
+    updateInlineAdminToolbarState(`Error — not saved: ${error.message || error}`);
+    return false;
+  }
+  inlineAdminLiveEdits[page] = data?.edits || { ...(row?.edits || {}), [key]: { ...latest, approvalStatus: 'approved' } };
+  inlineAdminLiveRevisions[page] = Number(data?.revision) || Number(row?.revision || 0) + 1;
+  announceStorefrontAdminSave(page, inlineAdminLiveRevisions[page], [key]);
+  updateInlineAdminToolbarState('Ready to publish');
+  return true;
+}
+
 var runInlineAdminToolbarAction = function (action) {
   const now = Date.now();
   if (inlineAdminLastToolbarAction.action === action && now - inlineAdminLastToolbarAction.time < 250) return;
@@ -6086,6 +6924,8 @@ var runInlineAdminToolbarAction = function (action) {
   if (action === 'reset-image') resetSelectedInlineAdminImage();
   if (action === 'lock-image') toggleSelectedInlineAdminImageLock();
   if (action === 'unlock-all-images') unlockAllInlineAdminImages();
+  if (action === 'edit-selected-record') openInlineRecordEditor();
+  if (action === 'mark-selected-ready') void markSelectedInlineAdminReady();
   if (action === 'center') {
     centerSelectedInlineAdminImage();
   }
@@ -6198,13 +7038,40 @@ function fileToSmallDataUrl(file) {
   });
 }
 
-function replaceInlineAdminImage(image) {
+async function replaceInlineAdminImage(image) {
   if (!image) {
     updateInlineAdminToolbarState('Select an image first');
     return;
   }
   if (image._adminImageState?.locked) {
     updateInlineAdminToolbarState('Image locked');
+    return;
+  }
+
+  if (newStorefrontAdminArchitectureEnabled()) {
+    const current = image.getAttribute('src') || '';
+    const path = window.prompt('Enter an existing repository image path beginning with images/', current)?.trim();
+    if (!path) return;
+    if (!/^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i.test(path) || path.includes('..') || path.includes('\\')) {
+      updateInlineAdminToolbarState('Error — use a safe repository image path beginning with images/');
+      return;
+    }
+    const before = getInlineAdminSnapshot(image);
+    image.src = path;
+    const owned = inlineAdminOwnedField(image);
+    if (owned) {
+      const saved = await saveAdminProductImageFromElement(image);
+      if (!saved) {
+        image.src = current;
+        updateInlineAdminToolbarState('Error — image assignment was not saved');
+        return;
+      }
+      saveInlineAdminEdit(image, { ...(image._adminImageState || {}) });
+    } else {
+      saveInlineAdminEdit(image, { src: path, ...(image._adminImageState || {}) });
+    }
+    pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
+    updateInlineAdminToolbarState('Saved Privately');
     return;
   }
 
@@ -6239,6 +7106,10 @@ function replaceSelectedInlineAdminImage() {
 }
 
 function turnOffInlineAdminMode() {
+  if (adminArchitectureViewModesEnabled()) {
+    setAdminViewMode('preview');
+    return;
+  }
   localStorage.removeItem('mvpluxAdminAnywhere');
   showSiteMessage('Admin Mode is off. Reloading normal view.', 'success');
   window.setTimeout(() => window.location.reload(), 450);
@@ -6278,6 +7149,8 @@ function installInlineAdminMode() {
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onpointerdown="runInlineAdminToolbarAction('rotate-right'); return false;" onclick="runInlineAdminToolbarAction('rotate-right'); return false;">Rotate +</button>
       </div>
       <div class="admin-toolbar-group admin-toolbar-page">
+        ${newStorefrontAdminArchitectureEnabled() ? '<button type="button" class="admin-tool-control" data-admin-toolbar-action="edit-selected-record" title="Edit the selected product or category">Edit Product</button>' : ''}
+        <button type="button" class="admin-tool-control" data-admin-toolbar-action="mark-selected-ready" title="Mark the selected saved change Ready to publish">Mark Ready</button>
         <a href="admin.html#create-card">Add Card</a>
         <a href="admin.html">Orders/Admin</a>
         <details class="admin-toolbar-more"><summary>More</summary><div>
@@ -6373,6 +7246,7 @@ function installInlineAdminMode() {
       element.spellcheck = false;
       element.classList.add('admin-editable-text');
       element.addEventListener('focus', () => {
+        inlineAdminSelectedRecordElement = element;
         element._adminBeforeSnapshot = getInlineAdminSnapshot(element);
       });
       element.addEventListener('click', (event) => {
@@ -6383,10 +7257,16 @@ function installInlineAdminMode() {
       }, true);
       element.addEventListener('input', () => {
         if (syncOriginalSizeFromEditedText(element)) return;
+        const owned = inlineAdminOwnedField(element);
+        if (owned) {
+          scheduleInlineOwnedFieldSave(element, owned, element.textContent.trim());
+          return;
+        }
         saveInlineAdminEdit(element, { text: element.textContent.trim() });
       });
-      element.addEventListener('blur', () => {
+      element.addEventListener('blur', async () => {
         syncOriginalSizeFromEditedText(element);
+        if (element.dataset.adminOwnedDirty === 'true') await flushInlineOwnedFieldSaves();
         pushInlineAdminHistory(element._adminBeforeSnapshot, getInlineAdminSnapshot(element));
         delete element._adminBeforeSnapshot;
       });
@@ -6411,7 +7291,11 @@ function installInlineAdminMode() {
       ensureInlineAdminImageBaseTransform(image);
       image.classList.add('admin-editable-image');
       if (!isInlineAdminBackgroundImage(image)) image.classList.add('admin-transformable-image');
-      const saved = getInlineAdminPageEdits()[inlineAdminKey(image)] || {};
+      const owned = inlineAdminOwnedField(image);
+      const productDisplay = owned?.type === 'product'
+        ? getManagedProductBySlug(owned.slug)?.displayOverrides?.imageTransform
+        : null;
+      const saved = productDisplay || getInlineAdminPageEdits()[inlineAdminKey(image)] || {};
       image._adminImageState = {
         x: safeAdminImageNumber(saved.x, 0, -140, 140),
         y: safeAdminImageNumber(saved.y, 0, -140, 140),
@@ -6713,6 +7597,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   normalizeFrontPageCategoryLinks();
   await loadPublishedAdminSettings();
   await loadLiveAdminSettings().catch(() => {});
+  if (localStorage.getItem('mvpluxIsAdminApproved') === 'true') refreshAdminViewControls();
+  renderAdminViewModeLabel();
   bindProductCarouselDragGuard();
   bindBuyerImagePurchaseJumps();
   bindFanCardCommerce();
@@ -6734,10 +7620,18 @@ document.addEventListener('DOMContentLoaded', async function () {
 
   applyAdminExtraImages();
   applyInlineAdminEdits();
+
+    window.addEventListener('beforeunload', (event) => {
+      if (!inlineAdminHasUnsavedLocalChanges) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
   renderAdminManagedCards();
   applyHomepageCategoryCardOrder();
   applyInlineHiddenCards();
   renderManagedCategoryPageProducts();
+  setupDynamicCategoryPage();
+  renderNormalizedHomepageCategoryCards();
   renderStandeeDetailPage();
   setupGenericCategoryShowroom();
   initSportsShowroom();

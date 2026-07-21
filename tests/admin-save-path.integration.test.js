@@ -36,6 +36,10 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
     "const adminStateUtilsPromise = import('./admin-state-utils.js');",
     'const adminStateUtilsPromise = Promise.resolve(adminUtils);'
   );
+  source = source.replace(
+    "const adminArchitecturePromise = import('./admin-architecture.js');",
+    'const adminArchitecturePromise = Promise.resolve({});'
+  );
   const document = {
     body: emptyElement(),
     addEventListener() {},
@@ -65,6 +69,10 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
         saveStorefrontListMembershipPatch,
         saveInlineAdminEditsLive,
         getAdminProducts,
+        getAdminViewMode,
+        shouldUsePrivateAdminState,
+        getInlineAdminPageEdits,
+        withoutProductOwnedPageValues,
         __setConflictSink(fn) { showStorefrontAdminConflict = fn; },
         __setInlineState(page, live, revision, draft, dirty, versions, base) {
           window.location.pathname = '/' + page;
@@ -100,6 +108,10 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
     "const adminStateUtilsPromise = import('./admin-state-utils.js');",
     'const adminStateUtilsPromise = Promise.resolve(adminUtils);'
   );
+  source = source.replace(
+    "const adminArchitecturePromise = import('./admin-architecture.js');",
+    'const adminArchitecturePromise = Promise.resolve({});'
+  );
   const document = {
     body: emptyElement(),
     addEventListener() {},
@@ -133,7 +145,18 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
         saveAdminImageDraftPatch,
         applyAdminExport,
         writeCoupons,
+        buildNormalizedPublishSnapshot,
+        architectureReviewItems,
+        buildSelectedArchitectureSnapshot,
+        automaticPublishImagePaths,
+        allAdminProducts,
         __setLive(edits, revision) { adminLiveSettings = structuredClone(edits); adminLiveRevision = revision; },
+        __setArchitectureState(settings, published = {}, pages = {}) {
+          adminArchitectureState = { feature: { enabled: true }, diagnostics: {} };
+          adminLiveSettings = structuredClone(settings);
+          adminPublishedBaseline = structuredClone(published);
+          adminPageLiveEdits = structuredClone(pages);
+        },
         __setConflictSink(fn) { showProductSaveConflict = fn; }
       };
     `
@@ -289,6 +312,44 @@ Deno.test('actual storefront state ignores stale product localStorage after live
   assert(helpers.getAdminProducts().p.title === 'Server', 'live state must defeat stale product backup');
 });
 
+Deno.test('new architecture prevents page rows from overriding product content but preserves geometry', async () => {
+  const client = adminGlobalClient([{ edits: {}, revision: 1 }], async () => ({ data: {}, error: null }));
+  const { helpers, window } = await loadActualStorefrontHelpers({ client });
+  window.mvpluxLiveAdminSettings = { adminArchitectureV2: { enabled: true } };
+  const filtered = helpers.withoutProductOwnedPageValues({
+    'product-alpha-title-link': { text: 'Stale page title' },
+    'product-alpha-description': { text: 'Stale page description' },
+    'product-height-alpha': { type: 'originalHeight', originalHeight: 72 },
+    'product-alpha-product-cutout': { src: 'images/stale.png', x: 9, y: 2, scale: 1.1, rotate: 3 },
+    'page-heading': { text: 'Page heading' }
+  });
+  assert(!filtered['product-alpha-title-link'], 'product title override must be ignored');
+  assert(!filtered['product-alpha-description'], 'product description override must be ignored');
+  assert(!filtered['product-height-alpha'], 'product height override must be ignored');
+  assert(!('src' in filtered['product-alpha-product-cutout']), 'product image source must be ignored');
+  assert(filtered['product-alpha-product-cutout'].x === 9, 'page-specific product geometry must remain');
+  assert(filtered['page-heading'].text === 'Page heading', 'page-owned content must remain');
+});
+
+Deno.test('three Admin view modes separate private preview from published customer state', async () => {
+  const storage = memoryStorage({ mvpluxIsAdminApproved: 'true', mvpluxAdminViewModeV2: 'preview' });
+  const client = adminGlobalClient([{ edits: {}, revision: 1 }], async () => ({ data: {}, error: null }));
+  const { helpers, window } = await loadActualStorefrontHelpers({ client, storage });
+  window.mvpluxLiveAdminSettings = {
+    adminArchitectureV2: { enabled: true },
+    products: { alpha: { title: 'Private title' } }
+  };
+  window.mvpluxLiveAdminStateLoaded = true;
+  window.mvpluxPublishedAdminSettings = { products: { alpha: { title: 'Published title' } } };
+  assert(helpers.getAdminViewMode() === 'preview', 'preview mode should be selected');
+  assert(helpers.shouldUsePrivateAdminState() === true, 'preview should use saved private state');
+  assert(helpers.getAdminProducts().alpha.title === 'Private title', 'preview should render private product data');
+
+  storage.setItem('mvpluxAdminViewModeV2', 'published');
+  assert(helpers.shouldUsePrivateAdminState() === false, 'published mode must not read private state');
+  assert(helpers.getAdminProducts().alpha.title === 'Published title', 'published mode should render only published product data');
+});
+
 Deno.test('actual publish snapshot source uses persisted homepage edits rather than localStorage', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const start = source.indexOf('function buildCurrentPublishSnapshot()');
@@ -435,4 +496,80 @@ Deno.test('actual full import awaits authoritative global and page writes before
   assert(calls[0].p_page_key === 'admin-global', 'global import must use authoritative Admin row');
   assert(calls[1].p_page_key === 'index.html' && calls[1].p_replace === true, 'controlled page restore must use authoritative page RPC');
   assert(JSON.parse(storage.snapshot().mvpluxInlineAdminEdits)['index.html'].heading.text === 'Imported heading', 'local recovery updates only after writes complete');
+});
+
+Deno.test('normalized publish snapshot excludes unapproved private edits and preserves published values', async () => {
+  const client = adminGlobalClient([], async () => ({ data: null, error: null }));
+  const { helpers } = await loadActualAdminHelpers({ client });
+  helpers.__setArchitectureState({
+    products: {
+      existing: { slug: 'existing', title: 'Private draft', cutoutImage: 'images/existing.png', categories: [], visible: true, approvalStatus: 'draft' },
+      approved: { slug: 'approved', title: 'Approved new', cutoutImage: 'images/approved.png', categories: [], visible: true, approvalStatus: 'approved' }
+    },
+    categories: {
+      old: { key: 'old', title: 'Private category draft', card: {}, displaySettings: {}, approvalStatus: 'draft' },
+      fresh: { key: 'fresh', title: 'Approved category', card: {}, displaySettings: {}, approvalStatus: 'approved' }
+    },
+    globalDisplaySettings: { backgroundPosition: 'center center' },
+    priceSettings: {}, extraImages: {}, savedForLaterProducts: [], deletedProducts: [], ignoredImagePaths: []
+  }, {
+    version: 1, schemaVersion: 1,
+    products: { existing: { slug: 'existing', title: 'Published title', cutoutImage: 'images/existing.png', categories: [], visible: true } },
+    categories: { old: { key: 'old', title: 'Published category', card: {}, displaySettings: {} } },
+    categoryDisplayCards: {}, pageContent: { 'index.html': { heading: { text: 'Published heading' } } },
+    pageVisualStates: {}, extraImages: {}, priceSettings: {}
+  }, {
+    'index.html': {
+      heading: { text: 'Private draft heading', approvalStatus: 'draft' },
+      intro: { text: 'Approved intro', approvalStatus: 'approved' }
+    }
+  });
+  const snapshot = helpers.buildNormalizedPublishSnapshot();
+  assert(snapshot.products.existing.title === 'Published title', 'unapproved existing product edit must preserve published value');
+  assert(snapshot.products.approved.title === 'Approved new', 'approved new product must enter snapshot');
+  assert(snapshot.categories.old.title === 'Published category', 'unapproved category edit must preserve published value');
+  assert(snapshot.categories.fresh.title === 'Approved category', 'approved category must enter snapshot');
+  assert(snapshot.pageContent['index.html'].heading.text === 'Published heading', 'unapproved page edit must preserve published content');
+  assert(snapshot.pageContent['index.html'].intro.text === 'Approved intro', 'approved page edit must enter snapshot');
+});
+
+Deno.test('selected publishing includes only chosen Ready records and their required images', async () => {
+  const client = adminGlobalClient([], async () => ({ data: null, error: null }));
+  const { helpers } = await loadActualAdminHelpers({ client });
+  const published = {
+    version: 1,
+    schemaVersion: 2,
+    products: { existing: { slug: 'existing', title: 'Published', cutoutImage: 'images/existing.png', imageChoices: [], categories: [] } },
+    categoryDisplayCards: {}, categories: {}, categorySettings: {}, globalDisplaySettings: {},
+    pageContent: {}, pageVisualStates: {}, extraImages: {}, deletedProducts: [], ignoredImagePaths: [], homepageCategoryOrder: []
+  };
+  helpers.__setArchitectureState({
+    products: {
+      'jayson-tatum-terminator': {
+        slug: 'jayson-tatum-terminator', title: 'Jayson Tatum Terminator',
+        cutoutImage: 'images/FanRequestStandees/JTTerminator/JT12nobackground.png',
+        backgroundImage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg',
+        imageChoices: [], categories: ['sports'], visible: true,
+        approvalStatus: 'approved', draftStatus: 'ready'
+      },
+      unfinished: { slug: 'unfinished', title: 'Private draft', imageChoices: [], categories: [], approvalStatus: 'draft' }
+    },
+    categories: {}
+  }, published);
+  const jayson = helpers.architectureReviewItems().find((item) => item.id === 'product:jayson-tatum-terminator');
+  assert(jayson?.approved, 'Ready product must be selectable without a second Review approval');
+  const snapshot = helpers.buildSelectedArchitectureSnapshot([jayson]);
+  assert(snapshot.products['jayson-tatum-terminator']?.categories?.includes('sports'), 'selected product and category assignment must enter snapshot');
+  assert(!snapshot.products.unfinished, 'unselected draft must remain private');
+  assert(snapshot.products.existing?.title === 'Published', 'unchanged published products must remain in snapshot');
+  const images = helpers.automaticPublishImagePaths([jayson], snapshot);
+  assert(images.includes('images/FanRequestStandees/JTTerminator/JT12nobackground.png'), 'new selected product image must be included automatically');
+});
+
+Deno.test('legacy Admin snapshot inventory includes normalized products with new slugs', async () => {
+  const client = adminGlobalClient([], async () => ({ data: null, error: null }));
+  const { helpers, window } = await loadActualAdminHelpers({ client });
+  window.MVPLUX_PRODUCT_CATALOG = [{ slug: 'existing', title: 'Existing' }];
+  helpers.__setLive({ products: { 'new-product': { slug: 'new-product', title: 'New Product' } } }, 1);
+  assert(helpers.allAdminProducts().some((product) => product.slug === 'new-product'), 'new normalized product must not be omitted when the feature flag is off');
 });

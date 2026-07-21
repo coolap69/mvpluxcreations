@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260716-product-publishing" />
+  <link rel="stylesheet" href="style.css?v=20260721-admin-workspace" />
 </head>
-<body>
+<body class="admin-shell">
   <header class="top-nav">
     <div class="brand"></div>
     <nav>
@@ -28,54 +28,190 @@
       <p>Change product card text, images, original heights, and coupons without editing code. Original prices calculate automatically from height.</p>
     </section>
 
-    <section class="admin-panel">
+    <button id="adminNavToggle" class="admin-nav-toggle" type="button" aria-expanded="false" aria-controls="adminWorkspaceNav">Admin Menu</button>
+    <nav id="adminWorkspaceNav" class="admin-workspace-nav" aria-label="Admin areas">
+      <a href="#dashboard">Dashboard</a>
+      <a href="#orders">Orders &amp; Offers</a>
+      <a href="#create-content">Create</a>
+      <a href="#new-image-drafts">Image Imports</a>
+      <a href="#category-display-cards">Categories</a>
+      <a href="#approved-products">Review Changes</a>
+      <a href="#publish-changes">Publish</a>
+      <a href="#admin-settings">Settings</a>
+      <a href="#recovery-advanced">Recovery / Advanced</a>
+    </nav>
+
+    <section class="admin-panel admin-section-card" id="dashboard" data-admin-area="dashboard">
+      <div class="admin-panel-header"><h2>Dashboard</h2><span data-admin-dashboard-flag></span></div>
+      <div id="adminArchitectureStatus" class="admin-architecture-status" aria-live="polite"></div>
+      <div id="adminDashboardSummary" class="admin-dashboard-summary"></div>
+      <div class="admin-quick-actions" aria-label="Dashboard quick actions">
+        <a class="admin-button admin-button-primary" href="#new-image-drafts">Create Product</a>
+        <a class="admin-button admin-button-primary" href="#create-content" data-create-focus="category">Create Category</a>
+        <a class="admin-button admin-button-secondary" href="#new-image-drafts">Image Imports</a>
+        <a class="admin-button admin-button-secondary" href="#approved-products">Review Pending Changes</a>
+        <a class="admin-button admin-button-secondary" href="index.html?adminView=preview" target="_blank">Preview Pending Changes</a>
+        <a class="admin-button admin-button-secondary" href="index.html?adminView=published" target="_blank">View Published Website</a>
+        <a class="admin-button admin-button-secondary" href="#recovery-advanced">Recovery Tools</a>
+      </div>
+    </section>
+
+    <section class="admin-panel" id="orders" data-admin-area="orders" hidden>
       <div class="admin-panel-header">
         <h2>Orders & Offers</h2>
         <div class="admin-panel-actions">
-          <button id="refreshCommerceAdmin" type="button">Refresh</button>
+          <button id="refreshCommerceAdmin" type="button">Retry</button>
+          <button id="checkCommerceConnection" type="button">Check Connection</button>
         </div>
       </div>
-      <p class="admin-note">Review checkout requests and offers saved from the live website. If these do not load, run the admin SQL shown in <strong>supabase-schema.sql</strong> for your logged-in Supabase user.</p>
+      <p class="admin-note">View customer checkout requests and offers received from the website.</p>
       <div id="adminSignedInAs" class="admin-status"></div>
-      <div id="adminTestModeWarning" class="admin-test-mode-warning" hidden>TEST MODE — No real payment will be requested, sent, captured, or recorded.</div>
-      <form id="adminTestModeForm" class="admin-test-mode-form">
-        <label><input id="adminTestModeEnabled" type="checkbox"> Enable Admin Test Mode</label>
-        <label>Simulated customer
-          <select id="adminTestCustomerType">
-            <option value="guest">Guest</option>
-            <option value="member">Signed-in member</option>
-          </select>
-        </label>
-        <button type="submit">Save Test Mode</button>
-      </form>
       <div id="commerceAdminStatus" class="admin-status"></div>
-      <div class="admin-commerce-section">
+      <div class="admin-commerce-tabs" role="tablist" aria-label="Orders and offers views">
+        <button type="button" data-commerce-tab="new-orders" class="active">New Orders</button>
+        <button type="button" data-commerce-tab="offers">Offers</button>
+        <button type="button" data-commerce-tab="awaiting">Awaiting Response</button>
+        <button type="button" data-commerce-tab="completed">Completed</button>
+        <button type="button" data-commerce-tab="archived">Archived</button>
+      </div>
+      <div class="admin-commerce-section" data-commerce-panel="offers" hidden>
         <div class="admin-panel-header">
           <h3>Offers</h3>
-          <button id="deleteAllTestOffers" type="button">Delete All Test Offers</button>
         </div>
         <div class="admin-commerce-queues">
           <section><h4>Pending</h4><div id="adminOffersPending" class="admin-commerce-list"></div></section>
-          <section><h4>Counteroffers</h4><div id="adminOffersCountered" class="admin-commerce-list"></div></section>
-          <section><h4>Accepted / Awaiting Payment</h4><div id="adminOffersAccepted" class="admin-commerce-list"></div></section>
-          <section><h4>Completed / Paid</h4><div id="adminOffersPaid" class="admin-commerce-list"></div></section>
           <section><h4>Declined</h4><div id="adminOffersDeclined" class="admin-commerce-list"></div></section>
-          <section><h4>Archived</h4><div id="adminOffersArchived" class="admin-commerce-list"></div></section>
         </div>
       </div>
-      <div class="admin-commerce-section">
-        <h3>Orders</h3>
+      <div class="admin-commerce-section" data-commerce-panel="awaiting" hidden>
+        <h3>Awaiting Response</h3>
+        <div class="admin-commerce-queues">
+          <section><h4>Counteroffers</h4><div id="adminOffersCountered" class="admin-commerce-list"></div></section>
+          <section><h4>Accepted / Awaiting Payment</h4><div id="adminOffersAccepted" class="admin-commerce-list"></div></section>
+        </div>
+      </div>
+      <div class="admin-commerce-section" data-commerce-panel="new-orders">
+        <h3>New Orders</h3>
         <div class="admin-commerce-queues">
           <section><h4>New Orders</h4><div id="adminOrdersNew" class="admin-commerce-list"></div></section>
           <section><h4>In Production</h4><div id="adminOrdersProduction" class="admin-commerce-list"></div></section>
           <section><h4>Shipped</h4><div id="adminOrdersShipped" class="admin-commerce-list"></div></section>
-          <section><h4>Completed</h4><div id="adminOrdersCompleted" class="admin-commerce-list"></div></section>
-          <section><h4>Archived</h4><div id="adminOrdersArchived" class="admin-commerce-list"></div></section>
         </div>
+      </div>
+      <div class="admin-commerce-section" data-commerce-panel="completed" hidden>
+        <h3>Completed</h3>
+        <div class="admin-commerce-queues">
+          <section><h4>Paid Offers</h4><div id="adminOffersPaid" class="admin-commerce-list"></div></section>
+          <section><h4>Completed</h4><div id="adminOrdersCompleted" class="admin-commerce-list"></div></section>
+        </div>
+      </div>
+      <div class="admin-commerce-section" data-commerce-panel="archived" hidden>
+        <h3>Archived</h3>
+        <div class="admin-commerce-queues">
+          <section><h4>Archived Offers</h4><div id="adminOffersArchived" class="admin-commerce-list"></div></section>
+          <section><h4>Archived Orders</h4><div id="adminOrdersArchived" class="admin-commerce-list"></div></section>
+        </div>
+      </div>
+      <details class="admin-technical-details"><summary>Show Technical Details</summary><p id="commerceTechnicalDetails">Connection details appear here only when loading fails.</p></details>
+    </section>
+
+    <section class="admin-panel" id="create-content" data-admin-area="create-content" hidden>
+      <div class="admin-panel-header">
+        <div>
+          <h2>Create</h2>
+          <p class="admin-note">Use Image Imports for the fastest new-product workflow. These manual builders remain available for special cases. Existing website content is edited from the website in Edit Mode.</p>
+        </div>
+      </div>
+      <div class="admin-create-workspaces">
+        <form id="createProductForm" class="admin-create-form admin-visual-builder" data-builder="product">
+          <div class="admin-builder-preview-panel">
+            <div><p class="admin-eyebrow">Live preview</p><h3>Create New Product</h3></div>
+            <div class="admin-create-preview" data-create-product-preview></div>
+            <p class="admin-note">Your preview updates as you work. Customers cannot see it until you publish.</p>
+          </div>
+          <div class="admin-builder-form-panel">
+            <h3>Product Details</h3>
+            <p class="admin-note" data-builder-availability>This saves privately. Customers cannot see it until it is approved and published.</p>
+            <div class="admin-input-group">
+              <label>Choose Main Image<select name="cutoutImage" data-admin-image-picker="product" required><option value="">Choose an image…</option></select></label>
+              <label>Title<input name="title" type="text" required placeholder="Example: Basketball Legend Standee"></label>
+              <label>Description<textarea name="description" rows="3" placeholder="Short customer-friendly description"></textarea></label>
+              <label>Fun Fact<textarea name="funFact" rows="2" placeholder="Optional interesting detail"></textarea></label>
+            </div>
+            <label>Original Height<input name="originalHeight" type="text" placeholder="Example: 6'6" required></label>
+            <label>Choose Background<select name="backgroundImage" data-admin-image-picker="background"><option value="">Use the clean showroom background</option></select></label>
+            <fieldset><legend>Choose Category</legend><div class="admin-category-options" data-create-product-categories></div></fieldset>
+            <details class="admin-advanced-fields"><summary>Advanced</summary>
+              <label>Price Override <span>(optional)</span><input name="priceOverride" type="number" min="0" step="0.01" placeholder="Automatic when blank"></label>
+              <label>Add Image Choices <span>(optional)</span><select name="imageChoicePicker" data-admin-image-picker="choices" multiple size="4"></select></label>
+              <label class="admin-visible-toggle"><input name="visible" type="checkbox" checked> Visible after publication</label>
+              <fieldset class="admin-display-controls"><legend>Placement and Logo</legend>
+                <label>Standee Size<input name="standeeSizePercent" type="range" min="20" max="140" step="1" value="63"></label>
+                <label>Left / Right<input name="standeeLeftPercent" type="range" min="-50" max="50" step="1" value="0"></label>
+                <label>Up / Down<input name="standeeVerticalPercent" type="range" min="-50" max="50" step="1" value="0"></label>
+                <label>Background Position<select name="backgroundPosition"><option value="center center">Center</option><option value="left center">Left</option><option value="right center">Right</option><option value="center top">Top</option><option value="center bottom">Bottom</option></select></label>
+                <label>Logo Size<input name="logoSizePercent" type="range" min="20" max="140" step="1" value="82"></label>
+                <label>Logo Up / Down<input name="logoVerticalPercent" type="range" min="-40" max="40" step="1" value="-4"></label>
+              </fieldset>
+              <label>Product slug<input name="slug" type="text" placeholder="Generated from the title"></label>
+              <label>Additional image choices<textarea name="imageChoices" rows="3" placeholder="Optional: Label | repository image path"></textarea></label>
+            </details>
+            <div class="admin-panel-actions">
+              <button class="admin-button admin-button-secondary" type="submit" value="draft">Save Draft</button>
+              <button class="admin-button admin-button-secondary" type="button" data-preview-new-product>Preview</button>
+              <button class="admin-button admin-button-primary" type="submit" value="approve">Mark Ready</button>
+              <button class="admin-button admin-button-secondary" type="button" data-open-created-product disabled>Open on Website</button>
+              <button class="admin-button admin-button-warning" type="reset">Reset</button>
+            </div>
+            <p class="admin-status" data-create-product-status aria-live="polite"></p>
+          </div>
+        </form>
+
+        <form id="createCategoryForm" class="admin-create-form admin-visual-builder" data-builder="category">
+          <div class="admin-builder-preview-panel">
+            <div><p class="admin-eyebrow">Live preview</p><h3>Create New Category</h3></div>
+            <div class="admin-create-preview" data-create-category-preview></div>
+            <p class="admin-note">This preview uses the same card shape customers see on the storefront.</p>
+          </div>
+          <div class="admin-builder-form-panel">
+            <h3>Category Details</h3>
+            <p class="admin-note" data-builder-availability>This saves privately. Customers cannot see it until it is approved and published.</p>
+            <div class="admin-input-group">
+              <label>Category Title<input name="title" type="text" required placeholder="Example: Sports Legends"></label>
+              <label>Description<textarea name="description" rows="3" placeholder="What customers will find in this collection"></textarea></label>
+              <label>Fun Fact <span>(optional)</span><textarea name="funFact" rows="2"></textarea></label>
+            </div>
+            <label>Category Card Image<select name="cardImage" data-admin-image-picker="category"><option value="">Choose an image…</option></select></label>
+            <label>Category Card Background<select name="cardBackgroundImage" data-admin-image-picker="background"><option value="">Use the clean showroom background</option></select></label>
+            <label>Order<input name="order" type="number" min="0" step="1" value="999"></label>
+            <details class="admin-advanced-fields"><summary>Advanced</summary>
+              <label class="admin-visible-toggle"><input name="visible" type="checkbox" checked> Visible after publication</label>
+              <fieldset class="admin-display-controls"><legend>Category Display Settings</legend>
+                <label>Background Image<select name="backgroundImage" data-admin-image-picker="background"><option value="">Use card background</option></select></label>
+                <label>Background Position<select name="backgroundPosition"><option value="center center">Center</option><option value="left center">Left</option><option value="right center">Right</option><option value="center top">Top</option><option value="center bottom">Bottom</option></select></label>
+                <label>Standee Size<input name="standeeSizePercent" type="range" min="20" max="140" step="1" value="63"></label>
+                <label>Left / Right<input name="standeeLeftPercent" type="range" min="-50" max="50" step="1" value="0"></label>
+                <label>Up / Down<input name="standeeVerticalPercent" type="range" min="-50" max="50" step="1" value="0"></label>
+                <label>Logo Size<input name="logoSizePercent" type="range" min="20" max="140" step="1" value="82"></label>
+                <label>Logo Up / Down<input name="logoVerticalPercent" type="range" min="-40" max="40" step="1" value="-4"></label>
+              </fieldset>
+              <label>Category key<input name="key" type="text" placeholder="Generated from the title"></label>
+              <label>Page<input name="page" type="text" placeholder="Reusable category page is selected automatically"></label>
+            </details>
+            <div class="admin-panel-actions">
+              <button class="admin-button admin-button-secondary" type="submit" value="draft">Save Draft</button>
+              <button class="admin-button admin-button-secondary" type="button" data-preview-new-category>Preview</button>
+              <button class="admin-button admin-button-primary" type="submit" value="approve">Mark Ready</button>
+              <button class="admin-button admin-button-secondary" type="button" data-open-created-category disabled>Open on Website</button>
+              <button class="admin-button admin-button-warning" type="reset">Reset</button>
+            </div>
+            <p class="admin-status" data-create-category-status aria-live="polite"></p>
+          </div>
+        </form>
       </div>
     </section>
 
-    <section class="admin-panel" id="new-image-drafts">
+    <section class="admin-panel" id="new-image-drafts" data-admin-area="new-image-drafts" hidden>
       <div class="admin-panel-header">
         <div>
           <h2>Image Import Center</h2>
@@ -92,29 +228,28 @@
           </div>
           <div class="admin-panel-actions">
             <button id="saveSelectedImageDrafts" type="button">Save For Later</button>
-            <button id="publishSelectedImageDrafts" type="button">Publish Selected</button>
-            <button id="publishAllImageDrafts" type="button">Publish All</button>
+            <button id="publishSelectedImageDrafts" type="button">Publish Selected / Go Live</button>
+            <button id="publishAllImageDrafts" type="button">Publish All Ready Images</button>
           </div>
         </div>
         <div id="adminImagePendingChanges" class="admin-image-pending-list"></div>
       </div>
     </section>
 
-    <section class="admin-panel" id="approved-products">
+    <section class="admin-panel" id="approved-products" data-admin-area="approved-products" hidden>
       <div class="admin-panel-header">
         <div>
-          <h2>Approved — Waiting to Publish</h2>
-          <p class="admin-note">Approved products absent from, or changed since, the last successful published snapshot.</p>
+          <h2>Review Changes <span>(optional)</span></h2>
+          <p class="admin-note">Inspect private changes, return them to Draft, or select Ready items for publishing. Ready items do not require another approval here.</p>
         </div>
         <div class="admin-panel-actions">
-          <button id="createAdminProduct" type="button">Create New Product</button>
+          <a href="#create-content" class="admin-button admin-button-primary">Create New Product</a>
         </div>
       </div>
-      <div id="savedProducts" class="admin-saved-products"></div>
       <div id="approvedProducts" class="admin-product-list"></div>
     </section>
 
-    <section class="admin-panel" id="published-products">
+    <section class="admin-panel" id="published-products" data-admin-area="approved-products" hidden>
       <div class="admin-panel-header">
         <div>
           <h2>Published Products</h2>
@@ -124,7 +259,7 @@
       <div id="publishedProducts" class="admin-product-list"></div>
     </section>
 
-    <section class="admin-panel" id="category-display-cards">
+    <section class="admin-panel" id="category-display-cards" data-admin-area="category-display-cards" hidden>
       <div class="admin-panel-header">
         <h2>Category Display Cards</h2>
         <div class="admin-panel-actions">
@@ -137,7 +272,19 @@
       <div id="adminProducts" class="admin-product-list"></div>
     </section>
 
-    <section class="admin-panel">
+    <section class="admin-panel" id="recovery-advanced" data-admin-area="recovery-advanced" hidden>
+      <details id="adminRecoveryDetails">
+        <summary><strong>Recovery / Advanced</strong></summary>
+        <div id="adminArchitectureRecovery"></div>
+        <details id="legacyRecoveryEditor" class="admin-legacy-recovery">
+          <summary><strong>Legacy Recovery Editor</strong></summary>
+          <p class="admin-warning-message"><strong>This editor is for recovery only.</strong> Edit existing products directly on the website whenever possible.</p>
+          <div id="legacyRecoveryProducts" class="admin-product-list"></div>
+        </details>
+      </details>
+    </section>
+
+    <section class="admin-panel" id="admin-settings" data-admin-area="admin-settings" hidden>
       <div class="admin-panel-header">
         <h2>Price Rules</h2>
       </div>
@@ -166,7 +313,26 @@
       </form>
     </section>
 
-    <section class="admin-panel">
+    <section class="admin-panel" id="admin-testing-tools" data-admin-area="admin-settings" hidden>
+      <details>
+        <summary><strong>Testing</strong></summary>
+        <p class="admin-note">Testing tools are separated from real orders and offers.</p>
+        <div id="adminTestModeWarning" class="admin-test-mode-warning" hidden>TEST MODE — No real payment will be requested, sent, captured, or recorded.</div>
+        <form id="adminTestModeForm" class="admin-test-mode-form">
+          <label><input id="adminTestModeEnabled" type="checkbox"> Enable Admin Test Mode</label>
+          <label>Simulated customer
+            <select id="adminTestCustomerType">
+              <option value="guest">Guest</option>
+              <option value="member">Signed-in member</option>
+            </select>
+          </label>
+          <button type="submit">Save Test Mode</button>
+        </form>
+        <button id="deleteAllTestOffers" class="admin-button admin-button-danger" type="button">Delete All Test Offers</button>
+      </details>
+    </section>
+
+    <section class="admin-panel" data-admin-area="admin-settings" hidden>
       <div class="admin-panel-header">
         <h2>Most Wanted + Gallery Images</h2>
         <button id="resetExtraImages" type="button">Clear Image Edits</button>
@@ -175,11 +341,11 @@
       <div id="adminExtraImages" class="admin-extra-image-list"></div>
     </section>
 
-    <section class="admin-panel" id="discount-codes">
+    <section class="admin-panel" id="discount-codes" data-admin-area="admin-settings" hidden>
       <div class="admin-panel-header">
         <h2>Special Discount Codes</h2>
       </div>
-      <p class="admin-note">Codes are validated by Supabase when an order is submitted. Coupons do not stack with negotiated offers unless explicitly enabled.</p>
+      <p class="admin-note">Codes are checked securely when an order is submitted. Coupons do not stack with negotiated offers unless explicitly enabled.</p>
       <form id="couponForm" class="admin-coupon-form admin-discount-form">
         <input id="couponId" type="hidden">
         <label>
@@ -216,7 +382,7 @@
       <p id="adminStatus" class="admin-status"></p>
     </section>
 
-    <section class="admin-panel" id="publish-changes">
+    <section class="admin-panel" id="publish-changes" data-admin-area="publish-changes" hidden>
       <div class="admin-panel-header">
         <h2>Publish Changes</h2>
         <div class="admin-panel-actions">
@@ -230,8 +396,9 @@
       <textarea id="adminExportPreview" class="admin-export-preview" readonly placeholder="Your exported changes will appear here."></textarea>
 
       <div class="admin-publish-review">
-        <h3>GitHub Publish Summary</h3>
-        <p class="admin-note">This compares the current saved Admin state with the last successful publish. GitHub credentials stay in the server-side publisher.</p>
+        <h3>Publish Summary</h3>
+        <p class="admin-note">This compares your private saved changes with the version customers can currently see.</p>
+        <div id="adminReadyPublishItems" class="admin-ready-publish-items"></div>
         <div id="adminPublishDiagnostics" class="admin-publish-diagnostics" aria-live="polite"></div>
         <label>
           Commit title
@@ -271,6 +438,6 @@
   <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
   <script src="pricing.js?v=20260714-height-source"></script>
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
-  <script src="admin.js?v=20260716-admin-persistence"></script>
+  <script src="admin.js?v=20260721-admin-workspace"></script>
 </body>
 </html>

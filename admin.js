@@ -1,4 +1,5 @@
 const adminStateUtilsPromise = import('./admin-state-utils.js');
+const adminArchitecturePromise = import('./admin-architecture.js');
 const adminTabId = crypto.randomUUID?.()
   || `admin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -103,6 +104,9 @@ let adminLiveSettings = null;
 let adminLiveRevision = 0;
 let adminHomepageLiveEdits = {};
 let adminPageLiveEdits = {};
+let adminSiteEditRows = [];
+let adminPublishedSettingsDocument = null;
+let adminArchitectureState = null;
 let adminSaveQueue = Promise.resolve(true);
 let adminSavePending = 0;
 let adminLastSaveSucceeded = null;
@@ -111,6 +115,11 @@ let adminLatestPublishError = '';
 let adminPublishedFileState = { reachable: false, publishedAt: null, commitHash: '' };
 let adminTestModeState = { enabled: false, customerType: 'guest' };
 let adminPotentiallyStale = false;
+let adminCrossTabRefreshTimer = null;
+let adminAccessReady = false;
+let adminCommerceLoaded = false;
+let adminDiscountCodesLoaded = false;
+let adminTestModeLoaded = false;
 
 const adminSaveChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('mvplux-admin-saves-v1') : null;
 
@@ -132,6 +141,21 @@ function receiveAdminSaveNotice(message) {
     status.textContent = 'Potentially stale — server refresh required before saving';
     status.dataset.state = 'conflict';
   });
+  clearTimeout(adminCrossTabRefreshTimer);
+  adminCrossTabRefreshTimer = setTimeout(async () => {
+    try {
+      const settings = await loadAdminLiveSettings();
+      if (!settings) return;
+      adminArchitectureState = await buildAdminArchitectureState(settings);
+      renderAdminProducts();
+      renderAdminDashboard();
+      renderPublishSummary();
+      adminPotentiallyStale = false;
+      setStatus('Newer saved Admin changes loaded.');
+    } catch (error) {
+      setStatus(`Could not refresh newer Admin changes. ${error?.message || error}`);
+    }
+  }, 100);
 }
 
 adminSaveChannel?.addEventListener('message', (event) => receiveAdminSaveNotice(event.data));
@@ -186,6 +210,7 @@ async function loadAdminLiveSettings() {
     renderAdminDiagnostics();
     return null;
   }
+  adminSiteEditRows = structuredClone(data || []);
   const globalRow = data?.find((row) => row.page_key === 'admin-global');
   adminLiveSettings = globalRow?.edits || {};
   adminLiveRevision = Number(globalRow?.revision) || 0;
@@ -196,6 +221,213 @@ async function loadAdminLiveSettings() {
       .map((row) => [String(row.page_key || '').toLowerCase(), row.edits])
   );
   return adminLiveSettings;
+}
+
+const ADMIN_CATEGORY_CARD_MAP = {
+  'sport-legend-standee': 'sports',
+  'movie-character-standee': 'movie-characters',
+  'people-public-figure-standee': 'people-public-figures',
+  'music-artist-standee': 'music-artists',
+  'faith-celebration-standee': 'faith-celebration',
+  'holiday-standee': 'holiday',
+  'fan-request-standee': 'fan-requests',
+  'dinosaur-party-standee': 'dinosaur-animal',
+  'game-fantasy-standee': 'video-game-fantasy',
+  'custom-photo-standee': 'custom-photo',
+  'small-standee-party-pack': 'small-party-packs'
+};
+
+async function buildAdminArchitectureState(settings = adminLiveSettings || {}) {
+  const architecture = await adminArchitecturePromise;
+  const publishedSnapshot = adminPublishedSettingsDocument?.snapshot || adminLastSuccessfulSnapshot || {};
+  const candidate = architecture.buildNormalizedAdminCandidate({
+    adminGlobal: settings,
+    fallbackCatalog: adminCharacterProducts,
+    publishedSnapshot,
+    categoryDefinitions: window.MVPLUX_PRODUCT_CATEGORIES || [],
+    categoryCardDefaults: adminProducts,
+    categoryCardMap: ADMIN_CATEGORY_CARD_MAP
+  });
+  return {
+    feature: architecture.architectureFeature(settings),
+    candidate,
+    diagnostics: architecture.architectureDiagnostics({ settings, candidate, siteEditRows: adminSiteEditRows })
+  };
+}
+
+async function fetchAuthoritativeSiteEditRows() {
+  const client = getAdminClient();
+  const { data, error } = await client.from('site_edits').select('page_key, edits, revision');
+  if (error) throw error;
+  return structuredClone(data || []);
+}
+
+function adminBackupInputs(adminGlobal, siteEditRows, architecture) {
+  return {
+    checkpointCommit: architecture.ADMIN_ARCHITECTURE_ROLLBACK_COMMIT,
+    adminGlobal,
+    siteEditRows,
+    publishedSettings: adminPublishedSettingsDocument || {},
+    fallbackCatalog: adminCharacterProducts,
+    categoryCardDefaults: adminProducts
+  };
+}
+
+async function verifyStoredAdminArchitectureBackup() {
+  const architecture = await adminArchitecturePromise;
+  const rows = await fetchAuthoritativeSiteEditRows();
+  const globalRow = rows.find((row) => row.page_key === 'admin-global') || { edits: {}, revision: 0 };
+  const backup = globalRow.edits?.[architecture.ADMIN_ARCHITECTURE_BACKUP_KEY];
+  const result = await architecture.verifyMigrationBackup({
+    backup,
+    currentAdminGlobal: globalRow.edits,
+    currentSiteEditRows: rows,
+    publishedSettings: adminPublishedSettingsDocument || {},
+    fallbackCatalog: adminCharacterProducts,
+    categoryCardDefaults: adminProducts
+  });
+  return { ...result, backup, rows, globalRow };
+}
+
+async function createAndVerifyAdminArchitectureBackup() {
+  const architecture = await adminArchitecturePromise;
+  if (!adminPublishedSettingsDocument || adminPublishedFileState.reachable !== true) {
+    throw new Error('Recovery backup blocked because the published website snapshot could not be read. Check the connection and try again.');
+  }
+  const sourceRows = await fetchAuthoritativeSiteEditRows();
+  const sourceGlobal = sourceRows.find((row) => row.page_key === 'admin-global') || { edits: {}, revision: 0 };
+  const backup = await architecture.buildVerifiedMigrationBackup({
+    ...adminBackupInputs(sourceGlobal.edits, sourceRows, architecture),
+    sourceRevision: Number(sourceGlobal.revision) || 0
+  });
+  const { error } = await getAdminClient().rpc('save_site_edits', {
+    p_page_key: 'admin-global',
+    p_edits: { [architecture.ADMIN_ARCHITECTURE_BACKUP_KEY]: backup },
+    p_expected_revision: Number(sourceGlobal.revision) || 0,
+    p_replace: false
+  });
+  if (error) throw error;
+  const readBack = await verifyStoredAdminArchitectureBackup();
+  if (!readBack.ok) throw new Error(`Backup verification failed: ${readBack.errors.join(' ')}`);
+  const verification = {
+    verified: true,
+    verifiedAt: new Date().toISOString(),
+    checksum: readBack.checksum,
+    sourceDigest: readBack.sourceDigest,
+    siteEditRowCount: readBack.siteEditRowCount,
+    siteEditIdentifiers: readBack.siteEditIdentifiers
+  };
+  const { data, error: verificationError } = await getAdminClient().rpc('save_site_edits', {
+    p_page_key: 'admin-global',
+    p_edits: { [architecture.ADMIN_ARCHITECTURE_VERIFICATION_KEY]: verification },
+    p_expected_revision: Number(readBack.globalRow.revision) || 0,
+    p_replace: false
+  });
+  if (verificationError) throw verificationError;
+  adminLiveSettings = data?.edits || { ...readBack.globalRow.edits, [architecture.ADMIN_ARCHITECTURE_VERIFICATION_KEY]: verification };
+  adminLiveRevision = Number(data?.revision) || Number(readBack.globalRow.revision) + 1;
+  adminSiteEditRows = await fetchAuthoritativeSiteEditRows();
+  adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
+  announceAdminSave('admin-global', adminLiveRevision, [architecture.ADMIN_ARCHITECTURE_BACKUP_KEY, architecture.ADMIN_ARCHITECTURE_VERIFICATION_KEY]);
+  return readBack;
+}
+
+async function acquireAdminArchitectureMigrationLock(architecture) {
+  const latest = await fetchAuthoritativeAdminGlobal();
+  const currentLock = latest.edits?.[architecture.ADMIN_ARCHITECTURE_LOCK_KEY];
+  if (architecture.migrationLockActive(currentLock) && currentLock.owner !== adminTabId) throw new Error('Another Admin tab is already preparing the migration.');
+  const lock = { owner: adminTabId, acquiredAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+  const { error } = await getAdminClient().rpc('save_site_edits', {
+    p_page_key: 'admin-global', p_edits: { [architecture.ADMIN_ARCHITECTURE_LOCK_KEY]: lock },
+    p_expected_revision: latest.revision, p_replace: false
+  });
+  if (error) throw error;
+  const readBack = await fetchAuthoritativeAdminGlobal();
+  if (readBack.edits?.[architecture.ADMIN_ARCHITECTURE_LOCK_KEY]?.owner !== adminTabId) throw new Error('Migration lock could not be verified.');
+  return readBack;
+}
+
+async function releaseAdminArchitectureMigrationLock(architecture) {
+  const latest = await fetchAuthoritativeAdminGlobal();
+  if (latest.edits?.[architecture.ADMIN_ARCHITECTURE_LOCK_KEY]?.owner !== adminTabId) return;
+  await getAdminClient().rpc('save_site_edits', {
+    p_page_key: 'admin-global', p_edits: { [architecture.ADMIN_ARCHITECTURE_LOCK_KEY]: null },
+    p_expected_revision: latest.revision, p_replace: false
+  });
+}
+
+async function prepareAdminArchitectureMigrationExplicitly() {
+  const architecture = await adminArchitecturePromise;
+  const verified = await verifyStoredAdminArchitectureBackup();
+  if (!verified.ok) throw new Error(`Migration blocked: ${verified.errors.join(' ')}`);
+  await acquireAdminArchitectureMigrationLock(architecture);
+  try {
+    const lockedVerification = await verifyStoredAdminArchitectureBackup();
+    if (!lockedVerification.ok) throw new Error(`Migration blocked after lock: ${lockedVerification.errors.join(' ')}`);
+    const state = await buildAdminArchitectureState(lockedVerification.globalRow.edits);
+    const prepared = architecture.prepareAdminArchitectureMigration({ candidate: state.candidate, siteEditRows: lockedVerification.rows });
+    const feature = {
+      ...architecture.architectureFeature(lockedVerification.globalRow.edits),
+      enabled: false,
+      migrationPreparedAt: prepared.migration.preparedAt,
+      migrationStatus: prepared.migration.status
+    };
+    const patch = {
+      schemaVersion: architecture.ADMIN_ARCHITECTURE_SCHEMA_VERSION,
+      products: prepared.products,
+      categories: prepared.categories,
+      globalDisplaySettings: prepared.globalDisplaySettings,
+      [architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY]: { ...prepared.migration, backupChecksum: lockedVerification.checksum },
+      [architecture.ADMIN_ARCHITECTURE_FEATURE_KEY]: feature
+    };
+    const latest = await fetchAuthoritativeAdminGlobal();
+    if (latest.edits?.[architecture.ADMIN_ARCHITECTURE_LOCK_KEY]?.owner !== adminTabId) throw new Error('Migration lock was lost before saving.');
+    const { data, error } = await getAdminClient().rpc('save_site_edits', {
+      p_page_key: 'admin-global', p_edits: patch, p_expected_revision: latest.revision, p_replace: false
+    });
+    if (error) throw error;
+    adminLiveSettings = data?.edits || { ...latest.edits, ...patch };
+    adminLiveRevision = Number(data?.revision) || latest.revision + 1;
+    adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
+    announceAdminSave('admin-global', adminLiveRevision, ['products', 'categories', 'globalDisplaySettings', architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY]);
+    return prepared.migration;
+  } finally {
+    await releaseAdminArchitectureMigrationLock(architecture);
+  }
+}
+
+function newAdminArchitectureEnabled() {
+  return adminArchitectureState?.feature?.enabled === true;
+}
+
+function normalizedAdminStateAvailable() {
+  return Boolean(adminLiveSettings && (
+    (adminLiveSettings.products && typeof adminLiveSettings.products === 'object')
+    || (adminLiveSettings.categories && typeof adminLiveSettings.categories === 'object')
+  ));
+}
+
+function readAdminCategories() {
+  return structuredClone(getAdminLiveValue('categories', {}));
+}
+
+function normalizedCategoryCardProducts() {
+  return Object.values(readAdminCategories()).flatMap((category) => {
+    if (!category?.card || !category.card.title) return [];
+    const slug = Object.entries(ADMIN_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
+      || `${category.key}-category-card`;
+    return [{
+      slug,
+      categoryKey: category.key,
+      categoryCard: true,
+      title: category.card.title,
+      description: category.card.description,
+      cutoutImage: category.card.image,
+      backgroundImage: category.card.backgroundImage,
+      visible: category.card.visible !== false,
+      productOrder: category.card.order
+    }];
+  });
 }
 
 async function fetchAuthoritativeAdminGlobal() {
@@ -302,6 +534,9 @@ function showProductSaveConflict(form, details, reapply) {
 
 async function saveAdminProductFieldPatch(slug, patch, baseRecord, form = null, force = false) {
   if (!slug || !Object.keys(patch || {}).length) return { ok: true, skipped: true };
+  if (patch.approvalStatus === undefined) {
+    patch = { ...patch, draftStatus: patch.draftStatus || 'ready', approvalStatus: 'draft', updatedAt: patch.updatedAt || new Date().toISOString() };
+  }
   setProductSaveState(form, 'Saving', 'saving');
   try {
     const latest = await fetchAuthoritativeAdminGlobal();
@@ -349,7 +584,7 @@ async function saveAdminProductFieldPatch(slug, patch, baseRecord, form = null, 
     adminLiveRevision = Number(data?.revision) || (latest.revision + 1);
     localStorage.setItem('mvpluxAdminProducts', JSON.stringify(adminLiveSettings.products || products));
     announceAdminSave('admin-global', adminLiveRevision, [`products:${slug}`]);
-    setProductSaveState(form, 'Saved', 'saved');
+    setProductSaveState(form, 'Saved Privately', 'saved');
     return { ok: true, record: { ...latestRecord, ...patch }, revision: adminLiveRevision };
   } catch (error) {
     adminLastSaveError = error?.message || 'Unknown Supabase error.';
@@ -704,6 +939,7 @@ async function loadAdminTestMode() {
     enabled: Boolean(data?.enabled),
     customerType: data?.customer_type === 'member' ? 'member' : 'guest'
   };
+  adminTestModeLoaded = true;
   renderAdminTestMode();
 }
 
@@ -777,6 +1013,7 @@ function readAdminProducts() {
 }
 
 function readCustomProducts() {
+  if (newAdminArchitectureEnabled()) return [];
   return getAdminLiveValue('customProducts', readJsonStorage('mvpluxAdminCustomProducts', []))
     .map(withoutStoredProductPrice);
 }
@@ -901,12 +1138,14 @@ function publishableNumber(value, fallback, min, max) {
   return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
 }
 
-function publishablePageVisualStates() {
-  const pages = {};
+function publishablePageVisualStates(baseline = {}) {
+  const pages = structuredClone(baseline || {});
   Object.entries(adminPageLiveEdits || {}).forEach(([pageKey, edits]) => {
-    const visualStates = {};
+    const visualStates = { ...(pages[pageKey] || {}) };
     Object.entries(edits || {}).forEach(([elementKey, edit]) => {
       if (!edit || typeof edit !== 'object' || edit.type) return;
+      if (edit.approvalStatus === 'draft') return;
+      if (newAdminArchitectureEnabled() && /^product-.+-(?:title-link|title-heading|description|product-cutout|product-stage-bg|original-choice|original-size-label)$/i.test(elementKey)) return;
       const hasGeometry = ['x', 'y', 'scale', 'rotate'].some((field) => Number.isFinite(Number(edit[field])));
       if (!hasGeometry) return;
       visualStates[elementKey] = {
@@ -927,6 +1166,7 @@ function publishableProduct(product = {}, archived = false) {
     ...(product.custom === true ? { custom: true } : {}),
     title: String(product.title || product.slug || 'Untitled product'),
     description: String(product.description || ''),
+    funFact: String(product.funFact || ''),
     cutoutImage: publishImageReference(product.cutoutImage),
     backgroundImage: publishImageReference(product.backgroundImage),
     imageChoices: normalizeImageChoices(product.imageChoices).map((choice) => ({
@@ -936,6 +1176,9 @@ function publishableProduct(product = {}, archived = false) {
       ...(choice.role ? { role: choice.role } : {})
     })),
     originalHeight: String(product.originalHeight || ''),
+    ...(Number.isFinite(Number(product.priceOverride)) && product.priceOverride !== '' && product.priceOverride !== null
+      ? { priceOverride: Number(product.priceOverride) }
+      : {}),
     cutoutHeight: String(product.cutoutHeight || ''),
     cutoutLeft: String(product.cutoutLeft || ''),
     cutoutBottom: String(product.cutoutBottom || ''),
@@ -944,8 +1187,50 @@ function publishableProduct(product = {}, archived = false) {
     stageBackgroundPosition: String(product.stageBackgroundPosition || ''),
     categories: [...new Set(product.categories || [])].sort(),
     visible: !archived && product.visible !== false,
-    categoryOrder: normalizedCategoryOrder(product.categoryOrder)
+    categoryOrder: normalizedCategoryOrder(product.categoryOrder),
+    ...(Number.isFinite(Number(product.productOrder)) ? { productOrder: Number(product.productOrder) } : {}),
+    displayOverrides: structuredClone(product.displayOverrides || {})
   };
+}
+
+function publishableCategory(category = {}) {
+  return {
+    key: String(category.key || ''),
+    title: String(category.title || category.key || 'Untitled category'),
+    description: String(category.description || ''),
+    funFact: String(category.funFact || ''),
+    page: String(category.page || ''),
+    visible: category.visible !== false,
+    order: Number(category.order || 0),
+    card: {
+      title: String(category.card?.title || category.title || ''),
+      description: String(category.card?.description || ''),
+      image: publishImageReference(category.card?.image || ''),
+      backgroundImage: publishImageReference(category.card?.backgroundImage || ''),
+      visible: category.card?.visible !== false,
+      order: Number(category.card?.order || 0)
+    },
+    displaySettings: structuredClone(category.displaySettings || { backgroundPosition: 'center center' })
+  };
+}
+
+function publishablePageContent(baseline = {}) {
+  const pageContent = structuredClone(baseline || {});
+  Object.entries(adminPageLiveEdits || {}).forEach(([pageKey, edits]) => {
+    const entries = { ...(pageContent[pageKey] || {}) };
+    Object.entries(edits || {}).forEach(([elementKey, edit]) => {
+      if (!edit || typeof edit !== 'object' || edit.type) return;
+      if (edit.approvalStatus === 'draft') return;
+      if (newAdminArchitectureEnabled() && /^product-.+-(?:title-link|title-heading|description|product-cutout|product-stage-bg|original-choice|original-size-label)$/i.test(elementKey)) return;
+      const content = {};
+      if (typeof edit.text === 'string') content.text = edit.text;
+      if (typeof edit.src === 'string' && validatePublishImagePath(edit.src)) content.src = edit.src;
+      if (edit.visible === false) content.visible = false;
+      if (Object.keys(content).length) entries[elementKey] = content;
+    });
+    if (Object.keys(entries).length) pageContent[pageKey] = entries;
+  });
+  return pageContent;
 }
 
 function publishableSnapshotProduct(baseProduct, value, archived) {
@@ -965,6 +1250,7 @@ function publishableSnapshotProduct(baseProduct, value, archived) {
 function buildDefaultPublishBaseline() {
   return {
     version: 1,
+    schemaVersion: 1,
     priceSettings: window.MVPLUX_PRICING.normalizePriceSettings({}),
     products: Object.fromEntries(adminCharacterProducts.map((product) => [product.slug, publishableProduct(product)])),
     categoryDisplayCards: Object.fromEntries(adminProducts.map((product) => [product.slug, publishableProduct(product)])),
@@ -972,11 +1258,16 @@ function buildDefaultPublishBaseline() {
     homepageCategoryOrder: [],
     ignoredImagePaths: [],
     pageVisualStates: {},
-    extraImages: {}
+    extraImages: {},
+    categories: {},
+    categorySettings: {},
+    globalDisplaySettings: {},
+    pageContent: {}
   };
 }
 
 function buildCurrentPublishSnapshot() {
+  if (newAdminArchitectureEnabled()) return buildNormalizedPublishSnapshot();
   const saved = readAdminProducts();
   const archived = new Set(readArchivedProducts());
   const deleted = new Set(readDeletedProducts());
@@ -1006,6 +1297,61 @@ function buildCurrentPublishSnapshot() {
     extraImages: Object.fromEntries(
       Object.entries(readExtraImages()).filter(([, path]) => validatePublishImagePath(String(path || '')))
     )
+  };
+}
+
+function buildNormalizedPublishSnapshot() {
+  const archived = new Set(readArchivedProducts());
+  const deleted = new Set(readDeletedProducts());
+  const published = adminPublishedBaseline || buildDefaultPublishBaseline();
+  const products = { ...(published.products || {}) };
+  const privateProducts = readAdminProducts();
+  Object.entries(privateProducts).forEach(([slug, product]) => {
+    if (deleted.has(slug)) {
+      delete products[slug];
+      return;
+    }
+    if (product.approvalStatus === 'draft') return;
+    products[slug] = publishableSnapshotProduct(product, product, archived.has(slug));
+  });
+
+  const categories = { ...(published.categories || {}) };
+  Object.entries(readAdminCategories()).forEach(([key, category]) => {
+    if (category.approvalStatus === 'draft') return;
+    categories[key] = publishableCategory({ ...category, key });
+  });
+  const categoryDisplayCards = { ...(published.categoryDisplayCards || {}) };
+  Object.values(categories).forEach((category) => {
+    const slug = Object.entries(ADMIN_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
+      || `${category.key}-category-card`;
+    categoryDisplayCards[slug] = publishableProduct({
+      slug,
+      title: category.card?.title || category.title,
+      description: category.card?.description || category.description,
+      cutoutImage: category.card?.image || '',
+      backgroundImage: category.card?.backgroundImage || '',
+      visible: category.visible !== false && category.card?.visible !== false,
+      productOrder: category.card?.order ?? category.order,
+      categories: []
+    });
+  });
+  const homepageOrder = adminHomepageLiveEdits?.['homepage-category-card-order'];
+  return {
+    version: 1,
+    schemaVersion: 2,
+    products,
+    categories,
+    categoryDisplayCards,
+    categorySettings: Object.fromEntries(Object.entries(categories).map(([key, category]) => [key, structuredClone(category.displaySettings || {})])),
+    globalDisplaySettings: structuredClone(adminLiveSettings?.globalDisplaySettings || {}),
+    deletedProducts: [...deleted].sort(),
+    ignoredImagePaths: [...new Set(readImageDraftPaths('ignoredImagePaths'))].sort(),
+    homepageCategoryOrder: homepageOrder?.type === 'homepageCategoryOrder' && Array.isArray(homepageOrder.rows)
+      ? homepageOrder.rows.map((row) => [...row]) : [],
+    pageContent: publishablePageContent(published.pageContent),
+    pageVisualStates: publishablePageVisualStates(published.pageVisualStates),
+    extraImages: Object.fromEntries(Object.entries(readExtraImages()).filter(([, path]) => validatePublishImagePath(String(path || '')))),
+    priceSettings: window.MVPLUX_PRICING.normalizePriceSettings(readPriceSettings())
   };
 }
 
@@ -1154,6 +1500,23 @@ function generatePublishChanges(before, after) {
       lines.push(`Updated saved image positioning on ${pageKey}`);
     }
   });
+  const beforeCategories = before?.categories || {};
+  const afterCategories = after?.categories || {};
+  [...new Set([...Object.keys(beforeCategories), ...Object.keys(afterCategories)])].sort().forEach((key) => {
+    if (JSON.stringify(beforeCategories[key] || null) !== JSON.stringify(afterCategories[key] || null)) {
+      lines.push(`${beforeCategories[key] ? 'Updated' : 'Created'} category: ${afterCategories[key]?.title || beforeCategories[key]?.title || key}`);
+    }
+  });
+  if (JSON.stringify(before?.globalDisplaySettings || {}) !== JSON.stringify(after?.globalDisplaySettings || {})) {
+    lines.push('Updated global display settings');
+  }
+  const beforePageContent = before?.pageContent || {};
+  const afterPageContent = after?.pageContent || {};
+  [...new Set([...Object.keys(beforePageContent), ...Object.keys(afterPageContent)])].sort().forEach((pageKey) => {
+    if (JSON.stringify(beforePageContent[pageKey] || {}) !== JSON.stringify(afterPageContent[pageKey] || {})) {
+      lines.push(`Updated page content on ${pageKey}`);
+    }
+  });
   return [...new Set(lines)];
 }
 
@@ -1166,6 +1529,8 @@ let currentPublishReview = null;
 let adminPublishedBaseline = null;
 let adminLastSuccessfulSnapshot = null;
 let imageImportPublishSelection = null;
+let selectedPublishChangeIds = new Set();
+let selectedPublishMode = false;
 
 function buildSelectedImageImportSnapshot(paths) {
   const baseline = structuredClone(adminPublishedBaseline || buildDefaultPublishBaseline());
@@ -1209,6 +1574,15 @@ function normalizePublishedBaseline(snapshot) {
   baseline.pageVisualStates = snapshot.pageVisualStates && typeof snapshot.pageVisualStates === 'object'
     ? structuredClone(snapshot.pageVisualStates)
     : {};
+  baseline.schemaVersion = Number(snapshot.schemaVersion) || 1;
+  baseline.categories = snapshot.categories && typeof snapshot.categories === 'object' && !Array.isArray(snapshot.categories)
+    ? structuredClone(snapshot.categories) : {};
+  baseline.categorySettings = snapshot.categorySettings && typeof snapshot.categorySettings === 'object' && !Array.isArray(snapshot.categorySettings)
+    ? structuredClone(snapshot.categorySettings) : {};
+  baseline.globalDisplaySettings = snapshot.globalDisplaySettings && typeof snapshot.globalDisplaySettings === 'object' && !Array.isArray(snapshot.globalDisplaySettings)
+    ? structuredClone(snapshot.globalDisplaySettings) : {};
+  baseline.pageContent = snapshot.pageContent && typeof snapshot.pageContent === 'object' && !Array.isArray(snapshot.pageContent)
+    ? structuredClone(snapshot.pageContent) : {};
   baseline.priceSettings = window.MVPLUX_PRICING.normalizePriceSettings(snapshot.priceSettings || {});
   return baseline;
 }
@@ -1218,6 +1592,7 @@ async function loadPublishedPublishBaseline() {
     const response = await fetch('published-admin-settings.json', { cache: 'no-store' });
     if (!response.ok) throw new Error('Published settings file is unavailable.');
     const value = await response.json();
+    adminPublishedSettingsDocument = structuredClone(value);
     adminPublishedBaseline = normalizePublishedBaseline(value?.snapshot);
     adminLastSuccessfulSnapshot = value?.publishedAt ? value?.snapshot || null : null;
     adminPublishedFileState = {
@@ -1226,6 +1601,7 @@ async function loadPublishedPublishBaseline() {
       commitHash: String(value?.commitHash || '')
     };
   } catch (error) {
+    adminPublishedSettingsDocument = null;
     adminPublishedBaseline = buildDefaultPublishBaseline();
     adminLastSuccessfulSnapshot = null;
     adminPublishedFileState = { reachable: false, publishedAt: null, commitHash: '' };
@@ -1269,18 +1645,18 @@ function renderAdminDiagnostics() {
   const lastPublish = history.length ? history[history.length - 1] : null;
   const saveStatus = adminSavePending
     ? `Saving (${adminSavePending} queued)`
-    : adminLastSaveSucceeded === true ? 'Saved to Supabase' : adminLastSaveSucceeded === false ? 'Save failed' : 'Loaded from Supabase';
+    : adminLastSaveSucceeded === true ? 'Saved privately' : adminLastSaveSucceeded === false ? 'Save failed' : 'Private changes loaded';
   container.innerHTML = `
     <dl>
-      <div><dt>Supabase save status</dt><dd>${escapeAdminHtml(saveStatus)}</dd></div>
-      <div><dt>Approved products</dt><dd>${counts.approved}</dd></div>
+      <div><dt>Private save status</dt><dd>${escapeAdminHtml(saveStatus)}</dd></div>
+      <div><dt>Approved changes</dt><dd>${counts.approved}</dd></div>
       <div><dt>Waiting to publish</dt><dd>${counts.waiting}</dd></div>
       <div><dt>Already published</dt><dd>${counts.published}</dd></div>
       <div><dt>Last successful publish</dt><dd>${escapeAdminHtml(lastPublish?.date || adminPublishedFileState.publishedAt || 'Never')}</dd></div>
-      <div><dt>Last commit hash</dt><dd>${escapeAdminHtml(lastPublish?.commitHash || adminPublishedFileState.commitHash || 'None')}</dd></div>
+      <div><dt>Published version ID</dt><dd>${escapeAdminHtml(lastPublish?.commitHash || adminPublishedFileState.commitHash || 'None')}</dd></div>
       <div><dt>Latest save error</dt><dd>${escapeAdminHtml(adminLastSaveError || 'None')}</dd></div>
       <div><dt>Latest publish error</dt><dd>${escapeAdminHtml(adminLatestPublishError || 'None')}</dd></div>
-      <div><dt>Public settings file</dt><dd>${adminPublishedFileState.reachable ? 'Reachable' : 'Unavailable'}</dd></div>
+      <div><dt>Published website data</dt><dd>${adminPublishedFileState.reachable ? 'Available' : 'Unavailable'}</dd></div>
     </dl>
   `;
 }
@@ -1298,10 +1674,18 @@ function validatePublishImagePath(path) {
 
 function renderPublishSummary() {
   const before = adminPublishedBaseline || buildDefaultPublishBaseline();
-  const snapshot = imageImportPublishSelection
-    ? buildSelectedImageImportSnapshot(imageImportPublishSelection)
-    : buildCurrentPublishSnapshot();
-  const selectedImages = selectedPublishImagePaths();
+  const selectedItems = selectedPublishMode
+    ? architectureReviewItems().filter((item) => selectedPublishChangeIds.has(item.id) && item.approved)
+    : [];
+  const snapshot = selectedPublishMode
+    ? buildSelectedArchitectureSnapshot(selectedItems)
+    : imageImportPublishSelection
+      ? buildSelectedImageImportSnapshot(imageImportPublishSelection)
+      : structuredClone(before);
+  const selectedImages = [...new Set([
+    ...automaticPublishImagePaths(selectedItems, snapshot),
+    ...selectedPublishImagePaths()
+  ])];
   const invalidImages = selectedImages.filter((path) => !validatePublishImagePath(path));
   const changes = [
     ...generatePublishChanges(before, snapshot),
@@ -1314,8 +1698,8 @@ function renderPublishSummary() {
   const publishButton = document.getElementById('publishAdminChanges');
   if (titleInput && (!currentPublishReview || !titleInput.value.trim())) titleInput.value = defaultPublishTitle(changes);
   if (summaryInput) summaryInput.value = summary || 'No product changes since the previous publish.';
-  if (publishButton) publishButton.disabled = changes.length === 0 || invalidImages.length > 0;
-  currentPublishReview = { snapshot, changes, summary, selectedImages, invalidImages };
+  if (publishButton) publishButton.disabled = changes.length === 0 || invalidImages.length > 0 || (selectedPublishMode && !selectedItems.length);
+  currentPublishReview = { snapshot, changes, summary, selectedImages, invalidImages, selectedChangeIds: selectedItems.map((item) => item.id) };
   return currentPublishReview;
 }
 
@@ -1409,6 +1793,14 @@ async function publishAdminChanges() {
     setStatus(`Publish stopped: ${adminLastSaveError || 'could not reload persisted Admin state from Supabase.'}`);
     return;
   }
+  if (newAdminArchitectureEnabled()) {
+    const migration = adminLiveSettings?.adminArchitectureMigrationV2?.productPageOverrides;
+    const unresolved = (migration?.conflicts?.length || 0) + (migration?.unsupported?.length || 0);
+    if (unresolved) {
+      setStatus(`Publish stopped: ${unresolved} migrated page override conflict(s) still require review.`);
+      return;
+    }
+  }
   renderAdminProducts();
   const review = renderPublishSummary();
   if (!review.changes.length || review.invalidImages.length) return;
@@ -1433,10 +1825,16 @@ async function publishAdminChanges() {
       snapshot: review.snapshot,
       imageFiles
     });
-    updateAdminLiveSettings({
+    const tracked = await saveAdminSettingsLive({
       lastPublishedSnapshot: review.snapshot,
       publishHistory: result.publishHistory || []
     });
+    if (!tracked) {
+      adminLatestPublishError = `GitHub commit ${result.commitHash || ''} was created, but Supabase could not record the successful published snapshot. Reload before publishing again.`;
+      renderAdminDiagnostics();
+      setStatus(adminLatestPublishError);
+      return;
+    }
     adminLatestPublishError = '';
     adminPublishedFileState = {
       reachable: true,
@@ -1447,6 +1845,8 @@ async function publishAdminChanges() {
     document.getElementById('adminPublishImagePaths').value = '';
     adminPublishedBaseline = normalizePublishedBaseline(review.snapshot);
     imageImportPublishSelection = null;
+    selectedPublishChangeIds.clear();
+    selectedPublishMode = false;
     currentPublishReview = null;
     renderPublishSummary();
     renderPublishHistory();
@@ -1977,7 +2377,9 @@ async function refreshCommerceAdmin() {
 
   if (Object.values(offerLists).some((list) => !list) || Object.values(orderLists).some((list) => !list)) return;
   if (!client) {
-    setCommerceStatus('Supabase is not loaded yet.');
+    setCommerceStatus('Orders could not be loaded.');
+    const technical = document.getElementById('commerceTechnicalDetails');
+    if (technical) technical.textContent = 'The website connection is not available in this browser session.';
     return;
   }
 
@@ -1991,11 +2393,16 @@ async function refreshCommerceAdmin() {
   ]);
 
   if (ordersResponse.error || offersResponse.error) {
-    setCommerceStatus('Could not load orders/offers yet. Make sure you are signed in and the admin Supabase policy has been added.');
-    Object.values(orderLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup(ordersResponse.error?.message || 'Orders unavailable.'); });
-    Object.values(offerLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup(offersResponse.error?.message || 'Offers unavailable.'); });
+    adminCommerceLoaded = false;
+    setCommerceStatus('Orders could not be loaded.');
+    Object.values(orderLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup('Orders could not be loaded.'); });
+    Object.values(offerLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup('Offers could not be loaded.'); });
+    const technical = document.getElementById('commerceTechnicalDetails');
+    if (technical) technical.textContent = ordersResponse.error?.message || offersResponse.error?.message || 'Connection failed.';
     return;
   }
+
+  adminCommerceLoaded = true;
 
   adminOfferHistoryById = new Map();
   let historyError = null;
@@ -2031,7 +2438,7 @@ async function refreshCommerceAdmin() {
   Object.entries(offerLists).forEach(([queue, list]) => {
     list.innerHTML = offersByQueue[queue].length
       ? offersByQueue[queue].map(offerCardMarkup).join('')
-      : commerceEmptyMarkup(`No ${queue.replace(/_/g, ' ')} offers.`);
+      : commerceEmptyMarkup(queue === 'pending' ? 'No new offers right now.' : `No ${queue.replace(/_/g, ' ')} offers right now.`);
   });
 
   const ordersByQueue = { new: [], in_production: [], shipped: [], completed: [], archived: [] };
@@ -2043,10 +2450,12 @@ async function refreshCommerceAdmin() {
   Object.entries(orderLists).forEach(([queue, list]) => {
     list.innerHTML = ordersByQueue[queue].length
       ? ordersByQueue[queue].map(orderCardMarkup).join('')
-      : commerceEmptyMarkup(`No ${queue.replace(/_/g, ' ')} orders.`);
+      : commerceEmptyMarkup(queue === 'new' ? 'No new orders right now.' : `No ${queue.replace(/_/g, ' ')} orders right now.`);
   });
 
-  setCommerceStatus(`Loaded ${ordersResponse.data?.length || 0} orders and ${offersResponse.data?.length || 0} offers.${historyError ? ' Apply the offer-history database migration to load dedicated timelines.' : ''}`);
+  setCommerceStatus(`Loaded ${ordersResponse.data?.length || 0} orders and ${offersResponse.data?.length || 0} offers.${historyError ? ' Some conversation details are temporarily unavailable.' : ''}`);
+  const technical = document.getElementById('commerceTechnicalDetails');
+  if (technical) technical.textContent = historyError?.message || 'Connection is working.';
 }
 
 function clamp(value, min, max) {
@@ -2072,11 +2481,346 @@ function updateAdminOriginalPrice(form, settings = readPriceSettings()) {
 }
 
 function allAdminProducts() {
-  return [
-    ...adminProducts.map((product) => ({ ...product, categoryCard: true })),
+  const categoryCards = newAdminArchitectureEnabled()
+    ? normalizedCategoryCardProducts()
+    : adminProducts.map((product) => ({ ...product, categoryCard: true }));
+  if (newAdminArchitectureEnabled()) {
+    return [...categoryCards, ...Object.values(readAdminProducts()).filter((product) => product?.slug)];
+  }
+  const products = [
+    ...categoryCards,
     ...adminCharacterProducts,
     ...readCustomProducts()
   ];
+  const known = new Set(products.map((product) => product.slug));
+  Object.values(readAdminProducts()).forEach((product) => {
+    if (product?.slug && !known.has(product.slug)) products.push(product);
+  });
+  return products;
+}
+
+function creationCategoryMarkup() {
+  const categories = newAdminArchitectureEnabled()
+    ? Object.values(readAdminCategories())
+    : window.MVPLUX_PRODUCT_CATEGORIES || [];
+  return categories
+    .filter((category) => category?.key)
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
+    .map((category) => `<label><input name="categories" type="checkbox" value="${escapeAdminHtml(category.key)}"> ${escapeAdminHtml(category.title || category.label || category.key)}</label>`)
+    .join('');
+}
+
+function createFormDisplaySettings(form) {
+  const number = (name) => {
+    const raw = form.elements.namedItem(name)?.value;
+    return raw === '' || raw === undefined ? undefined : Number(raw);
+  };
+  return Object.fromEntries(Object.entries({
+    backgroundImage: form.elements.namedItem('backgroundImage')?.value.trim() || undefined,
+    backgroundPosition: form.elements.namedItem('backgroundPosition')?.value.trim() || 'center center',
+    standeeSizePercent: number('standeeSizePercent'),
+    standeeLeftPercent: number('standeeLeftPercent'),
+    standeeVerticalPercent: number('standeeVerticalPercent'),
+    logoSizePercent: number('logoSizePercent'),
+    logoVerticalPercent: number('logoVerticalPercent')
+  }).filter(([, value]) => value !== undefined && value !== ''));
+}
+
+function parseCreationImageChoices(value = '') {
+  return String(value || '').split(/\r?\n/).flatMap((line) => {
+    const [label, ...pathParts] = line.split('|');
+    const image = pathParts.join('|').trim();
+    return image ? [{ label: label.trim() || 'Alternate image', image }] : [];
+  });
+}
+
+function creationImageLabel(path = '') {
+  const fileName = String(path).split('/').pop() || 'Image';
+  return fileName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function creationImageLibrary(kind = 'product') {
+  const values = new Set();
+  const add = (path) => { if (validatePublishImagePath(String(path || ''))) values.add(String(path)); };
+  if (kind === 'background') add(IMAGE_IMPORT_DEFAULT_BACKGROUND);
+  allAdminProducts().forEach((product) => {
+    if (kind === 'background') add(product.backgroundImage);
+    else {
+      add(product.cutoutImage);
+      (product.imageChoices || []).forEach((choice) => add(choice.image || choice.src));
+    }
+  });
+  Object.values(adminArchitectureState?.candidate?.categories || {}).forEach((category) => {
+    if (kind === 'background') {
+      add(category.card?.backgroundImage);
+      add(category.displaySettings?.backgroundImage);
+    } else add(category.card?.image);
+  });
+  if (kind !== 'background') imageDraftInventory.forEach((draft) => add(draft?.path));
+  return [...values].sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
+}
+
+function populateCreationImagePickers(form) {
+  form?.querySelectorAll('[data-admin-image-picker]').forEach((select) => {
+    const multiple = select.multiple;
+    const selected = new Set([...select.selectedOptions].map((option) => option.value).filter(Boolean));
+    const kind = select.dataset.adminImagePicker === 'background' ? 'background' : 'product';
+    const prompt = select.dataset.adminImagePicker === 'background'
+      ? '<option value="">Use the clean showroom background</option>'
+      : multiple ? '' : '<option value="">Choose an image…</option>';
+    select.innerHTML = prompt + creationImageLibrary(kind).map((path) => (
+      `<option value="${escapeAdminHtml(path)}" ${selected.has(path) ? 'selected' : ''}>${escapeAdminHtml(creationImageLabel(path))}</option>`
+    )).join('');
+  });
+}
+
+function creationSelectedImageChoices(formData) {
+  const choices = formData.getAll('imageChoicePicker').map((image) => ({ label: creationImageLabel(image), image: String(image) }));
+  return [...choices, ...parseCreationImageChoices(formData.get('imageChoices'))]
+    .filter((choice, index, items) => choice.image && items.findIndex((item) => item.image === choice.image) === index);
+}
+
+function buildNewProductRecord({ slug, title, description = '', funFact = '', originalHeight = '', priceOverride, cutoutImage, backgroundImage = IMAGE_IMPORT_DEFAULT_BACKGROUND, imageChoices = [], categories = [], visible = true, displayOverrides = {}, approvalStatus = 'draft', createdAt = new Date().toISOString() } = {}) {
+  const productSlug = makeSlug(slug || title);
+  const price = priceOverride === '' || priceOverride === undefined ? undefined : Number(priceOverride);
+  return {
+    slug: productSlug,
+    custom: true,
+    title: String(title || '').trim(),
+    description: String(description || '').trim(),
+    funFact: String(funFact || '').trim(),
+    originalHeight: String(originalHeight || '').trim(),
+    ...(Number.isFinite(price) && price >= 0 ? { priceOverride: price } : {}),
+    cutoutImage: String(cutoutImage || '').trim(),
+    backgroundImage: String(backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND).trim(),
+    imageChoices: normalizeImageChoices(imageChoices).filter((choice) => choice.image !== String(cutoutImage || '').trim()),
+    categories: [...new Set((categories || []).filter(Boolean))],
+    visible: Boolean(visible),
+    categoryOrder: Object.fromEntries((categories || []).filter(Boolean).map((category) => [category, 999])),
+    productOrder: 999,
+    displayOverrides,
+    createdAt,
+    updatedAt: createdAt,
+    draftStatus: approvalStatus === 'approved' ? 'ready' : 'draft',
+    approvalStatus
+  };
+}
+
+function newProductRecordOperation(product) {
+  return { type: 'record', collectionKey: 'products', entryKey: product.slug, baseRecord: undefined, patch: product };
+}
+
+function syncGeneratedCreationValue(form, fieldName) {
+  const field = form.elements.namedItem(fieldName);
+  const title = form.elements.namedItem('title')?.value || '';
+  if (!field) return;
+  const generated = makeSlug(title);
+  if (!field.value || field.value === field.dataset.generatedValue) field.value = generated === 'custom-card' && !title.trim() ? '' : generated;
+  field.dataset.generatedValue = field.value;
+}
+
+function renderNewProductPreview(form) {
+  const preview = form.querySelector('[data-create-product-preview]');
+  if (!preview) return;
+  const image = form.elements.namedItem('cutoutImage')?.value.trim() || 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png';
+  const background = form.elements.namedItem('backgroundImage')?.value.trim() || IMAGE_IMPORT_DEFAULT_BACKGROUND;
+  const title = form.elements.namedItem('title')?.value.trim() || 'Example Standee';
+  const description = form.elements.namedItem('description')?.value.trim() || 'Your product description will appear here.';
+  const selectedCategory = form.querySelector('[name="categories"]:checked')?.closest('label')?.textContent.trim() || 'New Collection';
+  const size = Number(form.elements.namedItem('standeeSizePercent')?.value || 63);
+  const left = 50 + Number(form.elements.namedItem('standeeLeftPercent')?.value || 0);
+  const vertical = 18 - Number(form.elements.namedItem('standeeVerticalPercent')?.value || 0);
+  const logoSize = Number(form.elements.namedItem('logoSizePercent')?.value || 82);
+  const logoVertical = Number(form.elements.namedItem('logoVerticalPercent')?.value || -4);
+  const backgroundPosition = form.elements.namedItem('backgroundPosition')?.value || 'center center';
+  preview.innerHTML = `<article class="admin-builder-product-card">
+    <p class="admin-builder-category">${escapeAdminHtml(selectedCategory)}</p>
+    <h4>${escapeAdminHtml(title)}</h4><p>${escapeAdminHtml(description)}</p>
+    <div class="admin-preview-stage" style="background-image:url('${escapeAdminHtml(background)}');background-position:${escapeAdminHtml(backgroundPosition)}">
+      <img class="admin-preview-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="" style="width:${logoSize}%;top:${logoVertical}%">
+      <img class="admin-preview-cutout" src="${escapeAdminHtml(image)}" alt="Product preview" style="height:${size}%;left:${left}%;bottom:${vertical}%">
+      <div class="admin-preview-choice-row"><span>Original</span><span>Custom Size</span></div>
+    </div>
+  </article>`;
+}
+
+function renderNewCategoryPreview(form) {
+  const preview = form.querySelector('[data-create-category-preview]');
+  if (!preview) return;
+  const image = form.elements.namedItem('cardImage')?.value.trim() || 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png';
+  const background = form.elements.namedItem('cardBackgroundImage')?.value.trim() || IMAGE_IMPORT_DEFAULT_BACKGROUND;
+  const title = form.elements.namedItem('title')?.value.trim() || 'Example Collection';
+  const description = form.elements.namedItem('description')?.value.trim() || 'A short description of this collection appears here.';
+  const position = form.elements.namedItem('backgroundPosition')?.value || 'center center';
+  preview.innerHTML = `<article class="admin-builder-category-card" style="background-image:url('${escapeAdminHtml(background)}');background-position:${escapeAdminHtml(position)}">
+    <img src="${escapeAdminHtml(image)}" alt="Category preview">
+    <div><h4>${escapeAdminHtml(title)}</h4><p>${escapeAdminHtml(description)}</p><span class="admin-button admin-button-primary">View Collection</span></div>
+  </article>`;
+}
+
+function setCreationStatus(form, message, state = '') {
+  const status = form?.querySelector('.admin-status');
+  if (!status) return;
+  status.textContent = message;
+  status.dataset.state = state;
+}
+
+async function saveNewProductFromForm(form, approvalStatus) {
+  const formData = new FormData(form);
+  const slug = makeSlug(formData.get('slug') || formData.get('title'));
+  if (!slug || !formData.get('title') || !formData.get('cutoutImage') || !formData.get('originalHeight')) {
+    setCreationStatus(form, 'Add the title, slug, main image, and original height.', 'error');
+    return false;
+  }
+  const latest = await fetchAuthoritativeAdminGlobal();
+  if (latest.edits?.products?.[slug]) {
+    setCreationStatus(form, 'That slug already belongs to an existing product.', 'error');
+    return false;
+  }
+  const categories = formData.getAll('categories');
+  const product = buildNewProductRecord({
+    slug, title: formData.get('title'), description: formData.get('description'), funFact: formData.get('funFact'),
+    originalHeight: formData.get('originalHeight'), priceOverride: formData.get('priceOverride'), cutoutImage: formData.get('cutoutImage'),
+    backgroundImage: formData.get('backgroundImage'), imageChoices: creationSelectedImageChoices(formData), categories,
+    visible: formData.has('visible'), displayOverrides: createFormDisplaySettings(form), approvalStatus
+  });
+  setCreationStatus(form, 'Saving…', 'saving');
+  const result = await saveAdminCollectionOperations([newProductRecordOperation(product)]);
+  if (!result.ok) {
+    setCreationStatus(form, adminLastSaveError || 'Save failed — your values remain on screen.', 'error');
+    return false;
+  }
+  form.dataset.lastCreatedSlug = slug;
+  form.dataset.lastCreatedPage = (readAdminCategories()[categories[0]]?.page || 'index.html');
+  form.querySelector('[data-open-created-product]').disabled = false;
+  setCreationStatus(form, approvalStatus === 'approved' ? 'Approved — Waiting to Publish' : 'Draft saved privately.', 'saved');
+  form.reset();
+  form.querySelector('[name="backgroundPosition"]').value = 'center center';
+  renderNewProductPreview(form);
+  renderAdminProducts();
+  return true;
+}
+
+async function saveNewCategoryFromForm(form, approvalStatus) {
+  const formData = new FormData(form);
+  const key = makeSlug(formData.get('key') || formData.get('title'));
+  if (!key || !formData.get('title')) {
+    setCreationStatus(form, 'Add the category title and key.', 'error');
+    return false;
+  }
+  const latest = await fetchAuthoritativeAdminGlobal();
+  if (latest.edits?.categories?.[key]) {
+    setCreationStatus(form, 'That category key already exists.', 'error');
+    return false;
+  }
+  const now = new Date().toISOString();
+  const category = {
+    key,
+    title: String(formData.get('title')).trim(),
+    description: String(formData.get('description') || '').trim(),
+    funFact: String(formData.get('funFact') || '').trim(),
+    page: String(formData.get('page') || '').trim() || `category.html?category=${encodeURIComponent(key)}`,
+    visible: formData.has('visible'),
+    order: Number(formData.get('order') || 999),
+    card: {
+      title: String(formData.get('title')).trim(),
+      description: String(formData.get('description') || '').trim(),
+      image: String(formData.get('cardImage') || '').trim(),
+      backgroundImage: String(formData.get('cardBackgroundImage') || '').trim(),
+      visible: formData.has('visible'),
+      order: Number(formData.get('order') || 999)
+    },
+    displaySettings: createFormDisplaySettings(form),
+    createdAt: now,
+    updatedAt: now,
+    draftStatus: approvalStatus === 'approved' ? 'ready' : 'draft',
+    approvalStatus
+  };
+  setCreationStatus(form, 'Saving…', 'saving');
+  const result = await saveAdminCollectionOperations([{
+    type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: undefined, patch: category
+  }]);
+  if (!result.ok) {
+    setCreationStatus(form, adminLastSaveError || 'Save failed — your values remain on screen.', 'error');
+    return false;
+  }
+  form.dataset.lastCreatedPage = category.page;
+  form.querySelector('[data-open-created-category]').disabled = false;
+  setCreationStatus(form, approvalStatus === 'approved' ? 'Approved — Waiting to Publish' : 'Draft saved privately.', 'saved');
+  form.reset();
+  form.querySelector('[name="backgroundPosition"]').value = 'center center';
+  renderNewCategoryPreview(form);
+  return true;
+}
+
+function setupAdminCreationWorkspace() {
+  const section = document.getElementById('create-content');
+  const productForm = document.getElementById('createProductForm');
+  const categoryForm = document.getElementById('createCategoryForm');
+  if (!productForm || !categoryForm) return;
+  productForm.querySelector('[data-create-product-categories]').innerHTML = creationCategoryMarkup();
+  populateCreationImagePickers(productForm);
+  populateCreationImagePickers(categoryForm);
+  [productForm, categoryForm].forEach((form) => {
+    const enabled = normalizedAdminStateAvailable();
+    form.querySelectorAll('button[type="submit"]').forEach((button) => { button.disabled = !enabled; });
+    const availability = form.querySelector('[data-builder-availability]');
+    if (availability) availability.textContent = enabled
+      ? 'Saved privately — customers cannot see this until you publish.'
+      : 'Preview available. Activate the New Admin System from Dashboard before saving.';
+  });
+  if (section) section.dataset.architectureReady = String(newAdminArchitectureEnabled());
+  if (productForm.dataset.creationBound) {
+    renderNewProductPreview(productForm);
+    renderNewCategoryPreview(categoryForm);
+    return;
+  }
+  productForm.dataset.creationBound = 'true';
+  categoryForm.dataset.creationBound = 'true';
+  productForm.addEventListener('input', (event) => {
+    if (event.target.name === 'title') syncGeneratedCreationValue(productForm, 'slug');
+    renderNewProductPreview(productForm);
+  });
+  categoryForm.addEventListener('input', (event) => {
+    if (event.target.name === 'title') syncGeneratedCreationValue(categoryForm, 'key');
+    renderNewCategoryPreview(categoryForm);
+  });
+  productForm.querySelector('[data-preview-new-product]')?.addEventListener('click', () => renderNewProductPreview(productForm));
+  categoryForm.querySelector('[data-preview-new-category]')?.addEventListener('click', () => renderNewCategoryPreview(categoryForm));
+  productForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!newAdminArchitectureEnabled()) {
+      setCreationStatus(productForm, 'Activate the New Admin System from Dashboard before saving.', 'error');
+      return;
+    }
+    saveNewProductFromForm(productForm, event.submitter?.value === 'approve' ? 'approved' : 'draft');
+  });
+  categoryForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!newAdminArchitectureEnabled()) {
+      setCreationStatus(categoryForm, 'Activate the New Admin System from Dashboard before saving.', 'error');
+      return;
+    }
+    saveNewCategoryFromForm(categoryForm, event.submitter?.value === 'approve' ? 'approved' : 'draft');
+  });
+  productForm.querySelector('[data-open-created-product]')?.addEventListener('click', () => {
+    if (productForm.dataset.lastCreatedSlug) window.open(`${productForm.dataset.lastCreatedPage || 'index.html'}#${productForm.dataset.lastCreatedSlug}`, '_blank', 'noopener');
+  });
+  categoryForm.querySelector('[data-open-created-category]')?.addEventListener('click', () => {
+    if (categoryForm.dataset.lastCreatedPage) window.open(categoryForm.dataset.lastCreatedPage, '_blank', 'noopener');
+  });
+  productForm.addEventListener('reset', () => setTimeout(() => {
+    populateCreationImagePickers(productForm);
+    syncGeneratedCreationValue(productForm, 'slug');
+    renderNewProductPreview(productForm);
+  }));
+  categoryForm.addEventListener('reset', () => setTimeout(() => {
+    populateCreationImagePickers(categoryForm);
+    syncGeneratedCreationValue(categoryForm, 'key');
+    renderNewCategoryPreview(categoryForm);
+  }));
+  renderNewProductPreview(productForm);
+  renderNewCategoryPreview(categoryForm);
 }
 
 function makeSlug(title) {
@@ -2406,7 +3150,37 @@ async function saveProductForm(form, message = 'Saved product changes live. Go b
     return true;
   }
   const savedVersions = new Map(Object.keys(patch).map((field) => [field, form._adminDirtyVersions?.get(field) || 0]));
-  const result = await saveAdminProductFieldPatch(form.dataset.slug, patch, form._adminBaseRecord || {}, form);
+  let result;
+  const categoryKey = newAdminArchitectureEnabled() ? ADMIN_CATEGORY_CARD_MAP[form.dataset.slug] : '';
+  if (categoryKey) {
+    const cardFieldMap = { title: 'title', description: 'description', cutoutImage: 'image', backgroundImage: 'backgroundImage', visible: 'visible' };
+    const cardPatch = Object.fromEntries(Object.entries(patch).flatMap(([field, value]) => cardFieldMap[field] ? [[cardFieldMap[field], value]] : []));
+    const displayFieldMap = {
+      stageBackgroundPosition: 'backgroundPosition',
+      cutoutHeight: 'standeeSizePercent',
+      cutoutLeft: 'standeeLeftPercent',
+      cutoutBottom: 'standeeVerticalPercent',
+      logoWidth: 'logoSizePercent',
+      logoTop: 'logoVerticalPercent'
+    };
+    const displayPatch = Object.fromEntries(Object.entries(patch).flatMap(([field, value]) => displayFieldMap[field] ? [[displayFieldMap[field], value === '' ? null : Number(value)]] : []));
+    const latestCategory = readAdminCategories()[categoryKey] || {};
+    const operations = [];
+    if (Object.keys(cardPatch).length) operations.push({
+      type: 'record', collectionKey: 'categories', entryKey: categoryKey,
+      baseRecord: latestCategory,
+      patch: { card: { ...(latestCategory.card || {}), ...cardPatch }, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'draft' }
+    });
+    if (Object.keys(displayPatch).length) operations.push({
+      type: 'record', collectionKey: 'categories', entryKey: categoryKey,
+      baseRecord: latestCategory,
+      patch: { displaySettings: { ...(latestCategory.displaySettings || {}), ...displayPatch }, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'draft' }
+    });
+    const saved = await saveAdminCollectionOperations(operations);
+    result = saved.ok ? { ok: true, record: { ...(form._adminBaseRecord || {}), ...patch } } : saved;
+  } else {
+    result = await saveAdminProductFieldPatch(form.dataset.slug, patch, form._adminBaseRecord || {}, form);
+  }
   if (!result.ok) return false;
   form._adminBaseRecord = structuredClone(result.record || { ...(form._adminBaseRecord || {}), ...patch });
   Object.keys(patch).forEach((field) => {
@@ -2923,11 +3697,331 @@ function productImageChoicesMarkup(value) {
   `;
 }
 
+function architectureReviewItems() {
+  const baseline = adminPublishedBaseline || buildDefaultPublishBaseline();
+  const items = [];
+  Object.entries(readAdminProducts()).forEach(([slug, product]) => {
+    const before = baseline.products?.[slug];
+    const after = publishableProduct(product, readArchivedProducts().includes(slug));
+    if (JSON.stringify(before || null) === JSON.stringify(after)) return;
+    items.push({
+      id: `product:${slug}`,
+      type: 'product', key: slug,
+      group: before ? 'Product Edits' : 'New Products',
+      title: product.title || slug,
+      approved: product.approvalStatus !== 'draft',
+      updatedAt: product.updatedAt || '',
+      before, after,
+      page: readAdminCategories()[product.categories?.[0]]?.page || 'index.html'
+    });
+  });
+  Object.entries(readAdminCategories()).forEach(([key, category]) => {
+    const before = baseline.categories?.[key];
+    const after = publishableCategory({ ...category, key });
+    if (JSON.stringify(before || null) === JSON.stringify(after)) return;
+    items.push({
+      id: `category:${key}`,
+      type: 'category', key,
+      group: before ? 'Category Edits' : 'New Categories',
+      title: category.title || key,
+      approved: category.approvalStatus !== 'draft',
+      updatedAt: category.updatedAt || '',
+      before, after, page: category.page || 'index.html'
+    });
+  });
+  Object.entries(adminPageLiveEdits || {}).forEach(([pageKey, entries]) => {
+    Object.entries(entries || {}).forEach(([elementKey, edit]) => {
+      if (!edit || typeof edit !== 'object' || edit.type) return;
+      const before = { ...(baseline.pageContent?.[pageKey]?.[elementKey] || {}), ...(baseline.pageVisualStates?.[pageKey]?.[elementKey] || {}) };
+      const after = Object.fromEntries(Object.entries(edit).filter(([field]) => !['approvalStatus', 'updatedAt'].includes(field)));
+      if (JSON.stringify(before) === JSON.stringify(after)) return;
+      items.push({
+        id: `page:${pageKey}:${elementKey}`,
+        type: 'page', key: elementKey, pageKey,
+        group: ['x', 'y', 'scale', 'rotate'].some((field) => after[field] !== undefined) ? 'Layout Changes' : 'Page Edits',
+        title: `${pageKey}: ${elementKey}`,
+        approved: edit.approvalStatus !== 'draft',
+        updatedAt: edit.updatedAt || '', before, after, page: pageKey
+      });
+    });
+  });
+  if (JSON.stringify(baseline.extraImages || {}) !== JSON.stringify(readExtraImages())) {
+    items.push({ id: 'extraImages:all', type: 'extraImages', key: 'all', group: 'Image Changes', title: 'Most Wanted / Gallery images', approved: true, before: baseline.extraImages || {}, after: readExtraImages(), page: 'index.html' });
+  }
+  return items;
+}
+
+function categoryCardSlugForKey(key) {
+  return Object.entries(ADMIN_CATEGORY_CARD_MAP).find(([, categoryKey]) => categoryKey === key)?.[0]
+    || `${key}-category-card`;
+}
+
+function buildSelectedArchitectureSnapshot(items) {
+  const baseline = structuredClone(adminPublishedBaseline || buildDefaultPublishBaseline());
+  const current = buildNormalizedPublishSnapshot();
+  baseline.version = 1;
+  baseline.schemaVersion = Math.max(2, Number(current.schemaVersion) || 0);
+  (items || []).forEach((item) => {
+    if (item.type === 'product') {
+      if (current.products?.[item.key]) baseline.products[item.key] = structuredClone(current.products[item.key]);
+      else delete baseline.products[item.key];
+      return;
+    }
+    if (item.type === 'category') {
+      if (current.categories?.[item.key]) baseline.categories[item.key] = structuredClone(current.categories[item.key]);
+      else delete baseline.categories[item.key];
+      const cardSlug = categoryCardSlugForKey(item.key);
+      if (current.categoryDisplayCards?.[cardSlug]) baseline.categoryDisplayCards[cardSlug] = structuredClone(current.categoryDisplayCards[cardSlug]);
+      else delete baseline.categoryDisplayCards[cardSlug];
+      baseline.categorySettings ||= {};
+      if (current.categorySettings?.[item.key]) baseline.categorySettings[item.key] = structuredClone(current.categorySettings[item.key]);
+      else delete baseline.categorySettings[item.key];
+      return;
+    }
+    if (item.type === 'page') {
+      for (const collectionKey of ['pageContent', 'pageVisualStates']) {
+        const entry = current[collectionKey]?.[item.pageKey]?.[item.key];
+        baseline[collectionKey] ||= {};
+        baseline[collectionKey][item.pageKey] ||= {};
+        if (entry) baseline[collectionKey][item.pageKey][item.key] = structuredClone(entry);
+        else delete baseline[collectionKey][item.pageKey][item.key];
+      }
+      return;
+    }
+    if (item.type === 'extraImages') baseline.extraImages = structuredClone(current.extraImages || {});
+  });
+  return baseline;
+}
+
+function publishSnapshotImagePaths(snapshot) {
+  const paths = new Set();
+  const add = (value) => {
+    if (validatePublishImagePath(String(value || ''))) paths.add(String(value));
+  };
+  ['products', 'categoryDisplayCards'].forEach((collectionKey) => {
+    Object.values(snapshot?.[collectionKey] || {}).forEach((product) => {
+      add(product?.cutoutImage);
+      add(product?.backgroundImage);
+      normalizeImageChoices(product?.imageChoices).forEach((choice) => { add(choice.image); add(choice.stage); });
+    });
+  });
+  Object.values(snapshot?.categories || {}).forEach((category) => {
+    add(category?.card?.image);
+    add(category?.card?.backgroundImage);
+    add(category?.displaySettings?.backgroundImage);
+  });
+  Object.values(snapshot?.extraImages || {}).forEach(add);
+  Object.values(snapshot?.pageContent || {}).forEach((entries) => Object.values(entries || {}).forEach((entry) => add(entry?.src)));
+  return paths;
+}
+
+function automaticPublishImagePaths(items, snapshot) {
+  if (!(items || []).length) return [];
+  const publishedPaths = publishSnapshotImagePaths(adminPublishedBaseline || buildDefaultPublishBaseline());
+  return [...publishSnapshotImagePaths(snapshot)].filter((path) => !publishedPaths.has(path)).sort();
+}
+
+function prepareSelectedPublish(items) {
+  const readyItems = (items || []).filter((item) => item.approved);
+  if (!readyItems.length) {
+    setStatus('Select at least one Ready item before going live.');
+    return false;
+  }
+  selectedPublishMode = true;
+  selectedPublishChangeIds = new Set(readyItems.map((item) => item.id));
+  imageImportPublishSelection = null;
+  const snapshot = buildSelectedArchitectureSnapshot(readyItems);
+  const input = document.getElementById('adminPublishImagePaths');
+  if (input) input.value = automaticPublishImagePaths(readyItems, snapshot).join('\n');
+  renderPublishSummary();
+  renderReadyPublishSelection();
+  window.location.hash = 'publish-changes';
+  setStatus(`${readyItems.length} Ready item${readyItems.length === 1 ? '' : 's'} selected for one publish. Unselected changes remain private.`);
+  return true;
+}
+
+function readyPublishSelectionMarkup(items) {
+  const ready = (items || []).filter((item) => item.approved);
+  if (!ready.length) return '<p class="admin-note">No Ready changes are waiting to publish.</p>';
+  return `
+    <div class="admin-panel-actions">
+      <button type="button" data-select-all-ready-items>Select All Ready Items</button>
+      <button type="button" data-go-live-selected>Publish Selected / Go Live</button>
+      <button type="button" data-go-live-all-ready>Publish All Ready Items</button>
+    </div>
+    <div class="admin-publish-ready-list">
+      ${ready.map((item) => `<label class="admin-review-select"><input type="checkbox" data-ready-publish-select value="${escapeAdminHtml(item.id)}" ${selectedPublishChangeIds.has(item.id) ? 'checked' : ''}> ${escapeAdminHtml(item.title)} <small>${escapeAdminHtml(item.group)}</small></label>`).join('')}
+    </div>`;
+}
+
+function bindReadyPublishSelection(container) {
+  if (!container || container.dataset.readyPublishBound) return;
+  container.dataset.readyPublishBound = 'true';
+  container.addEventListener('change', (event) => {
+    const input = event.target.closest('[data-ready-publish-select]');
+    if (!input) return;
+    if (input.checked) selectedPublishChangeIds.add(input.value);
+    else selectedPublishChangeIds.delete(input.value);
+  });
+  container.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-select-all-ready-items], [data-go-live-selected], [data-go-live-all-ready]');
+    if (!button) return;
+    const ready = architectureReviewItems().filter((item) => item.approved);
+    if (button.hasAttribute('data-select-all-ready-items')) {
+      const allSelected = ready.length && ready.every((item) => selectedPublishChangeIds.has(item.id));
+      ready.forEach((item) => allSelected ? selectedPublishChangeIds.delete(item.id) : selectedPublishChangeIds.add(item.id));
+      renderReadyPublishSelection();
+      renderAdminProducts();
+      return;
+    }
+    const selected = button.hasAttribute('data-go-live-all-ready')
+      ? ready
+      : ready.filter((item) => selectedPublishChangeIds.has(item.id));
+    prepareSelectedPublish(selected);
+  });
+}
+
+function renderReadyPublishSelection() {
+  const container = document.getElementById('adminReadyPublishItems');
+  if (!container) return;
+  container.innerHTML = readyPublishSelectionMarkup(architectureReviewItems());
+  bindReadyPublishSelection(container);
+}
+
+function architectureReviewSummary(value) {
+  const text = JSON.stringify(value ?? null);
+  return text.length > 180 ? `${text.slice(0, 177)}…` : text;
+}
+
+function architectureReviewImage(item) {
+  return item.type === 'category'
+    ? item.after?.card?.image || item.before?.card?.image || ''
+    : item.after?.cutoutImage || item.before?.cutoutImage || '';
+}
+
+function adminPreviewUrl(page = 'index.html') {
+  const value = String(page || 'index.html');
+  return `${value}${value.includes('?') ? '&' : '?'}adminView=preview`;
+}
+
+function architectureReviewMarkup(items) {
+  if (!items.length) return '<p class="admin-note">No private changes are waiting for review or publication.</p>';
+  const groups = Object.groupBy ? Object.groupBy(items, (item) => item.group) : items.reduce((result, item) => {
+    (result[item.group] ||= []).push(item); return result;
+  }, {});
+  return `<div class="admin-panel-actions"><button type="button" data-select-all-ready-items>Select All Ready Items</button><button type="button" data-go-live-selected>Publish Selected / Go Live</button><button type="button" data-go-live-all-ready>Publish All Ready Items</button></div>` + Object.entries(groups).map(([group, groupItems]) => `
+    <section class="admin-review-group">
+      <div class="admin-panel-header"><h3>${escapeAdminHtml(group)}</h3><button type="button" data-select-ready-group="${escapeAdminHtml(group)}">Select All Ready in This Group</button></div>
+      ${groupItems.map((item) => `
+        <article class="admin-review-item" data-review-id="${escapeAdminHtml(item.id)}">
+          <label class="admin-review-select"><input type="checkbox" data-ready-publish-select value="${escapeAdminHtml(item.id)}" ${item.approved ? '' : 'disabled'} ${selectedPublishChangeIds.has(item.id) ? 'checked' : ''}> ${item.approved ? 'Select for publishing' : 'Draft'}</label>
+          <div class="admin-review-image">${architectureReviewImage(item) ? `<img src="${escapeAdminHtml(architectureReviewImage(item))}" alt="">` : '<span>No image</span>'}</div>
+          <div class="admin-review-summary"><strong>${escapeAdminHtml(item.title)}</strong><p>${escapeAdminHtml(item.group)}</p><p class="admin-status-message" data-state="${item.approved ? 'approved' : 'waiting'}">${item.approved ? 'Ready to publish' : 'Draft — not included in publishing'}</p><small>Last edited: ${escapeAdminHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Not available')}</small></div>
+          <div class="admin-review-values"><p><strong>Published:</strong> ${escapeAdminHtml(architectureReviewSummary(item.before))}</p><p><strong>Private:</strong> ${escapeAdminHtml(architectureReviewSummary(item.after))}</p></div>
+          <div class="admin-card-actions">
+            <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminPreviewUrl(item.page))}" target="_blank">Preview</a>
+            <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(item.page || 'index.html')}" target="_blank">Open on Website</a>
+            ${item.approved ? `<button type="button" data-review-draft="${escapeAdminHtml(item.id)}">Return to Draft</button>` : `<button type="button" data-review-approve="${escapeAdminHtml(item.id)}">Mark Ready</button>`}
+            ${item.before && ['product', 'category'].includes(item.type) ? `<button type="button" data-review-discard="${escapeAdminHtml(item.id)}">Discard Private Change</button>` : ''}
+          </div>
+        </article>`).join('')}
+    </section>`).join('');
+}
+
+async function savePageReviewStatus(item, status) {
+  const client = getAdminClient();
+  const { data: row, error: loadError } = await client.from('site_edits').select('edits, revision').eq('page_key', item.pageKey).maybeSingle();
+  if (loadError) throw loadError;
+  const latest = row?.edits?.[item.key];
+  if (!latest) throw new Error('That page change no longer exists.');
+  const { data, error } = await client.rpc('save_site_edits', {
+    p_page_key: item.pageKey,
+    p_edits: { [item.key]: { ...latest, approvalStatus: status, updatedAt: new Date().toISOString() } },
+    p_expected_revision: Number(row?.revision) || 0,
+    p_replace: false
+  });
+  if (error) throw error;
+  adminPageLiveEdits[item.pageKey] = data?.edits || { ...(row?.edits || {}), [item.key]: { ...latest, approvalStatus: status } };
+}
+
+async function setArchitectureReviewStatus(item, status) {
+  if (item.type === 'product') return (await saveAdminProductFieldPatch(item.key, { approvalStatus: status, draftStatus: status === 'approved' ? 'ready' : 'draft', updatedAt: new Date().toISOString() }, readAdminProducts()[item.key] || {})).ok;
+  if (item.type === 'category') return (await saveAdminCollectionOperations([{
+    type: 'record', collectionKey: 'categories', entryKey: item.key,
+    baseRecord: readAdminCategories()[item.key] || {},
+    patch: { approvalStatus: status, draftStatus: status === 'approved' ? 'ready' : 'draft', updatedAt: new Date().toISOString() }
+  }])).ok;
+  if (item.type === 'page') { await savePageReviewStatus(item, status); return true; }
+  return true;
+}
+
+async function discardArchitecturePrivateChange(item) {
+  if (!item.before || !window.confirm(`Discard the private changes for ${item.title} and restore the published values?`)) return false;
+  if (item.type === 'product') return (await saveAdminCollectionOperations([{
+    type: 'record', collectionKey: 'products', entryKey: item.key,
+    baseRecord: readAdminProducts()[item.key] || {},
+    patch: { ...item.before, approvalStatus: 'approved', draftStatus: 'approved', updatedAt: new Date().toISOString() }
+  }])).ok;
+  if (item.type === 'category') return (await saveAdminCollectionOperations([{
+    type: 'record', collectionKey: 'categories', entryKey: item.key,
+    baseRecord: readAdminCategories()[item.key] || {},
+    patch: { ...item.before, approvalStatus: 'approved', draftStatus: 'approved', updatedAt: new Date().toISOString() }
+  }])).ok;
+  return false;
+}
+
+function bindArchitectureReview(container) {
+  if (!container || container.dataset.reviewBound) return;
+  container.dataset.reviewBound = 'true';
+  container.addEventListener('change', (event) => {
+    const input = event.target.closest('[data-ready-publish-select]');
+    if (!input) return;
+    if (input.checked) selectedPublishChangeIds.add(input.value);
+    else selectedPublishChangeIds.delete(input.value);
+  });
+  container.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-review-approve], [data-review-draft], [data-review-discard], [data-select-ready-group], [data-select-all-ready-items], [data-go-live-selected], [data-go-live-all-ready]');
+    if (!button) return;
+    const items = architectureReviewItems();
+    const ready = items.filter((item) => item.approved);
+    if (button.hasAttribute('data-select-all-ready-items') || button.dataset.selectReadyGroup) {
+      const targets = button.dataset.selectReadyGroup ? ready.filter((item) => item.group === button.dataset.selectReadyGroup) : ready;
+      const allSelected = targets.length && targets.every((item) => selectedPublishChangeIds.has(item.id));
+      targets.forEach((item) => allSelected ? selectedPublishChangeIds.delete(item.id) : selectedPublishChangeIds.add(item.id));
+      renderAdminProducts();
+      renderReadyPublishSelection();
+      return;
+    }
+    if (button.hasAttribute('data-go-live-selected') || button.hasAttribute('data-go-live-all-ready')) {
+      prepareSelectedPublish(button.hasAttribute('data-go-live-all-ready') ? ready : ready.filter((item) => selectedPublishChangeIds.has(item.id)));
+      return;
+    }
+    let targets = [];
+    {
+      const id = button.dataset.reviewApprove || button.dataset.reviewDraft || button.dataset.reviewDiscard;
+      targets = items.filter((item) => item.id === id);
+    }
+    button.disabled = true;
+    try {
+      for (const item of targets) {
+        if (button.dataset.reviewDiscard) await discardArchitecturePrivateChange(item);
+        else await setArchitectureReviewStatus(item, button.dataset.reviewDraft ? 'draft' : 'approved');
+      }
+      renderAdminProducts();
+      renderPublishSummary();
+    } catch (error) {
+      setStatus(`Could not update review status. ${error?.message || error}`);
+      button.disabled = false;
+    }
+  });
+}
+
 function renderAdminProducts() {
   const approvedContainer = document.getElementById('approvedProducts');
   const publishedContainer = document.getElementById('publishedProducts');
   const categoryContainer = document.getElementById('adminProducts');
-  const productContainers = [approvedContainer, publishedContainer, categoryContainer].filter(Boolean);
+  const recoveryContainer = document.getElementById('legacyRecoveryProducts');
+  const productContainers = [approvedContainer, publishedContainer, categoryContainer, recoveryContainer].filter(Boolean);
   const saved = readAdminProducts();
   const archived = new Set(readArchivedProducts());
   if (!productContainers.length) return;
@@ -3057,11 +4151,28 @@ function renderAdminProducts() {
   }).join('');
 
   const approvedProducts = availableProducts.filter((product) => !product.categoryCard);
-  const waitingProducts = approvedProducts.filter((product) => productLifecycleState(product, saved, archived).key === 'waiting');
-  const publishedProducts = approvedProducts.filter((product) => productLifecycleState(product, saved, archived).key === 'published');
-  if (approvedContainer) approvedContainer.innerHTML = productMarkup(waitingProducts) || '<p class="admin-note">No products are waiting to publish.</p>';
-  if (publishedContainer) publishedContainer.innerHTML = productMarkup(publishedProducts, 'Published') || '<p class="admin-note">No products have been published yet.</p>';
-  if (categoryContainer) categoryContainer.innerHTML = productMarkup(availableProducts.filter((product) => product.categoryCard));
+  const reviewItems = architectureReviewItems();
+  if (approvedContainer) {
+    approvedContainer.innerHTML = architectureReviewMarkup(reviewItems);
+    bindArchitectureReview(approvedContainer);
+  }
+  renderReadyPublishSelection();
+  if (publishedContainer) {
+    publishedContainer.innerHTML = Object.values(adminPublishedBaseline?.products || {}).map((product) => `
+      <article class="admin-review-item admin-published-item"><div class="admin-review-image">${product.cutoutImage ? `<img src="${escapeAdminHtml(product.cutoutImage)}" alt="">` : '<span>No image</span>'}</div><div><strong>${escapeAdminHtml(product.title || product.slug)}</strong><p>Published — customers can see this</p></div></article>
+    `).join('') || '<div class="admin-empty-state"><strong>No published products yet</strong><span>Published products will appear here after the first successful publish.</span></div>';
+  }
+  if (categoryContainer) {
+    const categories = Object.values(newAdminArchitectureEnabled() ? readAdminCategories() : adminArchitectureState?.candidate?.categories || {});
+    categoryContainer.innerHTML = categories.length ? categories.map((category) => `
+      <article class="admin-review-item admin-category-manager-card">
+        <div class="admin-review-image">${category.card?.image ? `<img src="${escapeAdminHtml(category.card.image)}" alt="">` : '<span>No image</span>'}</div>
+        <div><strong>${escapeAdminHtml(category.title || category.key)}</strong><p>${category.visible === false ? 'Hidden' : 'Visible'} · ${escapeAdminHtml(category.page || 'Reusable category page')}</p></div>
+        <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(category.page || `category.html?category=${encodeURIComponent(category.key)}`)}" target="_blank">Edit on Website</a>
+      </article>`).join('') : '<div class="admin-empty-state"><strong>No categories available</strong><span>Create a category from the Create section.</span></div>';
+  }
+  const recoveryDetails = document.getElementById('legacyRecoveryEditor');
+  if (recoveryContainer) recoveryContainer.innerHTML = recoveryDetails?.open ? productMarkup(availableProducts) : '';
 
   productContainers.forEach((container) => container.querySelectorAll('.admin-product-card').forEach((form) => {
     const baseProduct = allAdminProducts().find((product) => product.slug === form.dataset.slug) || {};
@@ -3285,10 +4396,12 @@ async function loadDiscountCodes() {
   if (!client) return;
   const { data, error } = await client.from('discount_codes').select('*').order('created_at', { ascending: false });
   if (error) {
+    adminDiscountCodesLoaded = false;
     setCouponStatus(`Discount codes are unavailable until the database migration is applied. ${error.message || error}`);
     return;
   }
   adminDiscountCodes = data || [];
+  adminDiscountCodesLoaded = true;
   renderDiscountCodes();
   setCouponStatus(`Loaded ${adminDiscountCodes.length} discount code${adminDiscountCodes.length === 1 ? '' : 's'}.`);
 }
@@ -3373,7 +4486,6 @@ function setupCoupons() {
     }
     await loadDiscountCodes();
   });
-  loadDiscountCodes();
 }
 
 let imageDraftInventory = [];
@@ -3381,34 +4493,38 @@ let imageImportReady = false;
 
 const IMAGE_IMPORT_DEFAULT_BACKGROUND = 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg';
 const IMAGE_IMPORT_DESTINATIONS = [
-  ['existing-product', 'Add to existing product'],
   ['create-product', 'Create new product'],
-  ['create-card', 'Create new card'],
-  ['create-category', 'Create new category/section'],
-  ['background', 'Background'],
-  ['gallery', 'Gallery image'],
-  ['banner', 'Banner'],
-  ['other-website', 'Other website image']
+  ['existing-product', 'Add to existing product'],
+  ['create-category', 'Create new category'],
+  ['existing-category', 'Add to existing category'],
+  ['save-later', 'Save for later'],
+  ['ignore', 'Ignore image']
 ];
 const IMAGE_IMPORT_ROLES = [
   ['main', 'Main Image'],
-  ['alternate', 'Alternate Image'],
-  ['gallery', 'Gallery Image'],
-  ['card-thumbnail', 'Card Thumbnail'],
-  ['product', 'Product Image'],
-  ['background-variation', 'Background Variation']
+  ['image-choice', 'Image Choice'],
+  ['background', 'Background'],
+  ['category-card', 'Category Card Image'],
+  ['category-background', 'Category Background'],
+  ['page-only', 'Page-only Image']
 ];
 
 function normalizeImageImportDraft(value = {}) {
   const legacyDestination = value.purpose === 'image-choice'
     ? 'existing-product'
     : value.purpose === 'not-product'
-      ? 'other-website'
+      ? 'save-later'
       : 'create-product';
+  const requestedDestination = String(value.destination || legacyDestination);
+  const destination = IMAGE_IMPORT_DESTINATIONS.some(([key]) => key === requestedDestination)
+    ? requestedDestination
+    : ['background', 'gallery', 'banner', 'other-website', 'create-card'].includes(requestedDestination)
+      ? 'save-later'
+      : legacyDestination;
   return {
     ...value,
-    destination: String(value.destination || legacyDestination),
-    imageRole: String(value.imageRole || (value.purpose === 'image-choice' ? 'alternate' : 'main')),
+    destination,
+    imageRole: String(value.imageRole === 'alternate' ? 'image-choice' : value.imageRole === 'background-variation' ? 'background' : value.imageRole || (value.purpose === 'image-choice' ? 'image-choice' : 'main')),
     status: String(value.status || 'draft'),
     backgroundImage: String(value.backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND),
     selectedPreviewImage: String(value.selectedPreviewImage || value.path || '')
@@ -3465,10 +4581,14 @@ function collectImageDraftForm(form) {
     title: String(formData.get('title') || '').trim(),
     slug: requestedSlug ? makeSlug(requestedSlug) : '',
     description: String(formData.get('description') || '').trim(),
+    funFact: String(formData.get('funFact') || '').trim(),
     originalHeight: String(formData.get('originalHeight') || '').trim(),
+    priceOverride: String(formData.get('priceOverride') || '').trim(),
     backgroundImage: String(formData.get('backgroundImage') || IMAGE_IMPORT_DEFAULT_BACKGROUND),
     categories: formData.getAll('categories'),
     parentProductSlug: String(formData.get('parentProductSlug') || ''),
+    parentCategoryKey: String(formData.get('parentCategoryKey') || ''),
+    categoryPage: String(formData.get('categoryPage') || '').trim(),
     imageChoiceLabel: String(formData.get('imageChoiceLabel') || '').trim(),
     websiteImageKey: String(formData.get('websiteImageKey') || '').trim(),
     selectedPreviewImage: String(formData.get('selectedPreviewImage') || form.dataset.imagePath || ''),
@@ -3522,6 +4642,12 @@ async function saveImageDraftForm(form, options = {}) {
 }
 
 function imageImportProductOperation(parent, updatedProduct) {
+  if (newAdminArchitectureEnabled()) {
+    return {
+      type: 'record', collectionKey: 'products', entryKey: parent.slug,
+      baseRecord: readAdminProducts()[parent.slug] || parent, patch: updatedProduct
+    };
+  }
   const customProducts = readCustomProducts();
   const customProduct = customProducts.find((product) => product.slug === parent.slug);
   if (customProduct) {
@@ -3537,18 +4663,21 @@ function imageImportProductOperation(parent, updatedProduct) {
 }
 
 function importedImageChoice(draft, parent) {
-  const isBackgroundVariation = draft.imageRole === 'background-variation';
   return {
     label: draft.imageChoiceLabel || IMAGE_IMPORT_ROLES.find(([key]) => key === draft.imageRole)?.[1] || 'Alternate image',
-    image: isBackgroundVariation ? parent.cutoutImage : draft.path,
-    ...(isBackgroundVariation ? { stage: draft.path } : {}),
+    image: draft.path,
     role: draft.imageRole
   };
 }
 
-async function configureImageDraft(form) {
+async function configureImageDraft(form, approvalStatus = 'approved') {
   if (!ensureImageImportReady(form)) return false;
   const draft = collectImageDraftForm(form);
+  if (draft.destination === 'save-later') return saveImageDraftForm(form, { savedForLater: true });
+  if (draft.destination === 'ignore') {
+    await ignoreImageDraft(draft.path, form);
+    return true;
+  }
   const operations = [];
   const baseDrafts = readImageDraftEdits();
   const baseDraft = baseDrafts[draft.path];
@@ -3557,7 +4686,15 @@ async function configureImageDraft(form) {
   setImageDraftActionsBusy(form, true);
   setImageDraftActionStatus(form, 'Applying assignment privately…');
   try {
-    if (draft.destination === 'existing-product') {
+    if (draft.imageRole === 'page-only') {
+      if (!draft.websiteImageKey) throw new Error('Choose the website image slot for this page-only image.');
+      const extraImages = readExtraImages();
+      operations.push({
+        type: 'value', collectionKey: 'extraImages', entryKey: draft.websiteImageKey,
+        baseValue: extraImages[draft.websiteImageKey], value: draft.path
+      });
+      resultType = 'page-only';
+    } else if (draft.destination === 'existing-product') {
       const parent = effectiveAdminProduct(draft.parentProductSlug);
       if (!parent) throw new Error('Select the existing product this image belongs to.');
       const owner = findProductImageOwner(draft.path);
@@ -3565,50 +4702,88 @@ async function configureImageDraft(form) {
       let imageChoices = normalizeImageChoices(parent.imageChoices);
       const updated = {};
       if (draft.imageRole === 'main') {
+        if (parent.cutoutImage && parent.cutoutImage !== draft.path && !window.confirm(`Replace the Main Image for ${parent.title}? The current Main Image will move to Image Choices and no file will be deleted.`)) {
+          throw new Error('Main Image replacement canceled.');
+        }
         imageChoices = imageChoices.filter((choice) => choice.image !== draft.path);
         if (parent.cutoutImage && parent.cutoutImage !== draft.path && !imageChoices.some((choice) => choice.image === parent.cutoutImage)) {
-          imageChoices.push({ label: 'Previous Main Image', image: parent.cutoutImage, role: 'alternate' });
+          imageChoices.push({ label: 'Previous Main Image', image: parent.cutoutImage, role: 'image-choice' });
         }
         updated.cutoutImage = draft.path;
         updated.imageChoices = imageChoices;
+      } else if (draft.imageRole === 'background') {
+        if (parent.backgroundImage && parent.backgroundImage !== draft.path && !window.confirm(`Replace the Background for ${parent.title}? The physical background image will not be deleted.`)) {
+          throw new Error('Background replacement canceled.');
+        }
+        updated.backgroundImage = draft.path;
       } else {
         if (owner?.slug === parent.slug) throw new Error('That image is already assigned to this product.');
         updated.imageChoices = [...imageChoices, importedImageChoice(draft, parent)];
       }
+      updated.updatedAt = new Date().toISOString();
+      updated.draftStatus = 'ready';
+      updated.approvalStatus = 'approved';
       operations.push(imageImportProductOperation(parent, updated));
       resultSlug = parent.slug;
-    } else if (['create-product', 'create-card', 'create-category'].includes(draft.destination)) {
-      if (!draft.title || !draft.slug) throw new Error('Add a title and unique slug first.');
-      if (draft.destination === 'create-product' && !draft.originalHeight) throw new Error('Add the original height first.');
+    } else if (draft.destination === 'create-product') {
+      draft.slug = draft.slug || makeSlug(draft.title);
+      if (!draft.title || !draft.slug) throw new Error('Add a title first. The product ID will be generated automatically.');
+      if (!draft.originalHeight) throw new Error('Add the original height first.');
       if (allAdminProducts().some((product) => product.slug === draft.slug)) throw new Error('That slug already belongs to another product or card.');
       const owner = findProductImageOwner(draft.path);
       if (owner) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
+      const product = buildNewProductRecord({
+        slug: draft.slug, title: draft.title, description: draft.description, funFact: draft.funFact,
+        cutoutImage: draft.path, backgroundImage: draft.backgroundImage, originalHeight: draft.originalHeight,
+        priceOverride: draft.priceOverride, categories: draft.categories, visible: draft.categories.length > 0,
+        displayOverrides: {}, approvalStatus
+      });
+      operations.push(newProductRecordOperation(product));
+      resultSlug = draft.slug;
+    } else if (draft.destination === 'create-category') {
+      if (!draft.title || !draft.slug) throw new Error('Add a category title and unique key first.');
+      if (readAdminCategories()[draft.slug]) throw new Error('That category key already exists.');
+      const now = new Date().toISOString();
+      const cardImage = ['main', 'category-card'].includes(draft.imageRole) ? draft.path : '';
+      const categoryBackground = ['background', 'category-background'].includes(draft.imageRole) ? draft.path : draft.backgroundImage;
       operations.push({
-        type: 'record', collectionKey: 'customProducts', identityKey: 'slug', entryKey: draft.slug,
-        baseRecord: undefined,
+        type: 'record', collectionKey: 'categories', entryKey: draft.slug, baseRecord: undefined,
         patch: {
-        slug: draft.slug,
-        custom: true,
-        ...(draft.destination !== 'create-product' ? { categoryCard: true, cardKind: draft.destination } : {}),
-        title: draft.title,
-        description: draft.description || `Preview ${draft.title}.`,
-        cutoutImage: draft.path,
-        backgroundImage: draft.backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND,
-        originalHeight: draft.originalHeight || '72',
-        categories: draft.destination === 'create-product' ? draft.categories : [],
-        visible: draft.destination === 'create-product' ? draft.categories.length > 0 : true,
-        categoryOrder: Object.fromEntries(draft.categories.map((category) => [category, 999])),
-        imageChoices: []
+          key: draft.slug,
+          title: draft.title,
+          description: draft.description,
+          funFact: draft.funFact,
+          page: draft.categoryPage || `category.html?category=${encodeURIComponent(draft.slug)}`,
+          visible: true,
+          order: 999,
+          card: { title: draft.title, description: draft.description, image: cardImage, backgroundImage: categoryBackground, visible: true, order: 999 },
+          displaySettings: { backgroundImage: categoryBackground, backgroundPosition: 'center center' },
+          createdAt: now,
+          updatedAt: now,
+          draftStatus: 'ready',
+          approvalStatus: 'approved'
         }
       });
       resultSlug = draft.slug;
+    } else if (draft.destination === 'existing-category') {
+      const category = readAdminCategories()[draft.parentCategoryKey];
+      if (!category) throw new Error('Select the existing category this image belongs to.');
+      const patch = { updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'approved' };
+      if (draft.imageRole === 'category-card' || draft.imageRole === 'main') {
+        if (category.card?.image && category.card.image !== draft.path && !window.confirm(`Replace the category card image for ${category.title}? No image file will be deleted.`)) throw new Error('Category card replacement canceled.');
+        patch.card = { ...(category.card || {}), image: draft.path };
+      } else if (draft.imageRole === 'category-background') {
+        if (category.card?.backgroundImage && category.card.backgroundImage !== draft.path && !window.confirm(`Replace the category card background for ${category.title}? No image file will be deleted.`)) throw new Error('Category background replacement canceled.');
+        patch.card = { ...(category.card || {}), backgroundImage: draft.path };
+      } else if (draft.imageRole === 'background') {
+        patch.displaySettings = { ...(category.displaySettings || {}), backgroundImage: draft.path };
+      } else {
+        throw new Error('Choose Category Card Image, Category Background, or Background for an existing category.');
+      }
+      operations.push({ type: 'record', collectionKey: 'categories', entryKey: category.key, baseRecord: category, patch });
+      resultSlug = category.key;
     } else {
-      if (!draft.websiteImageKey) throw new Error('Choose the website image slot this image belongs to.');
-      const extraImages = readExtraImages();
-      operations.push({
-        type: 'value', collectionKey: 'extraImages', entryKey: draft.websiteImageKey,
-        baseValue: extraImages[draft.websiteImageKey], value: draft.path
-      });
+      throw new Error('Choose where this image belongs.');
     }
 
     operations.push({
@@ -3619,7 +4794,7 @@ async function configureImageDraft(form) {
       type: 'record', collectionKey: 'imageDrafts', entryKey: draft.path, baseRecord: baseDraft,
       patch: {
       ...draft,
-      status: 'ready',
+      status: 'completed',
       savedForLater: false,
       resultType,
       resultSlug,
@@ -3631,7 +4806,7 @@ async function configureImageDraft(form) {
     if (!result.ok) throw new Error(adminLastSaveError || 'Supabase did not save the assignment.');
     renderAdminProducts();
     renderImageDrafts();
-    setStatus('Image assignment saved privately and marked Ready to Publish.');
+    setStatus('Image assignment saved privately and added to Approved — Waiting to Publish.');
   } catch (error) {
     await saveAdminImageDraftPatch(draft.path, {
       ...draft,
@@ -3675,18 +4850,65 @@ function imageImportAssetOptions(selectedKey = '') {
   ].join('');
 }
 
+function parentCategoryPickerMarkup(selectedKey = '') {
+  const categories = Object.values(readAdminCategories())
+    .filter((category) => category?.key)
+    .sort((left, right) => String(left.title || left.key).localeCompare(String(right.title || right.key)));
+  return `
+    <label>Search categories<input type="search" data-category-search placeholder="Search title or key"></label>
+    <label>Existing category
+      <select name="parentCategoryKey">
+        <option value="">Select category</option>
+        ${categories.map((category) => `<option value="${escapeAdminHtml(category.key)}" data-search="${escapeAdminHtml(`${category.title} ${category.key}`.toLowerCase())}" ${category.key === selectedKey ? 'selected' : ''}>${escapeAdminHtml(category.title || category.key)} — ${escapeAdminHtml(category.key)}</option>`).join('')}
+      </select>
+    </label>
+    <div data-category-parent-preview class="admin-parent-product-preview"></div>
+  `;
+}
+
+function bindParentCategoryPicker(scope) {
+  const search = scope.querySelector('[data-category-search]');
+  const select = scope.querySelector('[name="parentCategoryKey"]');
+  const preview = scope.querySelector('[data-category-parent-preview]');
+  if (!select) return;
+  const update = () => {
+    const category = readAdminCategories()[select.value];
+    preview.innerHTML = category ? `
+      ${category.card?.image ? `<img src="${escapeAdminHtml(category.card.image)}" alt="">` : ''}
+      <span><strong>${escapeAdminHtml(category.title || category.key)}</strong><small>${escapeAdminHtml(category.key)} · ${escapeAdminHtml(category.page || 'No page')}</small></span>
+    ` : '<span class="admin-note">Choose a category to see its current card assignment.</span>';
+  };
+  search?.addEventListener('input', () => {
+    const query = search.value.trim().toLowerCase();
+    [...select.options].forEach((option) => {
+      if (!option.value) return;
+      option.hidden = Boolean(query) && !String(option.dataset.search || '').includes(query);
+    });
+  });
+  select.addEventListener('change', update);
+  update();
+}
+
 function updateImageDraftDestination(form) {
   const destination = form.querySelector('[name="imageDestination"]')?.value || 'create-product';
+  const role = form.querySelector('[name="imageRole"]')?.value || 'main';
   form.querySelectorAll('[data-import-destinations]').forEach((section) => {
     section.hidden = !section.dataset.importDestinations.split(' ').includes(destination);
   });
+  form.querySelectorAll('[data-import-roles]').forEach((section) => {
+    section.hidden = !section.dataset.importRoles.split(' ').includes(role);
+  });
   const action = form.querySelector('[data-apply-image-import]');
+  const draftAction = form.querySelector('[data-apply-image-import-draft]');
+  if (draftAction) draftAction.hidden = destination !== 'create-product';
   if (action) {
     action.textContent = destination === 'existing-product' ? 'Add to Product'
-      : destination === 'create-product' ? 'Add Product'
-        : destination === 'create-card' ? 'Create Card'
-          : destination === 'create-category' ? 'Create Category/Section'
-            : 'Assign Website Image';
+      : destination === 'create-product' ? 'Approve Product'
+        : destination === 'create-category' ? 'Create Category'
+          : destination === 'existing-category' ? 'Add to Category'
+            : destination === 'save-later' ? 'Save For Later'
+              : destination === 'ignore' ? 'Ignore Image'
+                : 'Apply Assignment';
   }
   updateImageImportPreview(form);
 }
@@ -3697,14 +4919,14 @@ function imageImportPreviewChoices(form) {
   const importRole = form.querySelector('[name="imageRole"]')?.value || 'main';
   const choices = [{
     label: 'Current selected image',
-    image: importRole === 'background-variation' && parent?.cutoutImage ? parent.cutoutImage : importedPath,
-    ...(importRole === 'background-variation' ? { stage: importedPath } : {}),
+    image: importRole === 'background' && parent?.cutoutImage ? parent.cutoutImage : importedPath,
+    ...(importRole === 'background' ? { stage: importedPath } : {}),
     role: importRole,
     identity: importedPath
   }];
   if (parent?.cutoutImage && parent.cutoutImage !== importedPath) choices.push({ label: 'Main Image', image: parent.cutoutImage, role: 'main' });
   normalizeImageChoices(parent?.imageChoices).forEach((choice) => {
-    const identity = choice.role === 'background-variation' && choice.stage ? choice.stage : choice.image;
+    const identity = choice.role === 'background' && choice.stage ? choice.stage : choice.image;
     if (!choices.some((item) => (item.identity || item.image) === identity)) choices.push({ ...choice, identity });
   });
   return choices;
@@ -3765,8 +4987,9 @@ function renderImageDrafts() {
         <div class="admin-product-heading">
           <div><h3>${escapeAdminHtml(draft.title || 'Unpublished image draft')}</h3><p class="admin-note" data-image-draft-status>${imageImportReady ? 'Draft — saved privately only after you choose Save Draft.' : 'Loading authenticated Admin state…'}</p></div>
           <div class="admin-card-actions">
-            <button type="button" data-image-import-action data-save-image-draft ${imageImportReady ? '' : 'disabled'}>Save Draft</button>
             <button type="button" data-image-import-action data-save-image-later ${imageImportReady ? '' : 'disabled'}>Save For Later</button>
+            <button type="button" data-image-import-action data-preview-image-import>Preview</button>
+            <button type="button" data-image-import-action data-apply-image-import-draft ${imageImportReady ? '' : 'disabled'}>Save Product Draft</button>
             <button type="button" data-image-import-action data-apply-image-import ${imageImportReady ? '' : 'disabled'}>Apply Assignment</button>
             <button type="button" data-image-import-action data-ignore-image ${imageImportReady ? '' : 'disabled'}>Ignore Image</button>
           </div>
@@ -3778,21 +5001,20 @@ function renderImageDrafts() {
           </div>
           <div class="admin-control-groups">
             <input name="selectedPreviewImage" type="hidden" value="${escapeAdminHtml(draft.selectedPreviewImage)}">
-            <label>Image path<input type="text" value="${escapeAdminHtml(draft.path)}" readonly></label>
             <label>Where does this image belong?
               <select name="imageDestination">
                 ${IMAGE_IMPORT_DESTINATIONS.map(([key, label]) => `<option value="${key}" ${draft.destination === key ? 'selected' : ''}>${label}</option>`).join('')}
               </select>
             </label>
-            <label>Image role
+            <label data-import-destinations="create-product existing-product create-category existing-category">Image role
               <select name="imageRole">
                 ${IMAGE_IMPORT_ROLES.map(([key, label]) => `<option value="${key}" ${draft.imageRole === key ? 'selected' : ''}>${label}</option>`).join('')}
               </select>
             </label>
-            <div data-import-destinations="create-product create-card create-category">
+            <div data-import-destinations="create-product create-category">
               <label>Title<input name="title" type="text" value="${escapeAdminHtml(draft.title || '')}"></label>
-              <label>Slug<input name="slug" type="text" value="${escapeAdminHtml(draft.slug || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(draft.description || '')}</textarea></label>
+              <label>Fun fact<textarea name="funFact" rows="2">${escapeAdminHtml(draft.funFact || '')}</textarea></label>
               <label data-import-destinations="create-product">Original height<input name="originalHeight" type="text" value="${escapeAdminHtml(draft.originalHeight || '')}" placeholder="6'6 or 78"></label>
               <label>Background
                 <select name="backgroundImage">
@@ -3803,15 +5025,25 @@ function renderImageDrafts() {
                 </select>
               </label>
               <fieldset data-import-destinations="create-product"><legend>Category assignments</legend><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
+              <details class="admin-advanced-fields"><summary>Advanced</summary>
+                <label>Generated product or category ID<input name="slug" type="text" value="${escapeAdminHtml(draft.slug || '')}" placeholder="Generated from title"></label>
+                <label data-import-destinations="create-product">Price override (optional)<input name="priceOverride" type="number" min="0" step="0.01" value="${escapeAdminHtml(draft.priceOverride || '')}"></label>
+                <label data-import-destinations="create-category">Category page<input name="categoryPage" type="text" value="${escapeAdminHtml(draft.categoryPage || '')}" placeholder="Reusable category page is automatic"></label>
+                <label>Repository image path<input type="text" value="${escapeAdminHtml(draft.path)}" readonly></label>
+              </details>
             </div>
             <div data-import-destinations="existing-product">
               ${parentProductPickerMarkup(draft.parentProductSlug || '')}
               <label>Image-choice label (optional)<input name="imageChoiceLabel" type="text" value="${escapeAdminHtml(draft.imageChoiceLabel || '')}" placeholder="Light, Dark, Print, Shade 1, Alternate pose"></label>
               <p class="admin-note">Choosing Main Image moves the current main image into Alternate Images; no physical file is deleted.</p>
             </div>
-            <div data-import-destinations="background gallery banner other-website">
+            <div data-import-destinations="existing-category">
+              ${parentCategoryPickerMarkup(draft.parentCategoryKey || '')}
+              <p class="admin-note">Choose Category Card Image, Category Background, or Background before adding this image.</p>
+            </div>
+            <div data-import-roles="page-only">
               <label>Website image slot<select name="websiteImageKey">${imageImportAssetOptions(draft.websiteImageKey || '')}</select></label>
-              <p class="admin-note">This reuses the existing Most Wanted/Gallery image assignment state. The physical file is never modified.</p>
+              <p class="admin-note">Page-only images use the existing website image assignments. The physical file is never modified.</p>
             </div>
           </div>
         </div>
@@ -3821,14 +5053,25 @@ function renderImageDrafts() {
 
   container.querySelectorAll('.admin-image-draft').forEach((form) => {
     bindParentProductPicker(form);
+    bindParentCategoryPicker(form);
     updateImageDraftDestination(form);
     updateImageImportPreview(form);
     form.querySelector('[name="imageDestination"]')?.addEventListener('change', () => updateImageDraftDestination(form));
     form.querySelector('[name="parentProductSlug"]')?.addEventListener('change', () => updateImageImportPreview(form));
-    form.querySelector('[name="imageRole"]')?.addEventListener('change', () => updateImageImportPreview(form));
+    form.querySelector('[name="imageRole"]')?.addEventListener('change', () => {
+      updateImageDraftDestination(form);
+      updateImageImportPreview(form);
+    });
     form.querySelector('[name="backgroundImage"]')?.addEventListener('change', () => updateImageImportPreview(form));
-    form.querySelector('[data-save-image-draft]')?.addEventListener('click', () => saveImageDraftForm(form));
+    form.querySelector('[name="title"]')?.addEventListener('input', () => {
+      const slug = form.querySelector('[name="slug"]');
+      const generated = makeSlug(form.querySelector('[name="title"]').value);
+      if (slug && (!slug.value || slug.value === slug.dataset.generatedValue)) slug.value = generated;
+      if (slug) slug.dataset.generatedValue = slug.value;
+    });
     form.querySelector('[data-save-image-later]')?.addEventListener('click', () => saveImageDraftForm(form, { savedForLater: true }));
+    form.querySelector('[data-preview-image-import]')?.addEventListener('click', () => updateImageImportPreview(form));
+    form.querySelector('[data-apply-image-import-draft]')?.addEventListener('click', () => configureImageDraft(form, 'draft'));
     form.querySelector('[data-apply-image-import]')?.addEventListener('click', () => configureImageDraft(form));
     form.querySelector('[data-ignore-image]')?.addEventListener('click', () => ignoreImageDraft(form.dataset.imagePath, form));
   });
@@ -3837,7 +5080,7 @@ function renderImageDrafts() {
 
 function imageImportPublished(draft) {
   const snapshot = adminLiveSettings?.lastPublishedSnapshot || adminLastSuccessfulSnapshot;
-  if (!snapshot || draft.status !== 'ready') return false;
+  if (!snapshot || !['ready', 'completed'].includes(draft.status)) return false;
   if (draft.resultSlug) {
     const product = snapshot.products?.[draft.resultSlug] || snapshot.categoryDisplayCards?.[draft.resultSlug];
     if (!product) return false;
@@ -3850,8 +5093,17 @@ function imageImportStatus(draft) {
   if (draft.lastError || draft.status === 'error') return 'Error';
   if (imageImportPublished(draft)) return 'Published';
   if (draft.savedForLater) return 'Draft';
-  if (draft.status === 'ready') return 'Ready to Publish';
+  if (['ready', 'completed'].includes(draft.status)) return 'Ready to Publish';
   return 'Draft';
+}
+
+function imageImportOpenUrl(draft) {
+  if (!draft?.resultSlug) return '';
+  const category = readAdminCategories()[draft.resultSlug];
+  if (category?.page) return category.page;
+  const product = effectiveAdminProduct(draft.resultSlug);
+  const page = readAdminCategories()[product?.categories?.[0]]?.page || 'index.html';
+  return `${page}#${draft.resultSlug}`;
 }
 
 function renderImageImportPending() {
@@ -3866,13 +5118,15 @@ function renderImageImportPending() {
     .sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))
     .map((draft) => {
       const status = imageImportStatus(draft);
+      const openUrl = imageImportOpenUrl(draft);
       return `
-        <label class="admin-image-pending-item" data-pending-image-path="${escapeAdminHtml(draft.path)}">
+        <article class="admin-image-pending-item" data-pending-image-path="${escapeAdminHtml(draft.path)}">
           <input type="checkbox" data-image-pending-select ${status === 'Published' ? 'disabled' : ''}>
           <img src="${escapeAdminHtml(draft.path)}" alt="">
           <span><strong>${escapeAdminHtml(draft.title || draft.imageChoiceLabel || draft.path.split('/').pop())}</strong><small>${escapeAdminHtml(draft.path)}</small></span>
           <span class="admin-image-status" data-status="${escapeAdminHtml(status.toLowerCase().replace(/\s+/g, '-'))}">${status}</span>
-        </label>
+          ${openUrl ? `<a href="${escapeAdminHtml(openUrl)}" target="_blank" rel="noopener">Open on Website</a>` : ''}
+        </article>
       `;
     }).join('');
 }
@@ -3912,12 +5166,22 @@ async function publishImageImports(mode) {
     setStatus('No Ready to Publish image imports are selected.');
     return;
   }
-  const input = document.getElementById('adminPublishImagePaths');
-  if (input) input.value = [...new Set(selectedPaths)].join('\n');
-  imageImportPublishSelection = [...new Set(selectedPaths)];
-  renderPublishSummary();
-  document.querySelector('.admin-publish-review')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  setStatus(`${selectedPaths.length} image import${selectedPaths.length === 1 ? '' : 's'} added to the existing Publish Changes review. Confirm the generated commit before publishing.`);
+  const selectedDrafts = drafts.filter((draft) => selectedPaths.includes(draft.path));
+  const reviewItems = architectureReviewItems();
+  const changeIds = new Set();
+  selectedDrafts.forEach((draft) => {
+    if (draft.resultSlug) {
+      if (readAdminProducts()[draft.resultSlug]) changeIds.add(`product:${draft.resultSlug}`);
+      if (readAdminCategories()[draft.resultSlug]) changeIds.add(`category:${draft.resultSlug}`);
+    }
+    if (draft.websiteImageKey) changeIds.add('extraImages:all');
+  });
+  const selectedChanges = reviewItems.filter((item) => changeIds.has(item.id) && item.approved);
+  if (!selectedChanges.length) {
+    setStatus('The selected images are not attached to a Ready product, category, or website-image change. Mark the related item Ready first.');
+    return;
+  }
+  prepareSelectedPublish(selectedChanges);
 }
 
 async function loadImageDraftInventory() {
@@ -3931,6 +5195,262 @@ async function loadImageDraftInventory() {
   renderPublishSummary();
 }
 
+function downloadAdminJson(filename, value) {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 500);
+}
+
+async function setAdminArchitectureEnabled(enabled) {
+  const architecture = await adminArchitecturePromise;
+  let latest = await fetchAuthoritativeAdminGlobal();
+  if (enabled) {
+    const verified = await verifyStoredAdminArchitectureBackup();
+    if (!verified.ok) throw new Error(`Activation blocked: ${verified.errors.join(' ')}`);
+    latest = { edits: verified.globalRow.edits, revision: Number(verified.globalRow.revision) || 0 };
+    const verification = latest.edits?.[architecture.ADMIN_ARCHITECTURE_VERIFICATION_KEY];
+    const migration = latest.edits?.[architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY];
+    if (verification?.verified !== true || verification.checksum !== verified.checksum) throw new Error('Activation blocked because backup verification is incomplete.');
+    if (migration?.version !== 1 || migration.backupChecksum !== verified.checksum) throw new Error('Activation blocked because migration preparation has not completed for this backup.');
+    if (architecture.migrationLockActive(latest.edits?.[architecture.ADMIN_ARCHITECTURE_LOCK_KEY])) throw new Error('Activation blocked while another Admin tab is preparing migration data.');
+  }
+  const feature = {
+    ...architecture.architectureFeature(latest.edits),
+    enabled: Boolean(enabled),
+    installedAt: latest.edits?.[architecture.ADMIN_ARCHITECTURE_FEATURE_KEY]?.installedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  const { data, error } = await getAdminClient().rpc('save_site_edits', {
+    p_page_key: 'admin-global', p_edits: { [architecture.ADMIN_ARCHITECTURE_FEATURE_KEY]: feature },
+    p_expected_revision: latest.revision, p_replace: false
+  });
+  if (error) throw error;
+  adminLiveSettings = data?.edits || { ...latest.edits, [architecture.ADMIN_ARCHITECTURE_FEATURE_KEY]: feature };
+  adminLiveRevision = Number(data?.revision) || latest.revision + 1;
+  announceAdminSave('admin-global', adminLiveRevision, [architecture.ADMIN_ARCHITECTURE_FEATURE_KEY]);
+  adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
+  setupAdminArchitectureWorkspace();
+  setupAdminCreationWorkspace();
+  renderAdminProducts();
+  renderPublishSummary();
+  return true;
+}
+
+async function restoreAdminArchitectureBackup() {
+  const architecture = await adminArchitecturePromise;
+  const latest = await fetchAuthoritativeAdminGlobal();
+  const backup = latest.edits?.[architecture.ADMIN_ARCHITECTURE_BACKUP_KEY];
+  if (!backup?.recoveryOnly || !backup.adminGlobal || !Array.isArray(backup.siteEdits)) throw new Error('The migration backup is unavailable or invalid.');
+  if (!window.confirm('Restore the recovery backup and switch back to the old Admin readers? Current normalized data will remain in the recovery export but active Admin state will be replaced.')) return false;
+  const restoredGlobal = {
+    ...structuredClone(backup.adminGlobal),
+    [architecture.ADMIN_ARCHITECTURE_BACKUP_KEY]: backup,
+    [architecture.ADMIN_ARCHITECTURE_FEATURE_KEY]: { ...architecture.architectureFeature(latest.edits), enabled: false, updatedAt: new Date().toISOString() }
+  };
+  const { error } = await getAdminClient().rpc('save_site_edits', {
+    p_page_key: 'admin-global', p_edits: restoredGlobal,
+    p_expected_revision: latest.revision, p_replace: true
+  });
+  if (error) throw error;
+  for (const row of backup.siteEdits.filter((row) => row.page_key && row.page_key !== 'admin-global')) {
+    const { data: current, error: loadError } = await getAdminClient().from('site_edits').select('revision').eq('page_key', row.page_key).maybeSingle();
+    if (loadError) throw loadError;
+    const { error: pageError } = await getAdminClient().rpc('save_site_edits', {
+      p_page_key: row.page_key, p_edits: row.edits || {}, p_expected_revision: Number(current?.revision) || 0, p_replace: true
+    });
+    if (pageError) throw pageError;
+  }
+  window.location.reload();
+  return true;
+}
+
+function renderAdminDashboard() {
+  const container = document.getElementById('adminDashboardSummary');
+  if (!container) return;
+  const review = architectureReviewItems();
+  const conflicts = adminLiveSettings?.adminArchitectureMigrationV2?.productPageOverrides;
+  const products = Object.values(readAdminProducts());
+  const categories = Object.values(newAdminArchitectureEnabled() ? readAdminCategories() : adminArchitectureState?.candidate?.categories || {});
+  const available = (value) => value === undefined || value === null || value === '' ? 'Not available' : value;
+  const cards = [
+    { title: 'Draft Products', value: products.filter((item) => item.approvalStatus === 'draft' || item.draftStatus === 'draft').length, note: 'Products saved privately and still being prepared.', href: '#create-content' },
+    { title: 'Draft Categories', value: categories.filter((item) => item.approvalStatus === 'draft' || item.draftStatus === 'draft').length, note: 'Categories saved privately and still being prepared.', href: '#create-content' },
+    { title: 'New Image Imports', value: Object.values(readImageDraftEdits()).filter((draft) => ['draft', 'new'].includes(draft.status || 'draft')).length, note: 'Repository images waiting to be assigned.', href: '#new-image-drafts' },
+    { title: 'Waiting for Approval', value: review.filter((item) => !item.approved).length, note: 'Private changes that need your review.', href: '#approved-products' },
+    { title: 'Approved — Waiting to Publish', value: review.filter((item) => item.approved).length, note: 'Approved changes customers cannot see yet.', href: '#approved-products' },
+    { title: 'Save Errors', value: adminLastSaveError ? 1 : 0, note: adminLastSaveError ? 'One or more changes were not saved.' : 'No failed saves detected.', href: '#recovery-advanced' },
+    { title: 'Conflicts', value: (conflicts?.conflicts?.length || 0) + (conflicts?.unsupported?.length || 0), note: 'Changes that need a decision before publishing.', href: '#recovery-advanced' },
+    { title: 'Hidden Products', value: products.filter((product) => product.visible === false).length, note: 'Products currently hidden in private Admin state.', href: '#approved-products' },
+    { title: 'Archived Products', value: readArchivedProducts().length, note: 'Products preserved outside the active storefront.', href: '#recovery-advanced' },
+    { title: 'Last Published', value: adminPublishedFileState.publishedAt ? new Date(adminPublishedFileState.publishedAt).toLocaleDateString() : 'Not available', note: 'Most recent version made visible to customers.', href: '#publish-changes' }
+  ];
+  container.innerHTML = cards.map((card) => `<a class="admin-dashboard-card" href="${card.href}"><span class="admin-dashboard-card-title">${escapeAdminHtml(card.title)}</span><strong>${escapeAdminHtml(String(available(card.value)))}</strong><span>${escapeAdminHtml(card.note)}</span><em>Open</em></a>`).join('');
+  const flag = document.querySelector('[data-admin-dashboard-flag]');
+  if (flag) flag.textContent = newAdminArchitectureEnabled() ? 'New Admin System active locally' : 'Legacy System active';
+  const status = document.getElementById('adminArchitectureStatus');
+  if (status) {
+    const verification = adminLiveSettings?.adminArchitectureBackupVerificationV1;
+    const migration = adminLiveSettings?.adminArchitectureMigrationV2;
+    const backupReady = adminArchitectureState?.diagnostics?.backupReady === true && verification?.verified === true;
+    const migrationReady = backupReady && migration?.version === 1 && migration.backupChecksum === verification.checksum;
+    const readiness = newAdminArchitectureEnabled() ? 'Active locally' : migrationReady ? 'Ready to activate locally' : backupReady ? 'Backup verified — preparation required' : 'Backup not created';
+    status.innerHTML = `<div><span>Current Admin System</span><strong>${newAdminArchitectureEnabled() ? 'New Admin System' : 'Legacy System'}</strong></div>
+      <div><span>New Admin System</span><strong>${readiness}</strong></div>
+      <div class="admin-panel-actions">
+        ${newAdminArchitectureEnabled() ? '<button class="admin-button admin-button-warning" type="button" data-disable-admin-architecture>Return to Legacy System</button>' : `<button class="admin-button admin-button-primary" type="button" data-activate-admin-locally ${migrationReady ? '' : 'disabled'}>Activate New Admin Locally</button>`}
+        <a class="admin-button admin-button-secondary" href="#recovery-advanced">View Migration Details</a>
+      </div>`;
+  }
+}
+
+function renderAdminRecoveryTools() {
+  const container = document.getElementById('adminArchitectureRecovery');
+  if (!container) return;
+  const architecture = adminArchitectureState;
+  const migration = adminLiveSettings?.adminArchitectureMigrationV2?.productPageOverrides;
+  const conflicts = [...(migration?.conflicts || []), ...(migration?.unsupported || [])];
+  const verification = adminLiveSettings?.adminArchitectureBackupVerificationV1;
+  const prepared = adminLiveSettings?.adminArchitectureMigrationV2;
+  container.innerHTML = `
+    <h3>Migration Safety</h3>
+    <p>These actions are deliberately separate. Creating a backup does not prepare migration data. Preparing migration data does not activate the new system. Activation does not publish.</p>
+    <div class="admin-migration-steps">
+      <div><strong>1. Recovery backup</strong><span>${verification?.verified ? `Verified · ${verification.siteEditRowCount} page records · ${escapeAdminHtml(String(verification.checksum || '').slice(0, 12))}…` : 'Not created or not verified'}</span></div>
+      <div><strong>2. Migration preparation</strong><span>${prepared?.version === 1 ? `Prepared · ${escapeAdminHtml(prepared.status || 'ready')}` : 'Not prepared'}</span></div>
+      <div><strong>3. Local activation</strong><span>${newAdminArchitectureEnabled() ? 'Active locally' : 'Not active'}</span></div>
+    </div>
+    <div class="admin-panel-actions">
+      <button type="button" data-create-migration-backup>Create and Verify Recovery Backup</button>
+      <button type="button" data-prepare-admin-migration ${verification?.verified ? '' : 'disabled'}>Prepare New Admin Data</button>
+      ${newAdminArchitectureEnabled() ? '<button type="button" data-disable-admin-architecture>Roll Back to Old Readers</button>' : ''}
+      <button type="button" data-export-private-state>Export Current Private State</button>
+      <button type="button" data-export-published-state>Export Published Snapshot</button>
+      <button type="button" data-export-migration-backup>Export Migration Backup</button>
+      <button type="button" data-restore-migration-backup>Restore Migration Backup</button>
+      <button type="button" data-clear-local-recovery>Clear Local Recovery Data</button>
+    </div>
+    <details><summary>Conflicting page overrides (${conflicts.length})</summary><pre>${escapeAdminHtml(JSON.stringify(conflicts, null, 2))}</pre></details>
+    <details><summary>Failed saves</summary><p>${escapeAdminHtml(adminLastSaveError || 'None')}</p></details>
+  `;
+  if (container.dataset.recoveryBound) return;
+  container.dataset.recoveryBound = 'true';
+  container.addEventListener('click', async (event) => {
+    const target = event.target;
+    try {
+      if (target.closest('[data-create-migration-backup]')) {
+        if (!window.confirm('Create and verify a recovery backup of the current private Admin data? This does not prepare migration data or activate the new system.')) return;
+        setStatus('Creating and verifying the recovery backup…');
+        const result = await createAndVerifyAdminArchitectureBackup();
+        setStatus(`Recovery backup verified. ${result.siteEditRowCount} page records were captured.`);
+        setupAdminArchitectureWorkspace();
+      }
+      if (target.closest('[data-prepare-admin-migration]')) {
+        if (!window.confirm('Prepare the normalized private Admin data from the verified backup? This does not activate or publish anything.')) return;
+        setStatus('Verifying the backup again and preparing private Admin data…');
+        const result = await prepareAdminArchitectureMigrationExplicitly();
+        setStatus(`Private Admin data prepared. Status: ${result.status}. The new system remains disabled.`);
+        setupAdminArchitectureWorkspace();
+        renderAdminProducts();
+      }
+      if (target.closest('[data-disable-admin-architecture]')) await setAdminArchitectureEnabled(false);
+      if (target.closest('[data-export-private-state]')) downloadAdminJson('mvplux-private-admin-state.json', { adminGlobal: adminLiveSettings, siteEdits: adminSiteEditRows });
+      if (target.closest('[data-export-published-state]')) downloadAdminJson('mvplux-published-snapshot.json', adminPublishedBaseline || {});
+      if (target.closest('[data-export-migration-backup]')) {
+        const architectureModule = await adminArchitecturePromise;
+        downloadAdminJson('mvplux-admin-migration-backup-v1.json', adminLiveSettings?.[architectureModule.ADMIN_ARCHITECTURE_BACKUP_KEY] || {});
+      }
+      if (target.closest('[data-restore-migration-backup]')) await restoreAdminArchitectureBackup();
+      if (target.closest('[data-clear-local-recovery]')) {
+        if (!window.confirm('Clear only local Admin recovery copies from this browser? Supabase records and physical images are not changed.')) return;
+        ['mvpluxAdminProducts', 'mvpluxAdminCustomProducts', 'mvpluxInlineAdminDraftV2', 'mvpluxAdminArchivedProducts', 'mvpluxDeletedProducts', 'mvpluxAdminImageDraftEdits'].forEach((key) => localStorage.removeItem(key));
+        setStatus('Local recovery copies cleared. Supabase data was not changed.');
+      }
+    } catch (error) { setStatus(`Recovery action stopped. ${error?.message || error}`); }
+  });
+}
+
+function showAdminAreaFromHash() {
+  const requested = (window.location.hash || '#dashboard').slice(1);
+  const aliases = { create: 'create-content', 'image-imports': 'new-image-drafts', products: 'approved-products', categories: 'category-display-cards', publish: 'publish-changes', settings: 'admin-settings', recovery: 'recovery-advanced' };
+  const candidate = requested.startsWith('product-') ? 'recovery-advanced' : aliases[requested] || requested;
+  const validAreas = new Set([...document.querySelectorAll('[data-admin-area]')].map((section) => section.dataset.adminArea));
+  const area = validAreas.has(candidate) ? candidate : 'dashboard';
+  document.querySelectorAll('[data-admin-area]').forEach((section) => { section.hidden = section.dataset.adminArea !== area; });
+  document.querySelectorAll('.admin-workspace-nav a').forEach((link) => link.classList.toggle('active', link.getAttribute('href') === `#${area}`));
+  const nav = document.getElementById('adminWorkspaceNav');
+  const toggle = document.getElementById('adminNavToggle');
+  nav?.classList.remove('open');
+  toggle?.setAttribute('aria-expanded', 'false');
+  if (!adminAccessReady) return;
+  if (area === 'orders' && !adminCommerceLoaded) void refreshCommerceAdmin();
+  if (area === 'admin-settings') {
+    if (!adminTestModeLoaded) void loadAdminTestMode();
+    if (!adminDiscountCodesLoaded) void loadDiscountCodes();
+  }
+}
+
+function setupCommerceTabs() {
+  const tabs = document.querySelector('.admin-commerce-tabs');
+  if (!tabs || tabs.dataset.bound) return;
+  tabs.dataset.bound = 'true';
+  tabs.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-commerce-tab]');
+    if (!button) return;
+    tabs.querySelectorAll('[data-commerce-tab]').forEach((item) => item.classList.toggle('active', item === button));
+    document.querySelectorAll('[data-commerce-panel]').forEach((panel) => { panel.hidden = panel.dataset.commercePanel !== button.dataset.commerceTab; });
+  });
+}
+
+function bindAdminWorkspaceNavigation() {
+  const nav = document.getElementById('adminWorkspaceNav');
+  const toggle = document.getElementById('adminNavToggle');
+  if (toggle && !toggle.dataset.bound) {
+    toggle.dataset.bound = 'true';
+    toggle.addEventListener('click', () => {
+      const open = nav?.classList.toggle('open') === true;
+      toggle.setAttribute('aria-expanded', String(open));
+    });
+  }
+  if (!document.body.dataset.adminWorkspaceBound) {
+    document.body.dataset.adminWorkspaceBound = 'true';
+    window.addEventListener('hashchange', showAdminAreaFromHash);
+    document.addEventListener('click', async (event) => {
+      const activate = event.target.closest('[data-activate-admin-locally]');
+      if (activate) {
+        if (!window.confirm('Activate the New Admin System for your private Admin workspace? Customers will continue seeing the published website.')) return;
+        activate.disabled = true;
+        try {
+          const saved = await setAdminArchitectureEnabled(true);
+          if (!saved) activate.disabled = false;
+        } catch (error) {
+          activate.disabled = false;
+          setStatus(`Activation blocked. ${error?.message || error}`);
+        }
+      }
+      const disable = event.target.closest('#adminArchitectureStatus [data-disable-admin-architecture]');
+      if (disable) await setAdminArchitectureEnabled(false);
+    });
+  }
+  const recovery = document.getElementById('legacyRecoveryEditor');
+  if (recovery && !recovery.dataset.bound) {
+    recovery.dataset.bound = 'true';
+    recovery.addEventListener('toggle', () => renderAdminProducts());
+  }
+}
+
+function setupAdminArchitectureWorkspace() {
+  const nav = document.querySelector('.admin-workspace-nav');
+  if (nav) nav.hidden = false;
+  bindAdminWorkspaceNavigation();
+  setupCommerceTabs();
+  renderAdminDashboard();
+  renderAdminRecoveryTools();
+  showAdminAreaFromHash();
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('[ADMIN] DOMContentLoaded');
   try {
@@ -3938,13 +5458,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadImageDraftInventory();
   const hasAdminAccess = await requireSupabaseAdminAccess();
   setupAdminTestMode();
-  if (hasAdminAccess) await loadAdminTestMode();
+  adminAccessReady = hasAdminAccess;
   const loadedAdminState = hasAdminAccess ? await loadAdminLiveSettings().catch(() => null) : null;
   imageImportReady = Boolean(hasAdminAccess && loadedAdminState);
   renderImageDrafts();
   await loadPublishedPublishBaseline();
+  if (hasAdminAccess && loadedAdminState) {
+    adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
+    renderAdminDiagnostics();
+  }
   renderImageImportPending();
   renderAdminProducts();
+  setupAdminCreationWorkspace();
+  setupAdminArchitectureWorkspace();
   setupPriceRules();
   renderExtraImages();
   renderPublishSummary();
@@ -3953,9 +5479,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelector(window.location.hash)?.scrollIntoView({ block: 'start' });
   }
   setupCoupons();
-  if (hasAdminAccess) {
-    refreshCommerceAdmin();
-  }
   document.addEventListener('click', handleCommerceAdminClick);
 
   if (window.location.hash === '#create-card') {
@@ -4004,6 +5527,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   document.getElementById('refreshCommerceAdmin')?.addEventListener('click', refreshCommerceAdmin);
+  document.getElementById('checkCommerceConnection')?.addEventListener('click', refreshCommerceAdmin);
   document.getElementById('deleteAllTestOffers')?.addEventListener('click', deleteAllTestOffers);
 
   document.getElementById('exportAdminChanges')?.addEventListener('click', downloadAdminChanges);
