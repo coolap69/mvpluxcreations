@@ -1,3 +1,7 @@
+const adminStateUtilsPromise = import('./admin-state-utils.js');
+const adminTabId = crypto.randomUUID?.()
+  || `admin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 const adminProducts = [
   {
     slug: 'sport-legend-standee',
@@ -106,6 +110,35 @@ let adminLastSaveError = '';
 let adminLatestPublishError = '';
 let adminPublishedFileState = { reachable: false, publishedAt: null, commitHash: '' };
 let adminTestModeState = { enabled: false, customerType: 'guest' };
+let adminPotentiallyStale = false;
+
+const adminSaveChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('mvplux-admin-saves-v1') : null;
+
+function announceAdminSave(scope, revision, keys = []) {
+  const message = { source: adminTabId, scope, revision, keys, savedAt: new Date().toISOString() };
+  adminSaveChannel?.postMessage(message);
+  try {
+    localStorage.setItem('mvpluxAdminSaveNotice', JSON.stringify(message));
+  } catch (_error) {
+    // Cross-tab notification is best-effort; authoritative saves do not depend on it.
+  }
+}
+
+function receiveAdminSaveNotice(message) {
+  if (!message || message.source === adminTabId) return;
+  adminPotentiallyStale = true;
+  setStatus('Another Admin tab saved newer changes. Authoritative data will be refreshed before your next save.');
+  document.querySelectorAll('[data-product-save-state]').forEach((status) => {
+    status.textContent = 'Potentially stale — server refresh required before saving';
+    status.dataset.state = 'conflict';
+  });
+}
+
+adminSaveChannel?.addEventListener('message', (event) => receiveAdminSaveNotice(event.data));
+window.addEventListener('storage', (event) => {
+  if (event.key !== 'mvpluxAdminSaveNotice' || !event.newValue) return;
+  try { receiveAdminSaveNotice(JSON.parse(event.newValue)); } catch (_error) { /* Ignore invalid notices. */ }
+});
 
 function logAdminInitializationException(section, error) {
   const stack = String(error?.stack || '');
@@ -126,8 +159,11 @@ function getAdminClient() {
 }
 
 function getAdminLiveValue(key, fallback) {
-  if (adminLiveSettings && Object.prototype.hasOwnProperty.call(adminLiveSettings, key)) {
-    return adminLiveSettings[key];
+  if (adminLiveSettings !== null) {
+    if (Object.prototype.hasOwnProperty.call(adminLiveSettings, key)) return adminLiveSettings[key];
+    if (Array.isArray(fallback)) return [];
+    if (fallback && typeof fallback === 'object') return {};
+    return fallback;
   }
   return fallback;
 }
@@ -162,38 +198,427 @@ async function loadAdminLiveSettings() {
   return adminLiveSettings;
 }
 
-async function saveAdminSettingsLive(patch) {
-  updateAdminLiveSettings(patch);
+async function fetchAuthoritativeAdminGlobal() {
+  const client = getAdminClient();
+  if (!client?.from || !client?.auth) throw new Error('Supabase is not ready.');
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (!sessionData?.session?.user) throw new Error('Sign in as admin to save live.');
+  const { data, error } = await client
+    .from('site_edits')
+    .select('edits, revision')
+    .eq('page_key', 'admin-global')
+    .maybeSingle();
+  if (error) throw error;
+  return { edits: data?.edits || {}, revision: Number(data?.revision) || 0 };
+}
+
+function baseAdminProductForState(slug, settings = adminLiveSettings || {}) {
+  const custom = (settings.customProducts || []).find((product) => product.slug === slug);
+  return custom
+    || adminProducts.find((product) => product.slug === slug)
+    || adminCharacterProducts.find((product) => product.slug === slug)
+    || {};
+}
+
+function setProductSaveState(form, message, state = '') {
+  const status = form?.querySelector('[data-product-save-state]');
+  if (!status) return;
+  status.textContent = message;
+  status.dataset.state = state;
+}
+
+function refreshUntouchedProductFormFields(form, latestRecord, dirtyFields = form?._adminDirtyFields || new Set()) {
+  if (!form || !latestRecord) return;
+  ['title', 'description', 'cutoutImage', 'backgroundImage', 'originalHeight', 'cutoutHeight', 'cutoutLeft', 'cutoutBottom', 'logoWidth', 'logoTop', 'stageBackgroundPosition']
+    .forEach((fieldName) => {
+      if (dirtyFields.has(fieldName)) return;
+      const field = form.elements.namedItem(fieldName);
+      if (field && 'value' in field) field.value = latestRecord[fieldName] ?? '';
+    });
+  if (!dirtyFields.has('categories')) {
+    const selected = new Set(latestRecord.categories || []);
+    form.querySelectorAll('[name="categories"]').forEach((checkbox) => {
+      checkbox.checked = selected.has(checkbox.value);
+    });
+  }
+  if (!dirtyFields.has('visible')) {
+    const visible = form.elements.namedItem('visible');
+    if (visible) visible.checked = latestRecord.visible !== false;
+  }
+  form._adminRemoteRecord = structuredClone(latestRecord);
+  syncPreviewFromFields(form);
+}
+
+function showProductSaveConflict(form, details, reapply) {
+  form?.querySelector('[data-product-save-conflict]')?.remove();
+  const conflictVersions = new Map((details.localFields || []).map((field) => [field, form?._adminDirtyVersions?.get(field) || 0]));
+  const panel = document.createElement('div');
+  panel.className = 'admin-save-conflict';
+  panel.dataset.productSaveConflict = 'true';
+  const remote = details.remoteFields.length ? details.remoteFields.join(', ') : 'none';
+  const local = details.localFields.length ? details.localFields.join(', ') : 'none';
+  panel.innerHTML = `
+    <strong>Conflict — review required</strong>
+    <p>Another Admin session or tab saved newer changes.</p>
+    <p>Changed remotely: ${escapeAdminHtml(remote)}<br>Waiting locally: ${escapeAdminHtml(local)}</p>
+    <div class="admin-card-actions">
+      <button type="button" data-conflict-latest>Keep latest server values</button>
+      <button type="button" data-conflict-reapply>Reapply my changed fields</button>
+      <button type="button" data-conflict-cancel>Cancel and review</button>
+    </div>
+  `;
+  const heading = form?.querySelector('.admin-product-heading');
+  if (heading) heading.insertAdjacentElement('afterend', panel);
+  else (document.getElementById('adminStatus')?.parentElement || document.body).appendChild(panel);
+  panel.querySelector('[data-conflict-latest]')?.addEventListener('click', () => {
+    panel.remove();
+    renderAdminProducts();
+    setStatus('Latest server values loaded. The rejected local changes were not saved.');
+  });
+  panel.querySelector('[data-conflict-reapply]')?.addEventListener('click', async () => {
+    panel.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+    const result = await reapply();
+    if (!result?.ok) {
+      panel.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+      return;
+    }
+    form._adminBaseRecord = structuredClone(result.record || form._adminRemoteRecord || form._adminBaseRecord || {});
+    (details.localFields || []).forEach((field) => {
+      if ((form._adminDirtyVersions?.get(field) || 0) === conflictVersions.get(field)) form._adminDirtyFields?.delete(field);
+    });
+    panel.remove();
+    setProductSaveState(
+      form,
+      form._adminDirtyFields?.size ? `Unsaved changes: ${[...form._adminDirtyFields].join(', ')}` : 'Saved',
+      form._adminDirtyFields?.size ? 'unsaved' : 'saved'
+    );
+  });
+  panel.querySelector('[data-conflict-cancel]')?.addEventListener('click', () => {
+    panel.remove();
+    setProductSaveState(form, 'Conflict — local fields remain unsaved for review', 'conflict');
+  });
+}
+
+async function saveAdminProductFieldPatch(slug, patch, baseRecord, form = null, force = false) {
+  if (!slug || !Object.keys(patch || {}).length) return { ok: true, skipped: true };
+  setProductSaveState(form, 'Saving', 'saving');
+  try {
+    const latest = await fetchAuthoritativeAdminGlobal();
+    const latestRecord = {
+      ...baseAdminProductForState(slug, latest.edits),
+      ...(latest.edits.products?.[slug] || {})
+    };
+    const utils = await adminStateUtilsPromise;
+    const analysis = utils.analyzeRecordPatch(baseRecord || {}, latestRecord, patch);
+    adminLiveSettings = latest.edits;
+    adminLiveRevision = latest.revision;
+    adminPotentiallyStale = false;
+    if (!force && !analysis.canRebase) {
+      refreshUntouchedProductFormFields(form, latestRecord);
+      setProductSaveState(form, 'Conflict — review required', 'conflict');
+      showProductSaveConflict(form, analysis, () => saveAdminProductFieldPatch(slug, patch, latestRecord, form, true));
+      return { ok: false, conflict: true, analysis };
+    }
+
+    const products = utils.applyRecordPatch(latest.edits.products || {}, slug, patch);
+    const { data, error } = await getAdminClient().rpc('save_site_edits', {
+      p_page_key: 'admin-global',
+      p_edits: { products },
+      p_expected_revision: latest.revision,
+      p_replace: false
+    });
+    if (error) {
+      if (String(error.code || '') === '40001' || String(error.message || '').includes('Admin state changed')) {
+        const refreshed = await fetchAuthoritativeAdminGlobal();
+        const refreshedRecord = {
+          ...baseAdminProductForState(slug, refreshed.edits),
+          ...(refreshed.edits.products?.[slug] || {})
+        };
+        const conflict = utils.analyzeRecordPatch(latestRecord, refreshedRecord, patch);
+        adminLiveSettings = refreshed.edits;
+        adminLiveRevision = refreshed.revision;
+        refreshUntouchedProductFormFields(form, refreshedRecord);
+        setProductSaveState(form, 'Conflict — review required', 'conflict');
+        showProductSaveConflict(form, conflict, () => saveAdminProductFieldPatch(slug, patch, refreshedRecord, form, true));
+        return { ok: false, conflict: true, analysis: conflict };
+      }
+      throw error;
+    }
+    adminLiveSettings = data?.edits || { ...latest.edits, products };
+    adminLiveRevision = Number(data?.revision) || (latest.revision + 1);
+    localStorage.setItem('mvpluxAdminProducts', JSON.stringify(adminLiveSettings.products || products));
+    announceAdminSave('admin-global', adminLiveRevision, [`products:${slug}`]);
+    setProductSaveState(form, 'Saved', 'saved');
+    return { ok: true, record: { ...latestRecord, ...patch }, revision: adminLiveRevision };
+  } catch (error) {
+    adminLastSaveError = error?.message || 'Unknown Supabase error.';
+    setProductSaveState(form, 'Error — not saved', 'error');
+    setStatus(`Live save failed: ${adminLastSaveError}`);
+    return { ok: false, error };
+  }
+}
+
+async function saveAdminProductFieldPatches(recordPatches, baseRecords = {}) {
+  const entries = Object.entries(recordPatches || {}).filter(([, patch]) => Object.keys(patch || {}).length);
+  if (!entries.length) return true;
+  try {
+    const latest = await fetchAuthoritativeAdminGlobal();
+    const utils = await adminStateUtilsPromise;
+    let products = { ...(latest.edits.products || {}) };
+    const conflicts = [];
+    entries.forEach(([slug, patch]) => {
+      const latestRecord = { ...baseAdminProductForState(slug, latest.edits), ...(products[slug] || {}) };
+      const analysis = utils.analyzeRecordPatch(baseRecords[slug] || latestRecord, latestRecord, patch);
+      if (!analysis.canRebase) conflicts.push(`${slug}: ${analysis.conflictingFields.join(', ')}`);
+      products = utils.applyRecordPatch(products, slug, patch);
+    });
+    adminLiveSettings = latest.edits;
+    adminLiveRevision = latest.revision;
+    if (conflicts.length) {
+      setStatus(`Conflict — review required. ${conflicts.join('; ')}`);
+      return false;
+    }
+    const { data, error } = await getAdminClient().rpc('save_site_edits', {
+      p_page_key: 'admin-global',
+      p_edits: { products },
+      p_expected_revision: latest.revision,
+      p_replace: false
+    });
+    if (error) throw error;
+    adminLiveSettings = data?.edits || { ...latest.edits, products };
+    adminLiveRevision = Number(data?.revision) || latest.revision + 1;
+    localStorage.setItem('mvpluxAdminProducts', JSON.stringify(adminLiveSettings.products || products));
+    announceAdminSave('admin-global', adminLiveRevision, entries.map(([slug]) => `products:${slug}`));
+    return true;
+  } catch (error) {
+    if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
+      try {
+        const refreshed = await fetchAuthoritativeAdminGlobal();
+        adminLiveSettings = refreshed.edits;
+        adminLiveRevision = refreshed.revision;
+      } catch (_reloadError) { /* Keep the original conflict as the reported failure. */ }
+      setStatus('Conflict — review required. Another Admin tab changed product ordering; reload before trying again.');
+      return false;
+    }
+    setStatus(`Error — not saved. ${error?.message || error}`);
+    return false;
+  }
+}
+
+const ADMIN_COLLECTION_STORAGE_KEYS = {
+  products: 'mvpluxAdminProducts',
+  customProducts: 'mvpluxAdminCustomProducts',
+  savedForLaterProducts: 'mvpluxAdminArchivedProducts',
+  deletedProducts: 'mvpluxDeletedProducts',
+  imageDrafts: 'mvpluxImageDrafts',
+  dismissedImageDrafts: 'mvpluxDismissedImageDrafts',
+  configuredImagePaths: 'mvpluxConfiguredImagePaths',
+  ignoredImagePaths: 'mvpluxIgnoredImagePaths',
+  extraImages: 'mvpluxAdminExtraImages',
+  coupons: 'mvpluxAdminCoupons'
+};
+
+function collectionRecord(collection, operation) {
+  if (operation.identityKey) {
+    return (Array.isArray(collection) ? collection : []).find((record) => record?.[operation.identityKey] === operation.entryKey);
+  }
+  return collection?.[operation.entryKey];
+}
+
+function applyCollectionRecordOperation(collection, operation) {
+  if (operation.identityKey) {
+    const records = [...(Array.isArray(collection) ? collection : [])];
+    const index = records.findIndex((record) => record?.[operation.identityKey] === operation.entryKey);
+    if (operation.remove) return records.filter((_, recordIndex) => recordIndex !== index);
+    const record = { ...(index >= 0 ? records[index] : { [operation.identityKey]: operation.entryKey }), ...(operation.patch || {}) };
+    if (index >= 0) records[index] = record;
+    else records.push(record);
+    return records;
+  }
+  const records = { ...(collection || {}) };
+  if (operation.remove) delete records[operation.entryKey];
+  else records[operation.entryKey] = { ...(records[operation.entryKey] || {}), ...(operation.patch || {}) };
+  return records;
+}
+
+async function saveAdminCollectionOperations(operations) {
+  const requested = (operations || []).filter(Boolean);
+  if (!requested.length) return { ok: true, skipped: true };
   adminSavePending += 1;
   renderAdminDiagnostics();
 
   const save = async () => {
-    const client = getAdminClient();
     try {
-      if (!client?.from || !client?.auth) throw new Error('Supabase is not ready.');
-      const { data: sessionData, error: sessionError } = await client.auth.getSession();
-      if (sessionError) throw sessionError;
-      const user = sessionData?.session?.user;
-      if (!user) throw new Error('Sign in as admin to save live.');
+      const latest = await fetchAuthoritativeAdminGlobal();
+      const utils = await adminStateUtilsPromise;
+      const collections = {};
+      const conflicts = [];
 
-      const expectedRevision = adminLiveRevision;
-      const { data, error } = await client.rpc('save_site_edits', {
+      requested.forEach((operation) => {
+        const source = Object.prototype.hasOwnProperty.call(collections, operation.collectionKey)
+          ? collections[operation.collectionKey]
+          : structuredClone(latest.edits?.[operation.collectionKey] ?? (operation.type === 'membership' ? [] : {}));
+
+        if (operation.type === 'record') {
+          const latestRecord = collectionRecord(source, operation);
+          if (operation.remove) {
+            const analysis = utils.analyzeValuePatch(operation.baseRecord, latestRecord, undefined);
+            if (!analysis.canRebase) conflicts.push(`${operation.collectionKey}:${operation.entryKey}`);
+          } else {
+            const analysis = utils.analyzeRecordPatch(operation.baseRecord || {}, latestRecord || {}, operation.patch || {});
+            if (!analysis.canRebase) conflicts.push(`${operation.collectionKey}:${operation.entryKey}:${analysis.conflictingFields.join(',')}`);
+          }
+          collections[operation.collectionKey] = applyCollectionRecordOperation(source, operation);
+          return;
+        }
+
+        if (operation.type === 'value') {
+          const latestValue = source?.[operation.entryKey];
+          const intendedValue = operation.remove ? undefined : operation.value;
+          const analysis = utils.analyzeValuePatch(operation.baseValue, latestValue, intendedValue);
+          if (!analysis.canRebase) conflicts.push(`${operation.collectionKey}:${operation.entryKey}`);
+          const next = { ...(source || {}) };
+          if (operation.remove) delete next[operation.entryKey];
+          else next[operation.entryKey] = intendedValue;
+          collections[operation.collectionKey] = next;
+          return;
+        }
+
+        if (operation.type === 'membership') {
+          const analysis = utils.analyzeMembershipPatch(operation.baseValues || [], source || [], operation.entryKey, operation.present);
+          if (!analysis.canRebase) conflicts.push(`${operation.collectionKey}:${operation.entryKey}`);
+          collections[operation.collectionKey] = utils.applyMembershipPatch(source || [], operation.entryKey, operation.present);
+        }
+      });
+
+      adminLiveSettings = latest.edits;
+      adminLiveRevision = latest.revision;
+      adminPotentiallyStale = false;
+      if (conflicts.length) {
+        adminLastSaveSucceeded = false;
+        adminLastSaveError = `Newer server changes overlap: ${conflicts.join('; ')}.`;
+        setStatus(`Conflict — review required. Newer server changes overlap: ${conflicts.join('; ')}.`);
+        return { ok: false, conflict: true, conflicts };
+      }
+
+      const { data, error } = await getAdminClient().rpc('save_site_edits', {
         p_page_key: 'admin-global',
-        p_edits: patch || {},
-        p_expected_revision: expectedRevision,
+        p_edits: collections,
+        p_expected_revision: latest.revision,
         p_replace: false
       });
       if (error) throw error;
-      adminLiveRevision = Number(data?.revision) || (expectedRevision + 1);
+
+      adminLiveSettings = { ...latest.edits, ...collections, ...(data?.edits || {}) };
+      adminLiveRevision = Number(data?.revision) || latest.revision + 1;
+      Object.keys(collections).forEach((key) => {
+        const storageKey = ADMIN_COLLECTION_STORAGE_KEYS[key];
+        if (storageKey) localStorage.setItem(storageKey, JSON.stringify(adminLiveSettings[key]));
+      });
+      adminLastSaveSucceeded = true;
+      adminLastSaveError = '';
+      announceAdminSave('admin-global', adminLiveRevision, requested.map((operation) => `${operation.collectionKey}:${operation.entryKey}`));
+      return { ok: true, edits: adminLiveSettings, revision: adminLiveRevision };
+    } catch (error) {
+      if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
+        try {
+          const refreshed = await fetchAuthoritativeAdminGlobal();
+          adminLiveSettings = refreshed.edits;
+          adminLiveRevision = refreshed.revision;
+        } catch (_reloadError) { /* Preserve the original conflict. */ }
+        setStatus('Conflict — review required. Another Admin tab saved newer changes; reload and review before saving again.');
+      } else {
+        setStatus(`Error — not saved. ${error?.message || error}`);
+      }
+      adminLastSaveSucceeded = false;
+      adminLastSaveError = error?.message || String(error);
+      return { ok: false, error };
+    } finally {
+      adminSavePending = Math.max(0, adminSavePending - 1);
+      renderAdminDiagnostics();
+      renderPublishSummary();
+    }
+  };
+
+  const result = adminSaveQueue.then(save, save);
+  adminSaveQueue = result.then(() => true, () => true);
+  return result;
+}
+
+function saveAdminCustomProductFieldPatch(slug, patch, baseRecord) {
+  return saveAdminCollectionOperations([{
+    type: 'record',
+    collectionKey: 'customProducts',
+    identityKey: 'slug',
+    entryKey: slug,
+    baseRecord: structuredClone(baseRecord),
+    patch: withoutStoredProductPrice(patch || {})
+  }]);
+}
+
+function saveAdminExtraImagePatch(key, value, baseValue, remove = false) {
+  return saveAdminCollectionOperations([{
+    type: 'value', collectionKey: 'extraImages', entryKey: key, baseValue, value, remove
+  }]);
+}
+
+function saveAdminArchiveMembership(slug, present, baseValues = readArchivedProducts()) {
+  return saveAdminCollectionOperations([{
+    type: 'membership', collectionKey: 'savedForLaterProducts', entryKey: slug, present, baseValues
+  }]);
+}
+
+function saveAdminImageDraftPatch(path, patch, baseRecord, remove = false) {
+  return saveAdminCollectionOperations([{
+    type: 'record', collectionKey: 'imageDrafts', entryKey: path, baseRecord, patch, remove
+  }]);
+}
+
+async function saveAdminSettingsLive(patch) {
+  const baseSettings = structuredClone(adminLiveSettings || {});
+  adminSavePending += 1;
+  renderAdminDiagnostics();
+
+  const save = async () => {
+    try {
+      const latest = await fetchAuthoritativeAdminGlobal();
+      const utils = await adminStateUtilsPromise;
+      const conflictingKeys = Object.keys(patch || {}).filter((key) => (
+        !utils.valuesEqual(baseSettings[key], latest.edits[key])
+        && !utils.valuesEqual(patch[key], latest.edits[key])
+      ));
+      adminLiveSettings = latest.edits;
+      adminLiveRevision = latest.revision;
+      adminPotentiallyStale = false;
+      if (conflictingKeys.length) {
+        throw new Error(`Conflict — review required. Newer server changes exist in: ${conflictingKeys.join(', ')}.`);
+      }
+      const { data, error } = await getAdminClient().rpc('save_site_edits', {
+        p_page_key: 'admin-global',
+        p_edits: patch || {},
+        p_expected_revision: latest.revision,
+        p_replace: false
+      });
+      if (error) throw error;
+      adminLiveSettings = data?.edits || { ...latest.edits, ...(patch || {}) };
+      adminLiveRevision = Number(data?.revision) || (latest.revision + 1);
 
       adminLastSaveSucceeded = true;
       adminLastSaveError = '';
+      announceAdminSave('admin-global', adminLiveRevision, Object.keys(patch || {}));
       return true;
     } catch (error) {
+      if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
+        try {
+          const refreshed = await fetchAuthoritativeAdminGlobal();
+          adminLiveSettings = refreshed.edits;
+          adminLiveRevision = refreshed.revision;
+        } catch (_reloadError) { /* Keep the original conflict as the reported failure. */ }
+      }
       adminLastSaveSucceeded = false;
       adminLastSaveError = error?.message || 'Unknown Supabase error.';
       setStatus(`Live save failed: ${adminLastSaveError}`);
-      if (adminSavePending === 1) await loadAdminLiveSettings();
       return false;
     } finally {
       adminSavePending = Math.max(0, adminSavePending - 1);
@@ -351,14 +776,6 @@ function readAdminProducts() {
   return cleanAdminProductMap(getAdminLiveValue('products', readJsonStorage('mvpluxAdminProducts', {})));
 }
 
-function writeAdminProducts(products) {
-  const cleanedProducts = cleanAdminProductMap(products);
-  return saveAdminSettingsLive({ products: cleanedProducts }).then((saved) => {
-    if (saved) localStorage.setItem('mvpluxAdminProducts', JSON.stringify(cleanedProducts));
-    return saved ? cleanedProducts : null;
-  });
-}
-
 function readCustomProducts() {
   return getAdminLiveValue('customProducts', readJsonStorage('mvpluxAdminCustomProducts', []))
     .map(withoutStoredProductPrice);
@@ -368,76 +785,59 @@ function normalizeImageChoices(choices = []) {
   const seen = new Set();
   return (Array.isArray(choices) ? choices : []).flatMap((choice) => {
     const image = String(choice?.image || '').trim();
-    if (!image || seen.has(image)) return [];
-    seen.add(image);
     const stage = String(choice?.stage || '').trim();
-    return [{ label: String(choice?.label || '').trim() || 'Alternate image', image, ...(stage ? { stage } : {}) }];
-  });
-}
-
-function writeCustomProducts(products) {
-  const cleanedProducts = (products || []).map(withoutStoredProductPrice);
-  return saveAdminSettingsLive({ customProducts: cleanedProducts }).then((saved) => {
-    if (saved) localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(cleanedProducts));
-    return saved ? cleanedProducts : null;
+    const identity = `${image}\u0000${stage}`;
+    if (!image || seen.has(identity)) return [];
+    seen.add(identity);
+    const role = String(choice?.role || '').trim();
+    return [{
+      label: String(choice?.label || '').trim() || 'Alternate image',
+      image,
+      ...(stage ? { stage } : {}),
+      ...(role ? { role } : {})
+    }];
   });
 }
 
 function readArchivedProducts() {
-  return getAdminLiveValue('savedForLaterProducts', readJsonStorage('mvpluxAdminArchivedProducts', []));
-}
-
-function writeArchivedProducts(slugs) {
-  const values = slugs || [];
-  return saveAdminSettingsLive({ savedForLaterProducts: values }).then((saved) => {
-    if (saved) localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(values));
-    return saved ? values : null;
-  });
+  return [...getAdminLiveValue('savedForLaterProducts', readJsonStorage('mvpluxAdminArchivedProducts', []))];
 }
 
 function readDeletedProducts() {
-  return getAdminLiveValue('deletedProducts', readJsonStorage('mvpluxDeletedProducts', []));
-}
-
-function writeDeletedProducts(slugs) {
-  const deletedProducts = [...new Set(slugs || [])];
-  return saveAdminSettingsLive({ deletedProducts }).then((saved) => {
-    if (saved) localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
-    return saved ? deletedProducts : null;
-  });
+  return [...getAdminLiveValue('deletedProducts', readJsonStorage('mvpluxDeletedProducts', []))];
 }
 
 function readPriceSettings() {
-  return getAdminLiveValue('priceSettings', readJsonStorage('mvpluxAdminPriceSettings', {}));
+  return { ...getAdminLiveValue('priceSettings', readJsonStorage('mvpluxAdminPriceSettings', {})) };
 }
 
-function writePriceSettings(settings) {
-  localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(settings || {}));
-  updateAdminLiveSettings({ priceSettings: settings || {} });
-  saveAdminSettingsLive({ priceSettings: settings || {} });
-  return settings;
+async function writePriceSettings(settings) {
+  const values = settings || {};
+  if (!await saveAdminSettingsLive({ priceSettings: values })) return null;
+  localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(values));
+  return values;
 }
 
 function readExtraImages() {
-  return getAdminLiveValue('extraImages', readJsonStorage('mvpluxAdminExtraImages', {}));
+  return structuredClone(getAdminLiveValue('extraImages', readJsonStorage('mvpluxAdminExtraImages', {})));
 }
 
-function writeExtraImages(images) {
-  localStorage.setItem('mvpluxAdminExtraImages', JSON.stringify(images || {}));
-  updateAdminLiveSettings({ extraImages: images || {} });
-  saveAdminSettingsLive({ extraImages: images || {} });
-  return images;
+async function writeExtraImages(images) {
+  const values = images || {};
+  if (!await saveAdminSettingsLive({ extraImages: values })) return null;
+  localStorage.setItem('mvpluxAdminExtraImages', JSON.stringify(values));
+  return values;
 }
 
 function readCoupons() {
   return getAdminLiveValue('coupons', readJsonStorage('mvpluxAdminCoupons', []));
 }
 
-function writeCoupons(coupons) {
-  localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(coupons || []));
-  updateAdminLiveSettings({ coupons: coupons || [] });
-  saveAdminSettingsLive({ coupons: coupons || [] });
-  return coupons;
+async function writeCoupons(coupons) {
+  const values = coupons || [];
+  if (!await saveAdminSettingsLive({ coupons: values })) return null;
+  localStorage.setItem('mvpluxAdminCoupons', JSON.stringify(values));
+  return values;
 }
 
 function readJsonStorage(key, fallback) {
@@ -532,7 +932,8 @@ function publishableProduct(product = {}, archived = false) {
     imageChoices: normalizeImageChoices(product.imageChoices).map((choice) => ({
       label: choice.label,
       image: publishImageReference(choice.image),
-      ...(choice.stage ? { stage: publishImageReference(choice.stage) } : {})
+      ...(choice.stage ? { stage: publishImageReference(choice.stage) } : {}),
+      ...(choice.role ? { role: choice.role } : {})
     })),
     originalHeight: String(product.originalHeight || ''),
     cutoutHeight: String(product.cutoutHeight || ''),
@@ -570,7 +971,8 @@ function buildDefaultPublishBaseline() {
     deletedProducts: [],
     homepageCategoryOrder: [],
     ignoredImagePaths: [],
-    pageVisualStates: {}
+    pageVisualStates: {},
+    extraImages: {}
   };
 }
 
@@ -588,10 +990,7 @@ function buildCurrentPublishSnapshot() {
     target[product.slug] = publishableSnapshotProduct(product, value, archived.has(product.slug));
   });
 
-  const homepageDraft = readJsonStorage('mvpluxInlineAdminDraftV2', {})?.['index.html']?.['homepage-category-card-order'];
-  const homepageOrder = homepageDraft?.type === 'homepageCategoryOrder'
-    ? homepageDraft
-    : adminHomepageLiveEdits?.['homepage-category-card-order'];
+  const homepageOrder = adminHomepageLiveEdits?.['homepage-category-card-order'];
 
   return {
     version: 1,
@@ -603,7 +1002,10 @@ function buildCurrentPublishSnapshot() {
     homepageCategoryOrder: homepageOrder?.type === 'homepageCategoryOrder' && Array.isArray(homepageOrder.rows)
       ? homepageOrder.rows.map((row) => [...row])
       : [],
-    pageVisualStates: publishablePageVisualStates()
+    pageVisualStates: publishablePageVisualStates(),
+    extraImages: Object.fromEntries(
+      Object.entries(readExtraImages()).filter(([, path]) => validatePublishImagePath(String(path || '')))
+    )
   };
 }
 
@@ -739,6 +1141,12 @@ function generatePublishChanges(before, after) {
   afterIgnored.forEach((path) => {
     if (!beforeIgnored.has(path)) lines.push(`Ignored non-product image: ${path}`);
   });
+  const beforeExtraImages = before?.extraImages || {};
+  const afterExtraImages = after?.extraImages || {};
+  [...new Set([...Object.keys(beforeExtraImages), ...Object.keys(afterExtraImages)])].sort().forEach((key) => {
+    if (beforeExtraImages[key] === afterExtraImages[key]) return;
+    lines.push(`Changed website image ${key} from ${beforeExtraImages[key] || 'not set'} to ${afterExtraImages[key] || 'not set'}`);
+  });
   const beforeVisualStates = before?.pageVisualStates || {};
   const afterVisualStates = after?.pageVisualStates || {};
   [...new Set([...Object.keys(beforeVisualStates), ...Object.keys(afterVisualStates)])].sort().forEach((pageKey) => {
@@ -757,6 +1165,24 @@ function defaultPublishTitle(changes) {
 let currentPublishReview = null;
 let adminPublishedBaseline = null;
 let adminLastSuccessfulSnapshot = null;
+let imageImportPublishSelection = null;
+
+function buildSelectedImageImportSnapshot(paths) {
+  const baseline = structuredClone(adminPublishedBaseline || buildDefaultPublishBaseline());
+  const current = buildCurrentPublishSnapshot();
+  const drafts = readImageDraftEdits();
+  (paths || []).forEach((path) => {
+    const draft = normalizeImageImportDraft(drafts[path] || {});
+    if (draft.resultSlug && current.products[draft.resultSlug]) {
+      baseline.products[draft.resultSlug] = current.products[draft.resultSlug];
+    } else if (draft.resultSlug && current.categoryDisplayCards[draft.resultSlug]) {
+      baseline.categoryDisplayCards[draft.resultSlug] = current.categoryDisplayCards[draft.resultSlug];
+    } else if (draft.websiteImageKey && current.extraImages[draft.websiteImageKey]) {
+      baseline.extraImages[draft.websiteImageKey] = current.extraImages[draft.websiteImageKey];
+    }
+  });
+  return baseline;
+}
 
 function normalizePublishedBaseline(snapshot) {
   const baseline = buildDefaultPublishBaseline();
@@ -777,6 +1203,9 @@ function normalizePublishedBaseline(snapshot) {
     ? snapshot.homepageCategoryOrder.map((row) => Array.isArray(row) ? [...row] : [])
     : [];
   baseline.ignoredImagePaths = Array.isArray(snapshot.ignoredImagePaths) ? [...snapshot.ignoredImagePaths] : [];
+  baseline.extraImages = snapshot.extraImages && typeof snapshot.extraImages === 'object' && !Array.isArray(snapshot.extraImages)
+    ? { ...snapshot.extraImages }
+    : {};
   baseline.pageVisualStates = snapshot.pageVisualStates && typeof snapshot.pageVisualStates === 'object'
     ? structuredClone(snapshot.pageVisualStates)
     : {};
@@ -869,7 +1298,9 @@ function validatePublishImagePath(path) {
 
 function renderPublishSummary() {
   const before = adminPublishedBaseline || buildDefaultPublishBaseline();
-  const snapshot = buildCurrentPublishSnapshot();
+  const snapshot = imageImportPublishSelection
+    ? buildSelectedImageImportSnapshot(imageImportPublishSelection)
+    : buildCurrentPublishSnapshot();
   const selectedImages = selectedPublishImagePaths();
   const invalidImages = selectedImages.filter((path) => !validatePublishImagePath(path));
   const changes = [
@@ -1015,11 +1446,13 @@ async function publishAdminChanges() {
     document.getElementById('adminCommitNotes').value = '';
     document.getElementById('adminPublishImagePaths').value = '';
     adminPublishedBaseline = normalizePublishedBaseline(review.snapshot);
+    imageImportPublishSelection = null;
     currentPublishReview = null;
     renderPublishSummary();
     renderPublishHistory();
     renderAdminProducts();
     renderAdminDiagnostics();
+    renderImageImportPending();
     setStatus(`Published commit ${result.commitHash?.slice(0, 7) || ''} (HTTP ${result.httpStatus}). Deployment: ${result.deploymentResult || 'queued'}.`);
   } catch (error) {
     adminLatestPublishError = error.message || 'GitHub publish failed.';
@@ -1040,40 +1473,68 @@ async function refreshPublishHistory() {
   }
 }
 
-function applyAdminExport(data) {
-  if (!data || typeof data !== 'object') throw new Error('Invalid export');
+async function restoreImportedPageEdits(pageEdits = {}) {
+  const client = getAdminClient();
+  for (const [pageKey, edits] of Object.entries(pageEdits || {})) {
+    const { data: current, error: loadError } = await client
+      .from('site_edits')
+      .select('revision')
+      .eq('page_key', pageKey)
+      .maybeSingle();
+    if (loadError) throw loadError;
+    const { error } = await client.rpc('save_site_edits', {
+      p_page_key: pageKey,
+      p_edits: edits || {},
+      p_expected_revision: Number(current?.revision) || 0,
+      p_replace: true
+    });
+    if (error) throw error;
+  }
+}
 
-  writeAdminProducts(data.products || {});
-  writeCustomProducts(data.customProducts || []);
-  writeArchivedProducts(data.savedForLaterProducts || []);
-  writeDeletedProducts(data.deletedProducts || []);
-  writeImageDraftEdits(data.imageDrafts || {});
-  writeImageDraftPaths('dismissedImageDrafts', data.dismissedImageDrafts || []);
-  writeImageDraftPaths('configuredImagePaths', data.configuredImagePaths || []);
-  writeImageDraftPaths('ignoredImagePaths', data.ignoredImagePaths || []);
-  writePriceSettings(data.priceSettings || {});
-  writeExtraImages(data.extraImages || {});
-  writeCoupons(data.coupons || []);
+async function applyAdminExport(data) {
+  if (!data || typeof data !== 'object') throw new Error('Invalid export');
+  const globalPatch = {
+    products: cleanAdminProductMap(data.products || {}),
+    customProducts: (data.customProducts || []).map(withoutStoredProductPrice),
+    savedForLaterProducts: data.savedForLaterProducts || [],
+    deletedProducts: [...new Set(data.deletedProducts || [])],
+    imageDrafts: data.imageDrafts || {},
+    dismissedImageDrafts: [...new Set(data.dismissedImageDrafts || [])],
+    configuredImagePaths: [...new Set(data.configuredImagePaths || [])],
+    ignoredImagePaths: [...new Set(data.ignoredImagePaths || [])],
+    priceSettings: data.priceSettings || {},
+    extraImages: data.extraImages || {},
+    coupons: data.coupons || [],
+    cardsSavedForLater: data.cardsSavedForLater || {}
+  };
+
+  setStatus('Restoring export to authoritative Admin state…');
+  if (!await saveAdminSettingsLive(globalPatch)) throw new Error(adminLastSaveError || 'The Admin export was not saved.');
+  await restoreImportedPageEdits(data.pageEdits || {});
+
+  Object.entries(ADMIN_COLLECTION_STORAGE_KEYS).forEach(([key, storageKey]) => {
+    if (Object.prototype.hasOwnProperty.call(globalPatch, key)) localStorage.setItem(storageKey, JSON.stringify(globalPatch[key]));
+  });
+  localStorage.setItem('mvpluxAdminPriceSettings', JSON.stringify(globalPatch.priceSettings));
   localStorage.setItem('mvpluxInlineAdminEdits', JSON.stringify(data.pageEdits || {}));
-  localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(data.cardsSavedForLater || {}));
-  updateAdminLiveSettings({ cardsSavedForLater: data.cardsSavedForLater || {} });
-  saveAdminSettingsLive({ cardsSavedForLater: data.cardsSavedForLater || {} });
+  localStorage.setItem('mvpluxInlineHiddenCards', JSON.stringify(globalPatch.cardsSavedForLater));
   renderAdminProducts();
   fillPriceSettingsForm();
   renderExtraImages();
   renderAdminExportPreview();
-  setStatus('Imported changes and saved live when Supabase is available.');
+  setStatus('Imported changes saved to authoritative Admin state.');
 }
 
 function importAdminChangesFromFile(file) {
   if (!file) return;
   const reader = new FileReader();
 
-  reader.addEventListener('load', () => {
+  reader.addEventListener('load', async () => {
     try {
-      applyAdminExport(JSON.parse(reader.result));
+      await applyAdminExport(JSON.parse(reader.result));
     } catch (error) {
-      setStatus('That export file could not be restored.');
+      setStatus(`That export file could not be restored. ${error?.message || error}`);
     }
   });
 
@@ -1631,7 +2092,7 @@ async function createCustomProduct() {
     return;
   }
 
-  products.push({
+  const product = {
     slug,
     custom: true,
     title,
@@ -1642,22 +2103,28 @@ async function createCustomProduct() {
     categories: [],
     visible: false,
     categoryOrder: {}
-  });
-  if (!await writeCustomProducts(products)) return;
+  };
+  const result = await saveAdminCollectionOperations([{
+    type: 'record', collectionKey: 'customProducts', identityKey: 'slug', entryKey: slug,
+    baseRecord: undefined, patch: product
+  }]);
+  if (!result.ok) return;
   renderAdminProducts();
   setStatus('Card created and saved live.');
 }
 
 async function archiveProduct(slug) {
-  const archived = new Set(readArchivedProducts());
-  archived.add(slug);
-  if (!await writeArchivedProducts([...archived])) return;
+  const baseValues = readArchivedProducts();
+  const result = await saveAdminArchiveMembership(slug, true, baseValues);
+  if (!result.ok) return;
   renderAdminProducts();
   setStatus('Card saved for later live.');
 }
 
 async function restoreProduct(slug) {
-  if (!await writeArchivedProducts(readArchivedProducts().filter((item) => item !== slug))) return;
+  const baseValues = readArchivedProducts();
+  const result = await saveAdminArchiveMembership(slug, false, baseValues);
+  if (!result.ok) return;
   renderAdminProducts();
   setStatus('Card restored.');
 }
@@ -1917,37 +2384,58 @@ function resizeImageFile(file) {
   });
 }
 
-function collectProductFormData(form) {
+function collectProductFormData(form, dirtyFields = form?._adminDirtyFields || new Set()) {
   const formData = new FormData(form);
   const base = allAdminProducts().find((product) => product.slug === form.dataset.slug) || {};
   const current = { ...base, ...(readAdminProducts()[form.dataset.slug] || {}) };
-  return {
-    custom: Boolean(current?.custom),
-    title: formData.get('title').trim(),
-    description: formData.get('description').trim(),
-    cutoutImage: formData.get('cutoutImage').trim(),
-    backgroundImage: formData.get('backgroundImage').trim(),
-    originalHeight: formData.get('originalHeight').trim(),
-    cutoutHeight: formData.get('cutoutHeight').trim(),
-    cutoutLeft: formData.get('cutoutLeft').trim(),
-    cutoutBottom: formData.get('cutoutBottom').trim(),
-    logoWidth: formData.get('logoWidth').trim(),
-    logoTop: formData.get('logoTop').trim(),
-    stageBackgroundPosition: formData.get('stageBackgroundPosition').trim(),
-    categories: current.categoryCard ? [] : formData.getAll('categories'),
-    visible: current.categoryCard ? current.visible !== false : formData.has('visible'),
-    categoryOrder: { ...(current.categoryOrder || {}) },
-    imageChoices: normalizeImageChoices(current.imageChoices)
-  };
+  const patch = {};
+  const textFields = ['title', 'description', 'cutoutImage', 'backgroundImage', 'originalHeight', 'cutoutHeight', 'cutoutLeft', 'cutoutBottom', 'logoWidth', 'logoTop', 'stageBackgroundPosition'];
+  textFields.forEach((field) => {
+    if (dirtyFields.has(field)) patch[field] = String(formData.get(field) || '').trim();
+  });
+  if (dirtyFields.has('categories')) patch.categories = current.categoryCard ? [] : formData.getAll('categories');
+  if (dirtyFields.has('visible')) patch.visible = current.categoryCard ? current.visible !== false : formData.has('visible');
+  return patch;
 }
 
 async function saveProductForm(form, message = 'Saved product changes live. Go back to Shop to see them.') {
-  const products = readAdminProducts();
-  products[form.dataset.slug] = collectProductFormData(form);
-  if (!await writeAdminProducts(products)) return false;
+  const patch = collectProductFormData(form);
+  if (!Object.keys(patch).length) {
+    setProductSaveState(form, 'Saved — no unsaved fields', 'saved');
+    setStatus('No product fields have changed.');
+    return true;
+  }
+  const savedVersions = new Map(Object.keys(patch).map((field) => [field, form._adminDirtyVersions?.get(field) || 0]));
+  const result = await saveAdminProductFieldPatch(form.dataset.slug, patch, form._adminBaseRecord || {}, form);
+  if (!result.ok) return false;
+  form._adminBaseRecord = structuredClone(result.record || { ...(form._adminBaseRecord || {}), ...patch });
+  Object.keys(patch).forEach((field) => {
+    if ((form._adminDirtyVersions?.get(field) || 0) === savedVersions.get(field)) form._adminDirtyFields?.delete(field);
+  });
+  form.querySelector('[data-product-save-conflict]')?.remove();
   renderAdminExportPreview();
-  setStatus(message);
+  if (form._adminDirtyFields?.size) {
+    setProductSaveState(form, `Unsaved changes: ${[...form._adminDirtyFields].join(', ')}`, 'unsaved');
+    setStatus('Earlier fields saved; newer edits are still unsaved.');
+  } else {
+    setStatus(message);
+  }
   return true;
+}
+
+function productDirtyFieldForControl(field) {
+  if (!field?.name || field.name === 'activeCategory' || field.matches('[type="file"]')) return '';
+  if (field.name === 'categories') return 'categories';
+  return field.name;
+}
+
+function markProductFieldDirty(form, fieldName) {
+  if (!form || !fieldName) return;
+  form._adminDirtyFields = form._adminDirtyFields || new Set();
+  form._adminDirtyVersions = form._adminDirtyVersions || new Map();
+  form._adminDirtyVersions.set(fieldName, (form._adminDirtyVersions.get(fieldName) || 0) + 1);
+  form._adminDirtyFields.add(fieldName);
+  setProductSaveState(form, `Unsaved changes: ${[...form._adminDirtyFields].join(', ')}`, 'unsaved');
 }
 
 function schedulePlacementSave(form) {
@@ -2014,8 +2502,11 @@ function renderExtraImages() {
       try {
         const dataUrl = await resizeImageFile(file);
         const images = readExtraImages();
-        images[key] = dataUrl;
-        writeExtraImages(images);
+        const result = await saveAdminExtraImagePatch(key, dataUrl, images[key]);
+        if (!result.ok) {
+          setStatus('Error — image was not saved.');
+          return;
+        }
         card.querySelector('img').src = dataUrl;
         card.querySelector('.admin-long-path').value = dataUrl;
         setStatus('Image saved live.');
@@ -2026,11 +2517,15 @@ function renderExtraImages() {
   });
 
   container.querySelectorAll('[data-reset-extra-image]').forEach((button) => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', async () => {
       if (!window.confirm('Clear this image edit and go back to the original image?')) return;
       const images = readExtraImages();
-      delete images[button.dataset.resetExtraImage];
-      writeExtraImages(images);
+      const key = button.dataset.resetExtraImage;
+      const result = await saveAdminExtraImagePatch(key, undefined, images[key], true);
+      if (!result.ok) {
+        setStatus('Error — image reset was not saved.');
+        return;
+      }
       renderExtraImages();
       setStatus('Image reset and saved live.');
     });
@@ -2105,6 +2600,7 @@ function categoryAssignmentMarkup(value) {
 async function setProductVisibility(form, visible) {
   const input = form.querySelector('[name="visible"]');
   if (input) input.checked = visible;
+  markProductFieldDirty(form, 'visible');
   if (!await saveProductForm(form, visible ? 'Product shown in assigned sections.' : 'Product hidden from customer sections.')) return;
   renderAdminProducts();
 }
@@ -2117,6 +2613,7 @@ async function removeProductFromSelectedSection(form) {
     return;
   }
   checkbox.checked = false;
+  markProductFieldDirty(form, 'categories');
   if (!await saveProductForm(form, 'Removed from this section without deleting the product.')) return;
   renderAdminProducts();
 }
@@ -2140,15 +2637,14 @@ async function moveProductInSelectedSection(form, offset) {
 
   const currentOrder = Number(products[index].categoryOrder?.[category]) || index;
   const targetOrder = Number(target.categoryOrder?.[category]) || index + offset;
-  saved[slug] = {
-    ...(saved[slug] || {}),
-    categoryOrder: { ...(products[index].categoryOrder || {}), [category]: targetOrder }
+  const patches = {
+    [slug]: { categoryOrder: { ...(products[index].categoryOrder || {}), [category]: targetOrder } },
+    [target.slug]: { categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder } }
   };
-  saved[target.slug] = {
-    ...(saved[target.slug] || {}),
-    categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder }
-  };
-  if (!await writeAdminProducts(saved)) return;
+  if (!await saveAdminProductFieldPatches(patches, {
+    [slug]: products[index],
+    [target.slug]: target
+  })) return;
   renderAdminProducts();
   setStatus('Product order saved for the selected section.');
 }
@@ -2186,12 +2682,13 @@ function parentProductPickerMarkup(selectedSlug = '', excludedSlug = '', selectN
           <option value="">Select a product card</option>
           ${products.map((product) => `
             <option value="${escapeAdminHtml(product.slug)}" ${product.slug === selectedSlug ? 'selected' : ''}
-              data-search="${escapeAdminHtml(`${product.title} ${product.slug} ${productCategoryNames(product)}`.toLowerCase())}">
+              data-search="${escapeAdminHtml(`${product.title} ${product.description || ''} ${product.slug} ${productCategoryNames(product)}`.toLowerCase())}">
               ${escapeAdminHtml(product.title)} — ${escapeAdminHtml(product.slug)} — ${escapeAdminHtml(productCategoryNames(product))}
             </option>
           `).join('')}
         </select>
       </label>
+      <button type="button" data-create-product-from-search>+ Create New Product</button>
       <div class="admin-parent-product-preview" data-parent-product-preview></div>
     </div>
   `;
@@ -2220,6 +2717,12 @@ function bindParentProductPicker(scope) {
     });
   });
   select.addEventListener('change', updatePreview);
+  scope.querySelector('[data-create-product-from-search]')?.addEventListener('click', () => {
+    const destination = scope.querySelector('[name="imageDestination"]');
+    if (!destination) return;
+    destination.value = 'create-product';
+    destination.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   updatePreview();
 }
 
@@ -2228,21 +2731,21 @@ function findProductImageOwner(path, excludedSlug = '') {
   if (!imagePath) return null;
   return effectiveAdminProducts().find((product) => (
     product.slug !== excludedSlug
-    && (product.cutoutImage === imagePath || normalizeImageChoices(product.imageChoices).some((choice) => choice.image === imagePath))
+    && (product.cutoutImage === imagePath || normalizeImageChoices(product.imageChoices).some((choice) => choice.image === imagePath || choice.stage === imagePath))
   )) || null;
 }
 
 async function writeProductImageChoices(slug, choices) {
   const normalized = normalizeImageChoices(choices);
   const customProducts = readCustomProducts();
-  const customIndex = customProducts.findIndex((product) => product.slug === slug);
-  if (customIndex >= 0) {
-    customProducts[customIndex] = { ...customProducts[customIndex], imageChoices: normalized };
-    return Boolean(await writeCustomProducts(customProducts));
+  const customProduct = customProducts.find((product) => product.slug === slug);
+  if (customProduct) {
+    const result = await saveAdminCustomProductFieldPatch(slug, { imageChoices: normalized }, customProduct);
+    return result.ok;
   }
-  const saved = readAdminProducts();
-  saved[slug] = { ...(saved[slug] || {}), imageChoices: normalized };
-  return Boolean(await writeAdminProducts(saved));
+  const baseRecord = effectiveAdminProduct(slug) || {};
+  const result = await saveAdminProductFieldPatch(slug, { imageChoices: normalized }, baseRecord);
+  return result.ok;
 }
 
 async function addImageChoiceToProduct(parentSlug, choice, excludedSlug = '') {
@@ -2262,19 +2765,25 @@ async function removeProductImageChoice(parentSlug, imagePath) {
   const choice = normalizeImageChoices(parent.imageChoices).find((item) => item.image === imagePath);
   if (!choice || !window.confirm(`Remove “${choice.label}” from ${parent.title}? The image file will not be deleted.`)) return;
   const choices = normalizeImageChoices(parent.imageChoices).filter((item) => item.image !== imagePath);
-  const configuredImagePaths = readImageDraftPaths('configuredImagePaths').filter((path) => path !== imagePath);
-  const patch = { configuredImagePaths };
+  const configuredImagePaths = readImageDraftPaths('configuredImagePaths');
+  const operations = [{
+    type: 'membership', collectionKey: 'configuredImagePaths', entryKey: imagePath, present: false, baseValues: configuredImagePaths
+  }];
   const customProducts = readCustomProducts();
-  const customIndex = customProducts.findIndex((product) => product.slug === parentSlug);
-  if (customIndex >= 0) {
-    customProducts[customIndex] = { ...customProducts[customIndex], imageChoices: choices };
-    patch.customProducts = customProducts;
+  const customProduct = customProducts.find((product) => product.slug === parentSlug);
+  if (customProduct) {
+    operations.push({
+      type: 'record', collectionKey: 'customProducts', identityKey: 'slug', entryKey: parentSlug,
+      baseRecord: customProduct, patch: { imageChoices: choices }
+    });
   } else {
-    const products = readAdminProducts();
-    products[parentSlug] = { ...(products[parentSlug] || {}), imageChoices: choices };
-    patch.products = products;
+    operations.push({
+      type: 'record', collectionKey: 'products', entryKey: parentSlug,
+      baseRecord: readAdminProducts()[parentSlug] || {}, patch: { imageChoices: choices }
+    });
   }
-  if (!await saveProductWorkflowPatch(patch)) return;
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) return;
   renderAdminProducts();
   renderImageDrafts();
   setStatus('Image choice removed. The physical image file was not changed.');
@@ -2311,14 +2820,21 @@ async function moveProductImageChoice(sourceSlug, imagePath, targetSlug) {
 
   const customProducts = readCustomProducts();
   const products = readAdminProducts();
-  const setChoices = (slug, choices) => {
-    const customIndex = customProducts.findIndex((product) => product.slug === slug);
-    if (customIndex >= 0) customProducts[customIndex] = { ...customProducts[customIndex], imageChoices: normalizeImageChoices(choices) };
-    else products[slug] = { ...(products[slug] || {}), imageChoices: normalizeImageChoices(choices) };
+  const operations = [];
+  const addChoiceOperation = (slug, choices) => {
+    const customProduct = customProducts.find((product) => product.slug === slug);
+    operations.push(customProduct ? {
+      type: 'record', collectionKey: 'customProducts', identityKey: 'slug', entryKey: slug,
+      baseRecord: customProduct, patch: { imageChoices: normalizeImageChoices(choices) }
+    } : {
+      type: 'record', collectionKey: 'products', entryKey: slug,
+      baseRecord: products[slug] || {}, patch: { imageChoices: normalizeImageChoices(choices) }
+    });
   };
-  setChoices(sourceSlug, normalizeImageChoices(source.imageChoices).filter((item) => item.image !== imagePath));
-  setChoices(targetSlug, [...normalizeImageChoices(target.imageChoices), choice]);
-  if (!await saveProductWorkflowPatch({ customProducts, products })) return;
+  addChoiceOperation(sourceSlug, normalizeImageChoices(source.imageChoices).filter((item) => item.image !== imagePath));
+  addChoiceOperation(targetSlug, [...normalizeImageChoices(target.imageChoices), choice]);
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) return;
   renderAdminProducts();
   setStatus('Image choice moved. The physical image file was not changed.');
 }
@@ -2426,7 +2942,7 @@ function renderAdminProducts() {
     return `
       <form class="admin-product-card" id="product-${product.slug}" data-slug="${product.slug}">
         <div class="admin-product-heading">
-          <div><h3>${product.title}</h3>${lifecycle ? `<p class="admin-note">${escapeAdminHtml(lifecycle)}</p>` : ''}</div>
+          <div><h3>${product.title}</h3>${lifecycle ? `<p class="admin-note">${escapeAdminHtml(lifecycle)}</p>` : ''}<p class="admin-note" data-product-save-state data-state="saved">Saved</p></div>
           <div class="admin-card-actions">
             <button type="submit">Save Product</button>
             <button type="button" data-archive-product="${product.slug}">Save for Later</button>
@@ -2548,10 +3064,15 @@ function renderAdminProducts() {
   if (categoryContainer) categoryContainer.innerHTML = productMarkup(availableProducts.filter((product) => product.categoryCard));
 
   productContainers.forEach((container) => container.querySelectorAll('.admin-product-card').forEach((form) => {
+    const baseProduct = allAdminProducts().find((product) => product.slug === form.dataset.slug) || {};
+    form._adminBaseRecord = structuredClone({ ...baseProduct, ...(saved[form.dataset.slug] || {}) });
+    form._adminDirtyFields = new Set();
+    form._adminDirtyVersions = new Map();
     bindParentProductPicker(form);
     updateAdminOriginalPrice(form);
     form.querySelectorAll('input, textarea').forEach((field) => {
       field.addEventListener('input', () => {
+        markProductFieldDirty(form, productDirtyFieldForControl(field));
         if (field.name === 'originalHeight') updateAdminOriginalPrice(form);
         if (field.matches('[type="range"], .admin-long-path, [name="stageBackgroundPosition"]')) {
           syncPreviewFromFields(form);
@@ -2563,13 +3084,18 @@ function renderAdminProducts() {
         }
       });
     });
+    form.querySelectorAll('select, input[type="checkbox"]').forEach((field) => {
+      field.addEventListener('change', () => markProductFieldDirty(form, productDirtyFieldForControl(field)));
+    });
     attachPreviewControls(form);
 
     form.querySelector('[name="cutoutUpload"]')?.addEventListener('change', (event) => {
+      markProductFieldDirty(form, 'cutoutImage');
       handleImageUpload(event.target, form.querySelector('[name="cutoutImage"]'), form);
     });
 
     form.querySelector('[name="backgroundUpload"]')?.addEventListener('change', (event) => {
+      markProductFieldDirty(form, 'backgroundImage');
       handleImageUpload(event.target, form.querySelector('[name="backgroundImage"]'), form);
     });
 
@@ -2668,7 +3194,7 @@ function setupPriceRules() {
     });
   });
 
-  form.addEventListener('submit', (event) => {
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const settings = {
       twoFootPrice: document.getElementById('twoFootPrice')?.value.trim() || '35.00',
@@ -2677,7 +3203,10 @@ function setupPriceRules() {
       fullPrice: document.getElementById('fullPrice')?.value.trim() || '129.99',
       extraInchPrice: document.getElementById('extraInchPrice')?.value.trim() || '2.00'
     };
-    writePriceSettings(settings);
+    if (!await writePriceSettings(settings)) {
+      setStatus('Error — prices were not saved.');
+      return;
+    }
     fillPriceSettingsForm();
     document.querySelectorAll('.admin-product-card').forEach((productForm) => updateAdminOriginalPrice(productForm, settings));
     setStatus('Prices saved live.');
@@ -2848,29 +3377,50 @@ function setupCoupons() {
 }
 
 let imageDraftInventory = [];
+let imageImportReady = false;
 
-function readImageDraftEdits() {
-  return getAdminLiveValue('imageDrafts', readJsonStorage('mvpluxImageDrafts', {}));
+const IMAGE_IMPORT_DEFAULT_BACKGROUND = 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg';
+const IMAGE_IMPORT_DESTINATIONS = [
+  ['existing-product', 'Add to existing product'],
+  ['create-product', 'Create new product'],
+  ['create-card', 'Create new card'],
+  ['create-category', 'Create new category/section'],
+  ['background', 'Background'],
+  ['gallery', 'Gallery image'],
+  ['banner', 'Banner'],
+  ['other-website', 'Other website image']
+];
+const IMAGE_IMPORT_ROLES = [
+  ['main', 'Main Image'],
+  ['alternate', 'Alternate Image'],
+  ['gallery', 'Gallery Image'],
+  ['card-thumbnail', 'Card Thumbnail'],
+  ['product', 'Product Image'],
+  ['background-variation', 'Background Variation']
+];
+
+function normalizeImageImportDraft(value = {}) {
+  const legacyDestination = value.purpose === 'image-choice'
+    ? 'existing-product'
+    : value.purpose === 'not-product'
+      ? 'other-website'
+      : 'create-product';
+  return {
+    ...value,
+    destination: String(value.destination || legacyDestination),
+    imageRole: String(value.imageRole || (value.purpose === 'image-choice' ? 'alternate' : 'main')),
+    status: String(value.status || 'draft'),
+    backgroundImage: String(value.backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND),
+    selectedPreviewImage: String(value.selectedPreviewImage || value.path || '')
+  };
 }
 
-function writeImageDraftEdits(drafts) {
-  const values = drafts || {};
-  return saveAdminSettingsLive({ imageDrafts: values }).then((saved) => {
-    if (saved) localStorage.setItem('mvpluxImageDrafts', JSON.stringify(values));
-    return saved ? values : null;
-  });
+function readImageDraftEdits() {
+  return structuredClone(getAdminLiveValue('imageDrafts', readJsonStorage('mvpluxImageDrafts', {})));
 }
 
 function readImageDraftPaths(key) {
-  return getAdminLiveValue(key, readJsonStorage(`mvplux${key[0].toUpperCase()}${key.slice(1)}`, []));
-}
-
-function writeImageDraftPaths(key, paths) {
-  const uniquePaths = [...new Set(paths || [])];
-  return saveAdminSettingsLive({ [key]: uniquePaths }).then((saved) => {
-    if (saved) localStorage.setItem(`mvplux${key[0].toUpperCase()}${key.slice(1)}`, JSON.stringify(uniquePaths));
-    return saved ? uniquePaths : null;
-  });
+  return [...getAdminLiveValue(key, readJsonStorage(`mvplux${key[0].toUpperCase()}${key.slice(1)}`, []))];
 }
 
 async function saveProductWorkflowPatch(patch) {
@@ -2884,7 +3434,8 @@ async function saveProductWorkflowPatch(patch) {
     imageDrafts: 'mvpluxImageDrafts',
     dismissedImageDrafts: 'mvpluxDismissedImageDrafts',
     configuredImagePaths: 'mvpluxConfiguredImagePaths',
-    ignoredImagePaths: 'mvpluxIgnoredImagePaths'
+    ignoredImagePaths: 'mvpluxIgnoredImagePaths',
+    extraImages: 'mvpluxAdminExtraImages'
   };
   Object.entries(patch).forEach(([key, value]) => {
     if (storageKeys[key]) localStorage.setItem(storageKeys[key], JSON.stringify(value));
@@ -2905,122 +3456,285 @@ function imageDraftCategoryMarkup(selectedCategories = []) {
 function collectImageDraftForm(form) {
   const formData = new FormData(form);
   const requestedSlug = String(formData.get('slug') || '').trim();
+  const destination = String(formData.get('imageDestination') || 'create-product');
   return {
     path: form.dataset.imagePath,
-    purpose: String(formData.get('imagePurpose') || 'new-product'),
+    destination,
+    purpose: destination === 'existing-product' ? 'image-choice' : destination === 'create-product' ? 'new-product' : 'not-product',
+    imageRole: String(formData.get('imageRole') || 'main'),
     title: String(formData.get('title') || '').trim(),
     slug: requestedSlug ? makeSlug(requestedSlug) : '',
     description: String(formData.get('description') || '').trim(),
     originalHeight: String(formData.get('originalHeight') || '').trim(),
-    backgroundImage: String(formData.get('backgroundImage') || ''),
+    backgroundImage: String(formData.get('backgroundImage') || IMAGE_IMPORT_DEFAULT_BACKGROUND),
     categories: formData.getAll('categories'),
     parentProductSlug: String(formData.get('parentProductSlug') || ''),
-    imageChoiceLabel: String(formData.get('imageChoiceLabel') || '').trim()
+    imageChoiceLabel: String(formData.get('imageChoiceLabel') || '').trim(),
+    websiteImageKey: String(formData.get('websiteImageKey') || '').trim(),
+    selectedPreviewImage: String(formData.get('selectedPreviewImage') || form.dataset.imagePath || ''),
+    status: String(form.dataset.draftStatus || 'draft'),
+    savedForLater: form.dataset.savedForLater === 'true'
   };
 }
 
-async function saveImageDraftForm(form) {
-  const drafts = readImageDraftEdits();
-  drafts[form.dataset.imagePath] = collectImageDraftForm(form);
-  if (!await writeImageDraftEdits(drafts)) return;
-  setStatus('Unpublished image draft saved.');
+function setImageDraftActionStatus(form, message, state = '') {
+  const status = form?.querySelector('[data-image-draft-status]');
+  if (!status) return;
+  status.textContent = message || '';
+  status.dataset.state = state;
 }
 
-async function publishImageDraft(form) {
-  const draft = collectImageDraftForm(form);
-  if (draft.purpose !== 'new-product') return;
-  if (!draft.title || !draft.slug || !draft.originalHeight) {
-    setStatus('Add a title, slug, and original height before publishing.');
-    return;
-  }
-  if (allAdminProducts().some((product) => product.slug === draft.slug)) {
-    setStatus('That slug already belongs to another product.');
-    return;
-  }
-  const imageOwner = findProductImageOwner(draft.path);
-  if (imageOwner) {
-    setStatus(`That image is already assigned to ${imageOwner.title} (${imageOwner.slug}).`);
-    return;
-  }
-
-  const products = readCustomProducts();
-  products.push({
-    slug: draft.slug,
-    custom: true,
-    title: draft.title,
-    description: draft.description || `Preview ${draft.title} with available sizes and display options.`,
-    cutoutImage: draft.path,
-    backgroundImage: draft.backgroundImage,
-    originalHeight: draft.originalHeight,
-    categories: draft.categories,
-    visible: draft.categories.length > 0,
-    categoryOrder: Object.fromEntries(draft.categories.map((category) => [category, 999])),
-    imageChoices: []
+function setImageDraftActionsBusy(form, busy) {
+  form?.querySelectorAll('[data-image-import-action]').forEach((button) => {
+    button.disabled = busy || !imageImportReady;
   });
-  const configuredImagePaths = [...new Set([...readImageDraftPaths('configuredImagePaths'), draft.path])];
-  const edits = readImageDraftEdits();
-  delete edits[draft.path];
-  if (!await saveProductWorkflowPatch({ customProducts: products, configuredImagePaths, imageDrafts: edits })) return;
-  renderAdminProducts();
-  renderImageDrafts();
-  setStatus(draft.categories.length ? 'Product added to Admin. Use Publish Changes to send it to the storefront.' : 'Product saved as an uncategorized Admin record.');
 }
 
-async function addDraftImageChoice(form) {
+function ensureImageImportReady(form) {
+  if (imageImportReady) return true;
+  setImageDraftActionStatus(form, 'Image Import Center is still loading your authenticated Admin state. Please wait.', 'error');
+  setStatus('Image Import Center is not ready. Wait for Admin authorization and Supabase state to finish loading.');
+  return false;
+}
+
+async function saveImageDraftForm(form, options = {}) {
+  if (!ensureImageImportReady(form)) return false;
+  const drafts = readImageDraftEdits();
+  const baseDraft = drafts[form.dataset.imagePath];
   const draft = collectImageDraftForm(form);
-  if (draft.purpose !== 'image-choice' || !draft.parentProductSlug) {
-    setStatus('Select the product card this image belongs to.');
-    return;
+  draft.status = options.status || 'draft';
+  draft.savedForLater = options.savedForLater === true;
+  draft.updatedAt = new Date().toISOString();
+  setImageDraftActionsBusy(form, true);
+  setImageDraftActionStatus(form, 'Saving privately…');
+  const result = await saveAdminImageDraftPatch(form.dataset.imagePath, draft, baseDraft);
+  setImageDraftActionsBusy(form, false);
+  if (!result.ok) {
+    setImageDraftActionStatus(form, adminLastSaveError || 'Draft was not saved.', 'error');
+    return false;
   }
+  form.dataset.draftStatus = draft.status;
+  form.dataset.savedForLater = String(draft.savedForLater);
+  setImageDraftActionStatus(form, draft.savedForLater ? 'Saved for later.' : 'Draft saved privately.', 'success');
+  if (!options.quiet) setStatus(draft.savedForLater ? 'Image draft saved for later.' : 'Unpublished image draft saved privately.');
+  renderImageImportPending();
+  return true;
+}
+
+function imageImportProductOperation(parent, updatedProduct) {
+  const customProducts = readCustomProducts();
+  const customProduct = customProducts.find((product) => product.slug === parent.slug);
+  if (customProduct) {
+    return {
+      type: 'record', collectionKey: 'customProducts', identityKey: 'slug', entryKey: parent.slug,
+      baseRecord: customProduct, patch: updatedProduct
+    };
+  }
+  return {
+    type: 'record', collectionKey: 'products', entryKey: parent.slug,
+    baseRecord: readAdminProducts()[parent.slug] || {}, patch: updatedProduct
+  };
+}
+
+function importedImageChoice(draft, parent) {
+  const isBackgroundVariation = draft.imageRole === 'background-variation';
+  return {
+    label: draft.imageChoiceLabel || IMAGE_IMPORT_ROLES.find(([key]) => key === draft.imageRole)?.[1] || 'Alternate image',
+    image: isBackgroundVariation ? parent.cutoutImage : draft.path,
+    ...(isBackgroundVariation ? { stage: draft.path } : {}),
+    role: draft.imageRole
+  };
+}
+
+async function configureImageDraft(form) {
+  if (!ensureImageImportReady(form)) return false;
+  const draft = collectImageDraftForm(form);
+  const operations = [];
+  const baseDrafts = readImageDraftEdits();
+  const baseDraft = baseDrafts[draft.path];
+  let resultType = draft.destination;
+  let resultSlug = '';
+  setImageDraftActionsBusy(form, true);
+  setImageDraftActionStatus(form, 'Applying assignment privately…');
   try {
-    const parent = effectiveAdminProduct(draft.parentProductSlug);
-    if (!parent) throw new Error('Select an existing parent product card.');
-    const owner = findProductImageOwner(draft.path);
-    if (owner) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
-    const imageChoices = [...normalizeImageChoices(parent.imageChoices), {
-      label: draft.imageChoiceLabel || 'Alternate image',
-      image: draft.path
-    }];
-    const patch = {};
-    const customProducts = readCustomProducts();
-    const customIndex = customProducts.findIndex((product) => product.slug === parent.slug);
-    if (customIndex >= 0) {
-      customProducts[customIndex] = { ...customProducts[customIndex], imageChoices };
-      patch.customProducts = customProducts;
+    if (draft.destination === 'existing-product') {
+      const parent = effectiveAdminProduct(draft.parentProductSlug);
+      if (!parent) throw new Error('Select the existing product this image belongs to.');
+      const owner = findProductImageOwner(draft.path);
+      if (owner && owner.slug !== parent.slug) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
+      let imageChoices = normalizeImageChoices(parent.imageChoices);
+      const updated = {};
+      if (draft.imageRole === 'main') {
+        imageChoices = imageChoices.filter((choice) => choice.image !== draft.path);
+        if (parent.cutoutImage && parent.cutoutImage !== draft.path && !imageChoices.some((choice) => choice.image === parent.cutoutImage)) {
+          imageChoices.push({ label: 'Previous Main Image', image: parent.cutoutImage, role: 'alternate' });
+        }
+        updated.cutoutImage = draft.path;
+        updated.imageChoices = imageChoices;
+      } else {
+        if (owner?.slug === parent.slug) throw new Error('That image is already assigned to this product.');
+        updated.imageChoices = [...imageChoices, importedImageChoice(draft, parent)];
+      }
+      operations.push(imageImportProductOperation(parent, updated));
+      resultSlug = parent.slug;
+    } else if (['create-product', 'create-card', 'create-category'].includes(draft.destination)) {
+      if (!draft.title || !draft.slug) throw new Error('Add a title and unique slug first.');
+      if (draft.destination === 'create-product' && !draft.originalHeight) throw new Error('Add the original height first.');
+      if (allAdminProducts().some((product) => product.slug === draft.slug)) throw new Error('That slug already belongs to another product or card.');
+      const owner = findProductImageOwner(draft.path);
+      if (owner) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
+      operations.push({
+        type: 'record', collectionKey: 'customProducts', identityKey: 'slug', entryKey: draft.slug,
+        baseRecord: undefined,
+        patch: {
+        slug: draft.slug,
+        custom: true,
+        ...(draft.destination !== 'create-product' ? { categoryCard: true, cardKind: draft.destination } : {}),
+        title: draft.title,
+        description: draft.description || `Preview ${draft.title}.`,
+        cutoutImage: draft.path,
+        backgroundImage: draft.backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND,
+        originalHeight: draft.originalHeight || '72',
+        categories: draft.destination === 'create-product' ? draft.categories : [],
+        visible: draft.destination === 'create-product' ? draft.categories.length > 0 : true,
+        categoryOrder: Object.fromEntries(draft.categories.map((category) => [category, 999])),
+        imageChoices: []
+        }
+      });
+      resultSlug = draft.slug;
     } else {
-      const products = readAdminProducts();
-      products[parent.slug] = { ...(products[parent.slug] || {}), imageChoices };
-      patch.products = products;
+      if (!draft.websiteImageKey) throw new Error('Choose the website image slot this image belongs to.');
+      const extraImages = readExtraImages();
+      operations.push({
+        type: 'value', collectionKey: 'extraImages', entryKey: draft.websiteImageKey,
+        baseValue: extraImages[draft.websiteImageKey], value: draft.path
+      });
     }
-    patch.configuredImagePaths = [...new Set([...readImageDraftPaths('configuredImagePaths'), draft.path])];
-    const edits = readImageDraftEdits();
-    delete edits[draft.path];
-    patch.imageDrafts = edits;
-    if (!await saveProductWorkflowPatch(patch)) return;
+
+    operations.push({
+      type: 'membership', collectionKey: 'configuredImagePaths', entryKey: draft.path,
+      present: true, baseValues: readImageDraftPaths('configuredImagePaths')
+    });
+    operations.push({
+      type: 'record', collectionKey: 'imageDrafts', entryKey: draft.path, baseRecord: baseDraft,
+      patch: {
+      ...draft,
+      status: 'ready',
+      savedForLater: false,
+      resultType,
+      resultSlug,
+      lastError: '',
+      updatedAt: new Date().toISOString()
+      }
+    });
+    const result = await saveAdminCollectionOperations(operations);
+    if (!result.ok) throw new Error(adminLastSaveError || 'Supabase did not save the assignment.');
     renderAdminProducts();
     renderImageDrafts();
-    setStatus('Image choice added to the selected Admin product. Use Publish Changes to send it to the storefront.');
+    setStatus('Image assignment saved privately and marked Ready to Publish.');
   } catch (error) {
-    setStatus(error.message || 'Could not add that image choice.');
+    await saveAdminImageDraftPatch(draft.path, {
+      ...draft,
+      status: 'error',
+      savedForLater: false,
+      lastError: error.message || 'Could not apply this image assignment.',
+      updatedAt: new Date().toISOString()
+    }, baseDraft).catch(() => null);
+    setImageDraftActionsBusy(form, false);
+    setImageDraftActionStatus(form, error.message || 'Could not apply this image assignment.', 'error');
+    setStatus(error.message || 'Could not apply this image assignment.');
+    renderImageImportPending();
+    return false;
   }
+  return true;
 }
 
-async function ignoreImageDraft(path) {
+async function ignoreImageDraft(path, form) {
+  if (!ensureImageImportReady(form)) return;
+  setImageDraftActionsBusy(form, true);
+  setImageDraftActionStatus(form, 'Saving ignored inventory state…');
   const drafts = readImageDraftEdits();
-  delete drafts[path];
-  const ignoredImagePaths = [...new Set([...readImageDraftPaths('ignoredImagePaths'), path])];
-  if (!await saveProductWorkflowPatch({ imageDrafts: drafts, ignoredImagePaths })) return;
+  const ignoredImagePaths = readImageDraftPaths('ignoredImagePaths');
+  const result = await saveAdminCollectionOperations([
+    { type: 'record', collectionKey: 'imageDrafts', entryKey: path, baseRecord: drafts[path], remove: true },
+    { type: 'membership', collectionKey: 'ignoredImagePaths', entryKey: path, present: true, baseValues: ignoredImagePaths }
+  ]);
+  if (!result.ok) {
+    setImageDraftActionsBusy(form, false);
+    setImageDraftActionStatus(form, adminLastSaveError || 'Could not ignore this image.', 'error');
+    return;
+  }
   renderImageDrafts();
   setStatus('Image marked as non-product inventory. The image file was not changed.');
 }
 
-function updateImageDraftPurpose(form) {
-  const purpose = form.querySelector('[name="imagePurpose"]')?.value || 'new-product';
-  form.querySelectorAll('[data-draft-purpose]').forEach((section) => {
-    section.hidden = section.dataset.draftPurpose !== purpose;
+function imageImportAssetOptions(selectedKey = '') {
+  return [
+    '<option value="">Select a website image slot</option>',
+    ...extraImageItems.map((item) => `<option value="${escapeAdminHtml(item.key)}" ${item.key === selectedKey ? 'selected' : ''}>${escapeAdminHtml(`${item.group} — ${item.label}`)}</option>`)
+  ].join('');
+}
+
+function updateImageDraftDestination(form) {
+  const destination = form.querySelector('[name="imageDestination"]')?.value || 'create-product';
+  form.querySelectorAll('[data-import-destinations]').forEach((section) => {
+    section.hidden = !section.dataset.importDestinations.split(' ').includes(destination);
   });
-  form.querySelectorAll('[data-draft-action]').forEach((button) => {
-    button.hidden = button.dataset.draftAction !== purpose;
+  const action = form.querySelector('[data-apply-image-import]');
+  if (action) {
+    action.textContent = destination === 'existing-product' ? 'Add to Product'
+      : destination === 'create-product' ? 'Add Product'
+        : destination === 'create-card' ? 'Create Card'
+          : destination === 'create-category' ? 'Create Category/Section'
+            : 'Assign Website Image';
+  }
+  updateImageImportPreview(form);
+}
+
+function imageImportPreviewChoices(form) {
+  const importedPath = form.dataset.imagePath;
+  const parent = effectiveAdminProduct(form.querySelector('[name="parentProductSlug"]')?.value);
+  const importRole = form.querySelector('[name="imageRole"]')?.value || 'main';
+  const choices = [{
+    label: 'Current selected image',
+    image: importRole === 'background-variation' && parent?.cutoutImage ? parent.cutoutImage : importedPath,
+    ...(importRole === 'background-variation' ? { stage: importedPath } : {}),
+    role: importRole,
+    identity: importedPath
+  }];
+  if (parent?.cutoutImage && parent.cutoutImage !== importedPath) choices.push({ label: 'Main Image', image: parent.cutoutImage, role: 'main' });
+  normalizeImageChoices(parent?.imageChoices).forEach((choice) => {
+    const identity = choice.role === 'background-variation' && choice.stage ? choice.stage : choice.image;
+    if (!choices.some((item) => (item.identity || item.image) === identity)) choices.push({ ...choice, identity });
+  });
+  return choices;
+}
+
+function updateImageImportPreview(form) {
+  const preview = form.querySelector('[data-image-import-preview]');
+  const stage = form.querySelector('[data-image-import-stage]');
+  const selectedInput = form.querySelector('[name="selectedPreviewImage"]');
+  const gallery = form.querySelector('[data-image-import-choices]');
+  const choices = imageImportPreviewChoices(form);
+  const selected = choices.some((choice) => (choice.identity || choice.image) === selectedInput?.value) ? selectedInput.value : form.dataset.imagePath;
+  const selectedChoice = choices.find((choice) => (choice.identity || choice.image) === selected) || choices[0];
+  if (selectedInput) selectedInput.value = selected;
+  if (preview) preview.src = selectedChoice.image;
+  if (stage) stage.style.backgroundImage = `url("${selectedChoice.stage || form.querySelector('[name="backgroundImage"]')?.value || IMAGE_IMPORT_DEFAULT_BACKGROUND}")`;
+  if (!gallery) return;
+  gallery.innerHTML = choices.map((choice) => `
+    <button type="button" class="${(choice.identity || choice.image) === selected ? 'active' : ''}" data-import-preview-image="${escapeAdminHtml(choice.identity || choice.image)}">
+      <img src="${escapeAdminHtml(choice.stage || choice.image)}" alt="">
+      <span>${escapeAdminHtml(choice.label || 'Image choice')}</span>
+      <small>${escapeAdminHtml(IMAGE_IMPORT_ROLES.find(([key]) => key === choice.role)?.[1] || choice.role || 'Alternate Image')}</small>
+    </button>
+  `).join('');
+  gallery.querySelectorAll('[data-import-preview-image]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      selectedInput.value = button.dataset.importPreviewImage;
+      updateImageImportPreview(form);
+      await saveImageDraftForm(form, { quiet: true, status: form.dataset.draftStatus || 'draft' });
+    });
   });
 }
 
@@ -3045,51 +3759,59 @@ function renderImageDrafts() {
   }
 
   container.innerHTML = drafts.map((inventoryDraft) => {
-    const draft = { ...inventoryDraft, ...(edits[inventoryDraft.path] || {}) };
-    const purpose = draft.purpose || 'new-product';
+    const draft = normalizeImageImportDraft({ ...inventoryDraft, ...(edits[inventoryDraft.path] || {}) });
     return `
-      <form class="admin-product-card admin-image-draft" data-image-path="${draft.path}">
+      <form class="admin-product-card admin-image-draft" data-image-path="${escapeAdminHtml(draft.path)}" data-draft-status="${escapeAdminHtml(draft.status)}" data-saved-for-later="${draft.savedForLater === true}">
         <div class="admin-product-heading">
-          <h3>${draft.title || 'Unpublished image draft'}</h3>
+          <div><h3>${escapeAdminHtml(draft.title || 'Unpublished image draft')}</h3><p class="admin-note" data-image-draft-status>${imageImportReady ? 'Draft — saved privately only after you choose Save Draft.' : 'Loading authenticated Admin state…'}</p></div>
           <div class="admin-card-actions">
-            <button type="button" data-save-image-draft>Save Draft</button>
-            <button type="button" data-draft-action="new-product" data-publish-image-draft>Add Product</button>
-            <button type="button" data-draft-action="image-choice" data-add-image-choice>Add Image Choice</button>
-            <button type="button" data-draft-action="not-product" data-ignore-image>Ignore Image</button>
+            <button type="button" data-image-import-action data-save-image-draft ${imageImportReady ? '' : 'disabled'}>Save Draft</button>
+            <button type="button" data-image-import-action data-save-image-later ${imageImportReady ? '' : 'disabled'}>Save For Later</button>
+            <button type="button" data-image-import-action data-apply-image-import ${imageImportReady ? '' : 'disabled'}>Apply Assignment</button>
+            <button type="button" data-image-import-action data-ignore-image ${imageImportReady ? '' : 'disabled'}>Ignore Image</button>
           </div>
         </div>
         <div class="admin-product-layout">
-          <div class="admin-card-preview"><img class="admin-preview-cutout admin-draft-preview" src="${draft.path}" alt="Unpublished image preview"></div>
+          <div class="admin-image-import-preview">
+            <div class="admin-card-preview" data-image-import-stage style="background-image:url('${escapeAdminHtml(draft.backgroundImage)}')"><img class="admin-preview-cutout admin-draft-preview" data-image-import-preview src="${escapeAdminHtml(draft.selectedPreviewImage)}" alt="Selected image preview"></div>
+            <div class="admin-import-choice-gallery" data-image-import-choices></div>
+          </div>
           <div class="admin-control-groups">
-            <label>Image path<input type="text" value="${draft.path}" readonly></label>
-            <label>Image purpose
-              <select name="imagePurpose">
-                <option value="new-product" ${purpose === 'new-product' ? 'selected' : ''}>New product card</option>
-                <option value="image-choice" ${purpose === 'image-choice' ? 'selected' : ''}>Image choice for an existing product</option>
-                <option value="not-product" ${purpose === 'not-product' ? 'selected' : ''}>Not a product image</option>
+            <input name="selectedPreviewImage" type="hidden" value="${escapeAdminHtml(draft.selectedPreviewImage)}">
+            <label>Image path<input type="text" value="${escapeAdminHtml(draft.path)}" readonly></label>
+            <label>Where does this image belong?
+              <select name="imageDestination">
+                ${IMAGE_IMPORT_DESTINATIONS.map(([key, label]) => `<option value="${key}" ${draft.destination === key ? 'selected' : ''}>${label}</option>`).join('')}
               </select>
             </label>
-            <div data-draft-purpose="new-product">
-              <label>Title<input name="title" type="text" value="${draft.title || ''}"></label>
-              <label>Slug<input name="slug" type="text" value="${draft.slug || ''}"></label>
-              <label>Description<textarea name="description" rows="3">${draft.description || ''}</textarea></label>
-              <label>Original height<input name="originalHeight" type="text" value="${draft.originalHeight || ''}" placeholder="6'6 or 78"></label>
+            <label>Image role
+              <select name="imageRole">
+                ${IMAGE_IMPORT_ROLES.map(([key, label]) => `<option value="${key}" ${draft.imageRole === key ? 'selected' : ''}>${label}</option>`).join('')}
+              </select>
+            </label>
+            <div data-import-destinations="create-product create-card create-category">
+              <label>Title<input name="title" type="text" value="${escapeAdminHtml(draft.title || '')}"></label>
+              <label>Slug<input name="slug" type="text" value="${escapeAdminHtml(draft.slug || '')}"></label>
+              <label>Description<textarea name="description" rows="3">${escapeAdminHtml(draft.description || '')}</textarea></label>
+              <label data-import-destinations="create-product">Original height<input name="originalHeight" type="text" value="${escapeAdminHtml(draft.originalHeight || '')}" placeholder="6'6 or 78"></label>
               <label>Background
                 <select name="backgroundImage">
-                  <option value="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg">Sci-fi stage</option>
-                  <option value="images/FanBackgrounds/top-favorite-stage-gold.png">Gold stage</option>
-                  <option value="images/FanBackgrounds/top-favorite-stage-premium.png">Premium stage</option>
-                  <option value="images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg">Clean stage</option>
+                  <option value="${IMAGE_IMPORT_DEFAULT_BACKGROUND}" ${draft.backgroundImage === IMAGE_IMPORT_DEFAULT_BACKGROUND ? 'selected' : ''}>Clean stage</option>
+                  <option value="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" ${draft.backgroundImage === 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg' ? 'selected' : ''}>Sci-fi stage</option>
+                  <option value="images/FanBackgrounds/top-favorite-stage-gold.png" ${draft.backgroundImage === 'images/FanBackgrounds/top-favorite-stage-gold.png' ? 'selected' : ''}>Gold stage</option>
+                  <option value="images/FanBackgrounds/top-favorite-stage-premium.png" ${draft.backgroundImage === 'images/FanBackgrounds/top-favorite-stage-premium.png' ? 'selected' : ''}>Premium stage</option>
                 </select>
               </label>
-              <fieldset><legend>Category assignments</legend><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
+              <fieldset data-import-destinations="create-product"><legend>Category assignments</legend><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
             </div>
-            <div data-draft-purpose="image-choice">
+            <div data-import-destinations="existing-product">
               ${parentProductPickerMarkup(draft.parentProductSlug || '')}
-              <label>Image-choice label (optional)<input name="imageChoiceLabel" type="text" value="${draft.imageChoiceLabel || ''}" placeholder="Light, Dark, Print, Shade 1, Alternate pose"></label>
+              <label>Image-choice label (optional)<input name="imageChoiceLabel" type="text" value="${escapeAdminHtml(draft.imageChoiceLabel || '')}" placeholder="Light, Dark, Print, Shade 1, Alternate pose"></label>
+              <p class="admin-note">Choosing Main Image moves the current main image into Alternate Images; no physical file is deleted.</p>
             </div>
-            <div data-draft-purpose="not-product">
-              <p class="admin-note">Ignore this repository asset as non-product inventory. The physical image file will not be changed.</p>
+            <div data-import-destinations="background gallery banner other-website">
+              <label>Website image slot<select name="websiteImageKey">${imageImportAssetOptions(draft.websiteImageKey || '')}</select></label>
+              <p class="admin-note">This reuses the existing Most Wanted/Gallery image assignment state. The physical file is never modified.</p>
             </div>
           </div>
         </div>
@@ -3098,16 +3820,104 @@ function renderImageDrafts() {
   }).join('');
 
   container.querySelectorAll('.admin-image-draft').forEach((form) => {
-    const background = edits[form.dataset.imagePath]?.backgroundImage;
-    if (background) form.querySelector('[name="backgroundImage"]').value = background;
     bindParentProductPicker(form);
-    updateImageDraftPurpose(form);
-    form.querySelector('[name="imagePurpose"]')?.addEventListener('change', () => updateImageDraftPurpose(form));
+    updateImageDraftDestination(form);
+    updateImageImportPreview(form);
+    form.querySelector('[name="imageDestination"]')?.addEventListener('change', () => updateImageDraftDestination(form));
+    form.querySelector('[name="parentProductSlug"]')?.addEventListener('change', () => updateImageImportPreview(form));
+    form.querySelector('[name="imageRole"]')?.addEventListener('change', () => updateImageImportPreview(form));
+    form.querySelector('[name="backgroundImage"]')?.addEventListener('change', () => updateImageImportPreview(form));
     form.querySelector('[data-save-image-draft]')?.addEventListener('click', () => saveImageDraftForm(form));
-    form.querySelector('[data-publish-image-draft]')?.addEventListener('click', () => publishImageDraft(form));
-    form.querySelector('[data-add-image-choice]')?.addEventListener('click', () => addDraftImageChoice(form));
-    form.querySelector('[data-ignore-image]')?.addEventListener('click', () => ignoreImageDraft(form.dataset.imagePath));
+    form.querySelector('[data-save-image-later]')?.addEventListener('click', () => saveImageDraftForm(form, { savedForLater: true }));
+    form.querySelector('[data-apply-image-import]')?.addEventListener('click', () => configureImageDraft(form));
+    form.querySelector('[data-ignore-image]')?.addEventListener('click', () => ignoreImageDraft(form.dataset.imagePath, form));
   });
+  renderImageImportPending();
+}
+
+function imageImportPublished(draft) {
+  const snapshot = adminLiveSettings?.lastPublishedSnapshot || adminLastSuccessfulSnapshot;
+  if (!snapshot || draft.status !== 'ready') return false;
+  if (draft.resultSlug) {
+    const product = snapshot.products?.[draft.resultSlug] || snapshot.categoryDisplayCards?.[draft.resultSlug];
+    if (!product) return false;
+    return product.cutoutImage === draft.path || normalizeImageChoices(product.imageChoices).some((choice) => choice.image === draft.path || choice.stage === draft.path);
+  }
+  return Object.values(snapshot.extraImages || snapshot.siteImages || {}).some((value) => (typeof value === 'string' ? value : value?.src) === draft.path);
+}
+
+function imageImportStatus(draft) {
+  if (draft.lastError || draft.status === 'error') return 'Error';
+  if (imageImportPublished(draft)) return 'Published';
+  if (draft.savedForLater) return 'Draft';
+  if (draft.status === 'ready') return 'Ready to Publish';
+  return 'Draft';
+}
+
+function renderImageImportPending() {
+  const container = document.getElementById('adminImagePendingChanges');
+  if (!container) return;
+  const drafts = Object.values(readImageDraftEdits()).map(normalizeImageImportDraft);
+  if (!drafts.length) {
+    container.innerHTML = '<p class="admin-note">No saved image-import changes yet.</p>';
+    return;
+  }
+  container.innerHTML = drafts
+    .sort((left, right) => String(right.updatedAt || '').localeCompare(String(left.updatedAt || '')))
+    .map((draft) => {
+      const status = imageImportStatus(draft);
+      return `
+        <label class="admin-image-pending-item" data-pending-image-path="${escapeAdminHtml(draft.path)}">
+          <input type="checkbox" data-image-pending-select ${status === 'Published' ? 'disabled' : ''}>
+          <img src="${escapeAdminHtml(draft.path)}" alt="">
+          <span><strong>${escapeAdminHtml(draft.title || draft.imageChoiceLabel || draft.path.split('/').pop())}</strong><small>${escapeAdminHtml(draft.path)}</small></span>
+          <span class="admin-image-status" data-status="${escapeAdminHtml(status.toLowerCase().replace(/\s+/g, '-'))}">${status}</span>
+        </label>
+      `;
+    }).join('');
+}
+
+async function saveSelectedImageImportsForLater() {
+  const selected = [...document.querySelectorAll('[data-image-pending-select]:checked')]
+    .map((input) => input.closest('[data-pending-image-path]')?.dataset.pendingImagePath)
+    .filter(Boolean);
+  if (!selected.length) {
+    setStatus('Select at least one pending image first.');
+    return;
+  }
+  const drafts = readImageDraftEdits();
+  const operations = selected.flatMap((path) => drafts[path] ? [{
+    type: 'record', collectionKey: 'imageDrafts', entryKey: path, baseRecord: drafts[path],
+    patch: { savedForLater: true, status: drafts[path].status === 'ready' ? 'ready' : 'draft', updatedAt: new Date().toISOString() }
+  }] : []);
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) return;
+  renderImageImportPending();
+  setStatus(`${selected.length} image import${selected.length === 1 ? '' : 's'} saved for later.`);
+}
+
+async function publishImageImports(mode) {
+  const drafts = Object.values(readImageDraftEdits()).map(normalizeImageImportDraft);
+  const requestedPaths = mode === 'all'
+    ? drafts.filter((draft) => !draft.savedForLater && imageImportStatus(draft) === 'Ready to Publish').map((draft) => draft.path)
+    : [...document.querySelectorAll('[data-image-pending-select]:checked')]
+      .map((input) => input.closest('[data-pending-image-path]')?.dataset.pendingImagePath)
+      .filter((path) => drafts.some((draft) => draft.path === path && imageImportStatus(draft) === 'Ready to Publish'));
+  const selectedProductSlugs = new Set(drafts.filter((draft) => requestedPaths.includes(draft.path)).map((draft) => draft.resultSlug).filter(Boolean));
+  const selectedPaths = drafts
+    .filter((draft) => !draft.savedForLater && imageImportStatus(draft) === 'Ready to Publish')
+    .filter((draft) => requestedPaths.includes(draft.path) || selectedProductSlugs.has(draft.resultSlug))
+    .map((draft) => draft.path);
+  if (!selectedPaths.length) {
+    setStatus('No Ready to Publish image imports are selected.');
+    return;
+  }
+  const input = document.getElementById('adminPublishImagePaths');
+  if (input) input.value = [...new Set(selectedPaths)].join('\n');
+  imageImportPublishSelection = [...new Set(selectedPaths)];
+  renderPublishSummary();
+  document.querySelector('.admin-publish-review')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setStatus(`${selectedPaths.length} image import${selectedPaths.length === 1 ? '' : 's'} added to the existing Publish Changes review. Confirm the generated commit before publishing.`);
 }
 
 async function loadImageDraftInventory() {
@@ -3129,9 +3939,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const hasAdminAccess = await requireSupabaseAdminAccess();
   setupAdminTestMode();
   if (hasAdminAccess) await loadAdminTestMode();
-  await loadAdminLiveSettings().catch(() => {});
+  const loadedAdminState = hasAdminAccess ? await loadAdminLiveSettings().catch(() => null) : null;
+  imageImportReady = Boolean(hasAdminAccess && loadedAdminState);
   renderImageDrafts();
   await loadPublishedPublishBaseline();
+  renderImageImportPending();
   renderAdminProducts();
   setupPriceRules();
   renderExtraImages();
@@ -3151,20 +3963,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     history.replaceState(null, '', 'admin.html');
   }
 
-  document.getElementById('resetAdminProducts')?.addEventListener('click', () => {
+  document.getElementById('resetAdminProducts')?.addEventListener('click', async () => {
+    if (!await saveAdminSettingsLive({ products: {}, customProducts: [], savedForLaterProducts: [] })) return;
     localStorage.removeItem('mvpluxAdminProducts');
     localStorage.removeItem('mvpluxAdminCustomProducts');
     localStorage.removeItem('mvpluxAdminArchivedProducts');
-    updateAdminLiveSettings({ products: {}, customProducts: [], savedForLaterProducts: [] });
-    saveAdminSettingsLive({ products: {}, customProducts: [], savedForLaterProducts: [] });
     renderAdminProducts();
     setStatus('Product card saves cleared live.');
   });
 
   document.getElementById('createAdminProduct')?.addEventListener('click', createCustomProduct);
   document.getElementById('refreshImageDrafts')?.addEventListener('click', loadImageDraftInventory);
+  document.getElementById('saveSelectedImageDrafts')?.addEventListener('click', saveSelectedImageImportsForLater);
+  document.getElementById('publishSelectedImageDrafts')?.addEventListener('click', () => publishImageImports('selected'));
+  document.getElementById('publishAllImageDrafts')?.addEventListener('click', () => publishImageImports('all'));
   document.getElementById('refreshPublishSummary')?.addEventListener('click', renderPublishSummary);
-  document.getElementById('adminPublishImagePaths')?.addEventListener('input', renderPublishSummary);
+  document.getElementById('adminPublishImagePaths')?.addEventListener('input', () => {
+    imageImportPublishSelection = null;
+    renderPublishSummary();
+  });
   document.getElementById('publishAdminChanges')?.addEventListener('click', publishAdminChanges);
   document.getElementById('refreshPublishHistory')?.addEventListener('click', refreshPublishHistory);
 
@@ -3180,10 +3997,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     setStatus('Page editing is off.');
   });
 
-  document.getElementById('resetExtraImages')?.addEventListener('click', () => {
-    localStorage.removeItem('mvpluxAdminExtraImages');
-    updateAdminLiveSettings({ extraImages: {} });
-    saveAdminSettingsLive({ extraImages: {} });
+  document.getElementById('resetExtraImages')?.addEventListener('click', async () => {
+    if (!await writeExtraImages({})) return;
     renderExtraImages();
     setStatus('Extra image saves cleared live.');
   });

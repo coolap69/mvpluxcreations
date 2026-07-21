@@ -1,0 +1,438 @@
+import * as adminUtils from '../admin-state-utils.js';
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function memoryStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: (key) => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+    snapshot: () => Object.fromEntries(values)
+  };
+}
+
+function emptyElement() {
+  return {
+    hidden: false,
+    dataset: {},
+    style: { setProperty() {}, getPropertyValue() { return ''; } },
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    appendChild() {},
+    insertAdjacentElement() {},
+    insertAdjacentHTML() {},
+    addEventListener() {},
+    setAttribute() {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; }
+  };
+}
+
+async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }) {
+  let source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  source = source.replace(
+    "const adminStateUtilsPromise = import('./admin-state-utils.js');",
+    'const adminStateUtilsPromise = Promise.resolve(adminUtils);'
+  );
+  const document = {
+    body: emptyElement(),
+    addEventListener() {},
+    getElementById() { return null; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    createElement() { return emptyElement(); }
+  };
+  const window = {
+    MVPLUX_PRODUCT_CATALOG: [],
+    mvpluxPublishedAdminSettings: null,
+    mvpluxLiveAdminSettings: null,
+    mvpluxLiveAdminRevision: 0,
+    mvpluxLiveAdminStateLoaded: false,
+    getMvpluxSupabaseClient: () => client,
+    addEventListener() {},
+    clearTimeout,
+    setTimeout,
+    location: { pathname: '/index.html', reload() {} }
+  };
+  const factory = new Function(
+    'adminUtils', 'window', 'document', 'localStorage', 'sessionStorage', 'BroadcastChannel',
+    `${source}
+      return {
+        saveStorefrontProductPatch,
+        saveStorefrontProductPatches,
+        saveStorefrontListMembershipPatch,
+        saveInlineAdminEditsLive,
+        getAdminProducts,
+        __setConflictSink(fn) { showStorefrontAdminConflict = fn; },
+        __setInlineState(page, live, revision, draft, dirty, versions, base) {
+          window.location.pathname = '/' + page;
+          inlineAdminLiveEdits = { [page]: structuredClone(live) };
+          inlineAdminLiveRevisions = { [page]: revision };
+          inlineAdminDraftEdits = { [page]: structuredClone(draft) };
+          inlineAdminDirtyKeys = { [page]: new Set(dirty) };
+          inlineAdminDirtyVersions = { [page]: new Map(Object.entries(versions)) };
+          inlineAdminBasePageEdits = { [page]: structuredClone(base) };
+        },
+        __editInlineKey(page, key, value) {
+          markInlineAdminElementDirty(page, key);
+          inlineAdminDraftEdits[page] = inlineAdminDraftEdits[page] || {};
+          inlineAdminDraftEdits[page][key] = structuredClone(value);
+        },
+        __inlineState(page) {
+          return {
+            live: structuredClone(inlineAdminLiveEdits?.[page] || {}),
+            draft: structuredClone(inlineAdminDraftEdits?.[page] || {}),
+            dirty: [...(inlineAdminDirtyKeys[page] || [])],
+            revision: inlineAdminLiveRevisions[page]
+          };
+        }
+      };
+    `
+  );
+  return { helpers: factory(adminUtils, window, document, storage, memoryStorage(), undefined), window, storage };
+}
+
+async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
+  let source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  source = source.replace(
+    "const adminStateUtilsPromise = import('./admin-state-utils.js');",
+    'const adminStateUtilsPromise = Promise.resolve(adminUtils);'
+  );
+  const document = {
+    body: emptyElement(),
+    addEventListener() {},
+    getElementById() { return null; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    createElement() { return emptyElement(); }
+  };
+  const window = {
+    MVPLUX_PRODUCT_CATALOG: [],
+    MVPLUX_PRODUCT_CATEGORIES: [],
+    MVPLUX_PRICING: {
+      normalizePriceSettings: (value) => ({ ...(value || {}) }),
+      parseHeight: (value) => Number(value),
+      calculateHeightPrice: () => 0
+    },
+    getMvpluxSupabaseClient: () => client,
+    addEventListener() {},
+    location: { hash: '' }
+  };
+  const factory = new Function(
+    'adminUtils', 'window', 'document', 'localStorage', 'BroadcastChannel',
+    `${source}
+      return {
+        saveAdminProductFieldPatch,
+        saveAdminProductFieldPatches,
+        saveAdminCollectionOperations,
+        saveAdminCustomProductFieldPatch,
+        saveAdminExtraImagePatch,
+        saveAdminArchiveMembership,
+        saveAdminImageDraftPatch,
+        applyAdminExport,
+        writeCoupons,
+        __setLive(edits, revision) { adminLiveSettings = structuredClone(edits); adminLiveRevision = revision; },
+        __setConflictSink(fn) { showProductSaveConflict = fn; }
+      };
+    `
+  );
+  return { helpers: factory(adminUtils, window, document, storage, undefined), window, storage };
+}
+
+function adminGlobalClient(rows, rpcHandler) {
+  return {
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'admin' } } }, error: null }) },
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle: async () => structuredClone(rows.shift() || { data: null, error: null })
+      };
+    },
+    rpc: rpcHandler
+  };
+}
+
+Deno.test('actual product patch helper rebases a different field and updates backup only after success', async () => {
+  const calls = [];
+  const rows = [{ data: { edits: { products: { p: { title: 'Server', description: 'Old' } } }, revision: 4 }, error: null }];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    calls.push(args);
+    return { data: { edits: args.p_edits, revision: 5 }, error: null };
+  });
+  const { helpers, window, storage } = await loadActualStorefrontHelpers({ client });
+  window.MVPLUX_PRODUCT_CATALOG = [{ slug: 'p', title: 'Old', description: 'Old' }];
+  const saved = await helpers.saveStorefrontProductPatch('p', { description: 'Local' }, { title: 'Old', description: 'Old' });
+  assert(saved, 'different-field product patch should save');
+  assert(calls.length === 1 && calls[0].p_expected_revision === 4, 'actual helper must use latest revision');
+  assert(calls[0].p_edits.products.p.title === 'Server', 'latest title must survive');
+  assert(calls[0].p_edits.products.p.description === 'Local', 'intended description must save');
+  assert(JSON.parse(storage.snapshot().mvpluxAdminProducts).p.description === 'Local', 'backup updates after success');
+});
+
+Deno.test('actual admin.html product helper rebases only intended dirty fields', async () => {
+  const calls = [];
+  const rows = [{ data: { edits: { products: { p: { title: 'Server', description: 'Old', originalHeight: '72' } } }, revision: 6 }, error: null }];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    calls.push(args);
+    return { data: { edits: args.p_edits, revision: 7 }, error: null };
+  });
+  const { helpers, window } = await loadActualAdminHelpers({ client });
+  window.MVPLUX_PRODUCT_CATALOG = [{ slug: 'p', title: 'Old', description: 'Old', originalHeight: '72' }];
+  const result = await helpers.saveAdminProductFieldPatch('p', { description: 'Local' }, { title: 'Old', description: 'Old', originalHeight: '72' });
+  assert(result.ok && calls.length === 1, 'admin product helper should save once');
+  assert(calls[0].p_edits.products.p.title === 'Server', 'admin helper must retain newest title');
+  assert(calls[0].p_edits.products.p.description === 'Local', 'admin helper must apply only dirty description');
+});
+
+Deno.test('actual multi-product helper preserves latest records while patching intended ordering fields', async () => {
+  const calls = [];
+  const rows = [{ data: { edits: { products: { a: { title: 'A server' }, b: { title: 'B server' }, untouched: { title: 'Keep' } } }, revision: 8 }, error: null }];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    calls.push(args);
+    return { data: { edits: args.p_edits, revision: 9 }, error: null };
+  });
+  const { helpers, window } = await loadActualStorefrontHelpers({ client });
+  window.MVPLUX_PRODUCT_CATALOG = [{ slug: 'a' }, { slug: 'b' }, { slug: 'untouched' }];
+  const saved = await helpers.saveStorefrontProductPatches(
+    { a: { categoryOrder: { sports: 2 } }, b: { categoryOrder: { sports: 1 } } },
+    { a: { title: 'A server' }, b: { title: 'B server' } }
+  );
+  assert(saved && calls.length === 1, 'multi-product patch should save once');
+  assert(calls[0].p_edits.products.untouched.title === 'Keep', 'unrelated product must survive');
+});
+
+Deno.test('actual page helper merges different elements and uses merge mode', async () => {
+  const calls = [];
+  const pageRows = [{ data: { edits: { remote: { text: 'Server' } }, revision: 2 }, error: null }];
+  const client = adminGlobalClient(pageRows, async (_name, args) => {
+    calls.push(args);
+    return { data: { edits: { remote: { text: 'Server' }, ...args.p_edits }, revision: 3 }, error: null };
+  });
+  const { helpers } = await loadActualStorefrontHelpers({ client });
+  helpers.__setInlineState('index.html', {}, 1, { local: { text: 'Local' } }, ['local'], { local: 1 }, {});
+  const saved = await helpers.saveInlineAdminEditsLive();
+  const state = helpers.__inlineState('index.html');
+  assert(saved && calls[0].p_replace === false, 'page helper must use merge mode');
+  assert(calls[0].p_edits.local.text === 'Local', 'only dirty element should be submitted');
+  assert(state.live.remote.text === 'Server' && state.live.local.text === 'Local', 'both page elements must survive');
+});
+
+Deno.test('actual page helper preserves an edit made while the first request is in flight', async () => {
+  let releaseRpc;
+  const rpcWait = new Promise((resolve) => { releaseRpc = resolve; });
+  const rows = [{ data: { edits: {}, revision: 1 }, error: null }];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    await rpcWait;
+    return { data: { edits: args.p_edits, revision: 2 }, error: null };
+  });
+  const { helpers } = await loadActualStorefrontHelpers({ client });
+  helpers.__setInlineState('index.html', {}, 1, { a: { text: 'First' } }, ['a'], { a: 1 }, {});
+  const saving = helpers.saveInlineAdminEditsLive();
+  await Promise.resolve();
+  helpers.__editInlineKey('index.html', 'a', { text: 'Newer' });
+  releaseRpc();
+  await saving;
+  const state = helpers.__inlineState('index.html');
+  assert(state.dirty.includes('a'), 'newer edit must remain dirty');
+  assert(state.draft.a.text === 'Newer', 'newer draft value must remain available');
+});
+
+Deno.test('actual page conflict exposes cancel, keep-latest, and explicit reapply without a silent write', async () => {
+  let rpcCalls = 0;
+  const rows = [
+    { data: { edits: { a: { text: 'Server' } }, revision: 2 }, error: null },
+    { data: { edits: { a: { text: 'Server' } }, revision: 2 }, error: null }
+  ];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    rpcCalls += 1;
+    return { data: { edits: { a: args.p_edits.a }, revision: 3 }, error: null };
+  });
+  const { helpers } = await loadActualStorefrontHelpers({ client });
+  let actions;
+  helpers.__setConflictSink((details, retry, keepLatest, cancel) => { actions = { details, retry, keepLatest, cancel }; });
+  helpers.__setInlineState('index.html', { a: { text: 'Old' } }, 1, { a: { text: 'Local' } }, ['a'], { a: 1 }, { a: { text: 'Old' } });
+  const first = await helpers.saveInlineAdminEditsLive();
+  assert(!first && rpcCalls === 0, 'same-element conflict must stop before RPC');
+  assert(actions?.retry && actions?.keepLatest && actions?.cancel, 'all explicit conflict actions must be provided');
+  await actions.cancel();
+  assert(helpers.__inlineState('index.html').draft.a.text === 'Local', 'cancel must retain local draft for review');
+  const reapplied = await actions.retry();
+  assert(reapplied && rpcCalls === 1, 'reapply must write only after explicit approval');
+});
+
+Deno.test('actual product helper stops on RPC 40001, reloads, and does not update local backup', async () => {
+  let conflict;
+  const rows = [
+    { data: { edits: { products: { p: { title: 'Old' } } }, revision: 1 }, error: null },
+    { data: { edits: { products: { p: { title: 'New server' } } }, revision: 2 }, error: null }
+  ];
+  const client = adminGlobalClient(rows, async () => ({ data: null, error: { code: '40001', message: 'Admin state changed' } }));
+  const storage = memoryStorage();
+  const { helpers, window } = await loadActualStorefrontHelpers({ client, storage });
+  window.MVPLUX_PRODUCT_CATALOG = [{ slug: 'p', title: 'Old' }];
+  helpers.__setConflictSink((details, retry) => { conflict = { details, retry }; });
+  const saved = await helpers.saveStorefrontProductPatch('p', { title: 'Local' }, { title: 'Old' });
+  assert(!saved && conflict?.details?.conflictingFields?.includes('title'), '40001 must become a visible same-field conflict');
+  assert(!storage.snapshot().mvpluxAdminProducts, 'failed RPC must not update product backup');
+});
+
+Deno.test('actual storefront state ignores stale product localStorage after live Supabase state loads', async () => {
+  const storage = memoryStorage({ mvpluxAdminProducts: JSON.stringify({ p: { title: 'Old local' } }) });
+  const client = adminGlobalClient([], async () => ({ data: null, error: null }));
+  const { helpers, window } = await loadActualStorefrontHelpers({ client, storage });
+  storage.setItem('mvpluxAdminAnywhere', 'true');
+  window.mvpluxLiveAdminStateLoaded = true;
+  window.mvpluxLiveAdminSettings = { products: { p: { title: 'Server' } } };
+  assert(helpers.getAdminProducts().p.title === 'Server', 'live state must defeat stale product backup');
+});
+
+Deno.test('actual publish snapshot source uses persisted homepage edits rather than localStorage', async () => {
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const start = source.indexOf('function buildCurrentPublishSnapshot()');
+  const end = source.indexOf('\nfunction ', start + 20);
+  const body = source.slice(start, end);
+  assert(body.includes("adminHomepageLiveEdits?.['homepage-category-card-order']"), 'publish snapshot must use loaded page-row state');
+  assert(!body.includes('localStorage'), 'publish snapshot must not read local homepage order');
+});
+
+Deno.test('actual custom-product patch preserves newest unrelated fields and records', async () => {
+  const calls = [];
+  const rows = [{
+    data: {
+      edits: {
+        customProducts: [
+          { slug: 'custom', title: 'Newest title', imageChoices: [] },
+          { slug: 'other', title: 'Keep me' }
+        ]
+      },
+      revision: 10
+    },
+    error: null
+  }];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    calls.push(args);
+    return { data: { edits: args.p_edits, revision: 11 }, error: null };
+  });
+  const { helpers, storage } = await loadActualAdminHelpers({ client });
+  const result = await helpers.saveAdminCustomProductFieldPatch(
+    'custom',
+    { imageChoices: [{ label: 'Alt', image: 'images/alt.png' }] },
+    { slug: 'custom', title: 'Old title', imageChoices: [] }
+  );
+  assert(result.ok && calls.length === 1, 'custom record patch should save once');
+  assert(calls[0].p_edits.customProducts[0].title === 'Newest title', 'newest custom title must survive');
+  assert(calls[0].p_edits.customProducts[1].title === 'Keep me', 'unrelated custom product must survive');
+  assert(JSON.parse(storage.snapshot().mvpluxAdminCustomProducts)[0].imageChoices.length === 1, 'backup updates after success');
+});
+
+Deno.test('actual keyed and membership patches rebase unrelated extra-image, archive, and draft changes', async () => {
+  const calls = [];
+  const rows = [
+    { data: { edits: { extraImages: { changedElsewhere: 'server.png', target: 'old.png' } }, revision: 1 }, error: null },
+    { data: { edits: { savedForLaterProducts: ['server-only'] }, revision: 2 }, error: null },
+    { data: { edits: { imageDrafts: { other: { title: 'Server draft' }, target: { title: 'Old' } } }, revision: 3 }, error: null }
+  ];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    calls.push(args);
+    return { data: { edits: args.p_edits, revision: calls.length + 1 }, error: null };
+  });
+  const { helpers } = await loadActualAdminHelpers({ client });
+  assert((await helpers.saveAdminExtraImagePatch('target', 'new.png', 'old.png')).ok, 'extra image patch should save');
+  assert((await helpers.saveAdminArchiveMembership('target', true, [])).ok, 'archive membership should save');
+  assert((await helpers.saveAdminImageDraftPatch('target', { description: 'Local' }, { title: 'Old' })).ok, 'draft patch should save');
+  assert(calls[0].p_edits.extraImages.changedElsewhere === 'server.png', 'unrelated extra image must survive');
+  assert(calls[1].p_edits.savedForLaterProducts.includes('server-only') && calls[1].p_edits.savedForLaterProducts.includes('target'), 'unrelated archive entry must survive');
+  assert(calls[2].p_edits.imageDrafts.other.title === 'Server draft', 'unrelated draft must survive');
+});
+
+Deno.test('actual collection helper stops a same-entry conflict before RPC', async () => {
+  let rpcCalls = 0;
+  const rows = [{ data: { edits: { extraImages: { target: 'server.png' } }, revision: 4 }, error: null }];
+  const client = adminGlobalClient(rows, async () => {
+    rpcCalls += 1;
+    return { data: null, error: null };
+  });
+  const { helpers, storage } = await loadActualAdminHelpers({ client });
+  const result = await helpers.saveAdminExtraImagePatch('target', 'local.png', 'old.png');
+  assert(!result.ok && result.conflict, 'same-key stale edit must conflict');
+  assert(rpcCalls === 0, 'conflict must stop before RPC');
+  assert(!storage.snapshot().mvpluxAdminExtraImages, 'failed conflict must not update backup');
+});
+
+Deno.test('actual collection helper stops on RPC 40001 and leaves backup untouched', async () => {
+  const rows = [
+    { data: { edits: { imageDrafts: { target: { title: 'Old' } } }, revision: 1 }, error: null },
+    { data: { edits: { imageDrafts: { target: { title: 'Remote' } } }, revision: 2 }, error: null }
+  ];
+  const client = adminGlobalClient(rows, async () => ({ data: null, error: { code: '40001', message: 'Admin state changed' } }));
+  const { helpers, storage } = await loadActualAdminHelpers({ client });
+  const result = await helpers.saveAdminImageDraftPatch('target', { description: 'Local' }, { title: 'Old' });
+  assert(!result.ok, '40001 must stop the collection save');
+  assert(!storage.snapshot().mvpluxImageDrafts, '40001 must not update the draft backup');
+});
+
+Deno.test('actual storefront archive patch preserves another tab\'s archived product', async () => {
+  const calls = [];
+  const rows = [{ data: { edits: { savedForLaterProducts: ['remote'] }, revision: 7 }, error: null }];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    calls.push(args);
+    return { data: { edits: args.p_edits, revision: 8 }, error: null };
+  });
+  const { helpers, storage } = await loadActualStorefrontHelpers({ client });
+  const saved = await helpers.saveStorefrontListMembershipPatch(
+    'savedForLaterProducts', 'local', true, [], 'mvpluxAdminArchivedProducts'
+  );
+  assert(saved && calls.length === 1, 'storefront archive patch should save once');
+  assert(calls[0].p_edits.savedForLaterProducts.includes('remote'), 'remote archive entry must survive');
+  assert(calls[0].p_edits.savedForLaterProducts.includes('local'), 'intended archive entry must save');
+  assert(JSON.parse(storage.snapshot().mvpluxAdminArchivedProducts).includes('remote'), 'backup must reflect confirmed merged state');
+});
+
+Deno.test('actual legacy coupon mirror waits for Supabase before updating localStorage', async () => {
+  const rows = [{ data: { edits: { coupons: [] }, revision: 1 }, error: null }];
+  let release;
+  const wait = new Promise((resolve) => { release = resolve; });
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    await wait;
+    return { data: { edits: args.p_edits, revision: 2 }, error: null };
+  });
+  const { helpers, storage } = await loadActualAdminHelpers({ client });
+  helpers.__setLive({ coupons: [] }, 1);
+  const saving = helpers.writeCoupons([{ code: 'SAFE' }]);
+  await Promise.resolve();
+  assert(!storage.snapshot().mvpluxAdminCoupons, 'coupon backup must not update while save is pending');
+  release();
+  const saved = await saving;
+  assert(saved?.[0]?.code === 'SAFE', 'coupon helper should report confirmed values');
+  assert(JSON.parse(storage.snapshot().mvpluxAdminCoupons)[0].code === 'SAFE', 'coupon backup updates after success');
+});
+
+Deno.test('actual full import awaits authoritative global and page writes before success', async () => {
+  const calls = [];
+  const client = {
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'admin' } } }, error: null }) },
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle: async () => ({ data: { edits: {}, revision: calls.length }, error: null })
+      };
+    },
+    rpc: async (_name, args) => {
+      calls.push(args);
+      return { data: { edits: args.p_edits, revision: calls.length }, error: null };
+    }
+  };
+  const { helpers, storage } = await loadActualAdminHelpers({ client });
+  await helpers.applyAdminExport({
+    products: { p: { title: 'Imported' } },
+    pageEdits: { 'index.html': { heading: { type: 'text', text: 'Imported heading' } } }
+  });
+  assert(calls.length === 2, 'import must await one admin-global write and one page write');
+  assert(calls[0].p_page_key === 'admin-global', 'global import must use authoritative Admin row');
+  assert(calls[1].p_page_key === 'index.html' && calls[1].p_replace === true, 'controlled page restore must use authoritative page RPC');
+  assert(JSON.parse(storage.snapshot().mvpluxInlineAdminEdits)['index.html'].heading.text === 'Imported heading', 'local recovery updates only after writes complete');
+});

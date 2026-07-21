@@ -78,12 +78,26 @@
     <section class="admin-panel" id="new-image-drafts">
       <div class="admin-panel-header">
         <div>
-          <h2>New Images Waiting for Setup</h2>
-          <p class="admin-note">Run <code>python3 sync-products.py</code> locally, then refresh this page. Images stay unpublished until you configure them.</p>
+          <h2>Image Import Center</h2>
+          <p class="admin-note">Import and organize repository images here. Saving or configuring an image is private until you explicitly publish it.</p>
         </div>
         <button id="refreshImageDrafts" type="button">Refresh Inventory</button>
       </div>
       <div id="adminImageDrafts" class="admin-product-list"></div>
+      <div class="admin-image-pending">
+        <div class="admin-panel-header">
+          <div>
+            <h3>Pending Changes</h3>
+            <p class="admin-note">Review configured images before sending them through the existing one-commit publishing workflow.</p>
+          </div>
+          <div class="admin-panel-actions">
+            <button id="saveSelectedImageDrafts" type="button">Save For Later</button>
+            <button id="publishSelectedImageDrafts" type="button">Publish Selected</button>
+            <button id="publishAllImageDrafts" type="button">Publish All</button>
+          </div>
+        </div>
+        <div id="adminImagePendingChanges" class="admin-image-pending-list"></div>
+      </div>
     </section>
 
     <section class="admin-panel" id="approved-products">

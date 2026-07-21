@@ -6180,6 +6180,130 @@ button[aria-label="Add to cart"]::before {
   transform: none;
 }
 
+.admin-image-import-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-image-import-preview [data-image-import-stage] {
+  position: relative;
+  min-height: 360px;
+  overflow: hidden;
+  background-position: center;
+  background-size: cover;
+}
+
+.admin-image-import-preview [data-image-import-preview] {
+  position: absolute;
+  inset: 12px;
+  width: calc(100% - 24px);
+  height: calc(100% - 24px);
+  object-fit: contain;
+}
+
+.admin-import-choice-gallery,
+.admin-image-pending-list {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-import-choice-gallery {
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+}
+
+.admin-import-choice-gallery button {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  min-width: 0;
+  text-align: left;
+}
+
+.admin-import-choice-gallery button.active {
+  border-color: #f4d06f !important;
+  box-shadow: 0 0 0 2px rgba(244,208,111,0.35);
+}
+
+.admin-import-choice-gallery img {
+  width: 100%;
+  height: 82px;
+  object-fit: contain;
+  background: rgba(255,255,255,0.08);
+}
+
+.admin-import-choice-gallery span,
+.admin-import-choice-gallery small,
+.admin-image-pending-item small {
+  overflow-wrap: anywhere;
+}
+
+.admin-image-pending {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(244,208,111,0.28);
+}
+
+.admin-image-pending-item {
+  display: grid;
+  grid-template-columns: auto 64px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(244,208,111,0.25);
+  border-radius: 9px;
+  background: rgba(0,0,0,0.3);
+}
+
+.admin-image-pending-item > img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  background: rgba(255,255,255,0.08);
+}
+
+.admin-image-pending-item > span:not(.admin-image-status) {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.admin-image-status {
+  padding: 5px 8px;
+  border: 1px solid rgba(244,208,111,0.4);
+  border-radius: 999px;
+  color: #f8e7aa;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.admin-image-status[data-status="error"],
+[data-image-draft-status][data-state="error"] {
+  color: #ff9e9e;
+}
+
+[data-image-draft-status][data-state="success"] {
+  color: #8ff0ae;
+}
+
+@media (max-width: 720px) {
+  .admin-image-pending-item {
+    grid-template-columns: auto 52px minmax(0, 1fr);
+  }
+
+  .admin-image-pending-item > img {
+    width: 52px;
+    height: 52px;
+  }
+
+  .admin-image-status {
+    grid-column: 2 / -1;
+    justify-self: start;
+  }
+}
+
 .admin-publish-review,
 .admin-publish-history {
   display: grid;
@@ -6491,6 +6615,36 @@ button[aria-label="Add to cart"]::before {
   .admin-price-form {
     grid-template-columns: 1fr;
   }
+}
+
+.admin-save-conflict,
+.admin-inline-conflict-actions {
+  border: 1px solid #b45309;
+  border-radius: 8px;
+  background: #fff7ed;
+  color: #7c2d12;
+  padding: 8px;
+}
+
+.admin-inline-conflict-actions {
+  display: grid;
+  gap: 6px;
+  position: relative;
+  z-index: 10002;
+}
+
+.admin-inline-conflict-actions[hidden] {
+  display: none;
+}
+
+[data-product-save-state][data-state="unsaved"],
+[data-product-save-state][data-state="saving"] {
+  color: #92400e;
+}
+
+[data-product-save-state][data-state="conflict"],
+[data-product-save-state][data-state="error"] {
+  color: #b91c1c;
 }
 
 /* Compact Admin overlays must stay smaller than customer-facing buttons. */

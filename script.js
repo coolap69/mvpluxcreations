@@ -3,6 +3,10 @@ let cartTotal = 0;
 let infoSlideIndex = 0;
 let currentBuyNowItem = null;
 let activeOfferState = null;
+const adminStateUtilsPromise = import('./admin-state-utils.js');
+const storefrontAdminTabId = crypto.randomUUID?.()
+  || `admin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 const supportEmail = 'support@mvpluxcreations.com';
 let currentCheckoutPaymentMethod = 'zelle';
 let currentCheckoutOrderNumber = '';
@@ -2561,18 +2565,43 @@ function ensureProductAdminSlugs(root = document) {
 }
 
 window.mvpluxPublishedAdminSettings = null;
+window.mvpluxLiveAdminStateLoaded = false;
+let storefrontAdminPotentiallyStale = false;
+let storefrontPendingConflict = null;
+const storefrontAdminSaveChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('mvplux-admin-saves-v1') : null;
+
+function announceStorefrontAdminSave(scope, revision, keys = []) {
+  const message = { source: storefrontAdminTabId, scope, revision, keys, savedAt: new Date().toISOString() };
+  storefrontAdminSaveChannel?.postMessage(message);
+  try { localStorage.setItem('mvpluxAdminSaveNotice', JSON.stringify(message)); } catch (_error) { /* Best-effort notification. */ }
+}
+
+function receiveStorefrontAdminSaveNotice(message) {
+  if (!message || message.source === storefrontAdminTabId) return;
+  storefrontAdminPotentiallyStale = true;
+  updateInlineAdminToolbarState('Another Admin tab saved newer changes. Refreshing before next save.');
+}
+
+storefrontAdminSaveChannel?.addEventListener('message', (event) => receiveStorefrontAdminSaveNotice(event.data));
+window.addEventListener('storage', (event) => {
+  if (event.key !== 'mvpluxAdminSaveNotice' || !event.newValue) return;
+  try { receiveStorefrontAdminSaveNotice(JSON.parse(event.newValue)); } catch (_error) { /* Ignore invalid notices. */ }
+});
 
 function sanitizeProductImageChoices(choices = []) {
   const seen = new Set();
   return (Array.isArray(choices) ? choices : []).flatMap((choice) => {
     const image = typeof choice?.image === 'string' ? choice.image.trim() : '';
-    if (!image || seen.has(image)) return [];
-    seen.add(image);
     const stage = typeof choice?.stage === 'string' ? choice.stage.trim() : '';
+    const identity = `${image}\u0000${stage}`;
+    if (!image || seen.has(identity)) return [];
+    seen.add(identity);
+    const role = typeof choice?.role === 'string' ? choice.role.trim() : '';
     return [{
       label: typeof choice?.label === 'string' && choice.label.trim() ? choice.label.trim() : 'Alternate image',
       image,
-      ...(stage ? { stage } : {})
+      ...(stage ? { stage } : {}),
+      ...(role ? { role } : {})
     }];
   });
 }
@@ -2651,6 +2680,12 @@ function validatePublishedAdminSettings(value) {
     ignoredImagePaths: Array.isArray(snapshot.ignoredImagePaths)
       ? [...new Set(snapshot.ignoredImagePaths.filter((path) => typeof path === 'string' && path))]
       : [],
+    extraImages: snapshot.extraImages && typeof snapshot.extraImages === 'object' && !Array.isArray(snapshot.extraImages)
+      ? Object.fromEntries(Object.entries(snapshot.extraImages).filter(([key, path]) => (
+        typeof key === 'string' && key && typeof path === 'string' && /^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i.test(path)
+        && !path.includes('..') && !path.includes('\\')
+      )))
+      : {},
     homepageCategoryOrder,
     pageVisualStates
   };
@@ -2683,14 +2718,14 @@ function getAdminProducts() {
     const publishedProducts = getPublishedProducts();
     if (!isInlineAdminEditingEnabled()) return { ...publishedProducts };
     const liveProducts = window.mvpluxLiveAdminSettings?.products || {};
-    const localProducts = JSON.parse(
-      localStorage.getItem('mvpluxAdminProducts') || '{}'
-    );
+    const emergencyBackup = window.mvpluxLiveAdminStateLoaded
+      ? {}
+      : JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
 
     const productSlugs = new Set([
       ...Object.keys(publishedProducts),
       ...Object.keys(liveProducts),
-      ...Object.keys(localProducts)
+      ...Object.keys(emergencyBackup)
     ]);
 
     return Object.fromEntries(
@@ -2699,7 +2734,7 @@ function getAdminProducts() {
         {
           ...(publishedProducts[slug] || {}),
           ...(liveProducts[slug] || {}),
-          ...(localProducts[slug] || {})
+          ...(emergencyBackup[slug] || {})
         }
       ])
     );
@@ -2713,7 +2748,8 @@ function getAdminCustomProducts() {
     if (!isInlineAdminEditingEnabled()) {
       return Object.values(getPublishedProducts()).filter((product) => product.custom === true);
     }
-    return window.mvpluxLiveAdminSettings?.customProducts || JSON.parse(localStorage.getItem('mvpluxAdminCustomProducts') || '[]');
+    if (window.mvpluxLiveAdminStateLoaded) return window.mvpluxLiveAdminSettings?.customProducts || [];
+    return JSON.parse(localStorage.getItem('mvpluxAdminCustomProducts') || '[]');
   } catch (error) {
     return [];
   }
@@ -2722,8 +2758,8 @@ function getAdminCustomProducts() {
 function getAdminDeletedProducts() {
   try {
     if (!isInlineAdminEditingEnabled()) return window.mvpluxPublishedAdminSettings?.deletedProducts || [];
-    return window.mvpluxLiveAdminSettings?.deletedProducts
-      || JSON.parse(localStorage.getItem('mvpluxDeletedProducts') || '[]');
+    if (window.mvpluxLiveAdminStateLoaded) return window.mvpluxLiveAdminSettings?.deletedProducts || [];
+    return JSON.parse(localStorage.getItem('mvpluxDeletedProducts') || '[]');
   } catch (error) {
     return [];
   }
@@ -2761,7 +2797,8 @@ function getAdminArchivedProducts() {
     if (!isInlineAdminEditingEnabled()) {
       return Object.values(getPublishedProducts()).filter((product) => product.visible === false).map((product) => product.slug);
     }
-    return window.mvpluxLiveAdminSettings?.savedForLaterProducts || JSON.parse(localStorage.getItem('mvpluxAdminArchivedProducts') || '[]');
+    if (window.mvpluxLiveAdminStateLoaded) return window.mvpluxLiveAdminSettings?.savedForLaterProducts || [];
+    return JSON.parse(localStorage.getItem('mvpluxAdminArchivedProducts') || '[]');
   } catch (error) {
     return [];
   }
@@ -2769,7 +2806,9 @@ function getAdminArchivedProducts() {
 
 function getAdminExtraImages() {
   try {
-    return window.mvpluxLiveAdminSettings?.extraImages || JSON.parse(localStorage.getItem('mvpluxAdminExtraImages') || '{}');
+    if (!isInlineAdminEditingEnabled()) return window.mvpluxPublishedAdminSettings?.extraImages || {};
+    if (window.mvpluxLiveAdminStateLoaded) return window.mvpluxLiveAdminSettings?.extraImages || {};
+    return JSON.parse(localStorage.getItem('mvpluxAdminExtraImages') || '{}');
   } catch (error) {
     return {};
   }
@@ -2779,6 +2818,7 @@ async function loadLiveAdminSettings() {
   const client = getSupabaseClient();
   if (!client?.from) {
     window.mvpluxLiveAdminSettings = null;
+    window.mvpluxLiveAdminStateLoaded = false;
     return null;
   }
 
@@ -2790,37 +2830,274 @@ async function loadLiveAdminSettings() {
 
   if (error) {
     window.mvpluxLiveAdminSettings = null;
+    window.mvpluxLiveAdminStateLoaded = false;
     return null;
   }
 
   window.mvpluxLiveAdminSettings = data?.edits || {};
   window.mvpluxLiveAdminRevision = Number(data?.revision) || 0;
+  window.mvpluxLiveAdminStateLoaded = true;
+  storefrontAdminPotentiallyStale = false;
   return window.mvpluxLiveAdminSettings;
-}
-
-function updateLiveAdminSettingsLocal(patch) {
-  window.mvpluxLiveAdminSettings = { ...(window.mvpluxLiveAdminSettings || {}), ...(patch || {}) };
 }
 
 let liveAdminSaveQueue = Promise.resolve(true);
 
-function saveLiveAdminSettings(patch) {
-  updateLiveAdminSettingsLocal(patch);
-  const save = async () => {
-    const client = getSupabaseClient();
-    if (!client?.from || !client?.auth) return false;
-    const { data: sessionData } = await client.auth.getSession();
-    if (!sessionData?.session?.user) return false;
-    const expectedRevision = Number(window.mvpluxLiveAdminRevision) || 0;
-    const { data, error } = await client.rpc('save_site_edits', {
+async function fetchAuthoritativeStorefrontAdminGlobal() {
+  const client = getSupabaseClient();
+  if (!client?.from || !client?.auth) throw new Error('Supabase is not ready.');
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (!sessionData?.session?.user) throw new Error('Sign in as admin to save live.');
+  const { data, error } = await client
+    .from('site_edits')
+    .select('edits, revision')
+    .eq('page_key', 'admin-global')
+    .maybeSingle();
+  if (error) throw error;
+  return { edits: data?.edits || {}, revision: Number(data?.revision) || 0 };
+}
+
+function showStorefrontAdminConflict(details, retry, keepLatest = null, cancel = null) {
+  storefrontPendingConflict = { details, retry, keepLatest, cancel };
+  let panel = document.getElementById('adminInlineConflictActions');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'adminInlineConflictActions';
+    panel.className = 'admin-inline-conflict-actions';
+    panel.innerHTML = `
+      <strong>Conflict — review required</strong>
+      <span data-inline-conflict-fields></span>
+      <button type="button" data-inline-conflict-latest>Keep latest server values</button>
+      <button type="button" data-inline-conflict-reapply>Reapply my changed fields</button>
+      <button type="button" data-inline-conflict-cancel>Cancel and review</button>
+    `;
+    (document.querySelector('.admin-anywhere-toolbar') || document.body).appendChild(panel);
+    panel.querySelector('[data-inline-conflict-latest]')?.addEventListener('click', async () => {
+      const pending = storefrontPendingConflict;
+      if (pending?.keepLatest) await pending.keepLatest();
+      storefrontPendingConflict = null;
+      window.location.reload();
+    });
+    panel.querySelector('[data-inline-conflict-reapply]')?.addEventListener('click', async () => {
+      const pending = storefrontPendingConflict;
+      if (!pending?.retry) return;
+      panel.querySelectorAll('button').forEach((button) => { button.disabled = true; });
+      await pending.retry();
+    });
+    panel.querySelector('[data-inline-conflict-cancel]')?.addEventListener('click', async () => {
+      const pending = storefrontPendingConflict;
+      if (pending?.cancel) await pending.cancel();
+      storefrontPendingConflict = null;
+      panel.hidden = true;
+      updateInlineAdminToolbarState('Conflict — local changes remain unsaved for review');
+    });
+  }
+  const fields = details.conflictingFields || details.conflictingKeys || [];
+  const remote = details.remoteFields || details.remoteKeys || fields;
+  const local = details.localFields || details.localKeys || fields;
+  panel.querySelector('[data-inline-conflict-fields]').textContent = `Changed remotely: ${remote.join(', ') || 'unknown'}. Waiting locally: ${local.join(', ') || 'unknown'}. Overlap: ${fields.join(', ') || 'none'}.`;
+  panel.querySelectorAll('button').forEach((button) => { button.disabled = false; });
+  const reapplyButton = panel.querySelector('[data-inline-conflict-reapply]');
+  if (reapplyButton) reapplyButton.disabled = typeof retry !== 'function';
+  panel.hidden = false;
+  updateInlineAdminToolbarState('Conflict — review required');
+}
+
+async function saveStorefrontProductPatch(slug, patch, baseRecord, force = false) {
+  if (!slug || !Object.keys(patch || {}).length) return false;
+  updateInlineAdminToolbarState('Saving');
+  try {
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const defaults = getPublishedProducts()[slug]
+      || (window.MVPLUX_PRODUCT_CATALOG || []).find((product) => product.slug === slug)
+      || (latest.edits.customProducts || []).find((product) => product.slug === slug)
+      || {};
+    const latestRecord = { ...defaults, ...(latest.edits.products?.[slug] || {}) };
+    const utils = await adminStateUtilsPromise;
+    const analysis = utils.analyzeRecordPatch(baseRecord || {}, latestRecord, patch);
+    window.mvpluxLiveAdminSettings = latest.edits;
+    window.mvpluxLiveAdminRevision = latest.revision;
+    window.mvpluxLiveAdminStateLoaded = true;
+    storefrontAdminPotentiallyStale = false;
+    if (!force && !analysis.canRebase) {
+      showStorefrontAdminConflict(analysis, () => saveStorefrontProductPatch(slug, patch, latestRecord, true));
+      return false;
+    }
+    const products = utils.applyRecordPatch(latest.edits.products || {}, slug, patch);
+    const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
       p_page_key: 'admin-global',
-      p_edits: patch || {},
-      p_expected_revision: expectedRevision,
+      p_edits: { products },
+      p_expected_revision: latest.revision,
       p_replace: false
     });
-    if (error) return false;
-    window.mvpluxLiveAdminRevision = Number(data?.revision) || (expectedRevision + 1);
+    if (error) {
+      if (String(error.code || '') === '40001' || String(error.message || '').includes('Admin state changed')) {
+        const refreshed = await fetchAuthoritativeStorefrontAdminGlobal();
+        const refreshedRecord = { ...defaults, ...(refreshed.edits.products?.[slug] || {}) };
+        const conflict = utils.analyzeRecordPatch(latestRecord, refreshedRecord, patch);
+        window.mvpluxLiveAdminSettings = refreshed.edits;
+        window.mvpluxLiveAdminRevision = refreshed.revision;
+        showStorefrontAdminConflict(conflict, () => saveStorefrontProductPatch(slug, patch, refreshedRecord, true));
+        return false;
+      }
+      throw error;
+    }
+    window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, products };
+    window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
+    localStorage.setItem('mvpluxAdminProducts', JSON.stringify(window.mvpluxLiveAdminSettings.products || products));
+    announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`products:${slug}`]);
+    document.getElementById('adminInlineConflictActions')?.setAttribute('hidden', '');
+    storefrontPendingConflict = null;
+    updateInlineAdminToolbarState('Saved');
     return true;
+  } catch (error) {
+    updateInlineAdminToolbarState(`Error — not saved: ${error?.message || error}`);
+    return false;
+  }
+}
+
+async function saveStorefrontProductPatches(recordPatches, baseRecords = {}) {
+  const entries = Object.entries(recordPatches || {}).filter(([, patch]) => Object.keys(patch || {}).length);
+  if (!entries.length) return true;
+  updateInlineAdminToolbarState('Saving');
+  try {
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const utils = await adminStateUtilsPromise;
+    let products = { ...(latest.edits.products || {}) };
+    const conflicts = [];
+    entries.forEach(([slug, patch]) => {
+      const defaults = getPublishedProducts()[slug]
+        || (window.MVPLUX_PRODUCT_CATALOG || []).find((product) => product.slug === slug)
+        || (latest.edits.customProducts || []).find((product) => product.slug === slug)
+        || {};
+      const latestRecord = { ...defaults, ...(products[slug] || {}) };
+      const analysis = utils.analyzeRecordPatch(baseRecords[slug] || latestRecord, latestRecord, patch);
+      if (!analysis.canRebase) conflicts.push(`${slug}: ${analysis.conflictingFields.join(', ')}`);
+      products = utils.applyRecordPatch(products, slug, patch);
+    });
+    window.mvpluxLiveAdminSettings = latest.edits;
+    window.mvpluxLiveAdminRevision = latest.revision;
+    window.mvpluxLiveAdminStateLoaded = true;
+    storefrontAdminPotentiallyStale = false;
+    if (conflicts.length) {
+      showStorefrontAdminConflict({ conflictingFields: conflicts }, null);
+      return false;
+    }
+    const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
+      p_page_key: 'admin-global',
+      p_edits: { products },
+      p_expected_revision: latest.revision,
+      p_replace: false
+    });
+    if (error) throw error;
+    window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, products };
+    window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
+    localStorage.setItem('mvpluxAdminProducts', JSON.stringify(window.mvpluxLiveAdminSettings.products || products));
+    announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, entries.map(([slug]) => `products:${slug}`));
+    updateInlineAdminToolbarState('Saved');
+    return true;
+  } catch (error) {
+    if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
+      try {
+        const refreshed = await fetchAuthoritativeStorefrontAdminGlobal();
+        window.mvpluxLiveAdminSettings = refreshed.edits;
+        window.mvpluxLiveAdminRevision = refreshed.revision;
+      } catch (_reloadError) { /* Keep the original conflict as the reported failure. */ }
+      showStorefrontAdminConflict({ conflictingFields: entries.map(([slug]) => `products:${slug}`) }, null);
+      return false;
+    }
+    updateInlineAdminToolbarState(`Error — not saved: ${error?.message || error}`);
+    return false;
+  }
+}
+
+async function saveStorefrontListMembershipPatch(collectionKey, entry, present, baseValues, storageKey) {
+  updateInlineAdminToolbarState('Saving');
+  try {
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const utils = await adminStateUtilsPromise;
+    const latestValues = Array.isArray(latest.edits?.[collectionKey]) ? latest.edits[collectionKey] : [];
+    const analysis = utils.analyzeMembershipPatch(baseValues || [], latestValues, entry, present);
+    window.mvpluxLiveAdminSettings = latest.edits;
+    window.mvpluxLiveAdminRevision = latest.revision;
+    window.mvpluxLiveAdminStateLoaded = true;
+    storefrontAdminPotentiallyStale = false;
+    if (!analysis.canRebase) {
+      showStorefrontAdminConflict({ conflictingFields: [`${collectionKey}:${entry}`] }, null);
+      return false;
+    }
+    const values = utils.applyMembershipPatch(latestValues, entry, present);
+    const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
+      p_page_key: 'admin-global',
+      p_edits: { [collectionKey]: values },
+      p_expected_revision: latest.revision,
+      p_replace: false
+    });
+    if (error) throw error;
+    window.mvpluxLiveAdminSettings = { ...latest.edits, [collectionKey]: values, ...(data?.edits || {}) };
+    window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
+    if (storageKey) localStorage.setItem(storageKey, JSON.stringify(window.mvpluxLiveAdminSettings[collectionKey] || values));
+    announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`${collectionKey}:${entry}`]);
+    updateInlineAdminToolbarState('Saved');
+    return true;
+  } catch (error) {
+    if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
+      try {
+        const refreshed = await fetchAuthoritativeStorefrontAdminGlobal();
+        window.mvpluxLiveAdminSettings = refreshed.edits;
+        window.mvpluxLiveAdminRevision = refreshed.revision;
+      } catch (_reloadError) { /* Preserve the original conflict. */ }
+      showStorefrontAdminConflict({ conflictingFields: [`${collectionKey}:${entry}`] }, null);
+      return false;
+    }
+    updateInlineAdminToolbarState(`Error — not saved: ${error?.message || error}`);
+    return false;
+  }
+}
+
+function saveLiveAdminSettings(patch) {
+  const baseSettings = structuredClone(window.mvpluxLiveAdminSettings || {});
+  const save = async () => {
+    try {
+      const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+      const utils = await adminStateUtilsPromise;
+      const conflictingKeys = Object.keys(patch || {}).filter((key) => (
+        !utils.valuesEqual(baseSettings[key], latest.edits[key])
+        && !utils.valuesEqual(patch[key], latest.edits[key])
+      ));
+      window.mvpluxLiveAdminSettings = latest.edits;
+      window.mvpluxLiveAdminRevision = latest.revision;
+      window.mvpluxLiveAdminStateLoaded = true;
+      storefrontAdminPotentiallyStale = false;
+      if (conflictingKeys.length) {
+        showStorefrontAdminConflict({ conflictingFields: conflictingKeys }, null);
+        return false;
+      }
+      const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
+        p_page_key: 'admin-global',
+        p_edits: patch || {},
+        p_expected_revision: latest.revision,
+        p_replace: false
+      });
+      if (error) throw error;
+      window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, ...(patch || {}) };
+      window.mvpluxLiveAdminRevision = Number(data?.revision) || (latest.revision + 1);
+      announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, Object.keys(patch || {}));
+      updateInlineAdminToolbarState('Saved');
+      return true;
+    } catch (error) {
+      if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
+        try {
+          const refreshed = await fetchAuthoritativeStorefrontAdminGlobal();
+          window.mvpluxLiveAdminSettings = refreshed.edits;
+          window.mvpluxLiveAdminRevision = refreshed.revision;
+        } catch (_reloadError) { /* Keep the original conflict as the reported failure. */ }
+        showStorefrontAdminConflict({ conflictingFields: Object.keys(patch || {}) }, null);
+      }
+      updateInlineAdminToolbarState(`Error — not saved: ${error?.message || error}`);
+      return false;
+    }
   };
   const result = liveAdminSaveQueue.then(save, save);
   liveAdminSaveQueue = result.then(() => true, () => true);
@@ -3166,7 +3443,7 @@ function selectSportsOption(index) {
 
   if (!product || !option || !mainStage || !mainImage) return;
 
-  mainStage.style.backgroundImage = `url('${product.backgroundImage || getShowroomStageBackground()}')`;
+  mainStage.style.backgroundImage = `url('${option.stage || product.backgroundImage || getShowroomStageBackground()}')`;
   mainStage.style.setProperty('--showroom-image-height', product.displayFit?.imageHeight || '80%');
   mainImage.src = option.image;
   mainImage.alt = `${product.name} ${option.label} standee preview`;
@@ -3579,7 +3856,7 @@ function getStandeeBySlug(slug) {
           ...managedChoices.map((choice) => ({
             name: choice.label,
             image: choice.image,
-            stage: managed?.backgroundImage || getShowroomStageBackground()
+            stage: choice.stage || managed?.backgroundImage || getShowroomStageBackground()
           }))
         ]
       : detailed?.backgrounds?.length
@@ -3887,37 +4164,25 @@ function extractHeightFromText(value = '') {
   return null;
 }
 
-function saveAdminProductHeightFromBuilder(builder, inches) {
+async function saveAdminProductHeightFromBuilder(builder, inches) {
   if (!builder || !inches) return;
 
   ensureProductAdminSlugs(builder.closest('.product-card') || document);
   const slug = builder.dataset.adminSlug || getProductSlug(builder.dataset.productName || 'product');
-  const products = { ...getAdminProducts() };
-  products[slug] = {
-    ...(products[slug] || {}),
-    originalHeight: String(inches)
-  };
-  delete products[slug].originalPrice;
-
-  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
-  updateLiveAdminSettingsLocal({ products });
-  saveLiveAdminSettings({ products });
+  const baseRecord = getManagedProductBySlug(slug) || {};
+  return saveStorefrontProductPatch(slug, { originalHeight: String(inches) }, baseRecord);
 }
 
-function saveAdminProductImageFromElement(image) {
+async function saveAdminProductImageFromElement(image) {
   const card = image?.closest?.('.product-card');
   const builder = card?.querySelector?.('.size-builder');
   if (!image || !builder || !image.classList.contains('product-cutout')) return;
   ensureProductAdminSlugs(card);
   const slug = getBuilderAdminSlug(builder);
-  const products = { ...getAdminProducts() };
-  products[slug] = {
-    ...(products[slug] || {}),
+  const baseRecord = getManagedProductBySlug(slug) || {};
+  return saveStorefrontProductPatch(slug, {
     cutoutImage: image.getAttribute('src') || image.src || ''
-  };
-  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
-  updateLiveAdminSettingsLocal({ products });
-  saveLiveAdminSettings({ products });
+  }, baseRecord);
 }
 
 function getBuilderAdminSlug(builder) {
@@ -3964,6 +4229,7 @@ function saveOriginalHeightPageEdit(builder, inches) {
   const edits = getInlineAdminDraft();
   const page = inlineAdminPageKey();
   const key = `product-height-${getBuilderAdminSlug(builder)}`;
+  markInlineAdminElementDirty(page, key);
   edits[page] = edits[page] || {};
   edits[page][key] = { type: 'originalHeight', slug: getBuilderAdminSlug(builder), originalHeight: String(inches) };
   writeInlineAdminEdits(edits);
@@ -4221,10 +4487,16 @@ let inlineAdminLastToolbarAction = { action: '', time: 0 };
 let inlineAdminResizeActive = false;
 let inlineAdminLiveEdits = null;
 let inlineAdminLiveRevisions = {};
+let inlineAdminBasePageEdits = {};
+let inlineAdminDirtyKeys = {};
+let inlineAdminDirtyVersions = {};
+let inlineAdminConflictDrafts = {};
 let inlineAdminSaveQueue = Promise.resolve(true);
 let inlineAdminAutoSaveTimer = null;
 
 const INLINE_ADMIN_DRAFT_KEY = 'mvpluxInlineAdminDraftV2';
+const INLINE_ADMIN_DRAFT_META_KEY = 'mvpluxInlineAdminDraftMetaV1';
+const INLINE_ADMIN_RECOVERY_KEY = 'mvpluxInlineAdminRecoveryV1';
 const INLINE_HIDDEN_CARDS_KEY = 'mvpluxInlineHiddenCardsV2';
 const HOMEPAGE_CATEGORY_ORDER_EDIT_KEY = 'homepage-category-card-order';
 
@@ -4235,7 +4507,14 @@ function clamp(value, min, max) {
 function readInlineAdminEdits() {
   if (inlineAdminDraftEdits) return inlineAdminDraftEdits;
   try {
-    return JSON.parse(localStorage.getItem(INLINE_ADMIN_DRAFT_KEY) || '{}');
+    const edits = JSON.parse(localStorage.getItem(INLINE_ADMIN_DRAFT_KEY) || '{}');
+    const metadata = JSON.parse(localStorage.getItem(INLINE_ADMIN_DRAFT_META_KEY) || '{}');
+    const page = inlineAdminPageKey();
+    const pageMetadata = metadata?.[page];
+    if (pageMetadata?.status !== 'unsaved' || pageMetadata?.sessionId !== storefrontAdminTabId) return {};
+    inlineAdminDirtyKeys[page] = new Set(pageMetadata.dirtyKeys || Object.keys(edits?.[page] || {}));
+    inlineAdminBasePageEdits[page] = pageMetadata.baseEdits || {};
+    return edits;
   } catch (error) {
     return {};
   }
@@ -4245,9 +4524,63 @@ function writeInlineAdminEdits(edits) {
   inlineAdminDraftEdits = edits || {};
   try {
     localStorage.setItem(INLINE_ADMIN_DRAFT_KEY, JSON.stringify(inlineAdminDraftEdits));
+    const page = inlineAdminPageKey();
+    const existingMetadata = JSON.parse(localStorage.getItem(INLINE_ADMIN_DRAFT_META_KEY) || '{}');
+    if (inlineAdminDirtyKeys[page]?.size) {
+      existingMetadata[page] = {
+        status: 'unsaved',
+        sessionId: storefrontAdminTabId,
+        baseRevision: Number(inlineAdminLiveRevisions[page]) || 0,
+        dirtyKeys: [...inlineAdminDirtyKeys[page]],
+        baseEdits: inlineAdminBasePageEdits[page] || {},
+        updatedAt: new Date().toISOString()
+      };
+    } else {
+      delete existingMetadata[page];
+    }
+    localStorage.setItem(INLINE_ADMIN_DRAFT_META_KEY, JSON.stringify(existingMetadata));
   } catch (error) {
     console.warn('Could not write admin draft backup:', error);
   }
+}
+
+function markInlineAdminElementDirty(page, key) {
+  inlineAdminDirtyKeys[page] = inlineAdminDirtyKeys[page] || new Set();
+  inlineAdminDirtyVersions[page] = inlineAdminDirtyVersions[page] || new Map();
+  if (!inlineAdminDirtyKeys[page].size) {
+    inlineAdminBasePageEdits[page] = structuredClone(getInlineAdminLivePageEdits());
+  }
+  inlineAdminDirtyVersions[page].set(key, (inlineAdminDirtyVersions[page].get(key) || 0) + 1);
+  inlineAdminDirtyKeys[page].add(key);
+}
+
+function discardInlineAdminPageDraft(page, latestEdits = {}) {
+  delete inlineAdminConflictDrafts[page];
+  inlineAdminDirtyKeys[page] = new Set();
+  inlineAdminDirtyVersions[page] = new Map();
+  inlineAdminBasePageEdits[page] = structuredClone(latestEdits || {});
+  const stored = getInlineAdminDraft();
+  delete stored[page];
+  writeInlineAdminEdits(stored);
+}
+
+function stageInlineAdminPageConflict(page, changes, latestEdits, analysis) {
+  inlineAdminConflictDrafts[page] = structuredClone(changes || {});
+  const activeDrafts = getInlineAdminDraft();
+  delete activeDrafts[page];
+  applyInlineAdminEdits();
+  showStorefrontAdminConflict(analysis, async () => {
+    activeDrafts[page] = structuredClone(inlineAdminConflictDrafts[page] || {});
+    inlineAdminBasePageEdits[page] = structuredClone(latestEdits || {});
+    delete inlineAdminConflictDrafts[page];
+    writeInlineAdminEdits(activeDrafts);
+    applyInlineAdminEdits();
+    return saveInlineAdminEditsLive();
+  }, async () => discardInlineAdminPageDraft(page, latestEdits), async () => {
+    activeDrafts[page] = structuredClone(inlineAdminConflictDrafts[page] || {});
+    writeInlineAdminEdits(activeDrafts);
+    applyInlineAdminEdits();
+  });
 }
 
 function getInlineAdminDraft() {
@@ -4395,12 +4728,29 @@ async function loadInlineAdminLiveEdits() {
   inlineAdminLiveEdits = inlineAdminLiveEdits || {};
   inlineAdminLiveEdits[page] = data?.edits || {};
   inlineAdminLiveRevisions[page] = Number(data?.revision) || 0;
+  if (!inlineAdminDirtyKeys[page]?.size) {
+    inlineAdminBasePageEdits[page] = structuredClone(data?.edits || {});
+  } else {
+    const dirtyChanges = Object.fromEntries(
+      [...inlineAdminDirtyKeys[page]]
+        .filter((key) => Object.prototype.hasOwnProperty.call(inlineAdminDraftEdits?.[page] || {}, key))
+        .map((key) => [key, inlineAdminDraftEdits[page][key]])
+    );
+    const utils = await adminStateUtilsPromise;
+    const analysis = utils.analyzeElementPatch(inlineAdminBasePageEdits[page] || {}, data?.edits || {}, dirtyChanges);
+    if (!analysis.canRebase) {
+      stageInlineAdminPageConflict(page, dirtyChanges, data?.edits || {}, analysis);
+    }
+  }
   return inlineAdminLiveEdits;
 }
 
 function saveInlineAdminEditsLive() {
   const page = inlineAdminPageKey();
-  const edits = structuredClone(getInlineAdminDraft()[page] || {});
+  const dirtyKeys = [...(inlineAdminDirtyKeys[page] || [])];
+  const savedVersions = new Map(dirtyKeys.map((key) => [key, inlineAdminDirtyVersions[page]?.get(key) || 0]));
+  const draftPage = getInlineAdminDraft()[page] || {};
+  const changes = Object.fromEntries(dirtyKeys.filter((key) => key in draftPage).map((key) => [key, structuredClone(draftPage[key])]));
   const save = async () => {
     const client = getSupabaseClient();
     if (!client?.from || !client?.auth) {
@@ -4412,23 +4762,68 @@ function saveInlineAdminEditsLive() {
       updateInlineAdminToolbarState('Sign in as admin to save live');
       return false;
     }
-    const expectedRevision = Number(inlineAdminLiveRevisions[page]) || 0;
+    if (!dirtyKeys.length) return true;
+    const { data: latestRow, error: loadError } = await client
+      .from('site_edits')
+      .select('edits, revision')
+      .eq('page_key', page)
+      .maybeSingle();
+    if (loadError) {
+      updateInlineAdminToolbarState(`Error — not saved: ${loadError.message || loadError}`);
+      return false;
+    }
+    const latestEdits = latestRow?.edits || {};
+    const expectedRevision = Number(latestRow?.revision) || 0;
+    const utils = await adminStateUtilsPromise;
+    const analysis = utils.analyzeElementPatch(inlineAdminBasePageEdits[page] || {}, latestEdits, changes);
+    inlineAdminLiveEdits = inlineAdminLiveEdits || {};
+    inlineAdminLiveEdits[page] = latestEdits;
+    inlineAdminLiveRevisions[page] = expectedRevision;
+    if (!analysis.canRebase) {
+      stageInlineAdminPageConflict(page, changes, latestEdits, analysis);
+      return false;
+    }
     const { data, error } = await client.rpc('save_site_edits', {
       p_page_key: page,
-      p_edits: edits,
+      p_edits: changes,
       p_expected_revision: expectedRevision,
-      p_replace: true
+      p_replace: false
     });
     if (error) {
       console.warn('Live admin save failed:', error);
+      if (String(error.code || '') === '40001' || String(error.message || '').includes('Admin state changed')) {
+        const { data: refreshedRow } = await client.from('site_edits').select('edits, revision').eq('page_key', page).maybeSingle();
+        const refreshedEdits = refreshedRow?.edits || {};
+        const conflict = utils.analyzeElementPatch(latestEdits, refreshedEdits, changes);
+        inlineAdminLiveEdits[page] = refreshedEdits;
+        inlineAdminLiveRevisions[page] = Number(refreshedRow?.revision) || expectedRevision;
+        stageInlineAdminPageConflict(page, changes, refreshedEdits, conflict);
+        return false;
+      }
       updateInlineAdminToolbarState(getLiveAdminSaveErrorMessage(error));
       return false;
     }
-    inlineAdminLiveEdits = inlineAdminLiveEdits || {};
-    inlineAdminLiveEdits[page] = edits;
+    inlineAdminLiveEdits[page] = data?.edits || analysis.mergedEdits;
     inlineAdminLiveRevisions[page] = Number(data?.revision) || (expectedRevision + 1);
-    inlineAdminHasUnsavedLocalChanges = false;
-    updateInlineAdminToolbarState('Saved live automatically');
+    inlineAdminBasePageEdits[page] = structuredClone(inlineAdminLiveEdits[page]);
+    const drafts = getInlineAdminDraft();
+    try {
+      const recovery = JSON.parse(localStorage.getItem(INLINE_ADMIN_RECOVERY_KEY) || '{}');
+      recovery[page] = { edits: changes, savedAt: new Date().toISOString(), revision: inlineAdminLiveRevisions[page] };
+      localStorage.setItem(INLINE_ADMIN_RECOVERY_KEY, JSON.stringify(recovery));
+    } catch (_error) { /* Recovery history is best-effort. */ }
+    dirtyKeys.forEach((key) => {
+      if ((inlineAdminDirtyVersions[page]?.get(key) || 0) !== savedVersions.get(key)) return;
+      inlineAdminDirtyKeys[page]?.delete(key);
+      delete drafts[page]?.[key];
+    });
+    if (!Object.keys(drafts[page] || {}).length) delete drafts[page];
+    writeInlineAdminEdits(drafts);
+    inlineAdminHasUnsavedLocalChanges = Boolean(inlineAdminDirtyKeys[page]?.size);
+    storefrontPendingConflict = null;
+    document.getElementById('adminInlineConflictActions')?.setAttribute('hidden', '');
+    announceStorefrontAdminSave(page, inlineAdminLiveRevisions[page], dirtyKeys);
+    updateInlineAdminToolbarState(inlineAdminHasUnsavedLocalChanges ? 'Unsaved changes remain' : 'Saved');
     return true;
   };
   const result = inlineAdminSaveQueue.then(save, save);
@@ -4554,6 +4949,7 @@ function saveInlineAdminEdit(element, patch) {
   const edits = getInlineAdminDraft();
   const page = inlineAdminPageKey();
   const key = inlineAdminKey(element);
+  markInlineAdminElementDirty(page, key);
   edits[page] = edits[page] || {};
   edits[page][key] = { ...(edits[page][key] || {}), ...patch };
   writeInlineAdminEdits(edits);
@@ -4575,15 +4971,19 @@ async function commitInlineAdminEdits() {
   updateInlineAdminToolbarState('Saving live...');
   const saved = await saveInlineAdminEditsLive();
   if (saved) {
-    inlineAdminDirty = false;
-    updateInlineAdminToolbarState('Saved live automatically');
+    inlineAdminDirty = Boolean(inlineAdminDirtyKeys[inlineAdminPageKey()]?.size);
+    updateInlineAdminToolbarState(inlineAdminDirty ? 'Unsaved changes remain' : 'Saved');
   }
   return saved;
 }
 
 function clearCurrentPageBrowserAdminEdits() {
   const edits = getInlineAdminDraft();
-  delete edits[inlineAdminPageKey()];
+  const page = inlineAdminPageKey();
+  delete edits[page];
+  inlineAdminDirtyKeys[page] = new Set();
+  inlineAdminDirtyVersions[page] = new Map();
+  delete inlineAdminConflictDrafts[page];
   writeInlineAdminEdits(edits);
   inlineAdminDirty = false;
   inlineAdminHasUnsavedLocalChanges = false;
@@ -5069,17 +5469,21 @@ function getCardProductAdminSlug(card) {
   return getBuilderAdminSlug(builder);
 }
 
+function inlineAdminCardVisibilityKey(card) {
+  return `card-visibility-${inlineAdminStableSlug(getCardAdminKey(card))}`;
+}
+
 function isCardHiddenByAdmin(card) {
-  const page = inlineAdminPageKey();
   const productSlug = getCardProductAdminSlug(card);
   const archivedProducts = productSlug ? getAdminArchivedProducts() : [];
+  const visibilityEdit = getInlineAdminPageEdits()[inlineAdminCardVisibilityKey(card)];
   return Boolean(
-    readInlineHiddenCards()?.[page]?.[getCardAdminKey(card)] ||
+    (!productSlug && visibilityEdit?.type === 'cardVisibility' && visibilityEdit.hidden === true) ||
     (productSlug && archivedProducts.includes(productSlug))
   );
 }
 
-function setInlineAdminCardHidden(card, hiddenValue) {
+async function setInlineAdminCardHidden(card, hiddenValue) {
   const key = getCardAdminKey(card);
   if (!key) return;
   const hidden = readInlineHiddenCards();
@@ -5090,27 +5494,31 @@ function setInlineAdminCardHidden(card, hiddenValue) {
   } else {
     delete hidden[page][key];
   }
-  writeInlineHiddenCards(hidden);
-
   const productSlug = getCardProductAdminSlug(card);
   if (productSlug) {
-    const archived = new Set(getAdminArchivedProducts());
-    if (hiddenValue) {
-      archived.add(productSlug);
-    } else {
-      archived.delete(productSlug);
-    }
-    const savedForLaterProducts = Array.from(archived);
-    localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify(savedForLaterProducts));
-    updateLiveAdminSettingsLocal({ savedForLaterProducts });
-    saveLiveAdminSettings({ savedForLaterProducts });
+    const archived = getAdminArchivedProducts();
+    if (!await saveStorefrontListMembershipPatch(
+      'savedForLaterProducts', productSlug, Boolean(hiddenValue), archived, 'mvpluxAdminArchivedProducts'
+    )) return false;
+  } else {
+    const edits = getInlineAdminDraft();
+    const visibilityKey = inlineAdminCardVisibilityKey(card);
+    markInlineAdminElementDirty(page, visibilityKey);
+    edits[page] = edits[page] || {};
+    edits[page][visibilityKey] = { type: 'cardVisibility', hidden: Boolean(hiddenValue) };
+    writeInlineAdminEdits(edits);
+    inlineAdminDirty = true;
+    inlineAdminHasUnsavedLocalChanges = true;
+    scheduleInlineAdminAutoSave();
   }
 
+  writeInlineHiddenCards(hidden);
   applyInlineHiddenCards();
   updateInlineAdminToolbarState(hiddenValue ? 'Card hidden from buyers' : 'Card visible again');
+  return true;
 }
 
-function deleteInlineAdminCard(card) {
+async function deleteInlineAdminCard(card) {
   if (!card) return;
   const customSlug = card.querySelector?.('.size-builder')?.dataset.adminSlug;
   const customProducts = getAdminCustomProducts();
@@ -5118,9 +5526,8 @@ function deleteInlineAdminCard(card) {
   if (customIndex >= 0) {
     if (!window.confirm('Delete this display-card record? Its physical image file will not be deleted.')) return;
     const nextProducts = customProducts.filter((product) => product.slug !== customSlug);
+    if (!await saveLiveAdminSettings({ customProducts: nextProducts })) return;
     localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(nextProducts));
-    updateLiveAdminSettingsLocal({ customProducts: nextProducts });
-    saveLiveAdminSettings({ customProducts: nextProducts });
     card.remove();
     updateInlineAdminToolbarState('Custom card deleted');
     return;
@@ -5129,9 +5536,8 @@ function deleteInlineAdminCard(card) {
   const slug = getCardProductAdminSlug(card) || card.dataset.productId || getCardAdminKey(card);
   if (!slug || !window.confirm('Delete this card record? Its physical image file will not be deleted.')) return;
   const deletedProducts = [...new Set([...getAdminDeletedProducts(), slug])];
+  if (!await saveLiveAdminSettings({ deletedProducts })) return;
   localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
-  updateLiveAdminSettingsLocal({ deletedProducts });
-  saveLiveAdminSettings({ deletedProducts });
   card.remove();
   updateInlineAdminToolbarState('Card record deleted; image file retained');
 }
@@ -5152,13 +5558,23 @@ function hideSelectedInlineAdminCard() {
   inlineAdminSelectedImage = null;
 }
 
-function restoreInlineHiddenCards() {
+async function restoreInlineHiddenCards() {
   const hidden = readInlineHiddenCards();
   delete hidden[inlineAdminPageKey()];
-  writeInlineHiddenCards(hidden);
+  if (!await saveLiveAdminSettings({ savedForLaterProducts: [] })) return;
   localStorage.setItem('mvpluxAdminArchivedProducts', JSON.stringify([]));
-  updateLiveAdminSettingsLocal({ savedForLaterProducts: [] });
-  saveLiveAdminSettings({ savedForLaterProducts: [] });
+  writeInlineHiddenCards(hidden);
+  const page = inlineAdminPageKey();
+  const edits = getInlineAdminDraft();
+  document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card').forEach((card) => {
+    if (getCardProductAdminSlug(card)) return;
+    const visibilityKey = inlineAdminCardVisibilityKey(card);
+    markInlineAdminElementDirty(page, visibilityKey);
+    edits[page] = edits[page] || {};
+    edits[page][visibilityKey] = { type: 'cardVisibility', hidden: false };
+  });
+  writeInlineAdminEdits(edits);
+  scheduleInlineAdminAutoSave();
   document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card').forEach((card) => {
     card.hidden = false;
     card.style.display = '';
@@ -5467,6 +5883,7 @@ function saveHomepageCategoryCardOrder() {
 
   const edits = getInlineAdminDraft();
   const page = inlineAdminPageKey();
+  markInlineAdminElementDirty(page, HOMEPAGE_CATEGORY_ORDER_EDIT_KEY);
   edits[page] = edits[page] || {};
   edits[page][HOMEPAGE_CATEGORY_ORDER_EDIT_KEY] = {
     type: 'homepageCategoryOrder',
@@ -5505,20 +5922,17 @@ function moveHomepageCategoryCard(card, direction) {
   return true;
 }
 
-function saveManagedProductPatch(slug, patch) {
-  const products = { ...getAdminProducts() };
-  products[slug] = { ...(products[slug] || {}), ...(patch || {}) };
-  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
-  updateLiveAdminSettingsLocal({ products });
-  saveLiveAdminSettings({ products });
+async function saveManagedProductPatch(slug, patch) {
+  const baseRecord = getManagedProductBySlug(slug) || {};
+  return saveStorefrontProductPatch(slug, patch, baseRecord);
 }
 
-function removeManagedProductFromCurrentSection(card) {
+async function removeManagedProductFromCurrentSection(card) {
   const slug = card?.dataset.productId;
   const category = getCurrentProductCategory();
   const product = getManagedProductBySlug(slug);
   if (!slug || !category || !product) return;
-  saveManagedProductPatch(slug, { categories: product.categories.filter((key) => key !== category) });
+  if (!await saveManagedProductPatch(slug, { categories: product.categories.filter((key) => key !== category) })) return;
   card.remove();
   updateInlineAdminToolbarState('Removed from this section; product retained');
 }
@@ -5535,20 +5949,16 @@ async function moveManagedProductInCurrentSection(card, offset) {
   const current = products[index];
   const currentOrder = Number(current.categoryOrder?.[category]) || index;
   const targetOrder = Number(target.categoryOrder?.[category]) || index + offset;
-  const savedProducts = { ...getAdminProducts() };
-  savedProducts[current.slug] = {
-    ...(savedProducts[current.slug] || {}),
-    categoryOrder: { ...(current.categoryOrder || {}), [category]: targetOrder }
-  };
-  savedProducts[target.slug] = {
-    ...(savedProducts[target.slug] || {}),
-    categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder }
-  };
-  if (!await saveLiveAdminSettings({ products: savedProducts })) {
+  if (!await saveStorefrontProductPatches({
+    [current.slug]: { categoryOrder: { ...(current.categoryOrder || {}), [category]: targetOrder } },
+    [target.slug]: { categoryOrder: { ...(target.categoryOrder || {}), [category]: currentOrder } }
+  }, {
+    [current.slug]: current,
+    [target.slug]: target
+  })) {
     updateInlineAdminToolbarState('Section order was not saved');
     return;
   }
-  localStorage.setItem('mvpluxAdminProducts', JSON.stringify(savedProducts));
   const grid = card.parentElement;
   const renderedCards = new Map(
     [...(grid?.querySelectorAll?.(':scope > .category-card[data-product-id]') || [])]
@@ -5563,23 +5973,21 @@ async function moveManagedProductInCurrentSection(card, offset) {
   updateInlineAdminToolbarState('Section order saved');
 }
 
-function deleteManagedProduct(card) {
+async function deleteManagedProduct(card) {
   const slug = card?.dataset.productId;
   if (!slug || !window.confirm('Delete this product record? Its image file will not be deleted.')) return;
   const customProducts = getAdminCustomProducts();
   if (customProducts.some((product) => product.slug === slug)) {
     const nextProducts = customProducts.filter((product) => product.slug !== slug);
+    if (!await saveLiveAdminSettings({ customProducts: nextProducts })) return;
     localStorage.setItem('mvpluxAdminCustomProducts', JSON.stringify(nextProducts));
-    updateLiveAdminSettingsLocal({ customProducts: nextProducts });
-    saveLiveAdminSettings({ customProducts: nextProducts });
     card.remove();
     updateInlineAdminToolbarState('Product deleted; image file retained');
     return;
   }
   const deletedProducts = [...new Set([...getAdminDeletedProducts(), slug])];
+  if (!await saveLiveAdminSettings({ deletedProducts })) return;
   localStorage.setItem('mvpluxDeletedProducts', JSON.stringify(deletedProducts));
-  updateLiveAdminSettingsLocal({ deletedProducts });
-  saveLiveAdminSettings({ deletedProducts });
   card.remove();
   updateInlineAdminToolbarState('Product deleted; image file retained');
 }

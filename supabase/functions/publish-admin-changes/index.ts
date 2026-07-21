@@ -198,6 +198,17 @@ function validatePublishedSnapshot(value: unknown) {
       }
     }
   }
+  const extraImages = snapshot.extraImages;
+  if (extraImages !== undefined) {
+    if (!extraImages || typeof extraImages !== 'object' || Array.isArray(extraImages)) {
+      throw new PublishError('validation', 400, 'INVALID_EXTRA_IMAGES', 'extraImages must be an object.');
+    }
+    for (const [key, path] of Object.entries(extraImages as Record<string, unknown>)) {
+      if (!key || !isRepositoryImagePath(path)) {
+        throw new PublishError('validation', 400, 'INVALID_EXTRA_IMAGE', `Invalid website image assignment: ${key || 'unknown'}.`);
+      }
+    }
+  }
   const pageVisualStates = snapshot.pageVisualStates;
   if (pageVisualStates !== undefined) {
     if (!pageVisualStates || typeof pageVisualStates !== 'object' || Array.isArray(pageVisualStates)) {
@@ -255,6 +266,9 @@ function snapshotImagePaths(snapshot: unknown) {
         if (isRepositoryImagePath(choice?.stage)) paths.add(choice.stage);
       }
     }
+  }
+  for (const path of Object.values((value?.extraImages || {}) as Record<string, unknown>)) {
+    if (isRepositoryImagePath(path)) paths.add(path as string);
   }
   return paths;
 }
