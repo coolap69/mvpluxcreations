@@ -143,6 +143,7 @@ const openedProductEditors = new Set();
 const openedCategoryEditors = new Set();
 const openedCategoryProductLists = new Set();
 const openedImageInboxItems = new Set();
+const categoryPublishOperations = new Map();
 const adminWorkingCollectionsLoaded = new Set();
 const ADMIN_DASHBOARD_COLLECTIONS = [
   'adminArchitectureV2', 'adminArchitectureMigrationV2', 'customProducts', 'deletedProducts',
@@ -503,12 +504,22 @@ function normalizedCategoryCardProducts() {
   });
 }
 
-async function fetchAuthoritativeAdminGlobal() {
+async function fetchAuthoritativeAdminGlobal(keys = null) {
   const client = getAdminClient();
   if (!client?.from || !client?.auth) throw new Error('Supabase is not ready.');
   const { data: sessionData, error: sessionError } = await client.auth.getSession();
   if (sessionError) throw sessionError;
   if (!sessionData?.session?.user) throw new Error('Sign in as admin to save live.');
+  const requestedKeys = Array.isArray(keys) ? [...new Set(keys.filter(Boolean))] : [];
+  if (requestedKeys.length) {
+    try {
+      const result = await callAdminPublisher({ action: 'working-state', keys: requestedKeys });
+      const row = Array.isArray(result.rows) ? result.rows.find((item) => item.page_key === 'admin-global') : null;
+      return { edits: row?.edits || {}, revision: Number(row?.revision) || 0 };
+    } catch (_workingStateError) {
+      // Preserve the existing direct read as a safe fallback if the deployed helper is temporarily unavailable.
+    }
+  }
   const { data, error } = await client
     .from('site_edits')
     .select('edits, revision')
@@ -777,7 +788,8 @@ async function saveAdminCollectionOperations(operations) {
 
   const save = async () => {
     try {
-      const latest = await fetchAuthoritativeAdminGlobal();
+      const collectionKeys = [...new Set(requested.map((operation) => operation.collectionKey))];
+      const latest = await fetchAuthoritativeAdminGlobal(collectionKeys);
       const utils = await adminStateUtilsPromise;
       const collections = {};
       const conflicts = [];
@@ -831,16 +843,11 @@ async function saveAdminCollectionOperations(operations) {
         return { ok: false, conflict: true, conflicts };
       }
 
-      const { data, error } = await getAdminClient().rpc('save_site_edits', {
-        p_page_key: 'admin-global',
-        p_edits: collections,
-        p_expected_revision: latest.revision,
-        p_replace: false
+      const data = await callAdminPublisher({
+        action: 'save-working-state',
+        edits: collections,
+        expectedRevision: latest.revision
       });
-      if (error) throw error;
-
-      const { adminPublishingMigrationBackupV1: savedRecoveryBackup } = data?.edits || {};
-      adminRecoveryBackupAvailable = adminRecoveryBackupAvailable || Boolean(savedRecoveryBackup);
       adminLiveSettings = { ...(adminLiveSettings || {}), ...collections };
       adminLiveRevision = Number(data?.revision) || latest.revision + 1;
       Object.keys(collections).forEach((key) => {
@@ -1899,6 +1906,7 @@ async function callAdminPublisher(payload) {
     const detail = result.error || result.message || result.code || 'Unknown publisher error.';
     const error = new Error(`Publish failed${stage} (HTTP ${response.status}): ${detail}`);
     error.httpStatus = response.status;
+    error.code = result.code || '';
     error.responseBody = result;
     throw error;
   }
@@ -2003,15 +2011,44 @@ async function publishAdminChanges() {
   }
 }
 
-async function publishScopedChangeIds(changeIds, label, statusTarget = null) {
+function refreshVisibleAdminAreaAfterPublish() {
+  const area = document.querySelector('[data-admin-area]:not([hidden])')?.dataset.adminArea || '';
+  if (area === 'dashboard') renderAdminDashboard();
+  else if (area === 'products') renderAdminProducts();
+  else if (area === 'image-inbox') {
+    renderImageDrafts();
+    renderImageImportPending();
+  } else if (area === 'categories') renderCategoryManager();
+  else if (area === 'advanced') {
+    renderPublishHistory();
+    renderAdminDiagnostics();
+  }
+}
+
+function publishTimingSummary(timing = {}) {
+  const parts = [
+    ['prepare', timing.preparationMs],
+    ['images', timing.imagePreparationMs],
+    ['publish request', timing.requestMs],
+    ['sync', timing.syncMs],
+    ['GitHub', timing.edge?.githubPublicationMs],
+    ['deployment check', timing.edge?.deploymentLookupMs]
+  ].filter(([, value]) => Number.isFinite(value));
+  return parts.map(([label, value]) => `${label} ${Math.round(value)}ms`).join(' · ');
+}
+
+async function publishScopedChangeIds(changeIds, label, statusTarget = null, { onProgress = null } = {}) {
+  const now = () => globalThis.performance?.now?.() ?? Date.now();
+  const timing = { startedAt: now() };
   const setLocalStatus = (message, state = '') => {
     if (statusTarget) {
       statusTarget.textContent = message;
       statusTarget.dataset.state = state;
     }
     setStatus(message);
+    onProgress?.(message, state, { ...timing });
   };
-  setLocalStatus('Checking the latest private save…', 'publishing');
+  setLocalStatus('Validating the latest private save…', 'publishing');
   if (!await waitForAdminSaves()) return false;
   const persisted = await loadAdminLiveSettings();
   if (!persisted) {
@@ -2034,6 +2071,7 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null) {
   const changes = generatePublishChanges(adminPublishedBaseline || buildDefaultPublishBaseline(), snapshot);
   const selectedImages = automaticPublishImagePaths(selected, snapshot);
   const invalidImages = selectedImages.filter((path) => !validatePublishImagePath(path));
+  timing.preparationMs = now() - timing.startedAt;
   if (!changes.length || invalidImages.length) {
     setLocalStatus(invalidImages.length ? `Publish stopped: invalid image path ${invalidImages[0]}.` : 'Published — there are no meaningful changes to publish.', invalidImages.length ? 'failed' : 'published');
     return invalidImages.length === 0;
@@ -2044,8 +2082,12 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null) {
     return false;
   }
   try {
-    setLocalStatus('Publishing…', 'publishing');
+    setLocalStatus('Preparing approved images…', 'publishing');
+    const imageStart = now();
     const imageFiles = await loadSelectedPublishImages(selectedImages);
+    timing.imagePreparationMs = now() - imageStart;
+    setLocalStatus('Sending the scoped update to GitHub…', 'publishing');
+    const requestStart = now();
     const result = await callAdminPublisher({
       action: 'publish',
       title: `Publish ${String(label || 'Admin change').slice(0, 64)}`,
@@ -2054,7 +2096,12 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null) {
       snapshot,
       imageFiles
     });
+    timing.requestMs = now() - requestStart;
+    timing.edge = result.timing || null;
+    setLocalStatus('GitHub committed the update. Synchronizing Admin state…', 'publishing');
+    const syncStart = now();
     const tracked = await saveAdminSettingsLive({ lastPublishedSnapshot: snapshot, publishHistory: result.publishHistory || [] });
+    timing.syncMs = now() - syncStart;
     if (!tracked) throw new Error(`GitHub commit ${result.commitHash || ''} succeeded, but its published state could not be synchronized.`);
     adminPublishedBaseline = normalizePublishedBaseline(snapshot);
     adminLastSuccessfulSnapshot = snapshot;
@@ -2062,11 +2109,10 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null) {
     currentPublishReview = null;
     selectedPublishChangeIds.clear();
     selectedPublishMode = false;
-    renderPublishHistory();
-    renderAdminProducts();
-    renderAdminDashboard();
-    renderImageImportPending();
-    setLocalStatus(`Published. GitHub commit ${result.commitHash?.slice(0, 7) || ''}; deployment ${result.deploymentResult || 'queued'}.`, 'published');
+    timing.totalMs = now() - timing.startedAt;
+    const timingText = publishTimingSummary(timing);
+    setLocalStatus(`Published successfully. GitHub commit ${result.commitHash?.slice(0, 7) || ''}; deployment ${result.deploymentResult || 'queued'}.${timingText ? ` ${timingText}.` : ''}`, 'published');
+    refreshVisibleAdminAreaAfterPublish();
     return true;
   } catch (error) {
     adminLatestPublishError = error?.message || 'Publish failed.';
@@ -4604,72 +4650,91 @@ function populateNewCategoryVisualPickers(form) {
   });
 }
 
+function categoryPublishButtonMarkup(categoryKey, { editor = false } = {}) {
+  const operation = categoryPublishOperations.get(categoryKey);
+  const publishing = operation?.state === 'publishing';
+  const label = publishing ? 'Publishing…' : 'Publish to Website';
+  return `<button class="admin-button admin-button-primary" type="button" ${editor ? 'data-publish-category-edit' : `data-publish-category="${escapeAdminHtml(categoryKey)}"`} data-publish-category-key="${escapeAdminHtml(categoryKey)}" ${publishing ? 'disabled aria-busy="true"' : ''}>${label}</button>`;
+}
+
+function categoryDisplayRangeMarkup(name, label, value, minimum, maximum, suffix = '') {
+  return `<label>${label} <output data-category-display-output="${name}">${value}${suffix}</output>
+    <input name="${name}" type="range" min="${minimum}" max="${maximum}" step="1" value="${value}" data-category-display-range="${name}">
+    <span class="admin-category-range-value"><input type="number" min="${minimum}" max="${maximum}" step="1" value="${value}" data-category-display-number="${name}" aria-label="${label} numeric value">${suffix}</span>
+    <span>${minimum}${suffix} minimum · ${maximum}${suffix} maximum</span>
+  </label>`;
+}
+
 function categoryEditMarkup(category) {
   const display = effectiveCategoryDisplaySettings(category);
   const parent = category.parentKey ? readAdminCategories()[category.parentKey] : null;
   return `
     <form class="admin-category-edit-form" data-category-edit="${escapeAdminHtml(category.key)}">
-      <fieldset class="admin-category-editor-section admin-category-information"><legend>Category Information</legend>
-        <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
-        <div class="admin-input-group">
-        <label>Title<input name="title" required value="${escapeAdminHtml(category.title || '')}"></label>
-        <label>Description<textarea name="description" rows="3">${escapeAdminHtml(category.description || '')}</textarea></label>
-        <label>Fun Fact<textarea name="funFact" rows="2">${escapeAdminHtml(category.funFact || '')}</textarea></label>
+      <header class="admin-category-editor-header">
+        <div><span class="admin-note">Editing Category</span><h3>${escapeAdminHtml(category.title || category.key)}</h3></div>
+        <div class="admin-panel-actions"><button type="submit">Save Draft</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
+      </header>
+      <div class="admin-category-editor-workspace">
+        <aside class="admin-category-preview-column" aria-label="Live Category preview">
+          <strong>Live Category Preview</strong>
+          <div class="admin-builder-preview-panel" data-category-edit-preview></div>
+          <p class="admin-note">Image, background, size, and position changes update here immediately. Nothing is saved until you choose Save Draft or Publish.</p>
+        </aside>
+        <div class="admin-category-controls-column">
+          <fieldset class="admin-category-editor-section admin-category-information"><legend>Category Information</legend>
+            <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
+            <div class="admin-input-group">
+              <label>Title<input name="title" required value="${escapeAdminHtml(category.title || '')}"></label>
+              <label>Description<textarea name="description" rows="3">${escapeAdminHtml(category.description || '')}</textarea></label>
+              <label>Fun Fact<textarea name="funFact" rows="2">${escapeAdminHtml(category.funFact || '')}</textarea></label>
+            </div>
+            <div class="admin-ai-actions" aria-label="Optional AI assistance">
+              <button type="button" data-ai-suggest="title">Generate Title</button>
+              <button type="button" data-ai-suggest="description">Generate Description</button>
+              <button type="button" data-ai-suggest="funFact">Generate Fun Fact</button>
+              <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
+            </div>
+            <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
+            <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
+          </fieldset>
+          <fieldset class="admin-category-editor-section admin-category-image-section"><legend>Category Image</legend>
+            ${categoryVisualImagePicker(category)}
+            <p class="admin-note">${categoryAssignedProducts(category.key).length} associated product images are prioritized before repository-wide search.</p>
+            <div class="admin-category-position-controls">
+              ${categoryDisplayRangeMarkup('standeeSizePercent', 'Category Image Size', display.standeeSizePercent, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, '%')}
+              ${categoryDisplayRangeMarkup('standeeLeftPercent', 'Horizontal Position', display.standeeLeftPercent, -50, 50)}
+              ${categoryDisplayRangeMarkup('standeeVerticalPercent', 'Vertical Position', display.standeeVerticalPercent, -50, 50)}
+              <div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>
+            </div>
+          </fieldset>
+          <fieldset class="admin-category-editor-section admin-category-background-section"><legend>Category Background</legend>
+            ${categoryVisualImagePicker(category, 'background')}
+            <label>Background position<select name="backgroundPosition">
+              ${['center center', 'left center', 'right center', 'center top', 'center bottom'].map((value) => `<option value="${value}" ${value === (display.backgroundPosition || 'center center') ? 'selected' : ''}>${value}</option>`).join('')}
+            </select></label>
+            <button type="button" data-reset-category-background>Reset Background Position</button>
+            <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
+          </fieldset>
+          <fieldset class="admin-category-editor-section admin-category-settings"><legend>Category Settings</legend>
+            <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Category'}. Child Groups use the same Category records with <code>parentKey</code> and do not automatically appear on the homepage.</p>
+            <div class="admin-category-settings-grid">
+              <label>Destination page<input name="page" value="${escapeAdminHtml(category.page || '')}"></label>
+              <label>Order<input name="order" type="number" min="0" value="${escapeAdminHtml(String(category.order ?? 0))}"></label>
+              <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> Category visible to customers</label>
+              <label><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false ? 'checked' : ''}> Show on Homepage</label>
+            </div>
+          </fieldset>
+          <details class="admin-advanced-fields"><summary>Advanced Display Settings</summary>
+            <p class="admin-note">Only display settings already supported by the published Category architecture are stored. Physical images are never modified.</p>
+          </details>
         </div>
-        <div class="admin-ai-actions" aria-label="Optional AI assistance">
-          <button type="button" data-ai-suggest="title">Generate Title</button>
-          <button type="button" data-ai-suggest="description">Generate Description</button>
-          <button type="button" data-ai-suggest="funFact">Generate Fun Fact</button>
-          <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
-        </div>
-        <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
-        <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
-      </fieldset>
-      <fieldset class="admin-category-editor-section admin-category-image-section"><legend>Category Image</legend>
-        ${categoryVisualImagePicker(category)}
-        <p class="admin-note">${categoryAssignedProducts(category.key).length} associated product images are prioritized before repository-wide search.</p>
-      </fieldset>
-      <fieldset class="admin-category-editor-section admin-category-appearance"><legend>Category Appearance</legend>
-        <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'An existing custom background is retained. Open Advanced Display Settings to review it.' : 'Using the shared showroom background automatically.'}</p>
-        <div class="admin-category-position-controls">
-          <label>Category Image Size <output data-category-display-output="standeeSizePercent">${display.standeeSizePercent}%</output>
-            <input name="standeeSizePercent" type="range" min="${CATEGORY_IMAGE_SIZE_MIN}" max="${CATEGORY_IMAGE_SIZE_MAX}" step="1" value="${display.standeeSizePercent}">
-            <span>${CATEGORY_IMAGE_SIZE_MIN}% minimum · ${CATEGORY_IMAGE_SIZE_MAX}% maximum</span>
-          </label>
-          <label>Horizontal position <output data-category-display-output="standeeLeftPercent">${display.standeeLeftPercent}</output>
-            <input name="standeeLeftPercent" type="range" min="-50" max="50" step="1" value="${display.standeeLeftPercent}">
-            <span>−50 Left · 0 Center · +50 Right</span>
-          </label>
-          <label>Vertical position <output data-category-display-output="standeeVerticalPercent">${display.standeeVerticalPercent}</output>
-            <input name="standeeVerticalPercent" type="range" min="-50" max="50" step="1" value="${display.standeeVerticalPercent}">
-            <span>−50 Up · 0 Center · +50 Down</span>
-          </label>
-          <div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>
-        </div>
-        <div class="admin-builder-preview-panel" data-category-edit-preview hidden></div>
-      </fieldset>
-      <fieldset class="admin-category-editor-section admin-category-settings"><legend>Category Settings</legend>
-        <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child of ${escapeAdminHtml(parent.title || parent.key)}` : 'Master / top-level Category'}. Future child groups will use <code>parentKey</code>; no child records are being created here.</p>
-        <div class="admin-category-settings-grid">
-          <label>Destination page<input name="page" value="${escapeAdminHtml(category.page || '')}"></label>
-          <label>Order<input name="order" type="number" min="0" value="${escapeAdminHtml(String(category.order ?? 0))}"></label>
-          <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> Visible</label>
-          <label><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false ? 'checked' : ''}> Show on Homepage</label>
-        </div>
-      </fieldset>
-      <details class="admin-advanced-fields"><summary>Advanced Display Settings</summary>
-        ${categoryVisualImagePicker(category, 'background')}
-        <label>Background position<select name="backgroundPosition">
-          ${['center center', 'left center', 'right center', 'center top', 'center bottom'].map((value) => `<option value="${value}" ${value === (display.backgroundPosition || 'center center') ? 'selected' : ''}>${value}</option>`).join('')}
-        </select></label>
-        <p class="admin-note">The standard Category background is inherited automatically. Choose a custom background above only when intentionally needed.</p>
-      </details>
-      <div class="admin-panel-actions">
-        <button type="button" data-preview-category-edit>Preview</button>
-        <button type="submit">Save Draft</button>
-        <button class="admin-button admin-button-primary" type="button" data-publish-category-edit>Publish to Website</button>
       </div>
-      <p class="admin-status" aria-live="polite"></p>
+      <div class="admin-panel-actions admin-category-editor-footer">
+        <button type="button" data-preview-category-edit>Refresh Preview</button>
+        <button type="submit">Save Draft</button>
+        ${categoryPublishButtonMarkup(category.key, { editor: true })}
+      </div>
+      <p class="admin-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '')}</p>
     </form>`;
 }
 
@@ -4682,12 +4747,14 @@ function renderCategoryManager() {
   const container = document.getElementById('adminProducts');
   if (!container) return;
   const query = document.getElementById('adminCategorySearch')?.value.trim().toLowerCase() || '';
+  const visibilityFilter = document.getElementById('categories')?.dataset.categoryVisibilityFilter || 'all';
   const allCategories = Object.values(newAdminArchitectureEnabled() ? readAdminCategories() : adminArchitectureState?.candidate?.categories || {})
     .filter((category) => category?.key && !readDeletedCategories().includes(category.key))
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0) || String(left.title).localeCompare(String(right.title)));
   const categoriesByKey = Object.fromEntries(allCategories.map((category) => [category.key, category]));
   const categories = allCategories
     .filter((category) => !category.parentKey)
+    .filter((category) => visibilityFilter === 'all' || (visibilityFilter === 'hidden' ? category.visible === false : category.visible !== false))
     .filter((category) => !query || `${category.title} ${category.key} ${category.page} ${categoryChildGroups(category.key, categoriesByKey).map((child) => `${child.title} ${child.key}`).join(' ')}`.toLowerCase().includes(query));
   const suspicious = new Set(suspiciousCategoryKeys(Object.fromEntries(categories.map((category) => [category.key, category]))));
   container.innerHTML = categories.map((category) => {
@@ -4700,15 +4767,17 @@ function renderCategoryManager() {
         <div class="admin-category-card-summary">
           <label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select</label>
           <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
-          <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom category — review assignments before changing it.</p>' : ''}</div>
+          <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Category: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span></div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom category — review assignments before changing it.</p>' : ''}</div>
           <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div>${childCount ? `<div><dt>Child Groups</dt><dd>${childCount}</dd></div>` : ''}<div><dt>Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
             <button type="button" data-edit-category>Edit</button>
+            ${categoryPublishButtonMarkup(category.key)}
             <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}">${category.visible === false ? 'Show Category' : 'Hide Category'}</button>
             <button type="button" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}">${category.homepageVisible === false ? 'Show on Homepage' : 'Hide from Homepage'}</button>
-            <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Category</button>
             <button type="button" data-open-category-products>Open Products</button>
+            <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Category</button>
           </div>
+          <p class="admin-status admin-category-card-publish-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '')}</p>
         </div>
         ${childGroupMarkup(category, categoriesByKey)}
         <details data-category-products-panel ${openedCategoryProductLists.has(category.key) ? 'open' : ''}><summary>Products (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''}</div></details>
@@ -4768,7 +4837,7 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
   };
 }
 
-async function saveCategoryEditForm(form, approvalStatus = 'draft') {
+async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = true } = {}) {
   const category = categoryFromEditForm(form, approvalStatus);
   const current = readAdminCategories()[category.key] || {};
   const imageValidations = [
@@ -4791,9 +4860,56 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft') {
   }
   const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: category.key, baseRecord: readAdminCategories()[category.key], patch: category }]);
   if (!result.ok) return false;
-  renderCategoryManager();
+  if (render) renderCategoryManager();
   setStatus(approvalStatus === 'approved' ? 'Category saved and ready for scoped publishing.' : 'Category draft saved privately.');
   return true;
+}
+
+function setCategoryPublishState(categoryKey, message, state = '') {
+  categoryPublishOperations.set(categoryKey, { message, state, updatedAt: Date.now() });
+  document.querySelectorAll(`[data-publish-category-key="${CSS.escape(categoryKey)}"]`).forEach((button) => {
+    const publishing = state === 'publishing';
+    button.disabled = publishing;
+    button.toggleAttribute('aria-busy', publishing);
+    button.textContent = publishing ? 'Publishing…' : 'Publish to Website';
+  });
+  document.querySelectorAll(`[data-category-publish-status="${CSS.escape(categoryKey)}"]`).forEach((status) => {
+    status.textContent = message;
+    status.dataset.state = state;
+  });
+}
+
+async function publishCategoryByKey(categoryKey, form = null) {
+  if (!categoryKey || categoryPublishOperations.get(categoryKey)?.state === 'publishing') return false;
+  const initialCategory = readAdminCategories()[categoryKey];
+  if (!initialCategory) {
+    setStatus('Activate the normalized private Admin architecture in Advanced before publishing Categories.');
+    return false;
+  }
+  setCategoryPublishState(categoryKey, 'Saving Category…', 'publishing');
+  try {
+    let saved = false;
+    if (form) saved = await saveCategoryEditForm(form, 'approved', { render: false });
+    else {
+      if (!initialCategory.card?.image) {
+        setCategoryPublishState(categoryKey, 'Publish stopped: choose a Category image first.', 'failed');
+        return false;
+      }
+      const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: categoryKey, baseRecord: initialCategory, patch: { approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString() } }]);
+      saved = result.ok;
+    }
+    if (!saved) {
+      setCategoryPublishState(categoryKey, adminLastSaveError || 'Publish stopped: Category could not be saved.', 'failed');
+      return false;
+    }
+    const category = readAdminCategories()[categoryKey] || initialCategory;
+    return publishScopedChangeIds([`category:${categoryKey}`], category.title || categoryKey, null, {
+      onProgress: (message, state) => setCategoryPublishState(categoryKey, message, state)
+    });
+  } catch (error) {
+    setCategoryPublishState(categoryKey, `Publish Failed — ${error?.message || error}`, 'failed');
+    return false;
+  }
 }
 
 async function saveCategoryProductAssignments(form, removeCurrent = false) {
@@ -4947,10 +5063,25 @@ function updateCategoryPickerValue(picker, path) {
   }
 }
 
+function syncCategoryDisplayControl(form, target) {
+  const name = target?.dataset.categoryDisplayNumber || target?.dataset.categoryDisplayRange;
+  if (!name) return;
+  const range = form.querySelector(`[data-category-display-range="${CSS.escape(name)}"]`);
+  const number = form.querySelector(`[data-category-display-number="${CSS.escape(name)}"]`);
+  if (!range || !number) return;
+  const minimum = Number(range.min);
+  const maximum = Number(range.max);
+  const value = Math.max(minimum, Math.min(maximum, Number(target.value) || 0));
+  range.value = String(value);
+  number.value = String(value);
+}
+
 function syncCategoryDisplayOutputs(form) {
   ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent'].forEach((name) => {
     const input = form.elements.namedItem(name);
+    const number = form.querySelector(`[data-category-display-number="${CSS.escape(name)}"]`);
     const output = form.querySelector(`[data-category-display-output="${name}"]`);
+    if (input && number) number.value = input.value;
     if (input && output) output.textContent = `${input.value}${name === 'standeeSizePercent' ? '%' : ''}`;
   });
 }
@@ -4960,6 +5091,17 @@ function setupCategoryManagerEvents() {
   if (!section || section.dataset.categoryManagerBound) return;
   section.dataset.categoryManagerBound = 'true';
   document.getElementById('adminCategorySearch')?.addEventListener('input', renderCategoryManager);
+  section.querySelector('.admin-category-visibility-filters')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-category-visibility-filter]');
+    if (!button) return;
+    section.dataset.categoryVisibilityFilter = button.dataset.categoryVisibilityFilter;
+    section.querySelectorAll('[data-category-visibility-filter]').forEach((item) => {
+      const active = item === button;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-pressed', String(active));
+    });
+    renderCategoryManager();
+  });
   document.querySelector('[data-new-category]')?.addEventListener('click', () => {
     const builder = document.getElementById('adminCategoryBuilder');
     if (builder) builder.open = true;
@@ -4979,6 +5121,7 @@ function setupCategoryManagerEvents() {
     }
     const form = event.target.closest('[data-category-edit]');
     if (!form) return;
+    syncCategoryDisplayControl(form, event.target);
     syncCategoryDisplayOutputs(form);
     previewCategoryEdit(form);
   });
@@ -5073,6 +5216,12 @@ function setupCategoryManagerEvents() {
     if (imageChoice) updateCategoryPickerValue(imageChoice.closest('[data-category-image-picker]'), imageChoice.dataset.categoryImageChoice);
     const sharedBackground = event.target.closest('[data-use-shared-category-background]');
     if (sharedBackground) updateCategoryPickerValue(sharedBackground.closest('[data-category-image-picker]'), '');
+    const resetBackground = event.target.closest('[data-reset-category-background]');
+    if (resetBackground) {
+      const form = resetBackground.closest('[data-category-edit]');
+      form.elements.namedItem('backgroundPosition').value = 'center center';
+      previewCategoryEdit(form);
+    }
     const centerImage = event.target.closest('[data-center-category-image]');
     if (centerImage) {
       const form = centerImage.closest('[data-category-edit]');
@@ -5091,20 +5240,10 @@ function setupCategoryManagerEvents() {
       syncCategoryDisplayOutputs(form);
       previewCategoryEdit(form);
     }
-    const savePublish = event.target.closest('[data-publish-category-edit]');
-    if (savePublish) {
-      const form = savePublish.closest('[data-category-edit]');
-      const key = form.dataset.categoryEdit;
-      if (await saveCategoryEditForm(form, 'approved')) await publishScopedChangeIds([`category:${key}`], categoryFromEditForm(form, 'approved').title, form.querySelector('.admin-status'));
-    }
-    const publishButton = event.target.closest('[data-publish-category]');
+    const publishButton = event.target.closest('[data-publish-category-key]');
     if (publishButton) {
-      const key = publishButton.dataset.publishCategory;
-      const category = readAdminCategories()[key];
-      if (!category) { setStatus('Activate the normalized private Admin architecture in Advanced before publishing Categories.'); return; }
-      if (!category.card?.image) { setStatus('Choose a Category image before publishing.'); return; }
-      const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: category, patch: { approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString() } }]);
-      if (result.ok) await publishScopedChangeIds([`category:${key}`], category.title || key);
+      const form = publishButton.closest('[data-category-edit]');
+      await publishCategoryByKey(publishButton.dataset.publishCategoryKey, form);
     }
     const deleteButton = event.target.closest('[data-delete-category]');
     if (deleteButton) await deleteAdminCategories([deleteButton.dataset.deleteCategory]);

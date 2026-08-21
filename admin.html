@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260821-admin-lazy" />
+  <link rel="stylesheet" href="style.css?v=20260821-category-workspace" />
 </head>
 <body class="admin-shell">
   <header class="top-nav">
@@ -283,6 +283,11 @@
       </div>
       <div class="admin-category-toolbar">
         <label>Search Categories<input id="adminCategorySearch" type="search" placeholder="Search name, key, or page"></label>
+        <div class="admin-category-visibility-filters" role="group" aria-label="Filter Categories by customer visibility">
+          <button type="button" class="active" data-category-visibility-filter="all" aria-pressed="true">All Categories</button>
+          <button type="button" data-category-visibility-filter="visible" aria-pressed="false">Visible</button>
+          <button type="button" data-category-visibility-filter="hidden" aria-pressed="false">Hidden</button>
+        </div>
         <button id="deleteSelectedCategories" class="admin-button admin-button-warning" type="button" disabled>Delete Selected Categories</button>
       </div>
       <details id="adminCategoryBuilder" class="admin-category-create-panel">
@@ -468,6 +473,6 @@
   <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
   <script src="pricing.js?v=20260714-height-source"></script>
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
-  <script src="admin.js?v=20260821-admin-lazy"></script>
+  <script src="admin.js?v=20260821-category-workspace"></script>
 </body>
 </html>

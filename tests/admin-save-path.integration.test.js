@@ -123,6 +123,7 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
   const window = {
     MVPLUX_PRODUCT_CATALOG: [],
     MVPLUX_PRODUCT_CATEGORIES: [],
+    MVPLUX_SUPABASE: { url: 'https://example.supabase.co', publishableKey: 'test-key' },
     MVPLUX_PRICING: {
       normalizePriceSettings: (value) => ({ ...(value || {}) }),
       parseHeight: (value) => Number(value),
@@ -132,8 +133,22 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
     addEventListener() {},
     location: { hash: '' }
   };
+  const publisherFetch = async (_url, init = {}) => {
+    const payload = JSON.parse(init.body || '{}');
+    if (payload.action === 'working-state') {
+      const { data, error } = await client.from('site_edits').select('edits, revision').eq('page_key', 'admin-global').maybeSingle();
+      return { ok: !error, status: error ? 500 : 200, json: async () => error ? error : { rows: [{ page_key: 'admin-global', edits: data?.edits || {}, revision: data?.revision || 0 }] } };
+    }
+    if (payload.action === 'save-working-state') {
+      const { data, error } = await client.rpc('save_site_edits', {
+        p_page_key: 'admin-global', p_edits: payload.edits, p_expected_revision: payload.expectedRevision, p_replace: false
+      });
+      return { ok: !error, status: error ? 409 : 200, json: async () => error ? error : { edits: data?.edits || payload.edits, revision: data?.revision || payload.expectedRevision + 1 } };
+    }
+    return { ok: false, status: 400, json: async () => ({ error: 'Unsupported test publisher action.' }) };
+  };
   const factory = new Function(
-    'adminUtils', 'window', 'document', 'localStorage', 'BroadcastChannel',
+    'adminUtils', 'window', 'document', 'localStorage', 'BroadcastChannel', 'fetch',
     `${source}
       return {
         saveAdminProductFieldPatch,
@@ -161,12 +176,12 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
       };
     `
   );
-  return { helpers: factory(adminUtils, window, document, storage, undefined), window, storage };
+  return { helpers: factory(adminUtils, window, document, storage, undefined, publisherFetch), window, storage };
 }
 
 function adminGlobalClient(rows, rpcHandler) {
   return {
-    auth: { getSession: async () => ({ data: { session: { user: { id: 'admin' } } }, error: null }) },
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'admin' }, access_token: 'test-token' } }, error: null }) },
     from() {
       return {
         select() { return this; },
@@ -383,7 +398,7 @@ Deno.test('actual custom-product patch preserves newest unrelated fields and rec
     { imageChoices: [{ label: 'Alt', image: 'images/alt.png' }] },
     { slug: 'custom', title: 'Old title', imageChoices: [] }
   );
-  assert(result.ok && calls.length === 1, 'custom record patch should save once');
+  assert(result.ok && calls.length === 1, `custom record patch should save once: ${result.error?.message || 'no error'}; calls=${calls.length}`);
   assert(calls[0].p_edits.customProducts[0].title === 'Newest title', 'newest custom title must survive');
   assert(calls[0].p_edits.customProducts[1].title === 'Keep me', 'unrelated custom product must survive');
   assert(JSON.parse(storage.snapshot().mvpluxAdminCustomProducts)[0].imageChoices.length === 1, 'backup updates after success');
@@ -401,7 +416,8 @@ Deno.test('actual keyed and membership patches rebase unrelated extra-image, arc
     return { data: { edits: args.p_edits, revision: calls.length + 1 }, error: null };
   });
   const { helpers } = await loadActualAdminHelpers({ client });
-  assert((await helpers.saveAdminExtraImagePatch('target', 'images/new.png', 'images/old.png')).ok, 'extra image patch should save');
+  const extraResult = await helpers.saveAdminExtraImagePatch('target', 'images/new.png', 'images/old.png');
+  assert(extraResult.ok, `extra image patch should save: ${extraResult.error?.message || 'no error'}`);
   assert((await helpers.saveAdminArchiveMembership('target', true, [])).ok, 'archive membership should save');
   assert((await helpers.saveAdminImageDraftPatch('target', { description: 'Local' }, { title: 'Old' })).ok, 'draft patch should save');
   assert(calls[0].p_edits.extraImages.changedElsewhere === 'images/server.png', 'unrelated extra image must survive');

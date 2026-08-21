@@ -60,8 +60,17 @@ Deno.test('normal working-state response strips recovery backup without changing
   assert(publisherSource.includes("payload?.action === 'working-state'"), 'publisher must expose the authenticated working-state read');
   assert(publisherSource.includes('adminPublishingMigrationBackupV1: recoveryBackup, ...workingEdits'), 'working-state must omit the backup from its response');
   assert(publisherSource.includes("payload?.action === 'recovery-state'"), 'Advanced must have an explicit full recovery-state read');
-  const workingState = publisherSource.slice(publisherSource.indexOf('async function readAdminWorkingState'), publisherSource.indexOf('async function readAdminRecoveryState'));
+  const workingState = publisherSource.slice(publisherSource.indexOf('async function readAdminWorkingState'), publisherSource.indexOf('async function saveAdminWorkingState'));
   assert(!workingState.includes('save_site_edits') && !workingState.includes('method: \'POST\''), 'working-state must be read-only');
+});
+
+Deno.test('Category private saves use reduced working-state reads and responses', () => {
+  const collectionSave = sourceBetween('async function saveAdminCollectionOperations', 'function saveAdminCustomProductFieldPatch');
+  assert(collectionSave.includes('fetchAuthoritativeAdminGlobal(collectionKeys)'), 'private save conflict check must request only affected collections');
+  assert(collectionSave.includes("action: 'save-working-state'"), 'private save must use the existing Edge Function to avoid returning the recovery backup to the browser');
+  const edgeSave = publisherSource.slice(publisherSource.indexOf('async function saveAdminWorkingState'), publisherSource.indexOf('async function readAdminRecoveryState'));
+  assert(edgeSave.includes("p_page_key: 'admin-global'") && edgeSave.includes('p_expected_revision: expectedRevision'), 'reduced save must preserve the existing revision-protected RPC');
+  assert(!edgeSave.includes('adminPublishingMigrationBackupV1'), 'reduced save response must not process recovery data');
 });
 
 Deno.test('invalid embedded image values are labeled, never printed, and old Base64 upload is disabled', () => {

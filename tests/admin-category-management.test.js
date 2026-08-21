@@ -84,9 +84,9 @@ Deno.test('Custom Other, Custom Photo, and Party Packs remain separate for the A
 Deno.test('Admin Category manager exposes products, image selection, draft, preview, scoped publish, and deletion controls', async () => {
   const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
-  for (const token of ['Search Categories', 'Delete Selected Categories', 'adminCategoryBuilderMount']) assert(html.includes(token), `missing ${token}`);
+  for (const token of ['Search Categories', 'All Categories', 'Visible', 'Hidden', 'Delete Selected Categories', 'adminCategoryBuilderMount']) assert(html.includes(token), `missing ${token}`);
   for (const token of ['Open Products', 'Delete Category', 'data-category-product', 'data-remove-product-category', 'data-category-image-picker', 'Save Draft', 'data-preview-category-edit', 'data-publish-category-edit']) assert(source.includes(token), `missing ${token}`);
-  assert(source.includes('publishScopedChangeIds([`category:${key}`]'), 'Category publish must stay scoped');
+  assert(source.includes('publishScopedChangeIds([`category:${categoryKey}`]'), 'Category publish must stay scoped');
   assert(source.includes('collectionKey: \'deletedCategories\''), 'Category deletion must persist a tombstone');
 });
 
@@ -113,15 +113,40 @@ Deno.test('Category visual picker prioritizes assigned product images and search
   assert(!picker.includes('<select'), 'Category image selection must not fall back to a giant native dropdown');
 });
 
-Deno.test('Category editor keeps background controls Advanced and uses a full visual layout', async () => {
+Deno.test('Category editor uses a two-column live workspace with visible background controls', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
   const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
-  for (const section of ['Category Information', 'Category Image', 'Category Appearance', 'Category Settings', 'Advanced Display Settings']) {
+  for (const section of ['Live Category Preview', 'Category Information', 'Category Image', 'Category Background', 'Category Settings', 'Advanced Display Settings']) {
     assert(editor.includes(section), `Category editor is missing ${section}`);
   }
-  assert(editor.indexOf("categoryVisualImagePicker(category, 'background')") > editor.indexOf('Advanced Display Settings'), 'custom background selection must stay under Advanced');
-  assert(editor.includes('data-category-edit-preview hidden'), 'Category Appearance must contain the large live preview');
+  assert(editor.indexOf("categoryVisualImagePicker(category, 'background')") < editor.indexOf('Advanced Display Settings'), 'everyday custom background controls must be in the main visual workspace');
+  assert(editor.includes('admin-category-editor-workspace') && editor.includes('admin-category-preview-column') && editor.includes('admin-category-controls-column'), 'editor must expose the desktop preview/control workspace');
+  assert(editor.includes('data-category-edit-preview') && !editor.includes('data-category-edit-preview hidden'), 'live preview must be visible as soon as the lazy editor mounts');
+  assert(editor.includes("categoryDisplayRangeMarkup('standeeSizePercent'") && source.includes('data-category-display-number') && source.includes('data-category-display-range'), 'image placement must keep numeric and slider controls together');
+  assert(styles.includes('grid-template-columns: minmax(420px, .95fr) minmax(560px, 1.25fr)') && styles.includes('#categories .admin-category-preview-column'), 'desktop editor must use a wide preview/control grid');
+  assert(styles.includes('position: sticky') && styles.includes('admin-category-preview-column'), 'desktop live preview should remain visible while controls scroll');
   assert(!editor.includes('Standee size %'), 'legacy Standee Size wording must be absent from normal Category editing');
+});
+
+Deno.test('Category image and background controls update the existing preview immediately', async () => {
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const preview = source.slice(source.indexOf('function previewCategoryEdit'), source.indexOf('function renderCategoryImagePickerGallery'));
+  assert(preview.includes('effectiveCategoryBackground(category)') && preview.includes('display.backgroundPosition'), 'preview must use the saved Category background architecture');
+  for (const field of ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent']) assert(preview.includes(field), `preview must use ${field}`);
+  const events = source.slice(source.indexOf('function setupCategoryManagerEvents()'), source.indexOf('function renderAdminProducts()'));
+  assert(events.includes('syncCategoryDisplayControl(form, event.target)') && events.includes('previewCategoryEdit(form)'), 'slider and numeric inputs must synchronize and rerender immediately');
+  assert(events.includes('data-reset-category-background') && events.includes("backgroundPosition').value = 'center center'"), 'background positioning must reset through the existing field');
+});
+
+Deno.test('All, Visible, and Hidden filters keep hidden Categories recoverable in Admin', async () => {
+  const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  for (const value of ['all', 'visible', 'hidden']) assert(html.includes(`data-category-visibility-filter="${value}"`), `missing ${value} Category filter`);
+  const manager = source.slice(source.indexOf('function renderCategoryManager'), source.indexOf('function updateDeleteSelectedCategoriesButton'));
+  assert(manager.includes("visibilityFilter === 'hidden' ? category.visible === false : category.visible !== false"), 'Hidden filter must select visible:false records without removing them from Admin');
+  assert(manager.includes('Category: ${category.visible === false ? \'HIDDEN\' : \'VISIBLE\'}'), 'Category visibility needs its own badge');
+  assert(manager.includes('Homepage: ${category.homepageVisible === false ? \'HIDDEN\' : \'SHOWN\'}'), 'Homepage visibility needs a separate badge');
 });
 
 Deno.test('published Sports assignments remain the seven proven products', async () => {
@@ -237,7 +262,7 @@ Deno.test('hidden Child Groups are excluded from filters and direct group URLs b
   };
   assert(childCategories(hierarchy, 'sports', { includeHidden: false }).map((child) => child.key).join(',') === 'soccer', 'hidden Child Group must not appear in customer filters');
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
-  assert(source.includes('unavailable: Boolean(requestedKey && !activeChild)') && source.includes('This Child Group is not available.'), 'hidden or unknown direct group URLs must be unavailable');
+  assert(source.includes('unavailable: hiddenRequestedChild') && source.includes('invalidRequestedGroup ? \'\' : requestedKey') && source.includes('This Child Group is not available.'), 'hidden direct group URLs must be unavailable while unknown groups safely fall back to All');
 });
 
 Deno.test('Child Group product results deduplicate by slug', () => {

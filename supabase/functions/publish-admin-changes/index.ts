@@ -115,6 +115,39 @@ async function readAdminWorkingState(supabaseUrl: string, anonKey: string, autho
   };
 }
 
+async function saveAdminWorkingState(supabaseUrl: string, anonKey: string, authorization: string, payload: Record<string, unknown>) {
+  const edits = payload.edits && typeof payload.edits === 'object' && !Array.isArray(payload.edits)
+    ? payload.edits as Record<string, unknown>
+    : null;
+  if (!edits) throw new PublishError('validation', 400, 'INVALID_ADMIN_PATCH', 'Admin working-state edits must be an object.');
+  const keys = Object.keys(edits);
+  if (!keys.length || keys.some((key) => !ADMIN_WORKING_STATE_KEYS.has(key))) {
+    throw new PublishError('validation', 400, 'INVALID_ADMIN_PATCH_KEY', 'Admin working-state edits contain an unsupported collection.');
+  }
+  const expectedRevision = Number(payload.expectedRevision);
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+    throw new PublishError('validation', 400, 'INVALID_ADMIN_REVISION', 'A valid Admin revision is required.');
+  }
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/save_site_edits`, {
+    method: 'POST',
+    headers: { Authorization: authorization, apikey: anonKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_page_key: 'admin-global', p_edits: edits, p_expected_revision: expectedRevision, p_replace: false })
+  });
+  const result = await readJson(response);
+  if (!response.ok) {
+    const detail = result && typeof result === 'object' && !Array.isArray(result) ? result as Record<string, unknown> : {};
+    throw new PublishError('supabase-save', response.status, String(detail.code || 'ADMIN_STATE_SAVE_FAILED'), String(detail.message || 'Admin state could not be saved.'));
+  }
+  const saved = Array.isArray(result) ? result[0] : result;
+  const savedEdits = saved && typeof saved === 'object' && !Array.isArray(saved) && 'edits' in saved
+    ? (saved as { edits?: Record<string, unknown> }).edits || {}
+    : {};
+  return {
+    edits: Object.fromEntries(keys.filter((key) => Object.prototype.hasOwnProperty.call(savedEdits, key)).map((key) => [key, savedEdits[key]])),
+    revision: saved && typeof saved === 'object' && !Array.isArray(saved) && 'revision' in saved ? Number((saved as { revision?: unknown }).revision) || expectedRevision + 1 : expectedRevision + 1
+  };
+}
+
 async function readAdminRecoveryState(supabaseUrl: string, anonKey: string, authorization: string) {
   const response = await fetch(
     `${supabaseUrl}/rest/v1/site_edits?select=page_key,edits,revision`,
@@ -515,6 +548,7 @@ async function publishSnapshot(
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders(request) });
   if (request.method !== 'POST') return jsonResponse(request, { error: 'Method not allowed.' }, 405);
+  const requestStartedAt = performance.now();
 
   try {
     const { supabaseUrl, anonKey, authorization } = await authenticateAdmin(request);
@@ -523,6 +557,9 @@ Deno.serve(async (request) => {
     });
     if (payload?.action === 'working-state') {
       return jsonResponse(request, await readAdminWorkingState(supabaseUrl, anonKey, authorization, payload.keys));
+    }
+    if (payload?.action === 'save-working-state') {
+      return jsonResponse(request, await saveAdminWorkingState(supabaseUrl, anonKey, authorization, payload));
     }
     if (payload?.action === 'recovery-state') {
       return jsonResponse(request, await readAdminRecoveryState(supabaseUrl, anonKey, authorization));
@@ -573,19 +610,25 @@ Deno.serve(async (request) => {
       imageFingerprints.push({ path: file.path, fingerprint: await snapshotFingerprint(file.content) });
     }
     const fingerprint = await snapshotFingerprint({ snapshot, images: imageFingerprints });
+    const preparationMs = performance.now() - requestStartedAt;
     const duplicate = [...existingHistory].reverse().find((entry) => entry.snapshotFingerprint === fingerprint);
     if (duplicate) {
       return jsonResponse(request, {
         commitHash: duplicate.commitHash,
         deploymentResult: duplicate.deploymentResult,
         publishHistory: existingHistory,
-        duplicate: true
+        duplicate: true,
+        timing: { edgeTotalMs: Math.round(performance.now() - requestStartedAt), preparationMs: Math.round(preparationMs), githubPublicationMs: 0, deploymentLookupMs: 0, historySaveMs: 0 }
       });
     }
 
+    const publicationStartedAt = performance.now();
     const publication = await publishSnapshot(token, owner, repo, branch, title, body, changeSummary, snapshot, imageFiles);
+    const githubPublicationMs = performance.now() - publicationStartedAt;
     if (!publication.commitHash) throw new Error('GitHub did not return a commit hash.');
+    const deploymentStartedAt = performance.now();
     const result = await deploymentResult(token, owner, repo, publication.commitHash);
+    const deploymentLookupMs = performance.now() - deploymentStartedAt;
     const historyEntry = {
       date: publication.publishedAt,
       commitHash: publication.commitHash,
@@ -594,6 +637,7 @@ Deno.serve(async (request) => {
       deploymentResult: result,
       snapshotFingerprint: fingerprint
     };
+    const historyStartedAt = performance.now();
     const saved = await patchAdminGlobal(supabaseUrl, anonKey, authorization, (latest) => {
       const latestHistory = Array.isArray(latest.publishHistory) ? latest.publishHistory : [];
       const publishHistory = latestHistory.some((entry) => entry.commitHash === historyEntry.commitHash)
@@ -601,13 +645,21 @@ Deno.serve(async (request) => {
         : [...latestHistory, historyEntry];
       return { lastPublishedSnapshot: snapshot, publishHistory };
     });
+    const historySaveMs = performance.now() - historyStartedAt;
     const publishHistory = saved?.edits?.publishHistory || [...existingHistory, historyEntry];
 
     return jsonResponse(request, {
       commitHash: publication.commitHash,
       publishedAt: publication.publishedAt,
       deploymentResult: result,
-      publishHistory
+      publishHistory,
+      timing: {
+        edgeTotalMs: Math.round(performance.now() - requestStartedAt),
+        preparationMs: Math.round(preparationMs),
+        githubPublicationMs: Math.round(githubPublicationMs),
+        deploymentLookupMs: Math.round(deploymentLookupMs),
+        historySaveMs: Math.round(historySaveMs)
+      }
     });
   } catch (error) {
     const publishError = error instanceof PublishError

@@ -3979,7 +3979,16 @@ function categoryGroupState(masterKey) {
   const children = visibleCategoryChildGroups(masterKey);
   const requestedKey = new URLSearchParams(window.location.search).get('group') || '';
   const activeChild = children.find((category) => category.key === requestedKey) || null;
-  return { children, requestedKey, activeChild, unavailable: Boolean(requestedKey && !activeChild) };
+  const requestedCategory = requestedKey ? getAdminCategories()[requestedKey] : null;
+  const hiddenRequestedChild = Boolean(requestedCategory?.parentKey === masterKey && requestedCategory.visible === false);
+  const invalidRequestedGroup = Boolean(requestedKey && !activeChild && !hiddenRequestedChild);
+  return {
+    children,
+    requestedKey: invalidRequestedGroup ? '' : requestedKey,
+    activeChild,
+    unavailable: hiddenRequestedChild,
+    invalidRequestedGroup
+  };
 }
 
 function renderCategoryGroupNavigation(page, masterKey, state) {
@@ -4311,6 +4320,44 @@ function getStandeeBySlug(slug) {
   };
 }
 
+function relatedProductGroups(product, products = getManagedProductCatalog(), categories = getAdminCategories(), limit = 4) {
+  const currentSlug = String(product?.slug || '');
+  const assignments = [...new Set(Array.isArray(product?.categories) ? product.categories : [])];
+  const child = assignments.map((key) => categories[key]).find((category) => category?.parentKey && category.visible !== false) || null;
+  const masterKey = child?.parentKey || assignments.find((key) => categories[key] && !categories[key].parentKey) || '';
+  if (!masterKey) return [];
+  const used = new Set([currentSlug]);
+  const take = (items) => items.filter((item) => {
+    if (!item?.slug || used.has(item.slug)) return false;
+    used.add(item.slug);
+    return true;
+  }).slice(0, limit);
+  const groups = [];
+  if (child) {
+    const sameChild = take(productsForCategoryGroup(products, masterKey, child.key));
+    if (sameChild.length) groups.push({ title: `More ${child.title || child.key}`, products: sameChild });
+  }
+  const remaining = Math.max(0, limit - groups.reduce((total, group) => total + group.products.length, 0));
+  if (remaining) {
+    const sameMaster = take(productsForCategoryGroup(products, masterKey)).slice(0, remaining);
+    if (sameMaster.length) groups.push({ title: `More ${categories[masterKey]?.title || masterKey}`, products: sameMaster });
+  }
+  return groups;
+}
+
+function relatedProductDiscoveryMarkup(product) {
+  const groups = relatedProductGroups(product);
+  if (!groups.length) return '';
+  return `<section class="standee-related-products" aria-label="Related products">
+    ${groups.map((group) => `<div><h2>${escapeHtml(group.title)}</h2><div class="standee-related-grid">${group.products.map((related) => `
+      <a class="standee-related-card" href="standee.html?item=${encodeURIComponent(related.slug)}">
+        <img src="${escapeHtml(related.cutoutImage || related.image || '')}" alt="${escapeHtml(related.title || related.slug)}">
+        <strong>${escapeHtml(related.title || related.slug)}</strong>
+        <span>View Product</span>
+      </a>`).join('')}</div></div>`).join('')}
+  </section>`;
+}
+
 function setStandeeBackground(index) {
   const root = document.getElementById('standeeDetailRoot');
   const selected = window.currentStandeeProduct?.backgrounds?.[index];
@@ -4408,6 +4455,7 @@ function renderStandeeDetailPage() {
     <section class="standee-facts-strip" aria-label="Cool facts">
       <div class="standee-facts-track">${factItems}</div>
     </section>
+    ${relatedProductDiscoveryMarkup(product)}
   `;
 
   bindUniversalSizeBuilderEvents();
