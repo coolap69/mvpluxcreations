@@ -6252,18 +6252,27 @@ button[aria-label="Add to cart"]::before {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 .admin-shell .admin-workspace-nav a {
-  min-height: 38px;
+  min-height: 42px;
   display: inline-flex;
   align-items: center;
+  padding: 9px 13px;
   color: var(--admin-text);
   border: 1px solid transparent;
+  border-radius: 9px;
   font-weight: 750;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
 }
 .admin-shell .admin-workspace-nav a:hover,
 .admin-shell .admin-workspace-nav a.active {
   border-color: var(--admin-gold);
   background: var(--admin-gold);
   color: #090909;
+}
+.admin-shell .admin-route-loading {
+  margin: 0 0 14px;
+  color: var(--admin-gold-light);
+  font-weight: 800;
 }
 .admin-nav-toggle { display: none; }
 

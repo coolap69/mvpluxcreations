@@ -6433,8 +6433,30 @@ function showAdminAreaFromHash() {
   const candidate = requested.startsWith('product-') ? 'products' : aliases[requested] || requested;
   const validAreas = new Set([...document.querySelectorAll('[data-admin-area]')].map((section) => section.dataset.adminArea));
   const area = validAreas.has(candidate) ? candidate : 'dashboard';
-  document.querySelectorAll('[data-admin-area]').forEach((section) => { section.hidden = section.dataset.adminArea !== area; });
-  document.querySelectorAll('.admin-workspace-nav a').forEach((link) => link.classList.toggle('active', link.getAttribute('href') === `#${area}`));
+  const sections = [...document.querySelectorAll('[data-admin-area]')];
+  sections.forEach((section) => {
+    section.hidden = section.dataset.adminArea !== area;
+    section.removeAttribute('aria-busy');
+    section.querySelector(':scope > [data-admin-route-loading]')?.remove();
+  });
+  const activeSection = sections.find((section) => section.dataset.adminArea === area);
+  if (activeSection && !adminAccessReady) {
+    activeSection.setAttribute('aria-busy', 'true');
+    const loading = document.createElement('p');
+    loading.className = 'admin-route-loading';
+    loading.dataset.adminRouteLoading = '';
+    loading.setAttribute('role', 'status');
+    loading.textContent = 'Loading Admin data…';
+    const header = activeSection.querySelector(':scope > .admin-panel-header');
+    if (header) header.insertAdjacentElement('afterend', loading);
+    else activeSection.prepend(loading);
+  }
+  document.querySelectorAll('.admin-workspace-nav a').forEach((link) => {
+    const active = link.getAttribute('href') === `#${area}`;
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
   const nav = document.getElementById('adminWorkspaceNav');
   const toggle = document.getElementById('adminNavToggle');
   nav?.classList.remove('open');
@@ -6462,6 +6484,17 @@ function setupCommerceTabs() {
 function bindAdminWorkspaceNavigation() {
   const nav = document.getElementById('adminWorkspaceNav');
   const toggle = document.getElementById('adminNavToggle');
+  if (nav && !nav.dataset.routerBound) {
+    nav.dataset.routerBound = 'true';
+    nav.addEventListener('click', (event) => {
+      const link = event.target.closest('a[href^="#"]');
+      if (!link || !nav.contains(link)) return;
+      event.preventDefault();
+      const hash = link.getAttribute('href');
+      if (window.location.hash !== hash) window.location.hash = hash;
+      showAdminAreaFromHash();
+    });
+  }
   if (toggle && !toggle.dataset.bound) {
     toggle.dataset.bound = 'true';
     toggle.addEventListener('click', () => {
@@ -6510,6 +6543,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   console.log('[ADMIN] DOMContentLoaded');
   try {
     clearLegacyAdminBrowserStorage();
+  bindAdminWorkspaceNavigation();
+  showAdminAreaFromHash();
   await adminStateUtilsPromise;
   const hasAdminAccess = await requireSupabaseAdminAccess();
   setupAdminTestMode();

@@ -18,6 +18,32 @@ Deno.test('Admin workspace exposes the simplified everyday areas and keeps techn
   assert(adminHtml.includes('Legacy Recovery Editor'), 'legacy editor must remain available only as recovery');
 });
 
+Deno.test('Admin router honors direct hashes before asynchronous initialization and switches immediately', () => {
+  const routerStart = adminSource.indexOf('function showAdminAreaFromHash()');
+  const routerEnd = adminSource.indexOf('function setupCommerceTabs()', routerStart);
+  const router = adminSource.slice(routerStart, routerEnd);
+  for (const route of ['dashboard', 'products', 'image-inbox', 'categories', 'orders', 'settings', 'advanced']) {
+    assert(adminHtml.includes(`data-admin-area="${route}"`), `Admin route ${route} must have a matching section`);
+  }
+  for (const alias of ['create-content', 'new-image-drafts', 'approved-products', 'admin-settings', 'publish-changes', 'recovery-advanced']) {
+    assert(router.includes(`'${alias}'`), `legacy route ${alias} must resolve through the current router`);
+  }
+  assert(router.includes("window.location.hash || '#dashboard'"), 'Dashboard must only be the missing/invalid hash fallback');
+  assert(router.includes('section.hidden = section.dataset.adminArea !== area'), 'routing must synchronously hide every nonmatching section');
+  assert(router.includes("link.setAttribute('aria-current', 'page')"), 'the active navigation link must be announced and highlighted');
+  assert(adminSource.includes("window.addEventListener('hashchange', showAdminAreaFromHash)"), 'Back and Forward must remain bound to hashchange');
+
+  const bindingStart = adminSource.indexOf('function bindAdminWorkspaceNavigation()');
+  const bindingEnd = adminSource.indexOf('function setupAdminArchitectureWorkspace()', bindingStart);
+  const binding = adminSource.slice(bindingStart, bindingEnd);
+  assert(binding.includes('event.preventDefault()') && binding.includes('window.location.hash = hash') && binding.includes('showAdminAreaFromHash();'), 'navigation clicks must update the hash and switch sections immediately');
+
+  const startupStart = adminSource.indexOf("document.addEventListener('DOMContentLoaded', async () => {");
+  const startup = adminSource.slice(startupStart);
+  assert(startup.indexOf('bindAdminWorkspaceNavigation();') < startup.indexOf('await adminStateUtilsPromise;'), 'the router listener must be installed before the first asynchronous startup operation');
+  assert(startup.indexOf('showAdminAreaFromHash();') < startup.indexOf('await adminStateUtilsPromise;'), 'the initial hash must be rendered before authentication or data loading');
+});
+
 Deno.test('manual creation remains available without AI and successful saves reset forms', () => {
   assert(adminHtml.includes('id="createProductForm"') && adminHtml.includes('id="createCategoryForm"'), 'manual creation forms must exist');
   assert(adminSource.includes("form.reset();"), 'successful creation must reset the focused form');
