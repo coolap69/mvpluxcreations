@@ -2217,6 +2217,16 @@ function addAdminModeButtonIfMissing() {
   updateAdminModeToggleButtons();
 }
 
+function addAdminDashboardLinkIfMissing() {
+  document.querySelectorAll('.auth-links').forEach((links) => {
+    if (links.querySelector('[data-admin-dashboard-link]')) return;
+    const signout = links.querySelector('[data-auth-signout]');
+    const linkHtml = '<a class="admin-header-link" data-admin-dashboard-link href="admin.html">Admin Dashboard</a>';
+    if (signout) signout.insertAdjacentHTML('beforebegin', linkHtml);
+    else links.insertAdjacentHTML('beforeend', linkHtml);
+  });
+}
+
 function refreshAdminViewControls() {
   document.querySelectorAll('[data-admin-mode-toggle], [data-admin-view-controls]').forEach((control) => control.remove());
   addAdminModeButtonIfMissing();
@@ -2228,8 +2238,10 @@ async function revealAdminControlsIfApproved() {
   const canUseAdmin = await checkCurrentUserAdminAccess({ showMessages: false });
   if (!canUseAdmin) {
     document.querySelectorAll('[data-admin-mode-toggle]').forEach((button) => button.remove());
+    document.querySelectorAll('[data-admin-dashboard-link]').forEach((link) => link.remove());
     return;
   }
+  addAdminDashboardLinkIfMissing();
   addAdminModeButtonIfMissing();
 }
 

@@ -75,17 +75,19 @@ Deno.serve(async (request) => {
       return json(request, { error: 'The selected image path is invalid.' }, 400);
     }
     const context = body?.context && typeof body.context === 'object' ? body.context : {};
+    const identity = cleanText(body?.identity, 200);
     const category = cleanText(body?.category, 300);
     const currentTitle = cleanText(context.title, 160);
     const currentDescription = cleanText(context.description, 800);
     const currentFunFact = cleanText(context.funFact, 400);
-    if (!imagePath && !category && !currentTitle && !currentDescription && !currentFunFact) {
+    if (!identity && !imagePath && !category && !currentTitle && !currentDescription && !currentFunFact) {
       return json(request, { error: 'Choose an image or enter some product information first.' }, 400);
     }
     const prompt = [
       'Create concise customer-facing content for a custom cardboard standee store.',
       'Return only valid JSON with keys title, description, and funFact.',
       `Requested action: ${action}.`,
+      `Authoritative identity/context supplied by the Admin: ${identity || 'not supplied'}.`,
       `Category context: ${category || 'not selected'}.`,
       `Current title: ${currentTitle || 'blank'}.`,
       `Current description: ${currentDescription || 'blank'}.`,
@@ -94,6 +96,8 @@ Deno.serve(async (request) => {
       'For description requests, describe only details supported by the supplied context or visible image.',
       'For fun facts, do not invent a fact. If the subject cannot be identified reliably, explain briefly that more information is needed.',
       'For improve requests, preserve the meaning and useful details of the existing text.',
+      'When the Admin supplies identity/context, treat it as authoritative. Never replace, contradict, or override it based on the image.',
+      'Use the selected image only for additional visible details that are consistent with the Admin-supplied identity/context.',
       'Do not make claims about licensing, availability, materials, price, or exact identity that are not provided.',
       'Do not describe the item as official merchandise.',
       'Keep title under 70 characters, description under 300 characters, and fun fact under 180 characters.'

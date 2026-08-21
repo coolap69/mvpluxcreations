@@ -105,5 +105,7 @@ Deno.test('function prompt covers all four actions and safe content rules', asyn
   assert(source.includes('Do not describe the item as official merchandise.'), 'official-merchandise claims must be prohibited');
   assert(source.includes('do not invent a fact'), 'fun facts must not be invented');
   assert(source.includes('preserve the meaning'), 'Improve Existing Text must preserve meaning');
+  assert(source.includes('Authoritative identity/context supplied by the Admin'), 'prompt must include the Admin-supplied identity');
+  assert(source.includes('Never replace, contradict, or override it based on the image.'), 'image analysis must not override Admin-supplied identity');
   assert(source.includes('Choose an image or enter some product information first.'), 'missing input must return a clear error');
 });

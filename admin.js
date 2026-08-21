@@ -2695,6 +2695,7 @@ async function requestAdminContentSuggestion(form, action, button) {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: window.MVPLUX_SUPABASE?.publishableKey || '' },
       body: JSON.stringify({
         action,
+        identity: String(formData.get('subjectIdentity') || ''),
         imagePath: String(formData.get('selectedPreviewImage') || formData.get('cutoutImage') || formData.get('cardImage') || form.dataset.imagePath || ''),
         category: formData.getAll('categories').join(', '),
         context: {
@@ -4652,6 +4653,7 @@ function collectImageDraftForm(form) {
     destination,
     purpose: destination === 'existing-product' ? 'image-choice' : destination === 'create-product' ? 'new-product' : 'not-product',
     imageRole: String(formData.get('imageRole') || 'main'),
+    subjectIdentity: String(formData.get('subjectIdentity') || '').trim(),
     title: String(formData.get('title') || '').trim(),
     slug: requestedSlug ? makeSlug(requestedSlug) : '',
     description: String(formData.get('description') || '').trim(),
@@ -5086,6 +5088,7 @@ function renderImageDrafts() {
               </select>
             </label>
             <div data-import-destinations="create-product create-category">
+              <label>Who or what is this?<input name="subjectIdentity" type="text" value="${escapeAdminHtml(draft.subjectIdentity || '')}" placeholder="Example: Michael Jordan"></label>
               <label>Title<input name="title" type="text" value="${escapeAdminHtml(draft.title || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(draft.description || '')}</textarea></label>
               <label>Fun fact<textarea name="funFact" rows="2">${escapeAdminHtml(draft.funFact || '')}</textarea></label>

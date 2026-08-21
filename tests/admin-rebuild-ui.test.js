@@ -31,6 +31,27 @@ Deno.test('AI controls are enabled after secure Edge Function deployment and rem
   assert(adminSource.includes("button.dataset.aiBusy === 'true'") && adminSource.includes("button.dataset.aiBusy = 'true'"), 'duplicate simultaneous AI clicks must be blocked');
 });
 
+Deno.test('product creation and Image Imports pass authoritative identity to AI without publishing', () => {
+  const productStart = adminHtml.indexOf('id="createProductForm"');
+  const categoryStart = adminHtml.indexOf('id="createCategoryForm"');
+  const productForm = adminHtml.slice(productStart, categoryStart);
+  assert(productForm.includes('Who or what is this?') && productForm.includes('name="subjectIdentity"'), 'manual product creation needs the identity field');
+  assert(adminSource.includes('Who or what is this?') && adminSource.includes('value="${escapeAdminHtml(draft.subjectIdentity || \'\')}"'), 'Image Imports must render saved identity context');
+  assert(adminSource.includes("identity: String(formData.get('subjectIdentity') || '')"), 'every AI action must send the identity value');
+  assert(adminSource.includes("subjectIdentity: String(formData.get('subjectIdentity') || '').trim()"), 'Image Import drafts must preserve identity context');
+  assert(!adminSource.includes('subjectIdentity: formData.get'), 'identity context must not be added to product publication records');
+});
+
+Deno.test('shared storefront navigation reveals an Admin-only Dashboard link after authorization', () => {
+  assert(storefrontSource.includes('data-admin-dashboard-link href="admin.html">Admin Dashboard</a>'), 'shared navigation needs a direct Admin Dashboard link');
+  const revealStart = storefrontSource.indexOf('async function revealAdminControlsIfApproved');
+  const revealEnd = storefrontSource.indexOf('async function turnOnCurrentPageAdminMode', revealStart);
+  const reveal = storefrontSource.slice(revealStart, revealEnd);
+  assert(reveal.indexOf('if (!canUseAdmin)') < reveal.indexOf('addAdminDashboardLinkIfMissing()'), 'Dashboard link must be added only after authoritative Admin approval');
+  assert(reveal.includes("document.querySelectorAll('[data-admin-dashboard-link]').forEach((link) => link.remove())"), 'non-Admin sessions must remove the Dashboard link');
+  assert(!adminHtml.includes('data-admin-dashboard-link'), 'the Admin Dashboard link must not be statically exposed');
+});
+
 Deno.test('optional AI endpoint requires Admin authorization and keeps its API key server-side', () => {
   assert(assistantSource.includes('admin_profiles?user_id=eq.'), 'AI endpoint must verify admin_profiles');
   assert(assistantProviderSource.includes("configuredSecret(env, 'GEMINI_API_KEY')"), 'Gemini key must come from Edge Function environment');
