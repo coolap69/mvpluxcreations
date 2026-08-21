@@ -89,6 +89,49 @@ export function semanticValuesEqual(left, right) {
   return valuesEqual(normalizeForSemanticComparison(left), normalizeForSemanticComparison(right));
 }
 
+const ADMIN_REPOSITORY_IMAGE_PATTERN = /^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i;
+
+export function validateAdminImageReference(value, { allowBlank = true } = {}) {
+  const reference = String(value ?? '').trim();
+  if (!reference) return allowBlank
+    ? { valid: true, value: '' }
+    : { valid: false, value: reference, reason: 'Choose a repository image.' };
+  if (/^(?:data:image\/|blob:|admin-upload:|https?:\/\/)/i.test(reference)) {
+    return { valid: false, value: reference, reason: 'Embedded, temporary, and external image URLs cannot be saved. Choose an images/... repository path.' };
+  }
+  if (!ADMIN_REPOSITORY_IMAGE_PATTERN.test(reference) || reference.includes('..') || reference.includes('\\')) {
+    return { valid: false, value: reference, reason: 'Image references must be safe images/... repository paths.' };
+  }
+  return { valid: true, value: reference };
+}
+
+export function invalidAdminCollectionImageReferences(collectionKey, value, path = []) {
+  const failures = [];
+  const visit = (item, itemPath) => {
+    if (Array.isArray(item)) {
+      item.forEach((entry, index) => visit(entry, [...itemPath, String(index)]));
+      return;
+    }
+    if (!item || typeof item !== 'object') return;
+    Object.entries(item).forEach(([key, entry]) => {
+      const nextPath = [...itemPath, key];
+      const parentKey = itemPath[itemPath.length - 1] || '';
+      const isImageField = ['cutoutImage', 'backgroundImage', 'selectedPreviewImage', 'stage'].includes(key)
+        || (['image', 'src'].includes(key) && (parentKey === 'card' || itemPath.includes('imageChoices')))
+        || (collectionKey === 'imageDrafts' && key === 'path');
+      if (isImageField && typeof entry === 'string') {
+        const validation = validateAdminImageReference(entry, { allowBlank: true });
+        if (!validation.valid) failures.push({ path: nextPath.join('.'), value: entry, reason: validation.reason });
+      } else visit(entry, nextPath);
+    });
+  };
+  if (collectionKey === 'extraImages' && typeof value === 'string') {
+    const validation = validateAdminImageReference(value, { allowBlank: true });
+    if (!validation.valid) failures.push({ path: path.join('.') || 'extraImages', value, reason: validation.reason });
+  } else if (['products', 'categories', 'imageDrafts'].includes(collectionKey)) visit(value, path);
+  return failures;
+}
+
 export function normalizeCategoryIdentity(value = '') {
   return String(value || '')
     .trim()

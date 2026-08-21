@@ -121,8 +121,9 @@ Deno.test('normal Admin startup performs no migration, save, commerce, coupon, o
     'await loadAdminTestMode()',
     'refreshCommerceAdmin();'
   ]) assert(!startup.includes(forbidden), `Admin startup must not call ${forbidden}`);
-  assert(adminSource.includes("if (area === 'orders' && !adminCommerceLoaded) void refreshCommerceAdmin()"), 'commerce reads must be lazy and bounded to Orders');
-  assert(adminSource.includes("if (area === 'settings')"), 'settings reads must be lazy and bounded to Settings');
+  const lazyLoader = adminSource.slice(adminSource.indexOf('async function ensureAdminAreaLoaded'), adminSource.indexOf('function showAdminAreaFromHash'));
+  assert(lazyLoader.includes("if (area === 'orders' && !adminCommerceLoaded) await refreshCommerceAdmin()"), 'commerce reads must be lazy and bounded to Orders');
+  assert(lazyLoader.includes("if (area === 'settings')"), 'settings reads must be lazy and bounded to Settings');
 });
 
 Deno.test('backup, migration preparation, activation, and publishing are separate explicit actions', () => {
@@ -199,8 +200,10 @@ Deno.test('Orders use plain-language tabs and Testing is outside Orders', () => 
   assert(adminHtml.indexOf('id="adminTestModeForm"') > settingsStart, 'Test Mode must be under Settings');
 });
 
-Deno.test('Products owns full editors while technical comparison remains in Advanced', () => {
-  assert(adminSource.includes('approvedContainer.innerHTML = productMarkup(approvedProducts)'), 'Products must render the shared product editor');
+Deno.test('Products starts compact and mounts one full editor only after Edit', () => {
+  assert(adminSource.includes('approvedContainer.innerHTML = productSummaryMarkup(approvedProducts)'), 'Products must render compact summaries first');
+  assert(adminSource.includes('openedProductEditors.add(button.dataset.editProduct)'), 'Edit must explicitly opt one product into full editor rendering');
+  assert(adminSource.includes("editorOpen ? productMarkup([product]) : ''"), 'unopened products must not build full forms');
   assert(adminSource.includes('Technical published/private comparison'), 'Advanced must retain the technical comparison');
   assert(adminSource.includes('publishScopedChangeIds([`product:${slug}`]'), 'normal product publishing must scope itself to one product');
   assert(adminSource.includes('publishScopedChangeIds([`category:${key}`]'), 'normal category publishing must scope itself to one category');

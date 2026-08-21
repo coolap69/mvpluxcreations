@@ -7,9 +7,11 @@ import {
   applyRecordPatch,
   buildPublishedHomepageOrder,
   chooseAuthoritativeState,
+  invalidAdminCollectionImageReferences,
   normalizeProductForComparison,
   semanticProductEqual,
-  semanticValuesEqual
+  semanticValuesEqual,
+  validateAdminImageReference
 } from '../admin-state-utils.js';
 
 function assert(condition, message) {
@@ -129,4 +131,20 @@ Deno.test('current published catalog stays Published after equivalent display-de
     };
     assert(semanticProductEqual(published, privateCopy, context), `${slug} must not gain a false unpublished-change status`);
   }
+});
+
+Deno.test('private Admin image references allow only blank or repository image paths', () => {
+  assert(validateAdminImageReference('', { allowBlank: true }).valid, 'removable image fields must allow blank');
+  assert(validateAdminImageReference('images/HolidayStandees/example.png').valid, 'repository paths must be accepted');
+  for (const invalid of [
+    'data:image/png;base64,AAAA', 'blob:https://example.com/id', 'admin-upload:image/png:10:abc',
+    'https://example.com/image.png', 'http://example.com/image.jpg', '../images/escape.png', 'images/not-an-image.txt'
+  ]) assert(!validateAdminImageReference(invalid).valid, `${invalid} must be rejected`);
+});
+
+Deno.test('collection image validation covers Categories, Products, versions, and Image Inbox', () => {
+  const invalid = 'data:image/png;base64,AAAA';
+  assert(invalidAdminCollectionImageReferences('categories', { card: { image: invalid, backgroundImage: invalid } }).length === 2, 'Category image fields must be checked');
+  assert(invalidAdminCollectionImageReferences('products', { cutoutImage: invalid, backgroundImage: invalid, imageChoices: [{ image: invalid, stage: invalid }] }).length === 4, 'Product main, background, and version images must be checked');
+  assert(invalidAdminCollectionImageReferences('imageDrafts', { path: invalid, selectedPreviewImage: invalid }).length === 2, 'Image Inbox references must be checked');
 });

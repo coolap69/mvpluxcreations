@@ -134,13 +134,13 @@ Deno.test('published Sports assignments remain the seven proven products', async
   assert(JSON.stringify(sports) === JSON.stringify(expected), 'Sports assignments must remain unchanged until child groups are separately approved');
 });
 
-Deno.test('Category cards make Hide primary and keep permanent Delete under More', async () => {
+Deno.test('Category cards expose everyday visibility and confirmed Delete controls at the top', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const manager = source.slice(source.indexOf('function renderCategoryManager'), source.indexOf('function updateDeleteSelectedCategoriesButton'));
-  for (const token of ['Hide Category', 'Show Category', 'Hide from Homepage', 'Show on Homepage', 'Child Groups', 'admin-category-more-menu']) {
+  for (const token of ['Hide Category', 'Show Category', 'Hide from Homepage', 'Show on Homepage', 'Child Groups', 'data-delete-category']) {
     assert(manager.includes(token), `Category card is missing ${token}`);
   }
-  assert(manager.indexOf('admin-category-more-menu') < manager.indexOf('data-delete-category'), 'Delete Category must be nested under More');
+  assert(!manager.includes('admin-category-more-menu'), 'Delete Category must not require opening a More menu');
 });
 
 Deno.test('Hide and homepage visibility saves are narrow Category-only drafts', async () => {

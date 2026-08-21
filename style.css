@@ -6717,6 +6717,27 @@ button[aria-label="Add to cart"]::before {
   line-height: 1.25;
 }
 
+#categories .admin-category-image-choice em {
+  color: var(--admin-gold-light);
+  font-size: .72rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+#categories .admin-category-current-image [data-invalid-image="true"] {
+  color: #ffd18a;
+  font-weight: 850;
+}
+
+#categories .admin-category-no-image {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(212,175,55,.35);
+  border-radius: 9px;
+  color: var(--admin-muted);
+}
+
 #categories .admin-category-appearance-grid {
   align-items: end;
 }
@@ -6887,6 +6908,52 @@ button[aria-label="Add to cart"]::before {
   #categories .admin-category-edit-form .admin-input-group > label,
   #categories .admin-category-product-row > * {
     grid-column: 1 / -1 !important;
+  }
+}
+
+.admin-shell .admin-product-summary-card,
+.admin-shell .admin-image-inbox-summary {
+  display: grid;
+  grid-template-columns: 90px minmax(220px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(212,175,55,.22);
+  border-radius: 12px;
+  background: rgba(15,15,18,.8);
+}
+
+.admin-shell .admin-product-summary-card .admin-product-editor-mount {
+  grid-column: 1 / -1;
+}
+
+.admin-shell .admin-product-summary-card h3,
+.admin-shell .admin-image-inbox-summary strong {
+  margin: 0 0 4px;
+}
+
+.admin-shell .admin-image-inbox-summary > img {
+  width: 90px;
+  height: 90px;
+  object-fit: contain;
+  border-radius: 9px;
+  background: #050505;
+}
+
+.admin-shell .admin-image-inbox-summary span {
+  display: block;
+  color: var(--admin-muted);
+}
+
+@media (max-width: 720px) {
+  .admin-shell .admin-product-summary-card,
+  .admin-shell .admin-image-inbox-summary {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .admin-shell .admin-product-summary-card > .admin-card-actions,
+  .admin-shell .admin-image-inbox-summary > button {
+    grid-column: 1 / -1;
   }
 }
 

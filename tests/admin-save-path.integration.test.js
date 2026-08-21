@@ -392,7 +392,7 @@ Deno.test('actual custom-product patch preserves newest unrelated fields and rec
 Deno.test('actual keyed and membership patches rebase unrelated extra-image, archive, and draft changes', async () => {
   const calls = [];
   const rows = [
-    { data: { edits: { extraImages: { changedElsewhere: 'server.png', target: 'old.png' } }, revision: 1 }, error: null },
+    { data: { edits: { extraImages: { changedElsewhere: 'images/server.png', target: 'images/old.png' } }, revision: 1 }, error: null },
     { data: { edits: { savedForLaterProducts: ['server-only'] }, revision: 2 }, error: null },
     { data: { edits: { imageDrafts: { other: { title: 'Server draft' }, target: { title: 'Old' } } }, revision: 3 }, error: null }
   ];
@@ -401,23 +401,23 @@ Deno.test('actual keyed and membership patches rebase unrelated extra-image, arc
     return { data: { edits: args.p_edits, revision: calls.length + 1 }, error: null };
   });
   const { helpers } = await loadActualAdminHelpers({ client });
-  assert((await helpers.saveAdminExtraImagePatch('target', 'new.png', 'old.png')).ok, 'extra image patch should save');
+  assert((await helpers.saveAdminExtraImagePatch('target', 'images/new.png', 'images/old.png')).ok, 'extra image patch should save');
   assert((await helpers.saveAdminArchiveMembership('target', true, [])).ok, 'archive membership should save');
   assert((await helpers.saveAdminImageDraftPatch('target', { description: 'Local' }, { title: 'Old' })).ok, 'draft patch should save');
-  assert(calls[0].p_edits.extraImages.changedElsewhere === 'server.png', 'unrelated extra image must survive');
+  assert(calls[0].p_edits.extraImages.changedElsewhere === 'images/server.png', 'unrelated extra image must survive');
   assert(calls[1].p_edits.savedForLaterProducts.includes('server-only') && calls[1].p_edits.savedForLaterProducts.includes('target'), 'unrelated archive entry must survive');
   assert(calls[2].p_edits.imageDrafts.other.title === 'Server draft', 'unrelated draft must survive');
 });
 
 Deno.test('actual collection helper stops a same-entry conflict before RPC', async () => {
   let rpcCalls = 0;
-  const rows = [{ data: { edits: { extraImages: { target: 'server.png' } }, revision: 4 }, error: null }];
+  const rows = [{ data: { edits: { extraImages: { target: 'images/server.png' } }, revision: 4 }, error: null }];
   const client = adminGlobalClient(rows, async () => {
     rpcCalls += 1;
     return { data: null, error: null };
   });
   const { helpers, storage } = await loadActualAdminHelpers({ client });
-  const result = await helpers.saveAdminExtraImagePatch('target', 'local.png', 'old.png');
+  const result = await helpers.saveAdminExtraImagePatch('target', 'images/local.png', 'images/old.png');
   assert(!result.ok && result.conflict, 'same-key stale edit must conflict');
   assert(rpcCalls === 0, 'conflict must stop before RPC');
   assert(!storage.snapshot().mvpluxAdminExtraImages, 'failed conflict must not update backup');

@@ -135,6 +135,19 @@ let adminAccessReady = false;
 let adminCommerceLoaded = false;
 let adminDiscountCodesLoaded = false;
 let adminTestModeLoaded = false;
+let adminRecoveryBackupAvailable = false;
+let adminRecoveryStateLoaded = false;
+let imageInventoryLoaded = false;
+const adminAreaLoadState = new Map();
+const openedProductEditors = new Set();
+const openedCategoryEditors = new Set();
+const openedCategoryProductLists = new Set();
+const openedImageInboxItems = new Set();
+const adminWorkingCollectionsLoaded = new Set();
+const ADMIN_DASHBOARD_COLLECTIONS = [
+  'adminArchitectureV2', 'adminArchitectureMigrationV2', 'customProducts', 'deletedProducts',
+  'globalDisplaySettings', 'products', 'publishHistory', 'savedForLaterProducts', 'schemaVersion'
+];
 
 const adminSaveChannel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('mvplux-admin-saves-v1') : null;
 
@@ -159,7 +172,7 @@ function receiveAdminSaveNotice(message) {
   clearTimeout(adminCrossTabRefreshTimer);
   adminCrossTabRefreshTimer = setTimeout(async () => {
     try {
-      const settings = await loadAdminLiveSettings();
+      const settings = await loadAdminLiveSettings([...adminWorkingCollectionsLoaded], { replace: true });
       if (!settings) return;
       adminArchitectureState = await buildAdminArchitectureState(settings);
       renderAdminProducts();
@@ -212,30 +225,65 @@ function updateAdminLiveSettings(patch) {
   return adminLiveSettings;
 }
 
-async function loadAdminLiveSettings() {
+async function loadAdminLiveSettings(keys = ADMIN_DASHBOARD_COLLECTIONS, { replace = false } = {}) {
   const client = getAdminClient();
   if (!client?.from) return null;
+  const requestedKeys = [...new Set((keys || []).filter(Boolean))];
 
-  const { data, error } = await client
-    .from('site_edits')
-    .select('page_key, edits, revision');
-
-  if (error) {
-    adminLastSaveError = `Supabase reload failed: ${error.message || 'unknown error'}`;
-    renderAdminDiagnostics();
-    return null;
+  let data;
+  try {
+    const result = await callAdminPublisher({ action: 'working-state', keys: requestedKeys });
+    data = Array.isArray(result.rows) ? result.rows : [];
+    adminRecoveryBackupAvailable = result.recoveryBackupAvailable === true;
+  } catch (_workingStateError) {
+    const { data: fallbackRows, error } = await client
+      .from('site_edits')
+      .select('page_key, edits, revision')
+      .eq('page_key', 'admin-global');
+    if (error) {
+      adminLastSaveError = `Supabase reload failed: ${error.message || 'unknown error'}`;
+      renderAdminDiagnostics();
+      return null;
+    }
+    data = (fallbackRows || []).map((row) => {
+      const { adminPublishingMigrationBackupV1: recoveryBackup, ...workingEdits } = row.edits || {};
+      adminRecoveryBackupAvailable = Boolean(recoveryBackup);
+      return { ...row, edits: Object.fromEntries(requestedKeys
+        .filter((key) => Object.prototype.hasOwnProperty.call(workingEdits, key))
+        .map((key) => [key, workingEdits[key]])) };
+    });
   }
-  adminSiteEditRows = structuredClone(data || []);
+  adminSiteEditRows = data || [];
   const globalRow = data?.find((row) => row.page_key === 'admin-global');
-  adminLiveSettings = globalRow?.edits || {};
+  adminLiveSettings = { ...(replace ? {} : adminLiveSettings || {}), ...(globalRow?.edits || {}) };
   adminLiveRevision = Number(globalRow?.revision) || 0;
-  adminHomepageLiveEdits = data?.find((row) => row.page_key === 'index.html')?.edits || {};
-  adminPageLiveEdits = Object.fromEntries(
-    (data || [])
-      .filter((row) => row.page_key !== 'admin-global' && row.edits && typeof row.edits === 'object')
-      .map((row) => [String(row.page_key || '').toLowerCase(), row.edits])
-  );
+  requestedKeys.forEach((key) => adminWorkingCollectionsLoaded.add(key));
   return adminLiveSettings;
+}
+
+async function ensureAdminWorkingCollections(keys = []) {
+  const missing = [...new Set(keys)].filter((key) => !adminWorkingCollectionsLoaded.has(key));
+  if (missing.length) await loadAdminLiveSettings(missing);
+  return adminLiveSettings;
+}
+
+async function loadAdminRecoveryState() {
+  if (adminRecoveryStateLoaded) return adminSiteEditRows;
+  const result = await callAdminPublisher({ action: 'recovery-state' });
+  const rows = Array.isArray(result.rows) ? result.rows : [];
+  adminSiteEditRows = rows;
+  const globalRow = rows.find((row) => row.page_key === 'admin-global');
+  if (globalRow?.edits) {
+    adminLiveSettings = globalRow.edits;
+    adminLiveRevision = Number(globalRow.revision) || adminLiveRevision;
+    adminRecoveryBackupAvailable = Boolean(globalRow.edits.adminPublishingMigrationBackupV1);
+  }
+  adminHomepageLiveEdits = rows.find((row) => row.page_key === 'index.html')?.edits || {};
+  adminPageLiveEdits = Object.fromEntries(rows
+    .filter((row) => row.page_key !== 'admin-global' && row.edits && typeof row.edits === 'object')
+    .map((row) => [String(row.page_key || '').toLowerCase(), row.edits]));
+  adminRecoveryStateLoaded = true;
+  return rows;
 }
 
 const ADMIN_CATEGORY_CARD_MAP = {
@@ -706,6 +754,24 @@ function applyCollectionRecordOperation(collection, operation) {
 async function saveAdminCollectionOperations(operations) {
   const requested = (operations || []).filter(Boolean);
   if (!requested.length) return { ok: true, skipped: true };
+  const valueAtPath = (value, path) => path.reduce((current, key) => current?.[key], value);
+  const invalidImages = requested.flatMap((operation) => (adminStateUtils.invalidAdminCollectionImageReferences?.(
+    operation.collectionKey,
+    operation.type === 'value' ? operation.value : operation.patch,
+    [operation.entryKey].filter(Boolean)
+  ) || []).filter((failure) => {
+    if (operation.type !== 'record' || !operation.baseRecord) return true;
+    const relativePath = failure.path.split('.').slice(1);
+    return valueAtPath(operation.baseRecord, relativePath) !== failure.value;
+  }));
+  if (invalidImages.length) {
+    const fields = invalidImages.map((item) => item.path).join(', ');
+    const message = `Save stopped. ${invalidImages[0].reason} Invalid field${invalidImages.length === 1 ? '' : 's'}: ${fields}.`;
+    adminLastSaveSucceeded = false;
+    adminLastSaveError = message;
+    setStatus(message);
+    return { ok: false, validation: true, invalidImages };
+  }
   adminSavePending += 1;
   renderAdminDiagnostics();
 
@@ -753,7 +819,9 @@ async function saveAdminCollectionOperations(operations) {
         }
       });
 
-      adminLiveSettings = latest.edits;
+      const { adminPublishingMigrationBackupV1: latestRecoveryBackup } = latest.edits || {};
+      adminRecoveryBackupAvailable = adminRecoveryBackupAvailable || Boolean(latestRecoveryBackup);
+      adminLiveSettings = { ...(adminLiveSettings || {}) };
       adminLiveRevision = latest.revision;
       adminPotentiallyStale = false;
       if (conflicts.length) {
@@ -771,7 +839,9 @@ async function saveAdminCollectionOperations(operations) {
       });
       if (error) throw error;
 
-      adminLiveSettings = { ...latest.edits, ...collections, ...(data?.edits || {}) };
+      const { adminPublishingMigrationBackupV1: savedRecoveryBackup } = data?.edits || {};
+      adminRecoveryBackupAvailable = adminRecoveryBackupAvailable || Boolean(savedRecoveryBackup);
+      adminLiveSettings = { ...(adminLiveSettings || {}), ...collections };
       adminLiveRevision = Number(data?.revision) || latest.revision + 1;
       Object.keys(collections).forEach((key) => {
         const storageKey = ADMIN_COLLECTION_STORAGE_KEYS[key];
@@ -1133,7 +1203,7 @@ function buildAdminExport() {
 
 function renderAdminExportPreview(exportData = buildAdminExport()) {
   const preview = document.getElementById('adminExportPreview');
-  const json = JSON.stringify(exportData, null, 2);
+  const json = JSON.stringify(redactAdminEmbeddedImages(exportData), null, 2);
   if (preview) preview.value = json;
   return json;
 }
@@ -1681,7 +1751,7 @@ async function loadPublishedPublishBaseline() {
     adminLastSuccessfulSnapshot = null;
     adminPublishedFileState = { reachable: false, publishedAt: null, commitHash: '' };
   }
-  renderAdminDiagnostics();
+  if (['loading', 'loaded'].includes(adminAreaLoadState.get('advanced')?.status)) renderAdminDiagnostics();
   return adminPublishedBaseline;
 }
 
@@ -3410,30 +3480,6 @@ function attachPreviewControls(form) {
   });
 }
 
-function resizeImageFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener('error', () => reject(new Error('Could not read image.')));
-    reader.addEventListener('load', () => {
-      const image = new Image();
-      image.addEventListener('error', () => reject(new Error('Could not load image.')));
-      image.addEventListener('load', () => {
-        const maxSide = 1800;
-        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
-        const context = canvas.getContext('2d');
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        const keepTransparency = file.type === 'image/png' || file.type === 'image/webp';
-        resolve(canvas.toDataURL(keepTransparency ? 'image/png' : 'image/jpeg', 0.86));
-      });
-      image.src = reader.result;
-    });
-    reader.readAsDataURL(file);
-  });
-}
-
 function collectProductFormData(form, dirtyFields = form?._adminDirtyFields || new Set()) {
   const formData = new FormData(form);
   const base = allAdminProducts().find((product) => product.slug === form.dataset.slug) || {};
@@ -3531,16 +3577,9 @@ function schedulePlacementSave(form) {
 async function handleImageUpload(fileInput, targetInput, form) {
   const file = fileInput.files?.[0];
   if (!file || !targetInput) return;
-
-  setStatus('Loading image...');
-
-  try {
-    targetInput.value = await resizeImageFile(file);
-    syncPreviewFromFields(form);
-    await saveProductForm(form, 'Image changed and saved live.');
-  } catch (error) {
-    setStatus('That image could not be loaded. Try another image file.');
-  }
+  fileInput.value = '';
+  setProductSaveState(form, 'Local files are not embedded. Add the file to images/, then choose it through Image Inbox.', 'draft');
+  setStatus('Image not saved. Add the file to the repository images/ folder, open Image Inbox, and assign the repository path. Embedded Base64 images are blocked.');
 }
 
 function renderExtraImages() {
@@ -4242,15 +4281,23 @@ function renderReadyPublishSelection() {
   bindReadyPublishSelection(container);
 }
 
+function redactAdminEmbeddedImages(item) {
+  if (typeof item === 'string' && /^(?:data:image\/|blob:|admin-upload:)/i.test(item)) return '[Legacy embedded image omitted]';
+  if (Array.isArray(item)) return item.map(redactAdminEmbeddedImages);
+  if (!item || typeof item !== 'object') return item;
+  return Object.fromEntries(Object.entries(item).map(([key, entry]) => [key, redactAdminEmbeddedImages(entry)]));
+}
+
 function architectureReviewSummary(value) {
-  const text = JSON.stringify(value ?? null);
+  const text = JSON.stringify(redactAdminEmbeddedImages(value ?? null));
   return text.length > 180 ? `${text.slice(0, 177)}…` : text;
 }
 
 function architectureReviewImage(item) {
-  return item.type === 'category'
+  const reference = item.type === 'category'
     ? item.after?.card?.image || item.before?.card?.image || ''
     : item.after?.cutoutImage || item.before?.cutoutImage || '';
+  return adminStateUtils.validateAdminImageReference(reference, { allowBlank: true }).valid ? reference : '';
 }
 
 function adminPreviewUrl(page = 'index.html') {
@@ -4440,8 +4487,8 @@ function childGroupMarkup(masterCategory, categories) {
             <button type="button" data-toggle-child-group="${child.visible === false ? 'show' : 'hide'}">${child.visible === false ? 'Show' : 'Hide'}</button>
           </div>
           ${warnings.length ? `<p class="admin-warning-message">Assignment warning: ${warnings.map((warning) => warning.productSlug ? `${warning.productSlug} is assigned to ${child.title || child.key} without ${masterCategory.title || masterCategory.key}` : warning.type).join('; ')}. Nothing was repaired automatically.</p>` : ''}
-          <details data-child-products-panel><summary>Products (${count})</summary><div class="admin-category-products">${categoryProductsMarkup(child)}</div></details>
-          <details data-child-edit-panel><summary>Edit Child Group</summary>${categoryEditMarkup(child)}</details>
+          <details data-child-products-panel ${openedCategoryProductLists.has(child.key) ? 'open' : ''}><summary>Products (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(child.key) ? categoryProductsMarkup(child) : ''}</div></details>
+          <details data-child-edit-panel ${openedCategoryEditors.has(child.key) ? 'open' : ''}><summary>Edit Child Group</summary><div data-category-editor-mount>${openedCategoryEditors.has(child.key) ? categoryEditMarkup(child) : ''}</div></details>
         </article>`;
       }).join('') : '<p class="admin-note">No Child Groups have been created for this Main Category.</p>'}
       <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}" disabled title="Child creation will be enabled only after the first groups are approved.">+ Add Child Group</button>
@@ -4503,30 +4550,49 @@ function preferredCategoryImages(category, kind = 'category') {
 }
 
 function categoryImagePickerChoices(paths, selected = '') {
-  return paths.map((path) => `<button type="button" class="admin-category-image-choice ${path === selected ? 'selected' : ''}" data-category-image-choice="${escapeAdminHtml(path)}" title="${escapeAdminHtml(path)}">
-    <img src="${escapeAdminHtml(path)}" alt=""><span>${escapeAdminHtml(creationImageLabel(path))}</span>
+  return paths.map((path) => `<button type="button" class="admin-category-image-choice ${path === selected ? 'selected' : ''}" data-category-image-choice="${escapeAdminHtml(path)}" title="${escapeAdminHtml(creationImageLabel(path))}">
+    <img src="${escapeAdminHtml(path)}" alt="" loading="lazy"><span>${escapeAdminHtml(creationImageLabel(path))}</span><em>${path === selected ? 'Current' : 'Use This Image'}</em>
   </button>`).join('');
+}
+
+function adminImageReferencePresentation(value, { background = false } = {}) {
+  const reference = String(value || '').trim();
+  const validation = adminStateUtils.validateAdminImageReference(reference, { allowBlank: true });
+  if (!reference) return {
+    reference: '', valid: true,
+    label: background ? 'Shared default background' : 'No image selected',
+    preview: background ? IMAGE_IMPORT_DEFAULT_BACKGROUND : ''
+  };
+  if (!validation.valid) return {
+    reference, valid: false,
+    label: /^data:image\//i.test(reference) ? 'Legacy Base64 image' : 'Invalid embedded image',
+    preview: background ? IMAGE_IMPORT_DEFAULT_BACKGROUND : ''
+  };
+  return { reference, valid: true, label: creationImageLabel(reference), preview: reference };
 }
 
 function categoryVisualImagePicker(category, kind = 'category') {
   const isBackground = kind === 'background';
   const selected = String(isBackground ? category.card?.backgroundImage || '' : category.card?.image || '');
-  const effective = isBackground ? effectiveCategoryBackground(category) : selected;
-  const preferred = preferredCategoryImages(category, kind);
+  const presentation = adminImageReferencePresentation(selected, { background: isBackground });
   return `<section class="admin-category-image-picker" data-category-image-picker data-category-key="${escapeAdminHtml(category.key)}" data-image-kind="${kind}">
     <div class="admin-category-current-image">
       <strong>Current ${isBackground ? 'Background' : 'Category Image'}</strong>
-      <img src="${escapeAdminHtml(effective)}" alt="Current ${isBackground ? 'Category background' : 'Category image'}" data-category-current-image>
-      <code data-category-current-path>${escapeAdminHtml(selected || (isBackground ? 'Shared default background' : 'No image selected'))}</code>
+      ${presentation.preview ? `<img src="${escapeAdminHtml(presentation.preview)}" alt="Current ${isBackground ? 'Category background' : 'Category image'}" data-category-current-image>` : '<span class="admin-category-no-image" data-category-current-image>No image</span>'}
+      <span data-category-current-label data-invalid-image="${presentation.valid ? 'false' : 'true'}">${escapeAdminHtml(presentation.label)}</span>
+      <div class="admin-panel-actions">
+        <button type="button" data-change-category-image>${presentation.valid ? `Change ${isBackground ? 'Background' : 'Image'}` : `Replace ${isBackground ? 'Background' : 'Image'}`}</button>
+        ${isBackground ? '<button type="button" data-use-shared-category-background>Use Shared Default</button><button type="button" data-remove-category-image>Remove Custom Background</button>' : '<button type="button" data-remove-category-image>Remove Image</button>'}
+      </div>
+      ${presentation.valid && selected ? `<details class="admin-technical-details"><summary>Image reference</summary><code data-category-current-path>${escapeAdminHtml(selected)}</code></details>` : ''}
     </div>
-    <input name="${isBackground ? 'cardBackgroundImage' : 'cardImage'}" type="hidden" value="${escapeAdminHtml(selected)}">
-    <details class="admin-category-image-browser" ${isBackground ? '' : 'open'}>
+    <input name="${isBackground ? 'cardBackgroundImage' : 'cardImage'}" type="hidden" value="${escapeAdminHtml(presentation.valid ? selected : '')}" data-preserve-invalid-reference="${presentation.valid ? 'false' : 'true'}">
+    <details class="admin-category-image-browser">
       <summary>Choose ${isBackground ? 'Background' : 'Category Image'}</summary>
-      ${isBackground ? '<button type="button" data-use-shared-category-background>Use Shared Default Background</button>' : ''}
       <button type="button" data-search-all-category-images>Search All Repository Images</button>
       <label data-category-image-search-controls hidden>Search repository images<input type="search" data-category-image-search placeholder="Search filename or folder"></label>
       <p class="admin-note">Images associated with products inside this Category appear first.</p>
-      <div class="admin-category-image-gallery" data-category-image-gallery>${categoryImagePickerChoices(preferred, selected)}</div>
+      <div class="admin-category-image-gallery" data-category-image-gallery><p class="admin-note">Choose Change Image to load associated images.</p></div>
     </details>
   </section>`;
 }
@@ -4628,26 +4694,25 @@ function renderCategoryManager() {
     const count = categoryAssignedProducts(category.key).length;
     const childCount = categoryChildGroups(category.key, categoriesByKey).length;
     const status = categoryLifecycleState(category);
+    const imagePresentation = adminImageReferencePresentation(category.card?.image);
     return `
       <article class="admin-category-manager-card" data-category-card="${escapeAdminHtml(category.key)}" data-category-search-value="${escapeAdminHtml(`${category.title} ${category.key} ${category.page}`.toLowerCase())}">
         <div class="admin-category-card-summary">
           <label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select</label>
-          <div class="admin-review-image">${category.card?.image ? `<img src="${escapeAdminHtml(category.card.image)}" alt="">` : '<span>No image</span>'}</div>
+          <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
           <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom category — review assignments before changing it.</p>' : ''}</div>
           <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div>${childCount ? `<div><dt>Child Groups</dt><dd>${childCount}</dd></div>` : ''}<div><dt>Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
-            <button type="button" data-open-category-products>Open Products</button>
             <button type="button" data-edit-category>Edit</button>
             <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}">${category.visible === false ? 'Show Category' : 'Hide Category'}</button>
             <button type="button" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}">${category.homepageVisible === false ? 'Show on Homepage' : 'Hide from Homepage'}</button>
-            <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminPreviewUrl(category.page || `category.html?category=${encodeURIComponent(category.key)}`))}" target="_blank">Preview</a>
-            <button class="admin-button admin-button-primary" type="button" data-publish-category="${escapeAdminHtml(category.key)}">Publish</button>
-            <details class="admin-card-more-actions admin-category-more-menu"><summary>More</summary><button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Category</button></details>
+            <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Category</button>
+            <button type="button" data-open-category-products>Open Products</button>
           </div>
         </div>
         ${childGroupMarkup(category, categoriesByKey)}
-        <details data-category-products-panel><summary>Products (${count})</summary><div class="admin-category-products">${categoryProductsMarkup(category)}</div></details>
-        <details data-category-edit-panel><summary>Edit Category</summary>${categoryEditMarkup(category)}</details>
+        <details data-category-products-panel ${openedCategoryProductLists.has(category.key) ? 'open' : ''}><summary>Products (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''}</div></details>
+        <details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Edit Category</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
       </article>`;
   }).join('') || '<div class="admin-empty-state"><strong>No Categories found</strong><span>Create a Category or clear the search.</span></div>';
 
@@ -4671,6 +4736,14 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
   const key = form.dataset.categoryEdit;
   const current = readAdminCategories()[key] || {};
   const data = new FormData(form);
+  const cardImageInput = form.elements.namedItem('cardImage');
+  const backgroundImageInput = form.elements.namedItem('cardBackgroundImage');
+  const cardImage = cardImageInput?.dataset.preserveInvalidReference === 'true'
+    ? String(current.card?.image || '')
+    : String(data.get('cardImage') || '');
+  const cardBackgroundImage = backgroundImageInput?.dataset.preserveInvalidReference === 'true'
+    ? String(current.card?.backgroundImage || '')
+    : String(data.get('cardBackgroundImage') || '');
   return {
     ...current,
     key,
@@ -4681,7 +4754,7 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
     visible: data.has('visible'),
     homepageVisible: data.has('homepageVisible'),
     order: Number(data.get('order') || 0),
-    card: { ...(current.card || {}), title: String(data.get('title') || '').trim(), description: String(data.get('description') || '').trim(), image: String(data.get('cardImage') || ''), backgroundImage: String(data.get('cardBackgroundImage') || ''), visible: data.has('homepageVisible'), order: Number(data.get('order') || 0) },
+    card: { ...(current.card || {}), title: String(data.get('title') || '').trim(), description: String(data.get('description') || '').trim(), image: cardImage, backgroundImage: cardBackgroundImage, visible: data.has('homepageVisible'), order: Number(data.get('order') || 0) },
     displaySettings: {
       ...(current.displaySettings || {}),
       backgroundPosition: String(data.get('backgroundPosition') || 'center center'),
@@ -4697,6 +4770,16 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
 
 async function saveCategoryEditForm(form, approvalStatus = 'draft') {
   const category = categoryFromEditForm(form, approvalStatus);
+  const current = readAdminCategories()[category.key] || {};
+  const imageValidations = [
+    ['Category image', category.card?.image, current.card?.image],
+    ['Custom background', category.card?.backgroundImage, current.card?.backgroundImage]
+  ].map(([label, value, original]) => ({ label, value, original, ...adminStateUtils.validateAdminImageReference(value, { allowBlank: true }) }))
+    .filter((item) => !item.valid && item.value !== item.original);
+  if (imageValidations.length) {
+    form.querySelector('.admin-status').textContent = `${imageValidations[0].label}: ${imageValidations[0].reason}`;
+    return false;
+  }
   if (approvalStatus === 'approved' && !category.card?.image) {
     form.querySelector('.admin-status').textContent = 'Choose a Category image before publishing.';
     return false;
@@ -4812,21 +4895,23 @@ function previewCategoryEdit(form) {
   const preview = form.querySelector('[data-category-edit-preview]');
   if (!preview) return;
   const display = effectiveCategoryDisplaySettings(category);
+  const imagePresentation = adminImageReferencePresentation(category.card?.image);
+  const backgroundPresentation = adminImageReferencePresentation(effectiveCategoryBackground(category), { background: true });
   const left = Math.max(10, Math.min(90, 50 + display.standeeLeftPercent));
   const bottom = Math.max(0, Math.min(75, 18 - display.standeeVerticalPercent));
   preview.hidden = false;
-  preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview" style="background-image:url('${escapeAdminHtml(effectiveCategoryBackground(category))}');background-position:${escapeAdminHtml(display.backgroundPosition)}">
-    <div class="admin-category-preview-stage"><img src="${escapeAdminHtml(category.card?.image || '')}" alt="" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%"></div>
+  preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(display.backgroundPosition)}">
+    <div class="admin-category-preview-stage">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
     <div><h4>${escapeAdminHtml(category.title)}</h4><p>${escapeAdminHtml(category.description)}</p><span>${category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage'}</span></div>
   </article>`;
 }
 
-function renderCategoryImagePickerGallery(picker, query = '') {
+function renderCategoryImagePickerGallery(picker, query = '', searchAll = false) {
   const category = readAdminCategories()[picker.dataset.categoryKey] || { key: picker.dataset.categoryKey, card: {}, displaySettings: {} };
   const kind = picker.dataset.imageKind || 'category';
   const selected = picker.querySelector('input[type="hidden"]')?.value || '';
   const normalizedQuery = String(query || '').trim().toLowerCase();
-  const paths = normalizedQuery
+  const paths = normalizedQuery || searchAll
     ? repositoryCategoryImageLibrary().filter((path) => `${path} ${creationImageLabel(path)}`.toLowerCase().includes(normalizedQuery)).slice(0, 80)
     : preferredCategoryImages(category, kind);
   const gallery = picker.querySelector('[data-category-image-gallery]');
@@ -4837,11 +4922,22 @@ function updateCategoryPickerValue(picker, path) {
   const input = picker.querySelector('input[type="hidden"]');
   if (!input) return;
   input.value = path;
-  const effectivePath = path || (picker.dataset.imageKind === 'background' ? IMAGE_IMPORT_DEFAULT_BACKGROUND : '');
+  input.dataset.preserveInvalidReference = 'false';
+  const isBackground = picker.dataset.imageKind === 'background';
+  const presentation = adminImageReferencePresentation(path, { background: isBackground });
   const currentImage = picker.querySelector('[data-category-current-image]');
   const currentPath = picker.querySelector('[data-category-current-path]');
-  if (currentImage) currentImage.src = effectivePath;
-  if (currentPath) currentPath.textContent = path || (picker.dataset.imageKind === 'background' ? 'Shared default background' : 'No image selected');
+  const currentLabel = picker.querySelector('[data-category-current-label]');
+  if (currentImage) {
+    if (presentation.preview && currentImage.tagName === 'IMG') currentImage.src = presentation.preview;
+    else if (presentation.preview) currentImage.outerHTML = `<img src="${escapeAdminHtml(presentation.preview)}" alt="Current ${isBackground ? 'Category background' : 'Category image'}" data-category-current-image>`;
+    else currentImage.outerHTML = '<span class="admin-category-no-image" data-category-current-image>No image</span>';
+  }
+  if (currentLabel) {
+    currentLabel.textContent = presentation.label;
+    currentLabel.dataset.invalidImage = String(!presentation.valid);
+  }
+  if (currentPath) currentPath.textContent = presentation.valid ? path : '';
   picker.querySelectorAll('[data-category-image-choice]').forEach((choice) => choice.classList.toggle('selected', choice.dataset.categoryImageChoice === path));
   const editForm = picker.closest('[data-category-edit]');
   if (editForm) previewCategoryEdit(editForm);
@@ -4896,17 +4992,53 @@ function setupCategoryManagerEvents() {
   });
   section.addEventListener('click', async (event) => {
     const card = event.target.closest('[data-category-card]');
-    if (event.target.closest('[data-open-category-products]')) card?.querySelector('[data-category-products-panel]')?.setAttribute('open', '');
+    if (event.target.closest('[data-open-category-products]')) {
+      const key = card?.dataset.categoryCard;
+      const category = readAdminCategories()[key];
+      const panel = card?.querySelector('[data-category-products-panel]');
+      const mount = panel?.querySelector('[data-category-products-mount]');
+      if (key && category && mount && !openedCategoryProductLists.has(key)) {
+        mount.innerHTML = categoryProductsMarkup(category);
+        openedCategoryProductLists.add(key);
+      }
+      panel?.setAttribute('open', '');
+    }
     if (event.target.closest('[data-edit-category]')) {
-      card?.querySelector('[data-category-edit-panel]')?.setAttribute('open', '');
-      const form = card?.querySelector('[data-category-edit]');
+      const key = card?.dataset.categoryCard;
+      const category = readAdminCategories()[key];
+      const panel = card?.querySelector('[data-category-edit-panel]');
+      const mount = panel?.querySelector('[data-category-editor-mount]');
+      if (key && category && mount && !openedCategoryEditors.has(key)) {
+        mount.innerHTML = categoryEditMarkup(category);
+        openedCategoryEditors.add(key);
+      }
+      panel?.setAttribute('open', '');
+      const form = mount?.querySelector('[data-category-edit]');
       if (form) previewCategoryEdit(form);
     }
     const childCard = event.target.closest('[data-child-group-card]');
-    if (event.target.closest('[data-open-child-products]')) childCard?.querySelector('[data-child-products-panel]')?.setAttribute('open', '');
+    if (event.target.closest('[data-open-child-products]')) {
+      const key = childCard?.dataset.childGroupCard;
+      const category = readAdminCategories()[key];
+      const panel = childCard?.querySelector('[data-child-products-panel]');
+      const mount = panel?.querySelector('[data-category-products-mount]');
+      if (key && category && mount && !openedCategoryProductLists.has(key)) {
+        mount.innerHTML = categoryProductsMarkup(category);
+        openedCategoryProductLists.add(key);
+      }
+      panel?.setAttribute('open', '');
+    }
     if (event.target.closest('[data-edit-child-group]')) {
-      childCard?.querySelector('[data-child-edit-panel]')?.setAttribute('open', '');
-      const form = childCard?.querySelector('[data-category-edit]');
+      const key = childCard?.dataset.childGroupCard;
+      const category = readAdminCategories()[key];
+      const panel = childCard?.querySelector('[data-child-edit-panel]');
+      const mount = panel?.querySelector('[data-category-editor-mount]');
+      if (key && category && mount && !openedCategoryEditors.has(key)) {
+        mount.innerHTML = categoryEditMarkup(category);
+        openedCategoryEditors.add(key);
+      }
+      panel?.setAttribute('open', '');
+      const form = mount?.querySelector('[data-category-edit]');
       if (form) previewCategoryEdit(form);
     }
     const childVisibility = event.target.closest('[data-toggle-child-group]');
@@ -4915,12 +5047,24 @@ function setupCategoryManagerEvents() {
     if (previewButton) previewCategoryEdit(previewButton.closest('[data-category-edit]'));
     const searchAllImages = event.target.closest('[data-search-all-category-images]');
     if (searchAllImages) {
-      const controls = searchAllImages.closest('[data-category-image-picker]')?.querySelector('[data-category-image-search-controls]');
+      const picker = searchAllImages.closest('[data-category-image-picker]');
+      const controls = picker?.querySelector('[data-category-image-search-controls]');
       if (controls) {
         controls.hidden = false;
+        if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false });
+        renderCategoryImagePickerGallery(picker, '', true);
         controls.querySelector('input')?.focus();
       }
     }
+    const changeImage = event.target.closest('[data-change-category-image]');
+    if (changeImage) {
+      const picker = changeImage.closest('[data-category-image-picker]');
+      const browser = picker?.querySelector('.admin-category-image-browser');
+      if (browser) browser.open = true;
+      if (picker) renderCategoryImagePickerGallery(picker);
+    }
+    const removeImage = event.target.closest('[data-remove-category-image]');
+    if (removeImage) updateCategoryPickerValue(removeImage.closest('[data-category-image-picker]'), '');
     const visibilityButton = event.target.closest('[data-toggle-category-visibility]');
     if (visibilityButton) await saveCategoryVisibility(card?.dataset.categoryCard, 'visible', visibilityButton.dataset.toggleCategoryVisibility === 'show');
     const homepageButton = event.target.closest('[data-toggle-category-homepage]');
@@ -5002,7 +5146,16 @@ function renderAdminProducts() {
   const deleted = new Set(readDeletedProducts());
   const availableProducts = allAdminProducts().filter((product) => !archived.has(product.slug) && !deleted.has(product.slug));
   const productMarkup = (products, lifecycleLabel = '') => products.map((product) => {
-    const value = { ...product, ...(saved[product.slug] || {}) };
+    const storedValue = { ...product, ...(saved[product.slug] || {}) };
+    const cutoutPresentation = adminImageReferencePresentation(storedValue.cutoutImage);
+    const backgroundPresentation = adminImageReferencePresentation(storedValue.backgroundImage, { background: true });
+    const invalidLegacyImages = [cutoutPresentation, backgroundPresentation].filter((item) => !item.valid);
+    const value = {
+      ...storedValue,
+      cutoutImage: cutoutPresentation.valid ? storedValue.cutoutImage : '',
+      backgroundImage: backgroundPresentation.valid ? storedValue.backgroundImage : '',
+      imageChoices: normalizeImageChoices(storedValue.imageChoices).filter((choice) => adminStateUtils.validateAdminImageReference(choice.image, { allowBlank: false }).valid)
+    };
     const lifecycle = product.categoryCard ? '' : lifecycleLabel || productLifecycleState(product, saved, archived).label;
     return `
       <form class="admin-product-card" id="product-${product.slug}" data-slug="${product.slug}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
@@ -5049,6 +5202,7 @@ function renderAdminProducts() {
             ${product.categoryCard ? '' : categoryAssignmentMarkup(value)}
             <fieldset>
               <legend>Images</legend>
+              ${invalidLegacyImages.length ? '<p class="admin-warning-message">Legacy Base64 image. Replace it through Image Inbox; the embedded value is not displayed and cannot be saved again.</p>' : ''}
               <label>
                 Standee image path
                 <input name="cutoutImage" class="admin-long-path" type="text" value="${value.cutoutImage || ''}" readonly>
@@ -5133,20 +5287,40 @@ function renderAdminProducts() {
     `;
   }).join('');
 
+  const productSummaryMarkup = (products) => products.map((product) => {
+    const value = { ...product, ...(saved[product.slug] || {}) };
+    const lifecycle = productLifecycleState(product, saved, archived).label;
+    const previewPage = readAdminCategories()[value.categories?.[0]]?.page || 'index.html#shop';
+    const editorOpen = openedProductEditors.has(product.slug);
+    const imagePresentation = adminImageReferencePresentation(value.cutoutImage);
+    return `<article class="admin-product-summary-card" data-product-summary="${escapeAdminHtml(product.slug)}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
+      <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
+      <div><h3>${escapeAdminHtml(value.title || product.title)}</h3><code>${escapeAdminHtml(product.slug)}</code><p>${escapeAdminHtml(productCategoryNames(value))}</p><strong>${escapeAdminHtml(lifecycle)}</strong></div>
+      <div class="admin-card-actions"><button type="button" data-edit-product="${escapeAdminHtml(product.slug)}">Edit</button><a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminPreviewUrl(previewPage))}" target="_blank" rel="noopener">Preview</a></div>
+      <div class="admin-product-editor-mount" data-product-editor-mount>${editorOpen ? productMarkup([product]) : ''}</div>
+    </article>`;
+  }).join('');
+
   const approvedProducts = availableProducts.filter((product) => !product.categoryCard);
-  const reviewItems = architectureReviewItems();
-  if (approvedContainer) approvedContainer.innerHTML = productMarkup(approvedProducts);
-  renderReadyPublishSelection();
-  if (publishedContainer) {
+  if (approvedContainer && ['loading', 'loaded'].includes(adminAreaLoadState.get('products')?.status)) approvedContainer.innerHTML = productSummaryMarkup(approvedProducts);
+  if (publishedContainer && ['loading', 'loaded'].includes(adminAreaLoadState.get('advanced')?.status)) {
     publishedContainer.innerHTML = Object.values(adminPublishedBaseline?.products || {}).map((product) => `
       <article class="admin-review-item admin-published-item"><div class="admin-review-image">${product.cutoutImage ? `<img src="${escapeAdminHtml(product.cutoutImage)}" alt="">` : '<span>No image</span>'}</div><div><strong>${escapeAdminHtml(product.title || product.slug)}</strong><p>Published — customers can see this</p></div></article>
     `).join('') || '<div class="admin-empty-state"><strong>No published products yet</strong><span>Published products will appear here after the first successful publish.</span></div>';
   }
-  if (categoryContainer) {
+  if (categoryContainer && ['loading', 'loaded'].includes(adminAreaLoadState.get('categories')?.status)) {
     renderCategoryManager();
   }
   const recoveryDetails = document.getElementById('legacyRecoveryEditor');
   if (recoveryContainer) recoveryContainer.innerHTML = recoveryDetails?.open ? productMarkup(availableProducts) : '';
+
+  if (['loading', 'loaded'].includes(adminAreaLoadState.get('products')?.status)) approvedContainer?.querySelectorAll('[data-edit-product]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openedProductEditors.add(button.dataset.editProduct);
+      renderAdminProducts();
+      document.querySelector(`[data-product-summary="${CSS.escape(button.dataset.editProduct)}"] .admin-product-card`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
 
   productContainers.forEach((container) => container.querySelectorAll('.admin-product-card').forEach((form) => {
     const baseProduct = allAdminProducts().find((product) => product.slug === form.dataset.slug) || {};
@@ -5248,12 +5422,11 @@ function renderAdminProducts() {
     });
   }));
   filterAdminProductLibrary();
-  renderAdminDiagnostics();
 }
 
 function filterAdminProductLibrary() {
   const query = document.getElementById('adminProductSearch')?.value.trim().toLowerCase() || '';
-  document.querySelectorAll('#approvedProducts .admin-product-card').forEach((card) => {
+  document.querySelectorAll('#approvedProducts .admin-product-summary-card').forEach((card) => {
     card.hidden = Boolean(query) && !String(card.dataset.productSearchValue || '').includes(query);
   });
 }
@@ -6016,7 +6189,20 @@ function renderImageDrafts() {
   }
 
   container.innerHTML = drafts.map((inventoryDraft) => {
-    const draft = normalizeImageImportDraft({ ...inventoryDraft, ...(edits[inventoryDraft.path] || {}) });
+    const storedDraft = normalizeImageImportDraft({ ...inventoryDraft, ...(edits[inventoryDraft.path] || {}) });
+    const selectedPreview = adminImageReferencePresentation(storedDraft.selectedPreviewImage);
+    const background = adminImageReferencePresentation(storedDraft.backgroundImage, { background: true });
+    const draft = {
+      ...storedDraft,
+      selectedPreviewImage: selectedPreview.valid ? storedDraft.selectedPreviewImage : storedDraft.path,
+      backgroundImage: background.valid ? storedDraft.backgroundImage : IMAGE_IMPORT_DEFAULT_BACKGROUND
+    };
+    if (!openedImageInboxItems.has(draft.path)) return `
+      <article class="admin-image-inbox-summary" data-image-inbox-summary="${escapeAdminHtml(draft.path)}">
+        <img src="${escapeAdminHtml(draft.path)}" alt="" loading="lazy">
+        <div><strong>${escapeAdminHtml(draft.title || creationImageLabel(draft.path))}</strong><span>${escapeAdminHtml(creationImageLabel(draft.path))}</span></div>
+        <button type="button" data-configure-image-inbox="${escapeAdminHtml(draft.path)}">Configure Image</button>
+      </article>`;
     return `
       <form class="admin-product-card admin-image-draft" data-image-path="${escapeAdminHtml(draft.path)}" data-draft-status="${escapeAdminHtml(draft.status)}" data-saved-for-later="${draft.savedForLater === true}">
         <div class="admin-product-heading">
@@ -6080,6 +6266,14 @@ function renderImageDrafts() {
       </form>
     `;
   }).join('');
+
+  container.querySelectorAll('[data-configure-image-inbox]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openedImageInboxItems.add(button.dataset.configureImageInbox);
+      renderImageDrafts();
+      document.querySelector(`[data-image-path="${CSS.escape(button.dataset.configureImageInbox)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
 
   container.querySelectorAll('.admin-image-draft').forEach((form) => {
     bindParentProductPicker(form);
@@ -6224,7 +6418,7 @@ async function publishImageImports(mode) {
   prepareSelectedPublish(selectedChanges);
 }
 
-async function loadImageDraftInventory() {
+async function loadImageDraftInventory({ renderInbox = true } = {}) {
   try {
     const localAdmin = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
     if (localAdmin) {
@@ -6257,8 +6451,8 @@ async function loadImageDraftInventory() {
       imageDraftInventory = [];
     }
   }
-  renderImageDrafts();
-  renderPublishSummary();
+  if (renderInbox) renderImageDrafts();
+  imageInventoryLoaded = true;
 }
 
 function downloadAdminJson(filename, value) {
@@ -6336,17 +6530,24 @@ async function restoreAdminArchitectureBackup() {
 function renderAdminDashboard() {
   const container = document.getElementById('adminDashboardSummary');
   if (!container) return;
-  const review = architectureReviewItems();
   const conflicts = adminLiveSettings?.adminArchitectureMigrationV2?.productPageOverrides;
   const privateProducts = Object.values(readAdminProducts());
   const products = effectiveAdminProducts();
   const history = getAdminLiveValue('publishHistory', []);
-  const productChanges = review.filter((item) => item.type === 'product');
+  const comparisonContext = {
+    globalDisplaySettings: adminPublishedBaseline?.globalDisplaySettings || {},
+    categorySettings: adminPublishedBaseline?.categorySettings || {}
+  };
+  const productChangeCount = Object.entries(readAdminProducts()).filter(([slug, product]) => !adminStateUtils.semanticProductEqual(
+    adminPublishedBaseline?.products?.[slug] || null,
+    publishableProduct(product, readArchivedProducts().includes(slug)),
+    comparisonContext
+  )).length;
   const available = (value) => value === undefined || value === null || value === '' ? 'Not available' : value;
   const cards = [
     { title: 'Products', value: products.length, note: 'Published products and private product records.', href: '#products' },
     { title: 'Drafts', value: privateProducts.filter((item) => item.approvalStatus === 'draft' || item.draftStatus === 'draft').length, note: 'Saved privately; customers cannot see these changes.', href: '#products' },
-    { title: 'Unpublished Changes', value: productChanges.length, note: 'Meaningful product changes that are not live yet.', href: '#products' },
+    { title: 'Unpublished Changes', value: productChangeCount, note: 'Meaningful product changes that are not live yet.', href: '#products' },
     { title: 'Orders / Offers', value: adminCommerceLoaded ? 'Loaded' : 'Open', note: 'Customer orders and offers requiring normal attention.', href: '#orders' },
     { title: 'Recent Publications', value: history.length, note: adminPublishedFileState.publishedAt ? `Last: ${new Date(adminPublishedFileState.publishedAt).toLocaleDateString()}` : 'No publication recorded yet.', href: '#advanced' },
     { title: 'Errors', value: (adminLastSaveError ? 1 : 0) + (adminLatestPublishError ? 1 : 0) + (conflicts?.conflicts?.length || 0) + (conflicts?.unsupported?.length || 0), note: 'Save, publish, or conflict errors requiring attention.', href: '#advanced' }
@@ -6381,7 +6582,7 @@ function renderAdminRecoveryTools() {
       <button type="button" data-restore-migration-backup>Restore Migration Backup</button>
       <button type="button" data-clear-local-recovery>Clear Local Recovery Data</button>
     </div>
-    <details><summary>Conflicting page overrides (${conflicts.length})</summary><pre>${escapeAdminHtml(JSON.stringify(conflicts, null, 2))}</pre></details>
+    <details><summary>Conflicting page overrides (${conflicts.length})</summary><pre>${escapeAdminHtml(JSON.stringify(redactAdminEmbeddedImages(conflicts), null, 2))}</pre></details>
     <details><summary>Technical published/private comparison</summary>${architectureReviewMarkup(architectureReviewItems())}</details>
     <details><summary>Failed saves</summary><p>${escapeAdminHtml(adminLastSaveError || 'None')}</p></details>
   `;
@@ -6422,6 +6623,87 @@ function renderAdminRecoveryTools() {
   });
 }
 
+function setAdminAreaLoading(area, loading, message = 'Loading…') {
+  document.querySelectorAll(`[data-admin-area="${CSS.escape(area)}"]`).forEach((section, index) => {
+    section.toggleAttribute('aria-busy', loading);
+    section.querySelector(':scope > [data-admin-route-loading]')?.remove();
+    if (!loading || index > 0) return;
+    const notice = document.createElement('p');
+    notice.className = 'admin-route-loading';
+    notice.dataset.adminRouteLoading = '';
+    notice.setAttribute('role', 'status');
+    notice.textContent = message;
+    const header = section.querySelector(':scope > .admin-panel-header');
+    if (header) header.insertAdjacentElement('afterend', notice);
+    else section.prepend(notice);
+  });
+}
+
+async function ensureAdminAreaLoaded(area, { force = false } = {}) {
+  const existing = adminAreaLoadState.get(area);
+  if (!force && existing?.status === 'loaded') return existing.value;
+  if (!force && existing?.status === 'loading') return existing.promise;
+  const promise = Promise.resolve().then(async () => {
+    setAdminAreaLoading(area, true, area === 'image-inbox' ? 'Loading repository image inventory…' : `Loading ${area.replace('-', ' ')}…`);
+    if (area === 'dashboard') renderAdminDashboard();
+    if (area === 'products') {
+      await ensureAdminWorkingCollections(['categories', 'deletedCategories']);
+      adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
+      const requestedProduct = window.location.hash.startsWith('#product-') ? window.location.hash.slice('#product-'.length) : '';
+      if (requestedProduct) openedProductEditors.add(requestedProduct);
+      setupAdminCreationWorkspace();
+      renderAdminProducts();
+      if (requestedProduct) document.getElementById(`product-${requestedProduct}`)?.scrollIntoView({ block: 'start' });
+    }
+    if (area === 'image-inbox') {
+      await ensureAdminWorkingCollections(['categories', 'configuredImagePaths', 'deletedCategories', 'dismissedImageDrafts', 'extraImages', 'ignoredImagePaths', 'imageDrafts']);
+      if (!imageInventoryLoaded || force) await loadImageDraftInventory();
+      else renderImageDrafts();
+      renderImageImportPending();
+    }
+    if (area === 'categories') {
+      await ensureAdminWorkingCollections(['categories', 'deletedCategories']);
+      adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
+      setupAdminCreationWorkspace();
+      setupCategoryManagerEvents();
+      renderCategoryManager();
+    }
+    if (area === 'orders' && !adminCommerceLoaded) await refreshCommerceAdmin();
+    if (area === 'settings') {
+      await ensureAdminWorkingCollections(['coupons', 'extraImages', 'priceSettings']);
+      setupPriceRules();
+      renderExtraImages();
+      setupCoupons();
+      if (!adminTestModeLoaded) await loadAdminTestMode();
+      if (!adminDiscountCodesLoaded) await loadDiscountCodes();
+    }
+    if (area === 'advanced') {
+      await loadAdminRecoveryState();
+      adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
+      renderAdminDiagnostics();
+      renderAdminRecoveryTools();
+      renderAdminProducts();
+      renderReadyPublishSelection();
+      renderPublishSummary();
+      renderPublishHistory();
+      renderAdminExportPreview();
+    }
+    return true;
+  });
+  adminAreaLoadState.set(area, { status: 'loading', promise });
+  try {
+    const value = await promise;
+    adminAreaLoadState.set(area, { status: 'loaded', value });
+    return value;
+  } catch (error) {
+    adminAreaLoadState.delete(area);
+    setStatus(`Could not load ${area.replace('-', ' ')}. ${error?.message || error}`);
+    throw error;
+  } finally {
+    setAdminAreaLoading(area, false);
+  }
+}
+
 function showAdminAreaFromHash() {
   const requested = (window.location.hash || '#dashboard').slice(1);
   const aliases = {
@@ -6436,21 +6718,8 @@ function showAdminAreaFromHash() {
   const sections = [...document.querySelectorAll('[data-admin-area]')];
   sections.forEach((section) => {
     section.hidden = section.dataset.adminArea !== area;
-    section.removeAttribute('aria-busy');
-    section.querySelector(':scope > [data-admin-route-loading]')?.remove();
   });
-  const activeSection = sections.find((section) => section.dataset.adminArea === area);
-  if (activeSection && !adminAccessReady) {
-    activeSection.setAttribute('aria-busy', 'true');
-    const loading = document.createElement('p');
-    loading.className = 'admin-route-loading';
-    loading.dataset.adminRouteLoading = '';
-    loading.setAttribute('role', 'status');
-    loading.textContent = 'Loading Admin data…';
-    const header = activeSection.querySelector(':scope > .admin-panel-header');
-    if (header) header.insertAdjacentElement('afterend', loading);
-    else activeSection.prepend(loading);
-  }
+  if (!adminAccessReady) setAdminAreaLoading(area, true, 'Loading Admin data…');
   document.querySelectorAll('.admin-workspace-nav a').forEach((link) => {
     const active = link.getAttribute('href') === `#${area}`;
     link.classList.toggle('active', active);
@@ -6462,11 +6731,7 @@ function showAdminAreaFromHash() {
   nav?.classList.remove('open');
   toggle?.setAttribute('aria-expanded', 'false');
   if (!adminAccessReady) return;
-  if (area === 'orders' && !adminCommerceLoaded) void refreshCommerceAdmin();
-  if (area === 'settings') {
-    if (!adminTestModeLoaded) void loadAdminTestMode();
-    if (!adminDiscountCodesLoaded) void loadDiscountCodes();
-  }
+  void ensureAdminAreaLoaded(area).catch(() => {});
 }
 
 function setupCommerceTabs() {
@@ -6534,8 +6799,6 @@ function setupAdminArchitectureWorkspace() {
   if (nav) nav.hidden = false;
   bindAdminWorkspaceNavigation();
   setupCommerceTabs();
-  renderAdminDashboard();
-  renderAdminRecoveryTools();
   showAdminAreaFromHash();
 }
 
@@ -6549,29 +6812,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const hasAdminAccess = await requireSupabaseAdminAccess();
   setupAdminTestMode();
   adminAccessReady = hasAdminAccess;
-  const loadedAdminState = hasAdminAccess ? await loadAdminLiveSettings().catch(() => null) : null;
+  const loadedAdminState = hasAdminAccess ? await loadAdminLiveSettings(ADMIN_DASHBOARD_COLLECTIONS, { replace: true }).catch(() => null) : null;
   imageImportReady = Boolean(hasAdminAccess && loadedAdminState);
-  await loadImageDraftInventory();
-  renderImageDrafts();
   await loadPublishedPublishBaseline();
-  if (hasAdminAccess && loadedAdminState) {
-    adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
-    renderAdminDiagnostics();
-  }
-  renderImageImportPending();
-  renderAdminProducts();
-  setupCategoryManagerEvents();
   bindAdminAiAssistance();
-  setupAdminCreationWorkspace();
   setupAdminArchitectureWorkspace();
-  setupPriceRules();
-  renderExtraImages();
-  renderPublishSummary();
-  renderPublishHistory();
   if (window.location.hash.startsWith('#product-')) {
     document.querySelector(window.location.hash)?.scrollIntoView({ block: 'start' });
   }
-  setupCoupons();
   document.addEventListener('click', handleCommerceAdminClick);
 
   if (window.location.hash === '#create-card') {
@@ -6589,7 +6837,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   document.getElementById('createAdminProduct')?.addEventListener('click', createCustomProduct);
-  document.getElementById('refreshImageDrafts')?.addEventListener('click', loadImageDraftInventory);
+  document.getElementById('refreshImageDrafts')?.addEventListener('click', () => ensureAdminAreaLoaded('image-inbox', { force: true }));
   document.getElementById('saveSelectedImageDrafts')?.addEventListener('click', saveSelectedImageImportsForLater);
   document.getElementById('publishSelectedImageDrafts')?.addEventListener('click', openSelectedImageDraft);
   document.getElementById('adminProductSearch')?.addEventListener('input', filterAdminProductLibrary);
@@ -6635,7 +6883,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     importAdminChangesFromFile(event.target.files?.[0]);
     event.target.value = '';
   });
-    renderAdminExportPreview();
   } catch (error) {
     logAdminInitializationException('DOMContentLoaded', error);
     throw error;

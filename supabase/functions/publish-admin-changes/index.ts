@@ -82,6 +82,49 @@ async function readAdminGlobal(supabaseUrl: string, anonKey: string, authorizati
   };
 }
 
+const ADMIN_WORKING_STATE_KEYS = new Set([
+  'adminArchitectureV2', 'adminArchitectureMigrationV2', 'cardsSavedForLater', 'categories', 'configuredImagePaths',
+  'coupons', 'customProducts', 'deletedCategories', 'deletedProducts', 'dismissedImageDrafts',
+  'extraImages', 'globalDisplaySettings', 'ignoredImagePaths', 'imageDrafts', 'lastPublishedSnapshot',
+  'priceSettings', 'productRelationshipHistory', 'products', 'publishHistory', 'savedForLaterProducts',
+  'schemaVersion'
+]);
+
+async function readAdminWorkingState(supabaseUrl: string, anonKey: string, authorization: string, requestedKeys: unknown) {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/site_edits?page_key=eq.admin-global&select=page_key,edits,revision`,
+    { headers: { Authorization: authorization, apikey: anonKey } }
+  );
+  const rows = await readJson(response);
+  if (!response.ok) throw new PublishError('supabase-read', 502, 'ADMIN_STATE_READ_FAILED', 'Could not read Admin working state.');
+  const row = Array.isArray(rows) && rows[0] ? rows[0] : { page_key: 'admin-global', edits: {}, revision: 0 };
+  const edits = row.edits && typeof row.edits === 'object' && !Array.isArray(row.edits)
+    ? row.edits as Record<string, unknown>
+    : {};
+  const { adminPublishingMigrationBackupV1: recoveryBackup, ...workingEdits } = edits;
+  const keys = Array.isArray(requestedKeys)
+    ? [...new Set(requestedKeys.map((key) => String(key)).filter((key) => ADMIN_WORKING_STATE_KEYS.has(key)))]
+    : [...ADMIN_WORKING_STATE_KEYS];
+  const selectedEdits = Object.fromEntries(keys
+    .filter((key) => Object.prototype.hasOwnProperty.call(workingEdits, key))
+    .map((key) => [key, workingEdits[key]]));
+  return {
+    rows: [{ page_key: 'admin-global', edits: selectedEdits, revision: Number(row.revision) || 0 }],
+    keys,
+    recoveryBackupAvailable: Boolean(recoveryBackup)
+  };
+}
+
+async function readAdminRecoveryState(supabaseUrl: string, anonKey: string, authorization: string) {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/site_edits?select=page_key,edits,revision`,
+    { headers: { Authorization: authorization, apikey: anonKey } }
+  );
+  const rows = await readJson(response);
+  if (!response.ok) throw new PublishError('supabase-read', 502, 'ADMIN_RECOVERY_READ_FAILED', 'Could not read Admin recovery state.');
+  return { rows: Array.isArray(rows) ? rows : [] };
+}
+
 async function patchAdminGlobal(
   supabaseUrl: string,
   anonKey: string,
@@ -475,13 +518,20 @@ Deno.serve(async (request) => {
 
   try {
     const { supabaseUrl, anonKey, authorization } = await authenticateAdmin(request);
+    const payload = await request.json().catch(() => {
+      throw new PublishError('validation', 400, 'INVALID_JSON', 'Request body must be valid JSON.');
+    });
+    if (payload?.action === 'working-state') {
+      return jsonResponse(request, await readAdminWorkingState(supabaseUrl, anonKey, authorization, payload.keys));
+    }
+    if (payload?.action === 'recovery-state') {
+      return jsonResponse(request, await readAdminRecoveryState(supabaseUrl, anonKey, authorization));
+    }
+
     const token = requiredEnvironment('GITHUB_TOKEN');
     const owner = requiredEnvironment('GITHUB_OWNER');
     const repo = requiredEnvironment('GITHUB_REPO');
     const branch = Deno.env.get('GITHUB_BRANCH')?.trim() || 'main';
-    const payload = await request.json().catch(() => {
-      throw new PublishError('validation', 400, 'INVALID_JSON', 'Request body must be valid JSON.');
-    });
     if (payload?.action === 'image-inventory') {
       return jsonResponse(request, await repositoryImageInventory(token, owner, repo, branch));
     }
