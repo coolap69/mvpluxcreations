@@ -1,4 +1,8 @@
+let adminStateUtils = null;
 const adminStateUtilsPromise = import('./admin-state-utils.js');
+adminStateUtilsPromise.then((module) => {
+  adminStateUtils = module;
+});
 const adminArchitecturePromise = import('./admin-architecture.js');
 const adminTabId = crypto.randomUUID?.()
   || `admin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -9,6 +13,7 @@ const adminProducts = [
     title: 'Sport Legend Standees',
     description: 'Shop sports-inspired standee styles, then choose different players, sizes, and background options inside the category.',
     originalHeight: 78,
+    page: 'sports-legends.html',
     cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
     backgroundImage: 'images/FanBackgrounds/top-favorite-stage-gold.png'
   },
@@ -17,6 +22,7 @@ const adminProducts = [
     title: 'Movie Character Standees',
     description: 'Browse movie-style standee categories and see more character looks, poses, and display backgrounds inside.',
     originalHeight: 74,
+    page: 'movie-inspired.html',
     cutoutImage: 'images/MovieCharacterStandees/Endorskeleton/Endornobackground.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -25,6 +31,7 @@ const adminProducts = [
     title: 'People & Public Figure Standees',
     description: 'Plan actor, creator, historical figure, public speaker, or lookalike-style display ideas.',
     originalHeight: 78,
+    page: 'people-public-figures.html',
     cutoutImage: 'images/PeoplePublicFigureStandees/President/Nobackgroubd.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -33,6 +40,7 @@ const adminProducts = [
     title: 'Music Artist Standees',
     description: 'Explore concert-style standee categories with different performers, stage looks, and custom display choices.',
     originalHeight: 69,
+    page: 'music-artists.html',
     cutoutImage: 'images/FrontPageWeb/Music-MJackson-MJTR.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -41,6 +49,7 @@ const adminProducts = [
     title: 'Faith & Celebration Standees',
     description: 'View inspirational and celebration display categories for churches, holidays, events, rooms, and plays.',
     originalHeight: 72,
+    page: 'religious-cutouts.html',
     cutoutImage: 'images/FrontPageWeb/Religious-J13D.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -49,6 +58,7 @@ const adminProducts = [
     title: 'Holiday Standees',
     description: 'Seasonal displays for Christmas, Halloween, Easter, Valentine events, parties, and storefronts.',
     originalHeight: 78,
+    page: 'holiday-cutouts.html',
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero8T.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -57,6 +67,7 @@ const adminProducts = [
     title: 'Fan Request Standees',
     description: 'See fan-inspired ideas, mashups, and custom concepts that can become full-size display pieces.',
     originalHeight: 69,
+    page: 'fan-inspired.html',
     cutoutImage: 'images/FrontPageWeb/Music-MJackson-MJzombie.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -65,6 +76,7 @@ const adminProducts = [
     title: 'Dinosaur & Creature Standees',
     description: 'Shop dinosaur and creature-style displays for birthdays, rooms, outdoor setups, and big party moments.',
     originalHeight: 96,
+    page: 'dinosaur-cutouts.html',
     cutoutImage: 'images/FrontPageWeb/Dinosaurs-JPRex.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -73,6 +85,7 @@ const adminProducts = [
     title: 'Game & Fantasy Standees',
     description: 'Browse game-room, fantasy, stream, and themed-event standee categories with custom scene options.',
     originalHeight: 72,
+    page: 'videogame-cutouts.html',
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero10E.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -81,6 +94,7 @@ const adminProducts = [
     title: 'Custom Photo Standees',
     description: 'Turn your own photo, family member, athlete, or guest of honor into a custom standee display.',
     originalHeight: 66,
+    page: 'custom-photo-cutouts.html',
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero7T.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
@@ -89,6 +103,7 @@ const adminProducts = [
     title: 'Party Pack Standees',
     description: 'Shop smaller standee packs for tables, birthdays, rooms, gifts, and party displays.',
     originalHeight: 36,
+    page: 'small-cutout-party-packs.html',
     cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero8T.png',
     backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
   }
@@ -411,6 +426,16 @@ function readAdminCategories() {
   return structuredClone(getAdminLiveValue('categories', {}));
 }
 
+function readDeletedCategories() {
+  return [...getAdminLiveValue('deletedCategories', [])];
+}
+
+function categoryDefinitionsForAdmin() {
+  const categories = readAdminCategories();
+  if (Object.keys(categories).length) return Object.values(categories);
+  return Object.values(adminArchitectureState?.candidate?.categories || {});
+}
+
 function normalizedCategoryCardProducts() {
   return Object.values(readAdminCategories()).flatMap((category) => {
     if (!category?.card || !category.card.title) return [];
@@ -462,7 +487,7 @@ function setProductSaveState(form, message, state = '') {
 
 function refreshUntouchedProductFormFields(form, latestRecord, dirtyFields = form?._adminDirtyFields || new Set()) {
   if (!form || !latestRecord) return;
-  ['title', 'description', 'cutoutImage', 'backgroundImage', 'originalHeight', 'cutoutHeight', 'cutoutLeft', 'cutoutBottom', 'logoWidth', 'logoTop', 'stageBackgroundPosition']
+  ['title', 'description', 'funFact', 'cutoutImage', 'backgroundImage', 'originalHeight', 'priceOverride', 'cutoutHeight', 'cutoutLeft', 'cutoutBottom', 'logoWidth', 'logoTop', 'stageBackgroundPosition']
     .forEach((fieldName) => {
       if (dirtyFields.has(fieldName)) return;
       const field = form.elements.namedItem(fieldName);
@@ -646,6 +671,7 @@ const ADMIN_COLLECTION_STORAGE_KEYS = {
   customProducts: 'mvpluxAdminCustomProducts',
   savedForLaterProducts: 'mvpluxAdminArchivedProducts',
   deletedProducts: 'mvpluxDeletedProducts',
+  deletedCategories: 'mvpluxDeletedCategories',
   imageDrafts: 'mvpluxImageDrafts',
   dismissedImageDrafts: 'mvpluxDismissedImageDrafts',
   configuredImagePaths: 'mvpluxConfiguredImagePaths',
@@ -1196,11 +1222,13 @@ function publishableProduct(product = {}, archived = false) {
 function publishableCategory(category = {}) {
   return {
     key: String(category.key || ''),
+    ...(category.parentKey ? { parentKey: String(category.parentKey) } : {}),
     title: String(category.title || category.key || 'Untitled category'),
     description: String(category.description || ''),
     funFact: String(category.funFact || ''),
     page: String(category.page || ''),
     visible: category.visible !== false,
+    homepageVisible: category.homepageVisible !== false,
     order: Number(category.order || 0),
     card: {
       title: String(category.card?.title || category.title || ''),
@@ -1212,6 +1240,28 @@ function publishableCategory(category = {}) {
     },
     displaySettings: structuredClone(category.displaySettings || { backgroundPosition: 'center center' })
   };
+}
+
+function semanticComparisonContext() {
+  return {
+    globalDisplaySettings: adminLiveSettings?.globalDisplaySettings || adminPublishedBaseline?.globalDisplaySettings || {},
+    categorySettings: Object.fromEntries(
+      Object.entries(readAdminCategories()).map(([key, category]) => [key, category?.displaySettings || {}])
+    )
+  };
+}
+
+function semanticProductEqual(left, right) {
+  if (!left || !right) return left === right;
+  return adminStateUtils?.semanticProductEqual
+    ? adminStateUtils.semanticProductEqual(left, right, semanticComparisonContext())
+    : JSON.stringify(left) === JSON.stringify(right);
+}
+
+function semanticValuesEqual(left, right) {
+  return adminStateUtils?.semanticValuesEqual
+    ? adminStateUtils.semanticValuesEqual(left, right)
+    : JSON.stringify(left) === JSON.stringify(right);
 }
 
 function publishablePageContent(baseline = {}) {
@@ -1255,6 +1305,7 @@ function buildDefaultPublishBaseline() {
     products: Object.fromEntries(adminCharacterProducts.map((product) => [product.slug, publishableProduct(product)])),
     categoryDisplayCards: Object.fromEntries(adminProducts.map((product) => [product.slug, publishableProduct(product)])),
     deletedProducts: [],
+    deletedCategories: [],
     homepageCategoryOrder: [],
     ignoredImagePaths: [],
     pageVisualStates: {},
@@ -1289,6 +1340,7 @@ function buildCurrentPublishSnapshot() {
     products,
     categoryDisplayCards,
     deletedProducts: [...deleted].sort(),
+    deletedCategories: readDeletedCategories().sort(),
     ignoredImagePaths: [...new Set(readImageDraftPaths('ignoredImagePaths'))].sort(),
     homepageCategoryOrder: homepageOrder?.type === 'homepageCategoryOrder' && Array.isArray(homepageOrder.rows)
       ? homepageOrder.rows.map((row) => [...row])
@@ -1303,6 +1355,7 @@ function buildCurrentPublishSnapshot() {
 function buildNormalizedPublishSnapshot() {
   const archived = new Set(readArchivedProducts());
   const deleted = new Set(readDeletedProducts());
+  const deletedCategories = new Set(readDeletedCategories());
   const published = adminPublishedBaseline || buildDefaultPublishBaseline();
   const products = { ...(published.products || {}) };
   const privateProducts = readAdminProducts();
@@ -1315,12 +1368,24 @@ function buildNormalizedPublishSnapshot() {
     products[slug] = publishableSnapshotProduct(product, product, archived.has(slug));
   });
 
+  Object.keys(products).forEach((slug) => {
+    const product = products[slug];
+    const categories = (product.categories || []).filter((key) => !deletedCategories.has(key));
+    product.categories = categories;
+    product.categoryOrder = Object.fromEntries(Object.entries(product.categoryOrder || {}).filter(([key]) => categories.includes(key)));
+  });
+
   const categories = { ...(published.categories || {}) };
   Object.entries(readAdminCategories()).forEach(([key, category]) => {
     if (category.approvalStatus === 'draft') return;
     categories[key] = publishableCategory({ ...category, key });
   });
+  deletedCategories.forEach((key) => delete categories[key]);
   const categoryDisplayCards = { ...(published.categoryDisplayCards || {}) };
+  deletedCategories.forEach((key) => {
+    delete categoryDisplayCards[categoryCardSlugForKey(key)];
+    delete categoryDisplayCards[`${key}-category-card`];
+  });
   Object.values(categories).forEach((category) => {
     const slug = Object.entries(ADMIN_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
       || `${category.key}-category-card`;
@@ -1341,13 +1406,16 @@ function buildNormalizedPublishSnapshot() {
     schemaVersion: 2,
     products,
     categories,
+    deletedCategories: [...deletedCategories].sort(),
     categoryDisplayCards,
     categorySettings: Object.fromEntries(Object.entries(categories).map(([key, category]) => [key, structuredClone(category.displaySettings || {})])),
     globalDisplaySettings: structuredClone(adminLiveSettings?.globalDisplaySettings || {}),
     deletedProducts: [...deleted].sort(),
     ignoredImagePaths: [...new Set(readImageDraftPaths('ignoredImagePaths'))].sort(),
     homepageCategoryOrder: homepageOrder?.type === 'homepageCategoryOrder' && Array.isArray(homepageOrder.rows)
-      ? homepageOrder.rows.map((row) => [...row]) : [],
+      ? homepageOrder.rows.map((row) => row.filter((value) => !deletedCategories.has(value)
+        && !deletedCategories.has(ADMIN_CATEGORY_CARD_MAP[value])
+        && ![...deletedCategories].some((key) => value === `${key}-category-card`))) : [],
     pageContent: publishablePageContent(published.pageContent),
     pageVisualStates: publishablePageVisualStates(published.pageVisualStates),
     extraImages: Object.fromEntries(Object.entries(readExtraImages()).filter(([, path]) => validatePublishImagePath(String(path || '')))),
@@ -1392,7 +1460,7 @@ function summarizeHomepageOrder(beforeRows = [], afterRows = []) {
 function generatePublishChanges(before, after) {
   const lines = [];
   const seenImages = new Set();
-  if (JSON.stringify(before?.priceSettings || {}) !== JSON.stringify(after?.priceSettings || {})) {
+  if (!semanticValuesEqual(before?.priceSettings || {}, after?.priceSettings || {})) {
     lines.push('Updated published price settings');
   }
   const beforeProducts = { ...(before?.categoryDisplayCards || {}), ...(before?.products || {}) };
@@ -1496,24 +1564,30 @@ function generatePublishChanges(before, after) {
   const beforeVisualStates = before?.pageVisualStates || {};
   const afterVisualStates = after?.pageVisualStates || {};
   [...new Set([...Object.keys(beforeVisualStates), ...Object.keys(afterVisualStates)])].sort().forEach((pageKey) => {
-    if (JSON.stringify(beforeVisualStates[pageKey] || {}) !== JSON.stringify(afterVisualStates[pageKey] || {})) {
+    if (!semanticValuesEqual(beforeVisualStates[pageKey] || {}, afterVisualStates[pageKey] || {})) {
       lines.push(`Updated saved image positioning on ${pageKey}`);
     }
   });
   const beforeCategories = before?.categories || {};
   const afterCategories = after?.categories || {};
   [...new Set([...Object.keys(beforeCategories), ...Object.keys(afterCategories)])].sort().forEach((key) => {
-    if (JSON.stringify(beforeCategories[key] || null) !== JSON.stringify(afterCategories[key] || null)) {
-      lines.push(`${beforeCategories[key] ? 'Updated' : 'Created'} category: ${afterCategories[key]?.title || beforeCategories[key]?.title || key}`);
+    if (!semanticValuesEqual(beforeCategories[key] || null, afterCategories[key] || null)) {
+      const action = beforeCategories[key] && !afterCategories[key] ? 'Deleted'
+        : beforeCategories[key] ? 'Updated' : 'Created';
+      lines.push(`${action} category: ${afterCategories[key]?.title || beforeCategories[key]?.title || key}`);
     }
   });
-  if (JSON.stringify(before?.globalDisplaySettings || {}) !== JSON.stringify(after?.globalDisplaySettings || {})) {
+  const beforeDeletedCategories = new Set(before?.deletedCategories || []);
+  (after?.deletedCategories || []).forEach((key) => {
+    if (!beforeDeletedCategories.has(key)) lines.push(`Deleted category and removed its product assignments: ${key}`);
+  });
+  if (!semanticValuesEqual(before?.globalDisplaySettings || {}, after?.globalDisplaySettings || {})) {
     lines.push('Updated global display settings');
   }
   const beforePageContent = before?.pageContent || {};
   const afterPageContent = after?.pageContent || {};
   [...new Set([...Object.keys(beforePageContent), ...Object.keys(afterPageContent)])].sort().forEach((pageKey) => {
-    if (JSON.stringify(beforePageContent[pageKey] || {}) !== JSON.stringify(afterPageContent[pageKey] || {})) {
+    if (!semanticValuesEqual(beforePageContent[pageKey] || {}, afterPageContent[pageKey] || {})) {
       lines.push(`Updated page content on ${pageKey}`);
     }
   });
@@ -1564,6 +1638,7 @@ function normalizePublishedBaseline(snapshot) {
     delete baseline.products[slug];
   });
   baseline.deletedProducts = Array.isArray(snapshot.deletedProducts) ? [...snapshot.deletedProducts] : [];
+  baseline.deletedCategories = Array.isArray(snapshot.deletedCategories) ? [...snapshot.deletedCategories] : [];
   baseline.homepageCategoryOrder = Array.isArray(snapshot.homepageCategoryOrder)
     ? snapshot.homepageCategoryOrder.map((row) => Array.isArray(row) ? [...row] : [])
     : [];
@@ -1611,17 +1686,14 @@ async function loadPublishedPublishBaseline() {
 }
 
 function productLifecycleState(product, saved, archived) {
-  const current = publishableProduct({ ...product, ...(saved[product.slug] || {}) }, archived.has(product.slug));
+  const privateRecord = saved[product.slug] || {};
+  const current = publishableProduct({ ...product, ...privateRecord }, archived.has(product.slug));
   const publishedSnapshot = adminLiveSettings?.lastPublishedSnapshot || adminLastSuccessfulSnapshot;
   const published = publishedSnapshot?.products?.[product.slug];
-  if (!published) return { key: 'waiting', label: 'Waiting to Publish' };
-  const canonicalJson = (value) => JSON.stringify(value, (_, item) => (
-    item && typeof item === 'object' && !Array.isArray(item)
-      ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left.localeCompare(right)))
-      : item
-  ));
-  if (canonicalJson(current) === canonicalJson(published)) return { key: 'published', label: 'Published' };
-  return { key: 'waiting', label: 'Changes Waiting to Publish' };
+  if (!published) return { key: 'draft', label: 'Draft' };
+  if (semanticProductEqual(current, published)) return { key: 'published', label: 'Published' };
+  if (privateRecord.approvalStatus === 'draft' || privateRecord.draftStatus === 'draft') return { key: 'draft', label: 'Draft' };
+  return { key: 'unpublished', label: 'Unpublished Changes' };
 }
 
 function getProductLifecycleCounts() {
@@ -1632,7 +1704,7 @@ function getProductLifecycleCounts() {
   const states = products.map((product) => productLifecycleState(product, saved, archived));
   return {
     approved: products.length,
-    waiting: states.filter((state) => state.key === 'waiting').length,
+    waiting: states.filter((state) => ['draft', 'unpublished'].includes(state.key)).length,
     published: states.filter((state) => state.key === 'published').length
   };
 }
@@ -1858,6 +1930,124 @@ async function publishAdminChanges() {
     adminLatestPublishError = error.message || 'GitHub publish failed.';
     renderAdminDiagnostics();
     setStatus(adminLatestPublishError);
+  }
+}
+
+async function publishScopedChangeIds(changeIds, label, statusTarget = null) {
+  const setLocalStatus = (message, state = '') => {
+    if (statusTarget) {
+      statusTarget.textContent = message;
+      statusTarget.dataset.state = state;
+    }
+    setStatus(message);
+  };
+  setLocalStatus('Checking the latest private save…', 'publishing');
+  if (!await waitForAdminSaves()) return false;
+  const persisted = await loadAdminLiveSettings();
+  if (!persisted) {
+    setLocalStatus(`Publish stopped: ${adminLastSaveError || 'private state could not be reloaded.'}`, 'failed');
+    return false;
+  }
+  const migration = adminLiveSettings?.adminArchitectureMigrationV2?.productPageOverrides;
+  const unresolved = (migration?.conflicts?.length || 0) + (migration?.unsupported?.length || 0);
+  if (newAdminArchitectureEnabled() && unresolved) {
+    setLocalStatus(`Publish stopped: ${unresolved} conflict${unresolved === 1 ? '' : 's'} require attention in Advanced.`, 'failed');
+    return false;
+  }
+  const selected = architectureReviewItems().filter((item) => changeIds.includes(item.id));
+  if (!selected.length) {
+    setLocalStatus('Published — there are no meaningful changes to publish.', 'published');
+    renderAdminProducts();
+    return true;
+  }
+  const snapshot = buildSelectedArchitectureSnapshot(selected);
+  const changes = generatePublishChanges(adminPublishedBaseline || buildDefaultPublishBaseline(), snapshot);
+  const selectedImages = automaticPublishImagePaths(selected, snapshot);
+  const invalidImages = selectedImages.filter((path) => !validatePublishImagePath(path));
+  if (!changes.length || invalidImages.length) {
+    setLocalStatus(invalidImages.length ? `Publish stopped: invalid image path ${invalidImages[0]}.` : 'Published — there are no meaningful changes to publish.', invalidImages.length ? 'failed' : 'published');
+    return invalidImages.length === 0;
+  }
+  const summary = changes.map((change) => `- ${change}`).join('\n');
+  if (!window.confirm(`Publish “${label}”?\n\nChanges:\n${changes.join('\n')}`)) {
+    setLocalStatus('Publish canceled. Your private draft is still saved.', 'draft');
+    return false;
+  }
+  try {
+    setLocalStatus('Publishing…', 'publishing');
+    const imageFiles = await loadSelectedPublishImages(selectedImages);
+    const result = await callAdminPublisher({
+      action: 'publish',
+      title: `Publish ${String(label || 'Admin change').slice(0, 64)}`,
+      body: summary,
+      changeSummary: summary,
+      snapshot,
+      imageFiles
+    });
+    const tracked = await saveAdminSettingsLive({ lastPublishedSnapshot: snapshot, publishHistory: result.publishHistory || [] });
+    if (!tracked) throw new Error(`GitHub commit ${result.commitHash || ''} succeeded, but its published state could not be synchronized.`);
+    adminPublishedBaseline = normalizePublishedBaseline(snapshot);
+    adminLastSuccessfulSnapshot = snapshot;
+    adminPublishedFileState = { reachable: true, publishedAt: result.publishedAt || new Date().toISOString(), commitHash: result.commitHash || '' };
+    currentPublishReview = null;
+    selectedPublishChangeIds.clear();
+    selectedPublishMode = false;
+    renderPublishHistory();
+    renderAdminProducts();
+    renderAdminDashboard();
+    renderImageImportPending();
+    setLocalStatus(`Published. GitHub commit ${result.commitHash?.slice(0, 7) || ''}; deployment ${result.deploymentResult || 'queued'}.`, 'published');
+    return true;
+  } catch (error) {
+    adminLatestPublishError = error?.message || 'Publish failed.';
+    renderAdminDiagnostics();
+    setLocalStatus(`Publish Failed — ${adminLatestPublishError}`, 'failed');
+    return false;
+  }
+}
+
+async function publishExistingProductForm(form) {
+  const button = form.querySelector('[data-publish-product]');
+  if (button) button.disabled = true;
+  try {
+    if (!await saveProductForm(form, 'Draft saved privately.')) return false;
+    const slug = form.dataset.slug;
+    const base = effectiveAdminProduct(slug) || form._adminBaseRecord || {};
+    const approved = await saveAdminProductFieldPatch(slug, {
+      approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString()
+    }, base, form);
+    if (!approved.ok) return false;
+    return publishScopedChangeIds([`product:${slug}`], base.title || slug, form.querySelector('[data-product-save-state]'));
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function publishNewProductFromForm(form) {
+  const formData = new FormData(form);
+  const slug = makeSlug(formData.get('slug') || formData.get('title'));
+  const title = String(formData.get('title') || slug);
+  const button = form.querySelector('[data-publish-new-product]');
+  if (button) button.disabled = true;
+  try {
+    if (!await saveNewProductFromForm(form, 'approved')) return false;
+    return publishScopedChangeIds([`product:${slug}`], title, form.querySelector('[data-create-product-status]'));
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function publishNewCategoryFromForm(form) {
+  const formData = new FormData(form);
+  const key = makeSlug(formData.get('key') || formData.get('title'));
+  const title = String(formData.get('title') || key);
+  const button = form.querySelector('[data-publish-new-category]');
+  if (button) button.disabled = true;
+  try {
+    if (!await saveNewCategoryFromForm(form, 'approved')) return false;
+    return publishScopedChangeIds([`category:${key}`], title, form.querySelector('[data-create-category-status]'));
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -2652,8 +2842,13 @@ function renderNewCategoryPreview(form) {
   const title = form.elements.namedItem('title')?.value.trim() || 'Example Collection';
   const description = form.elements.namedItem('description')?.value.trim() || 'A short description of this collection appears here.';
   const position = form.elements.namedItem('backgroundPosition')?.value || 'center center';
-  preview.innerHTML = `<article class="admin-builder-category-card" style="background-image:url('${escapeAdminHtml(background)}');background-position:${escapeAdminHtml(position)}">
-    <img src="${escapeAdminHtml(image)}" alt="Category preview">
+  const size = safeCategoryDisplayNumber(form.elements.namedItem('standeeSizePercent')?.value, CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX);
+  const horizontal = safeCategoryDisplayNumber(form.elements.namedItem('standeeLeftPercent')?.value, 0, -50, 50);
+  const vertical = safeCategoryDisplayNumber(form.elements.namedItem('standeeVerticalPercent')?.value, 0, -50, 50);
+  const left = Math.max(10, Math.min(90, 50 + horizontal));
+  const bottom = Math.max(0, Math.min(75, 18 - vertical));
+  preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview" style="background-image:url('${escapeAdminHtml(background)}');background-position:${escapeAdminHtml(position)}">
+    <div class="admin-category-preview-stage"><img src="${escapeAdminHtml(image)}" alt="Category preview" style="height:${size}%;left:${left}%;bottom:${bottom}%"></div>
     <div><h4>${escapeAdminHtml(title)}</h4><p>${escapeAdminHtml(description)}</p><span class="admin-button admin-button-primary">View Collection</span></div>
   </article>`;
 }
@@ -2688,6 +2883,8 @@ async function requestAdminContentSuggestion(form, action, button) {
     const token = data?.session?.access_token;
     if (!token) throw new Error('Sign in as Admin to use optional AI suggestions.');
     const formData = new FormData(form);
+    const existingProduct = effectiveAdminProduct(String(formData.get('parentProductSlug') || ''));
+    const existingCategory = readAdminCategories()[String(form.dataset.categoryEdit || '')];
     const controller = new AbortController();
     timeout = window.setTimeout(() => controller.abort(), 45_000);
     const response = await fetch(`${projectUrl}/functions/v1/admin-content-assistant`, {
@@ -2697,11 +2894,25 @@ async function requestAdminContentSuggestion(form, action, button) {
         action,
         identity: String(formData.get('subjectIdentity') || ''),
         imagePath: String(formData.get('selectedPreviewImage') || formData.get('cutoutImage') || formData.get('cardImage') || form.dataset.imagePath || ''),
-        category: formData.getAll('categories').join(', '),
+        category: formData.getAll('categories').join(', ') || productCategoryNames(existingProduct) || existingCategory?.title || '',
         context: {
-          title: String(formData.get('title') || ''),
-          description: String(formData.get('description') || ''),
-          funFact: String(formData.get('funFact') || '')
+          title: String(formData.get('title') || existingProduct?.title || ''),
+          description: String(formData.get('description') || existingProduct?.description || ''),
+          funFact: String(formData.get('funFact') || existingProduct?.funFact || ''),
+          existingProduct: existingProduct ? {
+            slug: existingProduct.slug,
+            title: existingProduct.title,
+            description: existingProduct.description,
+            funFact: existingProduct.funFact,
+            categories: existingProduct.categories,
+            imageChoices: existingProduct.imageChoices
+          } : null,
+          existingCategory: existingCategory ? {
+            key: existingCategory.key,
+            title: existingCategory.title,
+            description: existingCategory.description,
+            funFact: existingCategory.funFact
+          } : null
         }
       }),
       signal: controller.signal
@@ -2768,7 +2979,7 @@ async function saveNewProductFromForm(form, approvalStatus) {
   form.dataset.lastCreatedSlug = slug;
   form.dataset.lastCreatedPage = (readAdminCategories()[categories[0]]?.page || 'index.html');
   form.querySelector('[data-open-created-product]').disabled = false;
-  setCreationStatus(form, approvalStatus === 'approved' ? 'Approved — Waiting to Publish' : 'Draft saved privately.', 'saved');
+  setCreationStatus(form, approvalStatus === 'approved' ? 'Unpublished Changes' : 'Draft saved privately.', 'saved');
   form.reset();
   form.querySelector('[name="backgroundPosition"]').value = 'center center';
   renderNewProductPreview(form);
@@ -2783,9 +2994,22 @@ async function saveNewCategoryFromForm(form, approvalStatus) {
     setCreationStatus(form, 'Add the category title and key.', 'error');
     return false;
   }
+  if (approvalStatus === 'approved' && !String(formData.get('cardImage') || '').trim()) {
+    setCreationStatus(form, 'Choose a Category image before publishing.', 'error');
+    return false;
+  }
   const latest = await fetchAuthoritativeAdminGlobal();
-  if (latest.edits?.categories?.[key]) {
-    setCreationStatus(form, 'That category key already exists.', 'error');
+  const candidateIdentity = { key, title: String(formData.get('title') || ''), page: String(formData.get('page') || '').trim() || `category.html?category=${encodeURIComponent(key)}` };
+  const existingCategories = { ...(adminArchitectureState?.candidate?.categories || {}), ...(latest.edits?.categories || {}) };
+  const equivalents = adminStateUtils.findEquivalentCategories(existingCategories, candidateIdentity);
+  if (equivalents.length) {
+    const existing = equivalents[0];
+    const notice = document.getElementById('adminCategoryDuplicateNotice');
+    if (notice) {
+      notice.hidden = false;
+      notice.innerHTML = `<strong>A similar Category already exists.</strong><p>${escapeAdminHtml(existing.title || existing.key)} — <code>${escapeAdminHtml(existing.key)}</code></p><div class="admin-panel-actions"><button type="button" data-open-existing-category="${escapeAdminHtml(existing.key)}">Open Existing</button><button type="button" data-cancel-new-category>Cancel New Category</button></div>`;
+    }
+    setCreationStatus(form, 'A similar Category already exists. Open the existing Category or cancel the new Category.', 'error');
     return false;
   }
   const now = new Date().toISOString();
@@ -2796,13 +3020,14 @@ async function saveNewCategoryFromForm(form, approvalStatus) {
     funFact: String(formData.get('funFact') || '').trim(),
     page: String(formData.get('page') || '').trim() || `category.html?category=${encodeURIComponent(key)}`,
     visible: formData.has('visible'),
+    homepageVisible: formData.has('homepageVisible'),
     order: Number(formData.get('order') || 999),
     card: {
       title: String(formData.get('title')).trim(),
       description: String(formData.get('description') || '').trim(),
       image: String(formData.get('cardImage') || '').trim(),
       backgroundImage: String(formData.get('cardBackgroundImage') || '').trim(),
-      visible: formData.has('visible'),
+      visible: formData.has('homepageVisible'),
       order: Number(formData.get('order') || 999)
     },
     displaySettings: createFormDisplaySettings(form),
@@ -2812,37 +3037,41 @@ async function saveNewCategoryFromForm(form, approvalStatus) {
     approvalStatus
   };
   setCreationStatus(form, 'Saving…', 'saving');
-  const result = await saveAdminCollectionOperations([{
-    type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: undefined, patch: category
-  }]);
+  const result = await saveAdminCollectionOperations([
+    { type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: undefined, patch: category },
+    { type: 'membership', collectionKey: 'deletedCategories', entryKey: key, present: false, baseValues: latest.edits?.deletedCategories || [] }
+  ]);
   if (!result.ok) {
     setCreationStatus(form, adminLastSaveError || 'Save failed — your values remain on screen.', 'error');
     return false;
   }
   form.dataset.lastCreatedPage = category.page;
   form.querySelector('[data-open-created-category]').disabled = false;
-  setCreationStatus(form, approvalStatus === 'approved' ? 'Approved — Waiting to Publish' : 'Draft saved privately.', 'saved');
+  setCreationStatus(form, approvalStatus === 'approved' ? 'Unpublished Changes' : 'Draft saved privately.', 'saved');
   form.reset();
   form.querySelector('[name="backgroundPosition"]').value = 'center center';
   renderNewCategoryPreview(form);
+  renderAdminProducts();
   return true;
 }
 
 function setupAdminCreationWorkspace() {
-  const section = document.getElementById('create-content');
+  const section = document.getElementById('products');
   const productForm = document.getElementById('createProductForm');
   const categoryForm = document.getElementById('createCategoryForm');
   if (!productForm || !categoryForm) return;
+  const categoryMount = document.getElementById('adminCategoryBuilderMount');
+  if (categoryMount && categoryForm.parentElement !== categoryMount) categoryMount.appendChild(categoryForm);
   productForm.querySelector('[data-create-product-categories]').innerHTML = creationCategoryMarkup();
   populateCreationImagePickers(productForm);
-  populateCreationImagePickers(categoryForm);
+  populateNewCategoryVisualPickers(categoryForm);
   [productForm, categoryForm].forEach((form) => {
     const enabled = normalizedAdminStateAvailable();
     form.querySelectorAll('button[type="submit"]').forEach((button) => { button.disabled = !enabled; });
     const availability = form.querySelector('[data-builder-availability]');
     if (availability) availability.textContent = enabled
       ? 'Saved privately — customers cannot see this until you publish.'
-      : 'Preview available. Activate the New Admin System from Dashboard before saving.';
+      : 'Preview available. Open Advanced to finish activating the private Admin architecture before saving.';
   });
   if (section) section.dataset.architectureReady = String(newAdminArchitectureEnabled());
   if (productForm.dataset.creationBound) {
@@ -2861,11 +3090,13 @@ function setupAdminCreationWorkspace() {
     renderNewCategoryPreview(categoryForm);
   });
   productForm.querySelector('[data-preview-new-product]')?.addEventListener('click', () => renderNewProductPreview(productForm));
+  productForm.querySelector('[data-publish-new-product]')?.addEventListener('click', () => publishNewProductFromForm(productForm));
   categoryForm.querySelector('[data-preview-new-category]')?.addEventListener('click', () => renderNewCategoryPreview(categoryForm));
+  categoryForm.querySelector('[data-publish-new-category]')?.addEventListener('click', () => publishNewCategoryFromForm(categoryForm));
   productForm.addEventListener('submit', (event) => {
     event.preventDefault();
     if (!newAdminArchitectureEnabled()) {
-      setCreationStatus(productForm, 'Activate the New Admin System from Dashboard before saving.', 'error');
+      setCreationStatus(productForm, 'Open Advanced to activate the private Admin architecture before saving.', 'error');
       return;
     }
     saveNewProductFromForm(productForm, event.submitter?.value === 'approve' ? 'approved' : 'draft');
@@ -2873,7 +3104,7 @@ function setupAdminCreationWorkspace() {
   categoryForm.addEventListener('submit', (event) => {
     event.preventDefault();
     if (!newAdminArchitectureEnabled()) {
-      setCreationStatus(categoryForm, 'Activate the New Admin System from Dashboard before saving.', 'error');
+      setCreationStatus(categoryForm, 'Open Advanced to activate the private Admin architecture before saving.', 'error');
       return;
     }
     saveNewCategoryFromForm(categoryForm, event.submitter?.value === 'approve' ? 'approved' : 'draft');
@@ -2890,7 +3121,7 @@ function setupAdminCreationWorkspace() {
     renderNewProductPreview(productForm);
   }));
   categoryForm.addEventListener('reset', () => setTimeout(() => {
-    populateCreationImagePickers(categoryForm);
+    populateNewCategoryVisualPickers(categoryForm);
     syncGeneratedCreationValue(categoryForm, 'key');
     renderNewCategoryPreview(categoryForm);
   }));
@@ -3208,10 +3439,13 @@ function collectProductFormData(form, dirtyFields = form?._adminDirtyFields || n
   const base = allAdminProducts().find((product) => product.slug === form.dataset.slug) || {};
   const current = { ...base, ...(readAdminProducts()[form.dataset.slug] || {}) };
   const patch = {};
-  const textFields = ['title', 'description', 'cutoutImage', 'backgroundImage', 'originalHeight', 'cutoutHeight', 'cutoutLeft', 'cutoutBottom', 'logoWidth', 'logoTop', 'stageBackgroundPosition'];
+  const textFields = ['title', 'description', 'funFact', 'cutoutImage', 'backgroundImage', 'originalHeight', 'priceOverride', 'cutoutHeight', 'cutoutLeft', 'cutoutBottom', 'logoWidth', 'logoTop', 'stageBackgroundPosition'];
   textFields.forEach((field) => {
     if (dirtyFields.has(field)) patch[field] = String(formData.get(field) || '').trim();
   });
+  if (Object.prototype.hasOwnProperty.call(patch, 'priceOverride')) {
+    patch.priceOverride = patch.priceOverride === '' ? null : Number(patch.priceOverride);
+  }
   if (dirtyFields.has('categories')) patch.categories = current.categoryCard ? [] : formData.getAll('categories');
   if (dirtyFields.has('visible')) patch.visible = current.categoryCard ? current.visible !== false : formData.has('visible');
   return patch;
@@ -3409,7 +3643,7 @@ function renderSavedProducts() {
 }
 
 function categoryAssignmentMarkup(value) {
-  const categories = window.MVPLUX_PRODUCT_CATEGORIES || [];
+  const categories = categoryDefinitionsForAdmin().filter((category) => !readDeletedCategories().includes(category.key));
   const selected = new Set(value.categories || []);
   return `
     <fieldset class="admin-category-controls">
@@ -3424,7 +3658,7 @@ function categoryAssignmentMarkup(value) {
           ${categories.map((category) => `
             <label>
               <input name="categories" type="checkbox" value="${category.key}" ${selected.has(category.key) ? 'checked' : ''}>
-              ${category.label}
+              ${category.title || category.label || category.key}
             </label>
           `).join('')}
         </div>
@@ -3433,7 +3667,7 @@ function categoryAssignmentMarkup(value) {
         <label>
           Current section
           <select name="activeCategory">
-            ${categories.map((category) => `<option value="${category.key}" ${selected.has(category.key) ? 'selected' : ''}>${category.label}</option>`).join('')}
+            ${categories.map((category) => `<option value="${category.key}" ${selected.has(category.key) ? 'selected' : ''}>${category.title || category.label || category.key}</option>`).join('')}
           </select>
         </label>
         <button type="button" data-remove-section>Remove from This Category</button>
@@ -3511,7 +3745,7 @@ function effectiveAdminProduct(slug) {
 }
 
 function productCategoryNames(product) {
-  const labels = new Map((window.MVPLUX_PRODUCT_CATEGORIES || []).map((category) => [category.key, category.label]));
+  const labels = new Map(categoryDefinitionsForAdmin().map((category) => [category.key, category.title || category.label || category.key]));
   return (product?.categories || []).map((category) => labels.get(category) || category).join(', ') || 'Uncategorized';
 }
 
@@ -3556,6 +3790,14 @@ function bindParentProductPicker(scope) {
       <img src="${escapeAdminHtml(product.cutoutImage || '')}" alt="">
       <span><strong>${escapeAdminHtml(product.title)}</strong><br>${escapeAdminHtml(product.slug)}<br>${escapeAdminHtml(productCategoryNames(product))}</span>
     ` : '<span>No parent product selected.</span>';
+    const imageDraftForm = scope.matches?.('.admin-image-draft') ? scope : null;
+    if (imageDraftForm && product && imageDraftForm.dataset.prefilledProduct !== product.slug) {
+      ['title', 'description', 'funFact'].forEach((fieldName) => {
+        const field = imageDraftForm.elements.namedItem(fieldName);
+        if (field) field.value = String(product[fieldName] || '');
+      });
+      imageDraftForm.dataset.prefilledProduct = product.slug;
+    }
   };
 
   search?.addEventListener('input', () => {
@@ -3778,7 +4020,7 @@ function architectureReviewItems() {
   Object.entries(readAdminProducts()).forEach(([slug, product]) => {
     const before = baseline.products?.[slug];
     const after = publishableProduct(product, readArchivedProducts().includes(slug));
-    if (JSON.stringify(before || null) === JSON.stringify(after)) return;
+    if (semanticProductEqual(before || null, after)) return;
     items.push({
       id: `product:${slug}`,
       type: 'product', key: slug,
@@ -3793,7 +4035,7 @@ function architectureReviewItems() {
   Object.entries(readAdminCategories()).forEach(([key, category]) => {
     const before = baseline.categories?.[key];
     const after = publishableCategory({ ...category, key });
-    if (JSON.stringify(before || null) === JSON.stringify(after)) return;
+    if (semanticValuesEqual(before || null, after)) return;
     items.push({
       id: `category:${key}`,
       type: 'category', key,
@@ -3804,12 +4046,29 @@ function architectureReviewItems() {
       before, after, page: category.page || 'index.html'
     });
   });
+  readDeletedCategories().forEach((key) => {
+    if ((baseline.deletedCategories || []).includes(key)) return;
+    const before = baseline.categories?.[key]
+      || adminArchitectureState?.candidate?.categories?.[key]
+      || { key, title: key };
+    items.push({
+      id: `category-delete:${key}`,
+      type: 'category-delete', key,
+      group: 'Category Deletions',
+      title: before.title || key,
+      approved: true,
+      updatedAt: '',
+      before,
+      after: null,
+      page: before.page || 'index.html'
+    });
+  });
   Object.entries(adminPageLiveEdits || {}).forEach(([pageKey, entries]) => {
     Object.entries(entries || {}).forEach(([elementKey, edit]) => {
       if (!edit || typeof edit !== 'object' || edit.type) return;
       const before = { ...(baseline.pageContent?.[pageKey]?.[elementKey] || {}), ...(baseline.pageVisualStates?.[pageKey]?.[elementKey] || {}) };
       const after = Object.fromEntries(Object.entries(edit).filter(([field]) => !['approvalStatus', 'updatedAt'].includes(field)));
-      if (JSON.stringify(before) === JSON.stringify(after)) return;
+      if (semanticValuesEqual(before, after)) return;
       items.push({
         id: `page:${pageKey}:${elementKey}`,
         type: 'page', key: elementKey, pageKey,
@@ -3820,7 +4079,7 @@ function architectureReviewItems() {
       });
     });
   });
-  if (JSON.stringify(baseline.extraImages || {}) !== JSON.stringify(readExtraImages())) {
+  if (!semanticValuesEqual(baseline.extraImages || {}, readExtraImages())) {
     items.push({ id: 'extraImages:all', type: 'extraImages', key: 'all', group: 'Image Changes', title: 'Most Wanted / Gallery images', approved: true, before: baseline.extraImages || {}, after: readExtraImages(), page: 'index.html' });
   }
   return items;
@@ -3845,12 +4104,29 @@ function buildSelectedArchitectureSnapshot(items) {
     if (item.type === 'category') {
       if (current.categories?.[item.key]) baseline.categories[item.key] = structuredClone(current.categories[item.key]);
       else delete baseline.categories[item.key];
+      baseline.deletedCategories = (baseline.deletedCategories || []).filter((key) => key !== item.key);
       const cardSlug = categoryCardSlugForKey(item.key);
       if (current.categoryDisplayCards?.[cardSlug]) baseline.categoryDisplayCards[cardSlug] = structuredClone(current.categoryDisplayCards[cardSlug]);
       else delete baseline.categoryDisplayCards[cardSlug];
       baseline.categorySettings ||= {};
       if (current.categorySettings?.[item.key]) baseline.categorySettings[item.key] = structuredClone(current.categorySettings[item.key]);
       else delete baseline.categorySettings[item.key];
+      return;
+    }
+    if (item.type === 'category-delete') {
+      delete baseline.categories[item.key];
+      const cardSlug = categoryCardSlugForKey(item.key);
+      delete baseline.categoryDisplayCards[cardSlug];
+      delete baseline.categoryDisplayCards[`${item.key}-category-card`];
+      delete baseline.categorySettings?.[item.key];
+      baseline.deletedCategories = [...new Set([...(baseline.deletedCategories || []), item.key])].sort();
+      Object.values(baseline.products || {}).forEach((product) => {
+        product.categories = (product.categories || []).filter((key) => key !== item.key);
+        if (product.categoryOrder) delete product.categoryOrder[item.key];
+      });
+      baseline.homepageCategoryOrder = (baseline.homepageCategoryOrder || []).map((row) => row.filter((value) => (
+        value !== item.key && value !== cardSlug && value !== `${item.key}-category-card`
+      )));
       return;
     }
     if (item.type === 'page') {
@@ -3893,7 +4169,10 @@ function publishSnapshotImagePaths(snapshot) {
 function automaticPublishImagePaths(items, snapshot) {
   if (!(items || []).length) return [];
   const publishedPaths = publishSnapshotImagePaths(adminPublishedBaseline || buildDefaultPublishBaseline());
-  return [...publishSnapshotImagePaths(snapshot)].filter((path) => !publishedPaths.has(path)).sort();
+  return [...publishSnapshotImagePaths(snapshot)]
+    .filter((path) => !publishedPaths.has(path))
+    .filter((path) => imageInventorySource !== 'local' || localOnlyImagePaths.has(path) || !repositoryImagePaths.has(path))
+    .sort();
 }
 
 function prepareSelectedPublish(items) {
@@ -4091,6 +4370,623 @@ function bindArchitectureReview(container) {
   });
 }
 
+function categoryLifecycleState(category) {
+  const published = adminPublishedBaseline?.categories?.[category.key];
+  const current = publishableCategory(category);
+  if (!published) {
+    if (category.approvalStatus === 'draft' || category.draftStatus === 'draft') return 'Draft';
+    if (!category.updatedAt && category.approvalStatus === 'approved') return 'Published';
+    return 'Unpublished Changes';
+  }
+  if (semanticValuesEqual(published, current)) return 'Published';
+  return category.approvalStatus === 'draft' ? 'Draft' : 'Unpublished Changes';
+}
+
+function categoryAssignedProducts(categoryKey) {
+  return effectiveAdminProducts()
+    .filter((product) => (product.categories || []).includes(categoryKey))
+    .sort((left, right) => String(left.title || left.slug).localeCompare(String(right.title || right.slug)));
+}
+
+function categoryAssignmentOptions(product) {
+  const selected = new Set(product.categories || []);
+  return categoryDefinitionsForAdmin()
+    .filter((category) => category?.key && !readDeletedCategories().includes(category.key))
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
+    .map((category) => `<label><input type="checkbox" name="categories" value="${escapeAdminHtml(category.key)}" ${selected.has(category.key) ? 'checked' : ''}> ${escapeAdminHtml(category.title || category.key)}</label>`)
+    .join('');
+}
+
+function categoryProductsMarkup(category) {
+  const products = categoryAssignedProducts(category.key);
+  if (!products.length) return '<p class="admin-note">No products are assigned to this Category.</p>';
+  return products.map((product) => `
+    <form class="admin-category-product-row" data-category-product="${escapeAdminHtml(product.slug)}" data-category-key="${escapeAdminHtml(category.key)}">
+      <img src="${escapeAdminHtml(product.cutoutImage || '')}" alt="">
+      <div><strong>${escapeAdminHtml(product.title || product.slug)}</strong><small>${escapeAdminHtml(product.slug)}</small><span>${product.visible === false ? 'Hidden' : 'Visible'}</span></div>
+      <details><summary>Category assignments</summary><div class="admin-category-options">${categoryAssignmentOptions(product)}</div></details>
+      <div class="admin-card-actions">
+        <button type="submit">Save Categories</button>
+        <button type="button" data-remove-product-category>Remove from This Category</button>
+        <a class="admin-button admin-button-secondary" href="#products" data-open-category-product="${escapeAdminHtml(product.slug)}">Open / Edit Product</a>
+      </div>
+    </form>`).join('');
+}
+
+function categoryChildGroups(categoryKey, categories = readAdminCategories()) {
+  return adminStateUtils?.childCategories
+    ? adminStateUtils.childCategories(categories, categoryKey)
+    : Object.values(categories || {}).filter((category) => category?.parentKey === categoryKey);
+}
+
+function childGroupMarkup(masterCategory, categories) {
+  const children = categoryChildGroups(masterCategory.key, categories);
+  const products = Object.fromEntries(effectiveAdminProducts().map((product) => [product.slug, product]));
+  const hierarchyWarnings = adminStateUtils?.categoryHierarchyWarnings?.(categories, products) || [];
+  return `<details class="admin-child-groups-panel" data-child-groups-panel>
+    <summary>Child Groups (${children.length})</summary>
+    <div class="admin-child-groups-list">
+      ${children.length ? children.map((child) => {
+        const count = categoryAssignedProducts(child.key).length;
+        const warnings = hierarchyWarnings.filter((warning) => warning.categoryKey === child.key);
+        return `<article class="admin-child-group-row" data-child-group-card="${escapeAdminHtml(child.key)}">
+          <div class="admin-child-group-summary"><strong>${escapeAdminHtml(child.title || child.key)}</strong><code>${escapeAdminHtml(child.key)}</code></div>
+          <span><strong>${count}</strong> products</span>
+          <span>${child.visible === false ? 'Hidden' : 'Visible'}</span>
+          <span>Order ${Number(child.order || 0)}</span>
+          <div class="admin-card-actions">
+            <button type="button" data-open-child-products>Open Products</button>
+            <button type="button" data-edit-child-group>Edit</button>
+            <button type="button" data-toggle-child-group="${child.visible === false ? 'show' : 'hide'}">${child.visible === false ? 'Show' : 'Hide'}</button>
+          </div>
+          ${warnings.length ? `<p class="admin-warning-message">Assignment warning: ${warnings.map((warning) => warning.productSlug ? `${warning.productSlug} is assigned to ${child.title || child.key} without ${masterCategory.title || masterCategory.key}` : warning.type).join('; ')}. Nothing was repaired automatically.</p>` : ''}
+          <details data-child-products-panel><summary>Products (${count})</summary><div class="admin-category-products">${categoryProductsMarkup(child)}</div></details>
+          <details data-child-edit-panel><summary>Edit Child Group</summary>${categoryEditMarkup(child)}</details>
+        </article>`;
+      }).join('') : '<p class="admin-note">No Child Groups have been created for this Main Category.</p>'}
+      <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}" disabled title="Child creation will be enabled only after the first groups are approved.">+ Add Child Group</button>
+    </div>
+  </details>`;
+}
+
+const CATEGORY_IMAGE_SIZE_DEFAULT = 63;
+const CATEGORY_IMAGE_SIZE_MIN = 20;
+const CATEGORY_IMAGE_SIZE_MAX = 140;
+
+function safeCategoryDisplayNumber(value, fallback, minimum, maximum) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < minimum) return fallback;
+  return Math.min(maximum, number);
+}
+
+function effectiveCategoryDisplaySettings(category = {}) {
+  const global = adminLiveSettings?.globalDisplaySettings || adminPublishedBaseline?.globalDisplaySettings || {};
+  const display = { ...global, ...(category.displaySettings || {}) };
+  const inheritedSize = safeCategoryDisplayNumber(global.standeeSizePercent, CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX);
+  return {
+    ...display,
+    backgroundPosition: String(display.backgroundPosition || 'center center'),
+    standeeSizePercent: safeCategoryDisplayNumber(display.standeeSizePercent, inheritedSize, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
+    standeeLeftPercent: safeCategoryDisplayNumber(display.standeeLeftPercent, 0, -50, 50),
+    standeeVerticalPercent: safeCategoryDisplayNumber(display.standeeVerticalPercent, 0, -50, 50)
+  };
+}
+
+function effectiveCategoryBackground(category = {}) {
+  return String(category.card?.backgroundImage || category.displaySettings?.backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND);
+}
+
+function repositoryCategoryImageLibrary() {
+  const values = new Set([...creationImageLibrary('category'), ...creationImageLibrary('background')]);
+  repositoryImagePaths.forEach((path) => values.add(path));
+  imageDraftInventory.forEach((entry) => { if (validatePublishImagePath(String(entry?.path || ''))) values.add(entry.path); });
+  return [...values].filter((path) => validatePublishImagePath(String(path || '')))
+    .sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
+}
+
+function preferredCategoryImages(category, kind = 'category') {
+  const values = new Set();
+  const add = (path) => { if (validatePublishImagePath(String(path || ''))) values.add(String(path)); };
+  if (kind === 'background') {
+    add(category.card?.backgroundImage);
+    add(category.displaySettings?.backgroundImage);
+    add(IMAGE_IMPORT_DEFAULT_BACKGROUND);
+  } else add(category.card?.image);
+  categoryAssignedProducts(category.key).forEach((product) => {
+    if (kind === 'background') add(product.backgroundImage);
+    else {
+      add(product.cutoutImage);
+      (product.imageChoices || []).forEach((choice) => add(choice.image || choice.src));
+    }
+  });
+  return [...values];
+}
+
+function categoryImagePickerChoices(paths, selected = '') {
+  return paths.map((path) => `<button type="button" class="admin-category-image-choice ${path === selected ? 'selected' : ''}" data-category-image-choice="${escapeAdminHtml(path)}" title="${escapeAdminHtml(path)}">
+    <img src="${escapeAdminHtml(path)}" alt=""><span>${escapeAdminHtml(creationImageLabel(path))}</span>
+  </button>`).join('');
+}
+
+function categoryVisualImagePicker(category, kind = 'category') {
+  const isBackground = kind === 'background';
+  const selected = String(isBackground ? category.card?.backgroundImage || '' : category.card?.image || '');
+  const effective = isBackground ? effectiveCategoryBackground(category) : selected;
+  const preferred = preferredCategoryImages(category, kind);
+  return `<section class="admin-category-image-picker" data-category-image-picker data-category-key="${escapeAdminHtml(category.key)}" data-image-kind="${kind}">
+    <div class="admin-category-current-image">
+      <strong>Current ${isBackground ? 'Background' : 'Category Image'}</strong>
+      <img src="${escapeAdminHtml(effective)}" alt="Current ${isBackground ? 'Category background' : 'Category image'}" data-category-current-image>
+      <code data-category-current-path>${escapeAdminHtml(selected || (isBackground ? 'Shared default background' : 'No image selected'))}</code>
+    </div>
+    <input name="${isBackground ? 'cardBackgroundImage' : 'cardImage'}" type="hidden" value="${escapeAdminHtml(selected)}">
+    <details class="admin-category-image-browser" ${isBackground ? '' : 'open'}>
+      <summary>Choose ${isBackground ? 'Background' : 'Category Image'}</summary>
+      ${isBackground ? '<button type="button" data-use-shared-category-background>Use Shared Default Background</button>' : ''}
+      <button type="button" data-search-all-category-images>Search All Repository Images</button>
+      <label data-category-image-search-controls hidden>Search repository images<input type="search" data-category-image-search placeholder="Search filename or folder"></label>
+      <p class="admin-note">Images associated with products inside this Category appear first.</p>
+      <div class="admin-category-image-gallery" data-category-image-gallery>${categoryImagePickerChoices(preferred, selected)}</div>
+    </details>
+  </section>`;
+}
+
+function populateNewCategoryVisualPickers(form) {
+  const draft = { key: '__new-category__', card: {}, displaySettings: {} };
+  form.querySelectorAll('[data-new-category-image-picker]').forEach((mount) => {
+    mount.innerHTML = categoryVisualImagePicker(draft, mount.dataset.newCategoryImagePicker === 'background' ? 'background' : 'category');
+  });
+}
+
+function categoryEditMarkup(category) {
+  const display = effectiveCategoryDisplaySettings(category);
+  const parent = category.parentKey ? readAdminCategories()[category.parentKey] : null;
+  return `
+    <form class="admin-category-edit-form" data-category-edit="${escapeAdminHtml(category.key)}">
+      <fieldset class="admin-category-editor-section admin-category-information"><legend>Category Information</legend>
+        <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
+        <div class="admin-input-group">
+        <label>Title<input name="title" required value="${escapeAdminHtml(category.title || '')}"></label>
+        <label>Description<textarea name="description" rows="3">${escapeAdminHtml(category.description || '')}</textarea></label>
+        <label>Fun Fact<textarea name="funFact" rows="2">${escapeAdminHtml(category.funFact || '')}</textarea></label>
+        </div>
+        <div class="admin-ai-actions" aria-label="Optional AI assistance">
+          <button type="button" data-ai-suggest="title">Generate Title</button>
+          <button type="button" data-ai-suggest="description">Generate Description</button>
+          <button type="button" data-ai-suggest="funFact">Generate Fun Fact</button>
+          <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
+        </div>
+        <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
+        <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
+      </fieldset>
+      <fieldset class="admin-category-editor-section admin-category-image-section"><legend>Category Image</legend>
+        ${categoryVisualImagePicker(category)}
+        <p class="admin-note">${categoryAssignedProducts(category.key).length} associated product images are prioritized before repository-wide search.</p>
+      </fieldset>
+      <fieldset class="admin-category-editor-section admin-category-appearance"><legend>Category Appearance</legend>
+        <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'An existing custom background is retained. Open Advanced Display Settings to review it.' : 'Using the shared showroom background automatically.'}</p>
+        <div class="admin-category-position-controls">
+          <label>Category Image Size <output data-category-display-output="standeeSizePercent">${display.standeeSizePercent}%</output>
+            <input name="standeeSizePercent" type="range" min="${CATEGORY_IMAGE_SIZE_MIN}" max="${CATEGORY_IMAGE_SIZE_MAX}" step="1" value="${display.standeeSizePercent}">
+            <span>${CATEGORY_IMAGE_SIZE_MIN}% minimum · ${CATEGORY_IMAGE_SIZE_MAX}% maximum</span>
+          </label>
+          <label>Horizontal position <output data-category-display-output="standeeLeftPercent">${display.standeeLeftPercent}</output>
+            <input name="standeeLeftPercent" type="range" min="-50" max="50" step="1" value="${display.standeeLeftPercent}">
+            <span>−50 Left · 0 Center · +50 Right</span>
+          </label>
+          <label>Vertical position <output data-category-display-output="standeeVerticalPercent">${display.standeeVerticalPercent}</output>
+            <input name="standeeVerticalPercent" type="range" min="-50" max="50" step="1" value="${display.standeeVerticalPercent}">
+            <span>−50 Up · 0 Center · +50 Down</span>
+          </label>
+          <div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>
+        </div>
+        <div class="admin-builder-preview-panel" data-category-edit-preview hidden></div>
+      </fieldset>
+      <fieldset class="admin-category-editor-section admin-category-settings"><legend>Category Settings</legend>
+        <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child of ${escapeAdminHtml(parent.title || parent.key)}` : 'Master / top-level Category'}. Future child groups will use <code>parentKey</code>; no child records are being created here.</p>
+        <div class="admin-category-settings-grid">
+          <label>Destination page<input name="page" value="${escapeAdminHtml(category.page || '')}"></label>
+          <label>Order<input name="order" type="number" min="0" value="${escapeAdminHtml(String(category.order ?? 0))}"></label>
+          <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> Visible</label>
+          <label><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false ? 'checked' : ''}> Show on Homepage</label>
+        </div>
+      </fieldset>
+      <details class="admin-advanced-fields"><summary>Advanced Display Settings</summary>
+        ${categoryVisualImagePicker(category, 'background')}
+        <label>Background position<select name="backgroundPosition">
+          ${['center center', 'left center', 'right center', 'center top', 'center bottom'].map((value) => `<option value="${value}" ${value === (display.backgroundPosition || 'center center') ? 'selected' : ''}>${value}</option>`).join('')}
+        </select></label>
+        <p class="admin-note">The standard Category background is inherited automatically. Choose a custom background above only when intentionally needed.</p>
+      </details>
+      <div class="admin-panel-actions">
+        <button type="button" data-preview-category-edit>Preview</button>
+        <button type="submit">Save Draft</button>
+        <button class="admin-button admin-button-primary" type="button" data-publish-category-edit>Publish to Website</button>
+      </div>
+      <p class="admin-status" aria-live="polite"></p>
+    </form>`;
+}
+
+function suspiciousCategoryKeys(categories) {
+  const keys = new Set(Object.keys(categories || {}));
+  return ['custom-other', 'custom-photo', 'small-party-packs'].filter((key) => keys.has(key));
+}
+
+function renderCategoryManager() {
+  const container = document.getElementById('adminProducts');
+  if (!container) return;
+  const query = document.getElementById('adminCategorySearch')?.value.trim().toLowerCase() || '';
+  const allCategories = Object.values(newAdminArchitectureEnabled() ? readAdminCategories() : adminArchitectureState?.candidate?.categories || {})
+    .filter((category) => category?.key && !readDeletedCategories().includes(category.key))
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0) || String(left.title).localeCompare(String(right.title)));
+  const categoriesByKey = Object.fromEntries(allCategories.map((category) => [category.key, category]));
+  const categories = allCategories
+    .filter((category) => !category.parentKey)
+    .filter((category) => !query || `${category.title} ${category.key} ${category.page} ${categoryChildGroups(category.key, categoriesByKey).map((child) => `${child.title} ${child.key}`).join(' ')}`.toLowerCase().includes(query));
+  const suspicious = new Set(suspiciousCategoryKeys(Object.fromEntries(categories.map((category) => [category.key, category]))));
+  container.innerHTML = categories.map((category) => {
+    const count = categoryAssignedProducts(category.key).length;
+    const childCount = categoryChildGroups(category.key, categoriesByKey).length;
+    const status = categoryLifecycleState(category);
+    return `
+      <article class="admin-category-manager-card" data-category-card="${escapeAdminHtml(category.key)}" data-category-search-value="${escapeAdminHtml(`${category.title} ${category.key} ${category.page}`.toLowerCase())}">
+        <div class="admin-category-card-summary">
+          <label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select</label>
+          <div class="admin-review-image">${category.card?.image ? `<img src="${escapeAdminHtml(category.card.image)}" alt="">` : '<span>No image</span>'}</div>
+          <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom category — review assignments before changing it.</p>' : ''}</div>
+          <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div>${childCount ? `<div><dt>Child Groups</dt><dd>${childCount}</dd></div>` : ''}<div><dt>Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
+          <div class="admin-card-actions">
+            <button type="button" data-open-category-products>Open Products</button>
+            <button type="button" data-edit-category>Edit</button>
+            <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}">${category.visible === false ? 'Show Category' : 'Hide Category'}</button>
+            <button type="button" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}">${category.homepageVisible === false ? 'Show on Homepage' : 'Hide from Homepage'}</button>
+            <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminPreviewUrl(category.page || `category.html?category=${encodeURIComponent(category.key)}`))}" target="_blank">Preview</a>
+            <button class="admin-button admin-button-primary" type="button" data-publish-category="${escapeAdminHtml(category.key)}">Publish</button>
+            <details class="admin-card-more-actions admin-category-more-menu"><summary>More</summary><button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Category</button></details>
+          </div>
+        </div>
+        ${childGroupMarkup(category, categoriesByKey)}
+        <details data-category-products-panel><summary>Products (${count})</summary><div class="admin-category-products">${categoryProductsMarkup(category)}</div></details>
+        <details data-category-edit-panel><summary>Edit Category</summary>${categoryEditMarkup(category)}</details>
+      </article>`;
+  }).join('') || '<div class="admin-empty-state"><strong>No Categories found</strong><span>Create a Category or clear the search.</span></div>';
+
+  const deleted = readDeletedCategories();
+  if (deleted.length) container.insertAdjacentHTML('beforeend', `<section class="admin-category-deletions"><h3>Deleted Categories</h3>${deleted.map((key) => {
+    const published = (adminPublishedBaseline?.deletedCategories || []).includes(key);
+    return `<article><strong>${escapeAdminHtml(key)}</strong><span>${published ? 'Published deletion' : 'Unpublished deletion'} · Products and image files are preserved.</span>${published ? '' : `<button type="button" data-publish-category-deletion="${escapeAdminHtml(key)}">Publish Deletion</button>`}<button type="button" data-recreate-category="${escapeAdminHtml(key)}">Recreate Category</button></article>`;
+  }).join('')}</section>`);
+  updateDeleteSelectedCategoriesButton();
+}
+
+function updateDeleteSelectedCategoriesButton() {
+  const selected = document.querySelectorAll('[data-select-category]:checked').length;
+  const button = document.getElementById('deleteSelectedCategories');
+  if (!button) return;
+  button.disabled = selected === 0;
+  button.textContent = selected ? `Delete Selected Categories (${selected})` : 'Delete Selected Categories';
+}
+
+function categoryFromEditForm(form, approvalStatus = 'draft') {
+  const key = form.dataset.categoryEdit;
+  const current = readAdminCategories()[key] || {};
+  const data = new FormData(form);
+  return {
+    ...current,
+    key,
+    title: String(data.get('title') || '').trim(),
+    description: String(data.get('description') || '').trim(),
+    funFact: String(data.get('funFact') || '').trim(),
+    page: String(data.get('page') || '').trim(),
+    visible: data.has('visible'),
+    homepageVisible: data.has('homepageVisible'),
+    order: Number(data.get('order') || 0),
+    card: { ...(current.card || {}), title: String(data.get('title') || '').trim(), description: String(data.get('description') || '').trim(), image: String(data.get('cardImage') || ''), backgroundImage: String(data.get('cardBackgroundImage') || ''), visible: data.has('homepageVisible'), order: Number(data.get('order') || 0) },
+    displaySettings: {
+      ...(current.displaySettings || {}),
+      backgroundPosition: String(data.get('backgroundPosition') || 'center center'),
+      standeeSizePercent: safeCategoryDisplayNumber(data.get('standeeSizePercent'), CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
+      standeeLeftPercent: safeCategoryDisplayNumber(data.get('standeeLeftPercent'), 0, -50, 50),
+      standeeVerticalPercent: safeCategoryDisplayNumber(data.get('standeeVerticalPercent'), 0, -50, 50)
+    },
+    updatedAt: new Date().toISOString(),
+    draftStatus: approvalStatus === 'approved' ? 'ready' : 'draft',
+    approvalStatus
+  };
+}
+
+async function saveCategoryEditForm(form, approvalStatus = 'draft') {
+  const category = categoryFromEditForm(form, approvalStatus);
+  if (approvalStatus === 'approved' && !category.card?.image) {
+    form.querySelector('.admin-status').textContent = 'Choose a Category image before publishing.';
+    return false;
+  }
+  const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), category, category.key);
+  if (duplicates.length) {
+    form.querySelector('.admin-status').textContent = `A similar Category already exists: ${duplicates.map((item) => item.title).join(', ')}.`;
+    return false;
+  }
+  const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: category.key, baseRecord: readAdminCategories()[category.key], patch: category }]);
+  if (!result.ok) return false;
+  renderCategoryManager();
+  setStatus(approvalStatus === 'approved' ? 'Category saved and ready for scoped publishing.' : 'Category draft saved privately.');
+  return true;
+}
+
+async function saveCategoryProductAssignments(form, removeCurrent = false) {
+  const slug = form.dataset.categoryProduct;
+  const currentCategory = form.dataset.categoryKey;
+  const product = effectiveAdminProduct(slug);
+  if (!product) return false;
+  const selected = removeCurrent
+    ? (product.categories || []).filter((key) => key !== currentCategory)
+    : new FormData(form).getAll('categories');
+  const updated = adminStateUtils.withProductCategories(product, selected);
+  const hierarchyWarnings = adminStateUtils.categoryHierarchyWarnings(readAdminCategories(), { [slug]: updated })
+    .filter((warning) => warning.type === 'missing-master-assignment');
+  if (hierarchyWarnings.length) {
+    setStatus(`Assignment not saved. ${hierarchyWarnings.map((warning) => `${warning.categoryKey} requires its Main Category ${warning.parentKey}`).join('; ')}. Nothing was changed or repaired automatically.`);
+    return false;
+  }
+  const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'products', entryKey: slug, baseRecord: readAdminProducts()[slug], patch: { categories: updated.categories, categoryOrder: updated.categoryOrder, updatedAt: new Date().toISOString(), draftStatus: 'draft', approvalStatus: 'draft' } }]);
+  if (!result.ok) return false;
+  renderAdminProducts();
+  setStatus(removeCurrent ? 'Product removed from this Category. The product and image files were preserved.' : 'Product Category assignments saved privately.');
+  return true;
+}
+
+async function saveCategoryVisibility(categoryKey, field, visible) {
+  if (!['visible', 'homepageVisible'].includes(field)) return false;
+  const category = readAdminCategories()[categoryKey];
+  if (!category) return false;
+  const patch = {
+    [field]: visible,
+    ...(field === 'homepageVisible' ? { card: { ...(category.card || {}), visible } } : {}),
+    updatedAt: new Date().toISOString(),
+    draftStatus: 'draft',
+    approvalStatus: 'draft'
+  };
+  const result = await saveAdminCollectionOperations([{
+    type: 'record', collectionKey: 'categories', entryKey: categoryKey, baseRecord: category, patch
+  }]);
+  if (!result.ok) return false;
+  renderAdminProducts();
+  setStatus(`${category.title || categoryKey} ${visible ? 'shown' : 'hidden'}${field === 'homepageVisible' ? ' on the homepage' : ''} in the private Category draft. Products, assignments, and image files were preserved. Publish this Category when you want the customer website to change.`);
+  return true;
+}
+
+async function deleteAdminCategories(keys) {
+  const categoryKeys = [...new Set(keys || [])].filter((key) => readAdminCategories()[key]);
+  if (!categoryKeys.length) return false;
+  const childBlockers = adminStateUtils?.categoryDeletionBlockers?.(readAdminCategories(), categoryKeys) || [];
+  if (childBlockers.length) {
+    setStatus(`Permanent Delete blocked. Choose what should happen to these Child Groups first: ${childBlockers.map((item) => item.childTitle).join(', ')}. No cascading deletion was performed.`);
+    return false;
+  }
+  const details = categoryKeys.map((key) => {
+    const products = categoryAssignedProducts(key);
+    const assignments = products.length ? products.map((product) => `  • ${product.title || product.slug} (${product.slug})`).join('\n') : '  • No product assignments';
+    return `${readAdminCategories()[key].title || key} — ${products.length} products\n${assignments}`;
+  }).join('\n\n');
+  if (!window.confirm(`Delete ${categoryKeys.length} Categor${categoryKeys.length === 1 ? 'y' : 'ies'}?\n\n${details}\n\nProducts will NOT be deleted.\nPhysical image files will NOT be deleted.\nOnly the Categories and their product assignments will be removed.`)) return false;
+  const products = effectiveAdminProducts();
+  const operations = [];
+  categoryKeys.forEach((key) => {
+    operations.push({ type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: readAdminCategories()[key], remove: true });
+    operations.push({ type: 'membership', collectionKey: 'deletedCategories', entryKey: key, present: true, baseValues: readDeletedCategories() });
+  });
+  products.forEach((product) => {
+    if (!(product.categories || []).some((key) => categoryKeys.includes(key))) return;
+    const updated = adminStateUtils.withProductCategories(product, (product.categories || []).filter((key) => !categoryKeys.includes(key)));
+    operations.push({ type: 'record', collectionKey: 'products', entryKey: product.slug, baseRecord: readAdminProducts()[product.slug], patch: { categories: updated.categories, categoryOrder: updated.categoryOrder, updatedAt: new Date().toISOString(), draftStatus: 'draft', approvalStatus: 'draft' } });
+  });
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) return false;
+  renderAdminProducts();
+  setStatus('Category deletion saved privately. Products and physical images were preserved. Publish the deletion when ready.');
+  return true;
+}
+
+async function recreateDeletedCategory(key) {
+  const source = adminPublishedBaseline?.categories?.[key]
+    || adminArchitectureState?.candidate?.categories?.[key]
+    || { key, title: key, description: '', page: `category.html?category=${encodeURIComponent(key)}`, visible: true, homepageVisible: true, order: 999, card: {}, displaySettings: {} };
+  const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), source, key);
+  if (duplicates.length) {
+    setStatus(`A similar Category already exists: ${duplicates.map((item) => `${item.title} (${item.key})`).join(', ')}. Open the existing Category or cancel recreation.`);
+    return false;
+  }
+  const category = { ...structuredClone(source), key, approvalStatus: 'draft', draftStatus: 'draft', updatedAt: new Date().toISOString() };
+  const result = await saveAdminCollectionOperations([
+    { type: 'membership', collectionKey: 'deletedCategories', entryKey: key, present: false, baseValues: readDeletedCategories() },
+    { type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: undefined, patch: category }
+  ]);
+  if (!result.ok) return false;
+  renderAdminProducts();
+  setStatus(`Recreated ${category.title} as a private draft. Nothing was published.`);
+  return true;
+}
+
+function previewCategoryEdit(form) {
+  const category = categoryFromEditForm(form);
+  const preview = form.querySelector('[data-category-edit-preview]');
+  if (!preview) return;
+  const display = effectiveCategoryDisplaySettings(category);
+  const left = Math.max(10, Math.min(90, 50 + display.standeeLeftPercent));
+  const bottom = Math.max(0, Math.min(75, 18 - display.standeeVerticalPercent));
+  preview.hidden = false;
+  preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview" style="background-image:url('${escapeAdminHtml(effectiveCategoryBackground(category))}');background-position:${escapeAdminHtml(display.backgroundPosition)}">
+    <div class="admin-category-preview-stage"><img src="${escapeAdminHtml(category.card?.image || '')}" alt="" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%"></div>
+    <div><h4>${escapeAdminHtml(category.title)}</h4><p>${escapeAdminHtml(category.description)}</p><span>${category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage'}</span></div>
+  </article>`;
+}
+
+function renderCategoryImagePickerGallery(picker, query = '') {
+  const category = readAdminCategories()[picker.dataset.categoryKey] || { key: picker.dataset.categoryKey, card: {}, displaySettings: {} };
+  const kind = picker.dataset.imageKind || 'category';
+  const selected = picker.querySelector('input[type="hidden"]')?.value || '';
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  const paths = normalizedQuery
+    ? repositoryCategoryImageLibrary().filter((path) => `${path} ${creationImageLabel(path)}`.toLowerCase().includes(normalizedQuery)).slice(0, 80)
+    : preferredCategoryImages(category, kind);
+  const gallery = picker.querySelector('[data-category-image-gallery]');
+  if (gallery) gallery.innerHTML = categoryImagePickerChoices(paths, selected) || '<p class="admin-note">No matching repository images.</p>';
+}
+
+function updateCategoryPickerValue(picker, path) {
+  const input = picker.querySelector('input[type="hidden"]');
+  if (!input) return;
+  input.value = path;
+  const effectivePath = path || (picker.dataset.imageKind === 'background' ? IMAGE_IMPORT_DEFAULT_BACKGROUND : '');
+  const currentImage = picker.querySelector('[data-category-current-image]');
+  const currentPath = picker.querySelector('[data-category-current-path]');
+  if (currentImage) currentImage.src = effectivePath;
+  if (currentPath) currentPath.textContent = path || (picker.dataset.imageKind === 'background' ? 'Shared default background' : 'No image selected');
+  picker.querySelectorAll('[data-category-image-choice]').forEach((choice) => choice.classList.toggle('selected', choice.dataset.categoryImageChoice === path));
+  const editForm = picker.closest('[data-category-edit]');
+  if (editForm) previewCategoryEdit(editForm);
+  else {
+    const newCategoryForm = picker.closest('#createCategoryForm');
+    if (newCategoryForm) renderNewCategoryPreview(newCategoryForm);
+  }
+}
+
+function syncCategoryDisplayOutputs(form) {
+  ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent'].forEach((name) => {
+    const input = form.elements.namedItem(name);
+    const output = form.querySelector(`[data-category-display-output="${name}"]`);
+    if (input && output) output.textContent = `${input.value}${name === 'standeeSizePercent' ? '%' : ''}`;
+  });
+}
+
+function setupCategoryManagerEvents() {
+  const section = document.getElementById('categories');
+  if (!section || section.dataset.categoryManagerBound) return;
+  section.dataset.categoryManagerBound = 'true';
+  document.getElementById('adminCategorySearch')?.addEventListener('input', renderCategoryManager);
+  document.querySelector('[data-new-category]')?.addEventListener('click', () => {
+    const builder = document.getElementById('adminCategoryBuilder');
+    if (builder) builder.open = true;
+    document.getElementById('createCategoryForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  document.getElementById('deleteSelectedCategories')?.addEventListener('click', () => {
+    deleteAdminCategories([...document.querySelectorAll('[data-select-category]:checked')].map((input) => input.value));
+  });
+  section.addEventListener('change', (event) => {
+    if (event.target.matches('[data-select-category]')) updateDeleteSelectedCategoriesButton();
+    if (event.target.closest('[data-category-edit]')) previewCategoryEdit(event.target.closest('[data-category-edit]'));
+  });
+  section.addEventListener('input', (event) => {
+    if (event.target.matches('[data-category-image-search]')) {
+      renderCategoryImagePickerGallery(event.target.closest('[data-category-image-picker]'), event.target.value);
+      return;
+    }
+    const form = event.target.closest('[data-category-edit]');
+    if (!form) return;
+    syncCategoryDisplayOutputs(form);
+    previewCategoryEdit(form);
+  });
+  section.addEventListener('submit', async (event) => {
+    const categoryForm = event.target.closest('[data-category-edit]');
+    const productForm = event.target.closest('[data-category-product]');
+    if (!categoryForm && !productForm) return;
+    event.preventDefault();
+    if (categoryForm) await saveCategoryEditForm(categoryForm, 'draft');
+    else await saveCategoryProductAssignments(productForm, false);
+  });
+  section.addEventListener('click', async (event) => {
+    const card = event.target.closest('[data-category-card]');
+    if (event.target.closest('[data-open-category-products]')) card?.querySelector('[data-category-products-panel]')?.setAttribute('open', '');
+    if (event.target.closest('[data-edit-category]')) {
+      card?.querySelector('[data-category-edit-panel]')?.setAttribute('open', '');
+      const form = card?.querySelector('[data-category-edit]');
+      if (form) previewCategoryEdit(form);
+    }
+    const childCard = event.target.closest('[data-child-group-card]');
+    if (event.target.closest('[data-open-child-products]')) childCard?.querySelector('[data-child-products-panel]')?.setAttribute('open', '');
+    if (event.target.closest('[data-edit-child-group]')) {
+      childCard?.querySelector('[data-child-edit-panel]')?.setAttribute('open', '');
+      const form = childCard?.querySelector('[data-category-edit]');
+      if (form) previewCategoryEdit(form);
+    }
+    const childVisibility = event.target.closest('[data-toggle-child-group]');
+    if (childVisibility) await saveCategoryVisibility(childCard?.dataset.childGroupCard, 'visible', childVisibility.dataset.toggleChildGroup === 'show');
+    const previewButton = event.target.closest('[data-preview-category-edit]');
+    if (previewButton) previewCategoryEdit(previewButton.closest('[data-category-edit]'));
+    const searchAllImages = event.target.closest('[data-search-all-category-images]');
+    if (searchAllImages) {
+      const controls = searchAllImages.closest('[data-category-image-picker]')?.querySelector('[data-category-image-search-controls]');
+      if (controls) {
+        controls.hidden = false;
+        controls.querySelector('input')?.focus();
+      }
+    }
+    const visibilityButton = event.target.closest('[data-toggle-category-visibility]');
+    if (visibilityButton) await saveCategoryVisibility(card?.dataset.categoryCard, 'visible', visibilityButton.dataset.toggleCategoryVisibility === 'show');
+    const homepageButton = event.target.closest('[data-toggle-category-homepage]');
+    if (homepageButton) await saveCategoryVisibility(card?.dataset.categoryCard, 'homepageVisible', homepageButton.dataset.toggleCategoryHomepage === 'show');
+    const imageChoice = event.target.closest('[data-category-image-choice]');
+    if (imageChoice) updateCategoryPickerValue(imageChoice.closest('[data-category-image-picker]'), imageChoice.dataset.categoryImageChoice);
+    const sharedBackground = event.target.closest('[data-use-shared-category-background]');
+    if (sharedBackground) updateCategoryPickerValue(sharedBackground.closest('[data-category-image-picker]'), '');
+    const centerImage = event.target.closest('[data-center-category-image]');
+    if (centerImage) {
+      const form = centerImage.closest('[data-category-edit]');
+      form.elements.namedItem('standeeLeftPercent').value = '0';
+      form.elements.namedItem('standeeVerticalPercent').value = '0';
+      syncCategoryDisplayOutputs(form);
+      previewCategoryEdit(form);
+    }
+    const resetAppearance = event.target.closest('[data-reset-category-appearance]');
+    if (resetAppearance) {
+      const form = resetAppearance.closest('[data-category-edit]');
+      form.elements.namedItem('standeeLeftPercent').value = '0';
+      form.elements.namedItem('standeeVerticalPercent').value = '0';
+      form.elements.namedItem('standeeSizePercent').value = String(CATEGORY_IMAGE_SIZE_DEFAULT);
+      form.elements.namedItem('backgroundPosition').value = 'center center';
+      syncCategoryDisplayOutputs(form);
+      previewCategoryEdit(form);
+    }
+    const savePublish = event.target.closest('[data-publish-category-edit]');
+    if (savePublish) {
+      const form = savePublish.closest('[data-category-edit]');
+      const key = form.dataset.categoryEdit;
+      if (await saveCategoryEditForm(form, 'approved')) await publishScopedChangeIds([`category:${key}`], categoryFromEditForm(form, 'approved').title, form.querySelector('.admin-status'));
+    }
+    const publishButton = event.target.closest('[data-publish-category]');
+    if (publishButton) {
+      const key = publishButton.dataset.publishCategory;
+      const category = readAdminCategories()[key];
+      if (!category) { setStatus('Activate the normalized private Admin architecture in Advanced before publishing Categories.'); return; }
+      if (!category.card?.image) { setStatus('Choose a Category image before publishing.'); return; }
+      const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: category, patch: { approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString() } }]);
+      if (result.ok) await publishScopedChangeIds([`category:${key}`], category.title || key);
+    }
+    const deleteButton = event.target.closest('[data-delete-category]');
+    if (deleteButton) await deleteAdminCategories([deleteButton.dataset.deleteCategory]);
+    const removeButton = event.target.closest('[data-remove-product-category]');
+    if (removeButton) await saveCategoryProductAssignments(removeButton.closest('[data-category-product]'), true);
+    const openProduct = event.target.closest('[data-open-category-product]');
+    if (openProduct) window.setTimeout(() => document.getElementById(`product-${CSS.escape(openProduct.dataset.openCategoryProduct)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+    const publishDeletion = event.target.closest('[data-publish-category-deletion]');
+    if (publishDeletion) await publishScopedChangeIds([`category-delete:${publishDeletion.dataset.publishCategoryDeletion}`], `Delete ${publishDeletion.dataset.publishCategoryDeletion}`);
+    const recreate = event.target.closest('[data-recreate-category]');
+    if (recreate) await recreateDeletedCategory(recreate.dataset.recreateCategory);
+    const openExisting = event.target.closest('[data-open-existing-category]');
+    if (openExisting) {
+      const search = document.getElementById('adminCategorySearch');
+      if (search) search.value = openExisting.dataset.openExistingCategory;
+      renderCategoryManager();
+      document.querySelector(`[data-category-card="${CSS.escape(openExisting.dataset.openExistingCategory)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (event.target.closest('[data-cancel-new-category]')) {
+      document.getElementById('createCategoryForm')?.reset();
+      const notice = document.getElementById('adminCategoryDuplicateNotice');
+      if (notice) notice.hidden = true;
+    }
+  });
+}
+
 function renderAdminProducts() {
   const approvedContainer = document.getElementById('approvedProducts');
   const publishedContainer = document.getElementById('publishedProducts');
@@ -4109,15 +5005,19 @@ function renderAdminProducts() {
     const value = { ...product, ...(saved[product.slug] || {}) };
     const lifecycle = product.categoryCard ? '' : lifecycleLabel || productLifecycleState(product, saved, archived).label;
     return `
-      <form class="admin-product-card" id="product-${product.slug}" data-slug="${product.slug}">
+      <form class="admin-product-card" id="product-${product.slug}" data-slug="${product.slug}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
         <div class="admin-product-heading">
           <div><h3>${product.title}</h3>${lifecycle ? `<p class="admin-note">${escapeAdminHtml(lifecycle)}</p>` : ''}<p class="admin-note" data-product-save-state data-state="saved">Saved</p></div>
           <div class="admin-card-actions">
-            <button type="submit">Save Product</button>
-            <button type="button" data-archive-product="${product.slug}">Save for Later</button>
+            <button type="button" data-preview-product>Preview</button>
+            <button type="submit">Save Draft</button>
+            ${product.categoryCard ? '' : '<button class="admin-button admin-button-primary" type="button" data-publish-product>Publish to Website</button>'}
+            <details class="admin-card-more-actions"><summary>More</summary>
+            <button type="button" data-archive-product="${product.slug}">Archive</button>
             ${product.categoryCard ? '' : `<button type="button" data-visibility-toggle="${value.visible === false ? 'show' : 'hide'}">${value.visible === false ? 'Show' : 'Hide'}</button>`}
             ${value.custom === true ? `<button type="button" data-return-to-draft="${product.slug}">Return to Draft</button>` : ''}
             ${product.categoryCard ? '' : `<button type="button" data-delete-product="${product.slug}">Delete Product</button>`}
+            </details>
           </div>
         </div>
         <div class="admin-product-layout">
@@ -4140,6 +5040,10 @@ function renderAdminProducts() {
               <label>
                 Card description
                 <textarea name="description" rows="3">${value.description || ''}</textarea>
+              </label>
+              <label>
+                Fun fact
+                <textarea name="funFact" rows="2">${value.funFact || ''}</textarea>
               </label>
             </fieldset>
             ${product.categoryCard ? '' : categoryAssignmentMarkup(value)}
@@ -4186,6 +5090,10 @@ function renderAdminProducts() {
                   Original price
                   <output class="admin-original-price">${formatAdminMoney(calculateAdminOriginalPrice(value.originalHeight))}</output>
                 </label>
+                <label>
+                  Price override <span>(optional)</span>
+                  <input name="priceOverride" type="number" min="0" step="0.01" value="${escapeAdminHtml(value.priceOverride ?? '')}">
+                </label>
               </div>
             </fieldset>
             <fieldset>
@@ -4227,10 +5135,7 @@ function renderAdminProducts() {
 
   const approvedProducts = availableProducts.filter((product) => !product.categoryCard);
   const reviewItems = architectureReviewItems();
-  if (approvedContainer) {
-    approvedContainer.innerHTML = architectureReviewMarkup(reviewItems);
-    bindArchitectureReview(approvedContainer);
-  }
+  if (approvedContainer) approvedContainer.innerHTML = productMarkup(approvedProducts);
   renderReadyPublishSelection();
   if (publishedContainer) {
     publishedContainer.innerHTML = Object.values(adminPublishedBaseline?.products || {}).map((product) => `
@@ -4238,13 +5143,7 @@ function renderAdminProducts() {
     `).join('') || '<div class="admin-empty-state"><strong>No published products yet</strong><span>Published products will appear here after the first successful publish.</span></div>';
   }
   if (categoryContainer) {
-    const categories = Object.values(newAdminArchitectureEnabled() ? readAdminCategories() : adminArchitectureState?.candidate?.categories || {});
-    categoryContainer.innerHTML = categories.length ? categories.map((category) => `
-      <article class="admin-review-item admin-category-manager-card">
-        <div class="admin-review-image">${category.card?.image ? `<img src="${escapeAdminHtml(category.card.image)}" alt="">` : '<span>No image</span>'}</div>
-        <div><strong>${escapeAdminHtml(category.title || category.key)}</strong><p>${category.visible === false ? 'Hidden' : 'Visible'} · ${escapeAdminHtml(category.page || 'Reusable category page')}</p></div>
-        <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(category.page || `category.html?category=${encodeURIComponent(category.key)}`)}" target="_blank">Edit on Website</a>
-      </article>`).join('') : '<div class="admin-empty-state"><strong>No categories available</strong><span>Create a category from the Create section.</span></div>';
+    renderCategoryManager();
   }
   const recoveryDetails = document.getElementById('legacyRecoveryEditor');
   if (recoveryContainer) recoveryContainer.innerHTML = recoveryDetails?.open ? productMarkup(availableProducts) : '';
@@ -4301,6 +5200,14 @@ function renderAdminProducts() {
       setProductVisibility(form, event.target.dataset.visibilityToggle === 'show');
     });
 
+    form.querySelector('[data-preview-product]')?.addEventListener('click', () => {
+      syncPreviewFromFields(form);
+      form.querySelector('.admin-card-preview-wrap')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setProductSaveState(form, 'Preview updated. Nothing was saved.', 'draft');
+    });
+
+    form.querySelector('[data-publish-product]')?.addEventListener('click', () => publishExistingProductForm(form));
+
     form.querySelector('[data-remove-section]')?.addEventListener('click', () => {
       removeProductFromSelectedSection(form);
     });
@@ -4340,7 +5247,15 @@ function renderAdminProducts() {
       saveProductForm(form);
     });
   }));
+  filterAdminProductLibrary();
   renderAdminDiagnostics();
+}
+
+function filterAdminProductLibrary() {
+  const query = document.getElementById('adminProductSearch')?.value.trim().toLowerCase() || '';
+  document.querySelectorAll('#approvedProducts .admin-product-card').forEach((card) => {
+    card.hidden = Boolean(query) && !String(card.dataset.productSearchValue || '').includes(query);
+  });
 }
 
 function fillPriceSettingsForm() {
@@ -4565,23 +5480,19 @@ function setupCoupons() {
 
 let imageDraftInventory = [];
 let imageImportReady = false;
+let repositoryImagePaths = new Set();
+let localOnlyImagePaths = new Set();
+let imageInventorySource = 'fallback';
 
 const IMAGE_IMPORT_DEFAULT_BACKGROUND = 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg';
 const IMAGE_IMPORT_DESTINATIONS = [
   ['create-product', 'Create new product'],
-  ['existing-product', 'Add to existing product'],
-  ['create-category', 'Create new category'],
-  ['existing-category', 'Add to existing category'],
-  ['save-later', 'Save for later'],
-  ['ignore', 'Ignore image']
+  ['existing-product', 'Add to existing product']
 ];
 const IMAGE_IMPORT_ROLES = [
   ['main', 'Main Image'],
-  ['image-choice', 'Image Choice'],
-  ['background', 'Background'],
-  ['category-card', 'Category Card Image'],
-  ['category-background', 'Category Background'],
-  ['page-only', 'Page-only Image']
+  ['image-choice', 'Additional Image / Version'],
+  ['background', 'Background Image']
 ];
 
 function normalizeImageImportDraft(value = {}) {
@@ -4636,10 +5547,10 @@ async function saveProductWorkflowPatch(patch) {
 
 function imageDraftCategoryMarkup(selectedCategories = []) {
   const selected = new Set(selectedCategories);
-  return (window.MVPLUX_PRODUCT_CATEGORIES || []).map((category) => `
+  return categoryDefinitionsForAdmin().filter((category) => !readDeletedCategories().includes(category.key)).map((category) => `
     <label>
       <input name="categories" type="checkbox" value="${category.key}" ${selected.has(category.key) ? 'checked' : ''}>
-      ${category.label}
+      ${category.title || category.label || category.key}
     </label>
   `).join('');
 }
@@ -4796,9 +5707,12 @@ async function configureImageDraft(form, approvalStatus = 'approved') {
         if (owner?.slug === parent.slug) throw new Error('That image is already assigned to this product.');
         updated.imageChoices = [...imageChoices, importedImageChoice(draft, parent)];
       }
+      for (const field of ['title', 'description', 'funFact']) {
+        if (draft[field] !== '' && draft[field] !== parent[field]) updated[field] = draft[field];
+      }
       updated.updatedAt = new Date().toISOString();
-      updated.draftStatus = 'ready';
-      updated.approvalStatus = 'approved';
+      updated.draftStatus = approvalStatus === 'draft' ? 'draft' : 'ready';
+      updated.approvalStatus = approvalStatus;
       operations.push(imageImportProductOperation(parent, updated));
       resultSlug = parent.slug;
     } else if (draft.destination === 'create-product') {
@@ -4882,7 +5796,7 @@ async function configureImageDraft(form, approvalStatus = 'approved') {
     if (!result.ok) throw new Error(adminLastSaveError || 'Supabase did not save the assignment.');
     renderAdminProducts();
     renderImageDrafts();
-    setStatus('Image assignment saved privately and added to Approved — Waiting to Publish.');
+    setStatus(approvalStatus === 'draft' ? 'Image assignment saved as a private draft.' : 'Image assignment saved privately. Confirm publication to make it live.');
   } catch (error) {
     await saveAdminImageDraftPatch(draft.path, {
       ...draft,
@@ -4898,6 +5812,45 @@ async function configureImageDraft(form, approvalStatus = 'approved') {
     return false;
   }
   return true;
+}
+
+function openProductEditorFromImageInbox(form) {
+  const draft = collectImageDraftForm(form);
+  const editor = document.getElementById('createProductForm');
+  if (!editor) return false;
+  const values = {
+    cutoutImage: draft.path,
+    subjectIdentity: draft.subjectIdentity,
+    title: draft.title,
+    description: draft.description,
+    funFact: draft.funFact,
+    originalHeight: draft.originalHeight,
+    priceOverride: draft.priceOverride,
+    backgroundImage: draft.backgroundImage,
+    slug: draft.slug
+  };
+  Object.entries(values).forEach(([name, value]) => {
+    const field = editor.elements.namedItem(name);
+    if (field && 'value' in field) field.value = value || '';
+  });
+  const selectedCategories = new Set(draft.categories || []);
+  editor.querySelectorAll('[name="categories"]').forEach((input) => { input.checked = selectedCategories.has(input.value); });
+  renderNewProductPreview(editor);
+  window.location.hash = 'products';
+  editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setCreationStatus(editor, 'Image added to the shared product editor. Preview, Save Draft, or Publish to Website.', 'draft');
+  return true;
+}
+
+async function handleImageInboxAction(form, action) {
+  const draft = collectImageDraftForm(form);
+  if (draft.destination === 'create-product') return openProductEditorFromImageInbox(form);
+  const saved = await configureImageDraft(form, action === 'draft' ? 'draft' : 'approved');
+  if (!saved || action === 'draft') return saved;
+  const latestDraft = normalizeImageImportDraft(readImageDraftEdits()[draft.path] || draft);
+  const slug = latestDraft.resultSlug || draft.parentProductSlug;
+  const product = effectiveAdminProduct(slug);
+  return publishScopedChangeIds([`product:${slug}`], product?.title || slug, form.querySelector('[data-image-draft-status]'));
 }
 
 async function ignoreImageDraft(path, form) {
@@ -4966,8 +5919,9 @@ function bindParentCategoryPicker(scope) {
 }
 
 function updateImageDraftDestination(form) {
-  const destination = form.querySelector('[name="imageDestination"]')?.value || 'create-product';
-  const role = form.querySelector('[name="imageRole"]')?.value || 'main';
+  const values = new FormData(form);
+  const destination = String(values.get('imageDestination') || 'create-product');
+  const role = String(values.get('imageRole') || 'main');
   form.querySelectorAll('[data-import-destinations]').forEach((section) => {
     section.hidden = !section.dataset.importDestinations.split(' ').includes(destination);
   });
@@ -4976,15 +5930,12 @@ function updateImageDraftDestination(form) {
   });
   const action = form.querySelector('[data-apply-image-import]');
   const draftAction = form.querySelector('[data-apply-image-import-draft]');
-  if (draftAction) draftAction.hidden = destination !== 'create-product';
+  if (draftAction) draftAction.hidden = false;
   if (action) {
-    action.textContent = destination === 'existing-product' ? 'Add to Product'
-      : destination === 'create-product' ? 'Approve Product'
-        : destination === 'create-category' ? 'Create Category'
-          : destination === 'existing-category' ? 'Add to Category'
-            : destination === 'save-later' ? 'Save For Later'
-              : destination === 'ignore' ? 'Ignore Image'
-                : 'Apply Assignment';
+    action.textContent = destination === 'existing-product' ? 'Publish to Website' : 'Continue in Product Editor';
+  }
+  if (draftAction) {
+    draftAction.textContent = destination === 'existing-product' ? 'Save Draft' : 'Continue in Product Editor';
   }
   updateImageImportPreview(form);
 }
@@ -4992,7 +5943,7 @@ function updateImageDraftDestination(form) {
 function imageImportPreviewChoices(form) {
   const importedPath = form.dataset.imagePath;
   const parent = effectiveAdminProduct(form.querySelector('[name="parentProductSlug"]')?.value);
-  const importRole = form.querySelector('[name="imageRole"]')?.value || 'main';
+  const importRole = String(new FormData(form).get('imageRole') || 'main');
   const choices = [{
     label: 'Current selected image',
     image: importRole === 'background' && parent?.cutoutImage ? parent.cutoutImage : importedPath,
@@ -5047,8 +5998,16 @@ function renderImageDrafts() {
   ]);
   effectiveAdminProducts().forEach((product) => {
     if (product.cutoutImage) hiddenPaths.add(product.cutoutImage);
-    normalizeImageChoices(product.imageChoices).forEach((choice) => hiddenPaths.add(choice.image));
+    if (product.backgroundImage) hiddenPaths.add(product.backgroundImage);
+    normalizeImageChoices(product.imageChoices).forEach((choice) => {
+      hiddenPaths.add(choice.image);
+      if (choice.stage) hiddenPaths.add(choice.stage);
+    });
   });
+  Object.values(readAdminCategories()).forEach((category) => {
+    [category?.card?.image, category?.card?.backgroundImage, category?.displaySettings?.backgroundImage].filter(Boolean).forEach((path) => hiddenPaths.add(path));
+  });
+  Object.values(readExtraImages()).filter(Boolean).forEach((path) => hiddenPaths.add(path));
   const drafts = imageDraftInventory.filter((draft) => draft?.path && !hiddenPaths.has(draft.path));
 
   if (!drafts.length) {
@@ -5063,11 +6022,10 @@ function renderImageDrafts() {
         <div class="admin-product-heading">
           <div><h3>${escapeAdminHtml(draft.title || 'Unpublished image draft')}</h3><p class="admin-note" data-image-draft-status>${imageImportReady ? 'Draft — saved privately only after you choose Save Draft.' : 'Loading authenticated Admin state…'}</p></div>
           <div class="admin-card-actions">
-            <button type="button" data-image-import-action data-save-image-later ${imageImportReady ? '' : 'disabled'}>Save For Later</button>
             <button type="button" data-image-import-action data-preview-image-import>Preview</button>
-            <button type="button" data-image-import-action data-apply-image-import-draft ${imageImportReady ? '' : 'disabled'}>Save Product Draft</button>
-            <button type="button" data-image-import-action data-apply-image-import ${imageImportReady ? '' : 'disabled'}>Apply Assignment</button>
-            <button type="button" data-image-import-action data-ignore-image ${imageImportReady ? '' : 'disabled'}>Ignore Image</button>
+            <button type="button" data-image-import-action data-apply-image-import-draft ${imageImportReady ? '' : 'disabled'}>Save Draft</button>
+            <button class="admin-button admin-button-primary" type="button" data-image-import-action data-apply-image-import ${imageImportReady ? '' : 'disabled'}>Publish to Website</button>
+            <details class="admin-card-more-actions"><summary>More</summary><button type="button" data-image-import-action data-ignore-image ${imageImportReady ? '' : 'disabled'}>Ignore Image</button></details>
           </div>
         </div>
         <div class="admin-product-layout">
@@ -5077,17 +6035,13 @@ function renderImageDrafts() {
           </div>
           <div class="admin-control-groups">
             <input name="selectedPreviewImage" type="hidden" value="${escapeAdminHtml(draft.selectedPreviewImage)}">
-            <label>Where does this image belong?
-              <select name="imageDestination">
-                ${IMAGE_IMPORT_DESTINATIONS.map(([key, label]) => `<option value="${key}" ${draft.destination === key ? 'selected' : ''}>${label}</option>`).join('')}
-              </select>
-            </label>
-            <label data-import-destinations="create-product existing-product create-category existing-category">Image role
-              <select name="imageRole">
-                ${IMAGE_IMPORT_ROLES.map(([key, label]) => `<option value="${key}" ${draft.imageRole === key ? 'selected' : ''}>${label}</option>`).join('')}
-              </select>
-            </label>
-            <div data-import-destinations="create-product create-category">
+            <fieldset><legend>What do you want to do?</legend>
+              ${IMAGE_IMPORT_DESTINATIONS.map(([key, label]) => `<label class="admin-radio-option"><input name="imageDestination" type="radio" value="${key}" ${draft.destination === key ? 'checked' : ''}> ${label}</label>`).join('')}
+            </fieldset>
+            <fieldset data-import-destinations="existing-product"><legend>What is this image?</legend>
+              ${IMAGE_IMPORT_ROLES.map(([key, label]) => `<label class="admin-radio-option"><input name="imageRole" type="radio" value="${key}" ${draft.imageRole === key ? 'checked' : ''}> ${label}</label>`).join('')}
+            </fieldset>
+            <div data-import-destinations="create-product existing-product">
               <label>Who or what is this?<input name="subjectIdentity" type="text" value="${escapeAdminHtml(draft.subjectIdentity || '')}" placeholder="Example: Michael Jordan"></label>
               <label>Title<input name="title" type="text" value="${escapeAdminHtml(draft.title || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(draft.description || '')}</textarea></label>
@@ -5110,25 +6064,16 @@ function renderImageDrafts() {
                 </select>
               </label>
               <fieldset data-import-destinations="create-product"><legend>Category assignments</legend><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
-              <details class="admin-advanced-fields"><summary>Advanced</summary>
-                <label>Generated product or category ID<input name="slug" type="text" value="${escapeAdminHtml(draft.slug || '')}" placeholder="Generated from title"></label>
+              <details class="admin-advanced-fields" data-import-destinations="create-product"><summary>Advanced</summary>
+                <label>Generated product ID<input name="slug" type="text" value="${escapeAdminHtml(draft.slug || '')}" placeholder="Generated from title"></label>
                 <label data-import-destinations="create-product">Price override (optional)<input name="priceOverride" type="number" min="0" step="0.01" value="${escapeAdminHtml(draft.priceOverride || '')}"></label>
-                <label data-import-destinations="create-category">Category page<input name="categoryPage" type="text" value="${escapeAdminHtml(draft.categoryPage || '')}" placeholder="Reusable category page is automatic"></label>
                 <label>Repository image path<input type="text" value="${escapeAdminHtml(draft.path)}" readonly></label>
               </details>
             </div>
             <div data-import-destinations="existing-product">
               ${parentProductPickerMarkup(draft.parentProductSlug || '')}
-              <label>Image-choice label (optional)<input name="imageChoiceLabel" type="text" value="${escapeAdminHtml(draft.imageChoiceLabel || '')}" placeholder="Light, Dark, Print, Shade 1, Alternate pose"></label>
+              <label data-import-roles="image-choice">Label<input name="imageChoiceLabel" type="text" value="${escapeAdminHtml(draft.imageChoiceLabel || '')}" placeholder="White Outfit, Black Outfit, Red Jersey, Alternate Pose"></label>
               <p class="admin-note">Choosing Main Image moves the current main image into Alternate Images; no physical file is deleted.</p>
-            </div>
-            <div data-import-destinations="existing-category">
-              ${parentCategoryPickerMarkup(draft.parentCategoryKey || '')}
-              <p class="admin-note">Choose Category Card Image, Category Background, or Background before adding this image.</p>
-            </div>
-            <div data-import-roles="page-only">
-              <label>Website image slot<select name="websiteImageKey">${imageImportAssetOptions(draft.websiteImageKey || '')}</select></label>
-              <p class="admin-note">Page-only images use the existing website image assignments. The physical file is never modified.</p>
             </div>
           </div>
         </div>
@@ -5141,12 +6086,12 @@ function renderImageDrafts() {
     bindParentCategoryPicker(form);
     updateImageDraftDestination(form);
     updateImageImportPreview(form);
-    form.querySelector('[name="imageDestination"]')?.addEventListener('change', () => updateImageDraftDestination(form));
+    form.querySelectorAll('[name="imageDestination"]').forEach((input) => input.addEventListener('change', () => updateImageDraftDestination(form)));
     form.querySelector('[name="parentProductSlug"]')?.addEventListener('change', () => updateImageImportPreview(form));
-    form.querySelector('[name="imageRole"]')?.addEventListener('change', () => {
+    form.querySelectorAll('[name="imageRole"]').forEach((input) => input.addEventListener('change', () => {
       updateImageDraftDestination(form);
       updateImageImportPreview(form);
-    });
+    }));
     form.querySelector('[name="backgroundImage"]')?.addEventListener('change', () => updateImageImportPreview(form));
     form.querySelector('[name="title"]')?.addEventListener('input', () => {
       const slug = form.querySelector('[name="slug"]');
@@ -5154,10 +6099,9 @@ function renderImageDrafts() {
       if (slug && (!slug.value || slug.value === slug.dataset.generatedValue)) slug.value = generated;
       if (slug) slug.dataset.generatedValue = slug.value;
     });
-    form.querySelector('[data-save-image-later]')?.addEventListener('click', () => saveImageDraftForm(form, { savedForLater: true }));
     form.querySelector('[data-preview-image-import]')?.addEventListener('click', () => updateImageImportPreview(form));
-    form.querySelector('[data-apply-image-import-draft]')?.addEventListener('click', () => configureImageDraft(form, 'draft'));
-    form.querySelector('[data-apply-image-import]')?.addEventListener('click', () => configureImageDraft(form));
+    form.querySelector('[data-apply-image-import-draft]')?.addEventListener('click', () => handleImageInboxAction(form, 'draft'));
+    form.querySelector('[data-apply-image-import]')?.addEventListener('click', () => handleImageInboxAction(form, 'publish'));
     form.querySelector('[data-ignore-image]')?.addEventListener('click', () => ignoreImageDraft(form.dataset.imagePath, form));
   });
   renderImageImportPending();
@@ -5175,10 +6119,10 @@ function imageImportPublished(draft) {
 }
 
 function imageImportStatus(draft) {
-  if (draft.lastError || draft.status === 'error') return 'Error';
+  if (draft.lastError || draft.status === 'error') return 'Publish Failed';
   if (imageImportPublished(draft)) return 'Published';
   if (draft.savedForLater) return 'Draft';
-  if (['ready', 'completed'].includes(draft.status)) return 'Ready to Publish';
+  if (['ready', 'completed'].includes(draft.status)) return 'Unpublished Changes';
   return 'Draft';
 }
 
@@ -5235,6 +6179,17 @@ async function saveSelectedImageImportsForLater() {
   setStatus(`${selected.length} image import${selected.length === 1 ? '' : 's'} saved for later.`);
 }
 
+function openSelectedImageDraft() {
+  const selected = document.querySelector('[data-image-pending-select]:checked');
+  const path = selected?.closest('[data-pending-image-path]')?.dataset.pendingImagePath;
+  const form = path ? [...document.querySelectorAll('.admin-image-draft')].find((item) => item.dataset.imagePath === path) : null;
+  if (!form) {
+    setStatus('That saved draft is already assigned. Open its product from Products to continue.');
+    return;
+  }
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function publishImageImports(mode) {
   const drafts = Object.values(readImageDraftEdits()).map(normalizeImageImportDraft);
   const requestedPaths = mode === 'all'
@@ -5271,10 +6226,36 @@ async function publishImageImports(mode) {
 
 async function loadImageDraftInventory() {
   try {
-    const response = await fetch('product-drafts.json', { cache: 'no-store' });
-    imageDraftInventory = response.ok ? await response.json() : [];
+    const localAdmin = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+    if (localAdmin) {
+      const response = await fetch('/api/local-image-inventory', { cache: 'no-store' });
+      if (!response.ok) throw new Error('The local image inventory endpoint is unavailable.');
+      const inventory = await response.json();
+      const localPaths = Array.isArray(inventory.images) ? inventory.images : [];
+      const remotePaths = Array.isArray(inventory.repositoryImages) ? inventory.repositoryImages : [];
+      repositoryImagePaths = new Set(remotePaths);
+      localOnlyImagePaths = new Set(localPaths.filter((path) => !repositoryImagePaths.has(path)));
+      imageDraftInventory = localPaths.map((path) => ({ path }));
+      imageInventorySource = 'local';
+    } else {
+      const inventory = await callAdminPublisher({ action: 'image-inventory' });
+      const paths = Array.isArray(inventory.images) ? inventory.images : [];
+      repositoryImagePaths = new Set(paths);
+      localOnlyImagePaths = new Set();
+      imageDraftInventory = paths.map((path) => ({ path }));
+      imageInventorySource = 'github';
+    }
   } catch (error) {
-    imageDraftInventory = [];
+    try {
+      const response = await fetch('product-drafts.json', { cache: 'no-store' });
+      imageDraftInventory = response.ok ? await response.json() : [];
+      repositoryImagePaths = new Set(imageDraftInventory.map((entry) => entry?.path).filter(Boolean));
+      localOnlyImagePaths = new Set();
+      imageInventorySource = 'fallback';
+      setStatus(`Automatic image inventory is unavailable; showing the legacy read-only list. ${error?.message || error}`);
+    } catch (_fallbackError) {
+      imageDraftInventory = [];
+    }
   }
   renderImageDrafts();
   renderPublishSummary();
@@ -5357,38 +6338,20 @@ function renderAdminDashboard() {
   if (!container) return;
   const review = architectureReviewItems();
   const conflicts = adminLiveSettings?.adminArchitectureMigrationV2?.productPageOverrides;
-  const products = Object.values(readAdminProducts());
-  const categories = Object.values(newAdminArchitectureEnabled() ? readAdminCategories() : adminArchitectureState?.candidate?.categories || {});
+  const privateProducts = Object.values(readAdminProducts());
+  const products = effectiveAdminProducts();
+  const history = getAdminLiveValue('publishHistory', []);
+  const productChanges = review.filter((item) => item.type === 'product');
   const available = (value) => value === undefined || value === null || value === '' ? 'Not available' : value;
   const cards = [
-    { title: 'Draft Products', value: products.filter((item) => item.approvalStatus === 'draft' || item.draftStatus === 'draft').length, note: 'Products saved privately and still being prepared.', href: '#create-content' },
-    { title: 'Draft Categories', value: categories.filter((item) => item.approvalStatus === 'draft' || item.draftStatus === 'draft').length, note: 'Categories saved privately and still being prepared.', href: '#create-content' },
-    { title: 'New Image Imports', value: Object.values(readImageDraftEdits()).filter((draft) => ['draft', 'new'].includes(draft.status || 'draft')).length, note: 'Repository images waiting to be assigned.', href: '#new-image-drafts' },
-    { title: 'Waiting for Approval', value: review.filter((item) => !item.approved).length, note: 'Private changes that need your review.', href: '#approved-products' },
-    { title: 'Approved — Waiting to Publish', value: review.filter((item) => item.approved).length, note: 'Approved changes customers cannot see yet.', href: '#approved-products' },
-    { title: 'Save Errors', value: adminLastSaveError ? 1 : 0, note: adminLastSaveError ? 'One or more changes were not saved.' : 'No failed saves detected.', href: '#recovery-advanced' },
-    { title: 'Conflicts', value: (conflicts?.conflicts?.length || 0) + (conflicts?.unsupported?.length || 0), note: 'Changes that need a decision before publishing.', href: '#recovery-advanced' },
-    { title: 'Hidden Products', value: products.filter((product) => product.visible === false).length, note: 'Products currently hidden in private Admin state.', href: '#approved-products' },
-    { title: 'Archived Products', value: readArchivedProducts().length, note: 'Products preserved outside the active storefront.', href: '#recovery-advanced' },
-    { title: 'Last Published', value: adminPublishedFileState.publishedAt ? new Date(adminPublishedFileState.publishedAt).toLocaleDateString() : 'Not available', note: 'Most recent version made visible to customers.', href: '#publish-changes' }
+    { title: 'Products', value: products.length, note: 'Published products and private product records.', href: '#products' },
+    { title: 'Drafts', value: privateProducts.filter((item) => item.approvalStatus === 'draft' || item.draftStatus === 'draft').length, note: 'Saved privately; customers cannot see these changes.', href: '#products' },
+    { title: 'Unpublished Changes', value: productChanges.length, note: 'Meaningful product changes that are not live yet.', href: '#products' },
+    { title: 'Orders / Offers', value: adminCommerceLoaded ? 'Loaded' : 'Open', note: 'Customer orders and offers requiring normal attention.', href: '#orders' },
+    { title: 'Recent Publications', value: history.length, note: adminPublishedFileState.publishedAt ? `Last: ${new Date(adminPublishedFileState.publishedAt).toLocaleDateString()}` : 'No publication recorded yet.', href: '#advanced' },
+    { title: 'Errors', value: (adminLastSaveError ? 1 : 0) + (adminLatestPublishError ? 1 : 0) + (conflicts?.conflicts?.length || 0) + (conflicts?.unsupported?.length || 0), note: 'Save, publish, or conflict errors requiring attention.', href: '#advanced' }
   ];
   container.innerHTML = cards.map((card) => `<a class="admin-dashboard-card" href="${card.href}"><span class="admin-dashboard-card-title">${escapeAdminHtml(card.title)}</span><strong>${escapeAdminHtml(String(available(card.value)))}</strong><span>${escapeAdminHtml(card.note)}</span><em>Open</em></a>`).join('');
-  const flag = document.querySelector('[data-admin-dashboard-flag]');
-  if (flag) flag.textContent = newAdminArchitectureEnabled() ? 'New Admin System active locally' : 'Legacy System active';
-  const status = document.getElementById('adminArchitectureStatus');
-  if (status) {
-    const verification = adminLiveSettings?.adminArchitectureBackupVerificationV1;
-    const migration = adminLiveSettings?.adminArchitectureMigrationV2;
-    const backupReady = adminArchitectureState?.diagnostics?.backupReady === true && verification?.verified === true;
-    const migrationReady = backupReady && migration?.version === 1 && migration.backupChecksum === verification.checksum;
-    const readiness = newAdminArchitectureEnabled() ? 'Active locally' : migrationReady ? 'Ready to activate locally' : backupReady ? 'Backup verified — preparation required' : 'Backup not created';
-    status.innerHTML = `<div><span>Current Admin System</span><strong>${newAdminArchitectureEnabled() ? 'New Admin System' : 'Legacy System'}</strong></div>
-      <div><span>New Admin System</span><strong>${readiness}</strong></div>
-      <div class="admin-panel-actions">
-        ${newAdminArchitectureEnabled() ? '<button class="admin-button admin-button-warning" type="button" data-disable-admin-architecture>Return to Legacy System</button>' : `<button class="admin-button admin-button-primary" type="button" data-activate-admin-locally ${migrationReady ? '' : 'disabled'}>Activate New Admin Locally</button>`}
-        <a class="admin-button admin-button-secondary" href="#recovery-advanced">View Migration Details</a>
-      </div>`;
-  }
 }
 
 function renderAdminRecoveryTools() {
@@ -5410,6 +6373,7 @@ function renderAdminRecoveryTools() {
     <div class="admin-panel-actions">
       <button type="button" data-create-migration-backup>Create and Verify Recovery Backup</button>
       <button type="button" data-prepare-admin-migration ${verification?.verified ? '' : 'disabled'}>Prepare New Admin Data</button>
+      ${!newAdminArchitectureEnabled() && prepared?.version === 1 ? '<button type="button" data-activate-admin-locally>Activate Private Admin Architecture</button>' : ''}
       ${newAdminArchitectureEnabled() ? '<button type="button" data-disable-admin-architecture>Roll Back to Old Readers</button>' : ''}
       <button type="button" data-export-private-state>Export Current Private State</button>
       <button type="button" data-export-published-state>Export Published Snapshot</button>
@@ -5418,6 +6382,7 @@ function renderAdminRecoveryTools() {
       <button type="button" data-clear-local-recovery>Clear Local Recovery Data</button>
     </div>
     <details><summary>Conflicting page overrides (${conflicts.length})</summary><pre>${escapeAdminHtml(JSON.stringify(conflicts, null, 2))}</pre></details>
+    <details><summary>Technical published/private comparison</summary>${architectureReviewMarkup(architectureReviewItems())}</details>
     <details><summary>Failed saves</summary><p>${escapeAdminHtml(adminLastSaveError || 'None')}</p></details>
   `;
   if (container.dataset.recoveryBound) return;
@@ -5459,8 +6424,13 @@ function renderAdminRecoveryTools() {
 
 function showAdminAreaFromHash() {
   const requested = (window.location.hash || '#dashboard').slice(1);
-  const aliases = { create: 'create-content', 'image-imports': 'new-image-drafts', products: 'approved-products', categories: 'category-display-cards', publish: 'publish-changes', settings: 'admin-settings', recovery: 'recovery-advanced' };
-  const candidate = requested.startsWith('product-') ? 'recovery-advanced' : aliases[requested] || requested;
+  const aliases = {
+    create: 'products', 'create-content': 'products', 'approved-products': 'products',
+    'image-imports': 'image-inbox', 'new-image-drafts': 'image-inbox',
+    'category-display-cards': 'categories', 'admin-settings': 'settings',
+    publish: 'advanced', 'publish-changes': 'advanced', recovery: 'advanced', 'recovery-advanced': 'advanced'
+  };
+  const candidate = requested.startsWith('product-') ? 'products' : aliases[requested] || requested;
   const validAreas = new Set([...document.querySelectorAll('[data-admin-area]')].map((section) => section.dataset.adminArea));
   const area = validAreas.has(candidate) ? candidate : 'dashboard';
   document.querySelectorAll('[data-admin-area]').forEach((section) => { section.hidden = section.dataset.adminArea !== area; });
@@ -5471,7 +6441,7 @@ function showAdminAreaFromHash() {
   toggle?.setAttribute('aria-expanded', 'false');
   if (!adminAccessReady) return;
   if (area === 'orders' && !adminCommerceLoaded) void refreshCommerceAdmin();
-  if (area === 'admin-settings') {
+  if (area === 'settings') {
     if (!adminTestModeLoaded) void loadAdminTestMode();
     if (!adminDiscountCodesLoaded) void loadDiscountCodes();
   }
@@ -5540,12 +6510,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   console.log('[ADMIN] DOMContentLoaded');
   try {
     clearLegacyAdminBrowserStorage();
-  await loadImageDraftInventory();
+  await adminStateUtilsPromise;
   const hasAdminAccess = await requireSupabaseAdminAccess();
   setupAdminTestMode();
   adminAccessReady = hasAdminAccess;
   const loadedAdminState = hasAdminAccess ? await loadAdminLiveSettings().catch(() => null) : null;
   imageImportReady = Boolean(hasAdminAccess && loadedAdminState);
+  await loadImageDraftInventory();
   renderImageDrafts();
   await loadPublishedPublishBaseline();
   if (hasAdminAccess && loadedAdminState) {
@@ -5554,6 +6525,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   renderImageImportPending();
   renderAdminProducts();
+  setupCategoryManagerEvents();
   bindAdminAiAssistance();
   setupAdminCreationWorkspace();
   setupAdminArchitectureWorkspace();
@@ -5584,8 +6556,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('createAdminProduct')?.addEventListener('click', createCustomProduct);
   document.getElementById('refreshImageDrafts')?.addEventListener('click', loadImageDraftInventory);
   document.getElementById('saveSelectedImageDrafts')?.addEventListener('click', saveSelectedImageImportsForLater);
-  document.getElementById('publishSelectedImageDrafts')?.addEventListener('click', () => publishImageImports('selected'));
-  document.getElementById('publishAllImageDrafts')?.addEventListener('click', () => publishImageImports('all'));
+  document.getElementById('publishSelectedImageDrafts')?.addEventListener('click', openSelectedImageDraft);
+  document.getElementById('adminProductSearch')?.addEventListener('input', filterAdminProductLibrary);
+  document.querySelectorAll('[data-new-product]').forEach((link) => link.addEventListener('click', () => {
+    window.setTimeout(() => document.getElementById('createProductForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  }));
   document.getElementById('refreshPublishSummary')?.addEventListener('click', renderPublishSummary);
   document.getElementById('adminPublishImagePaths')?.addEventListener('input', () => {
     imageImportPublishSelection = null;

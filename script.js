@@ -2221,7 +2221,7 @@ function addAdminDashboardLinkIfMissing() {
   document.querySelectorAll('.auth-links').forEach((links) => {
     if (links.querySelector('[data-admin-dashboard-link]')) return;
     const signout = links.querySelector('[data-auth-signout]');
-    const linkHtml = '<a class="admin-header-link" data-admin-dashboard-link href="admin.html">Admin Dashboard</a>';
+    const linkHtml = '<a class="admin-header-link" data-admin-dashboard-link href="admin.html">Admin</a>';
     if (signout) signout.insertAdjacentHTML('beforebegin', linkHtml);
     else links.insertAdjacentHTML('beforeend', linkHtml);
   });
@@ -2677,6 +2677,19 @@ const STOREFRONT_CATEGORY_CARD_MAP = {
   'custom-photo-standee': 'custom-photo',
   'small-standee-party-pack': 'small-party-packs'
 };
+const STOREFRONT_CATEGORY_PAGE_MAP = {
+  'sport-legend-standee': 'sports-legends.html',
+  'movie-character-standee': 'movie-inspired.html',
+  'people-public-figure-standee': 'people-public-figures.html',
+  'music-artist-standee': 'music-artists.html',
+  'faith-celebration-standee': 'religious-cutouts.html',
+  'holiday-standee': 'holiday-cutouts.html',
+  'fan-request-standee': 'fan-inspired.html',
+  'dinosaur-party-standee': 'dinosaur-cutouts.html',
+  'game-fantasy-standee': 'videogame-cutouts.html',
+  'custom-photo-standee': 'custom-photo-cutouts.html',
+  'small-standee-party-pack': 'small-cutout-party-packs.html'
+};
 
 function announceStorefrontAdminSave(scope, revision, keys = []) {
   const message = { source: storefrontAdminTabId, scope, revision, keys, savedAt: new Date().toISOString() };
@@ -2810,6 +2823,9 @@ function validatePublishedAdminSettings(value) {
     deletedProducts: Array.isArray(snapshot.deletedProducts)
       ? [...new Set(snapshot.deletedProducts.filter((slug) => typeof slug === 'string' && slug))]
       : [],
+    deletedCategories: Array.isArray(snapshot.deletedCategories)
+      ? [...new Set(snapshot.deletedCategories.filter((key) => typeof key === 'string' && key))]
+      : [],
     ignoredImagePaths: Array.isArray(snapshot.ignoredImagePaths)
       ? [...new Set(snapshot.ignoredImagePaths.filter((path) => typeof path === 'string' && path))]
       : [],
@@ -2896,9 +2912,52 @@ function getAdminProducts() {
   }
 }
 
+function compatibilityMasterCategories() {
+  const published = window.mvpluxPublishedAdminSettings || {};
+  const deleted = new Set(published.deletedCategories || []);
+  const categories = {};
+  (window.MVPLUX_PRODUCT_CATEGORIES || []).forEach((definition, index) => {
+    if (!definition?.key || deleted.has(definition.key)) return;
+    categories[definition.key] = {
+      key: definition.key,
+      title: definition.label || definition.key,
+      description: '',
+      page: definition.page || definition.pages?.[0] || '',
+      visible: definition.visible !== false,
+      homepageVisible: definition.homepageVisible !== false,
+      order: index,
+      card: { title: definition.label || definition.key, description: '', image: '', backgroundImage: '', visible: true, order: index },
+      displaySettings: {}
+    };
+  });
+  Object.entries(published.categoryDisplayCards || {}).forEach(([slug, card], index) => {
+    const key = STOREFRONT_CATEGORY_CARD_MAP[slug] || slug.replace(/-category-card$/, '');
+    if (!key || deleted.has(key)) return;
+    const current = categories[key] || { key, title: card.title || key, description: '', page: STOREFRONT_CATEGORY_PAGE_MAP[slug] || '', visible: true, homepageVisible: true, order: index, displaySettings: {} };
+    categories[key] = {
+      ...current,
+      card: {
+        title: card.title || current.title,
+        description: card.description || current.description || '',
+        image: card.cutoutImage || '',
+        backgroundImage: card.backgroundImage || '',
+        visible: card.visible !== false,
+        order: Number.isFinite(Number(card.productOrder)) ? Number(card.productOrder) : current.order
+      }
+    };
+  });
+  Object.entries(published.categories || {}).forEach(([key, category]) => {
+    if (!deleted.has(key)) categories[key] = { ...(categories[key] || {}), ...structuredClone(category), key };
+  });
+  return categories;
+}
+
 function getAdminCategories() {
-  if (shouldUsePrivateAdminState()) return window.mvpluxLiveAdminSettings?.categories || {};
-  return window.mvpluxPublishedAdminSettings?.categories || {};
+  const published = compatibilityMasterCategories();
+  if (!shouldUsePrivateAdminState()) return published;
+  const deleted = new Set(window.mvpluxLiveAdminSettings?.deletedCategories || window.mvpluxPublishedAdminSettings?.deletedCategories || []);
+  const privateCategories = window.mvpluxLiveAdminSettings?.categories || {};
+  return Object.fromEntries(Object.entries({ ...published, ...privateCategories }).filter(([key]) => !deleted.has(key)));
 }
 
 function getAdminGlobalDisplaySettings() {
@@ -2951,7 +3010,10 @@ function getManagedProductCatalog() {
     const slug = product?.slug;
     if (!slug || deleted.has(slug)) return;
     const merged = { ...product, ...(overrides[slug] || {}) };
-    merged.categories = Array.isArray(merged.categories) ? [...new Set(merged.categories)] : [];
+    const deletedCategories = new Set(shouldUsePrivateAdminState()
+      ? window.mvpluxLiveAdminSettings?.deletedCategories || []
+      : window.mvpluxPublishedAdminSettings?.deletedCategories || []);
+    merged.categories = Array.isArray(merged.categories) ? [...new Set(merged.categories)].filter((key) => !deletedCategories.has(key)) : [];
     merged.imageChoices = sanitizeProductImageChoices(merged.imageChoices)
       .filter((choice) => choice.image !== merged.cutoutImage);
     merged.categoryOrder = merged.categoryOrder && typeof merged.categoryOrder === 'object'
@@ -3840,6 +3902,12 @@ function setupDynamicCategoryPage() {
   if (!document.body.matches('[data-dynamic-category-page]')) return;
   const category = getAdminCategories()[getCurrentProductCategory()];
   if (!category) return;
+  if (category.visible === false) {
+    const page = document.querySelector('.category-page');
+    if (page) page.innerHTML = '<section class="category-hero"><h1>Category unavailable</h1><p>This collection is not currently available.</p></section>';
+    document.title = 'Category Unavailable | MVPLUXCREATIONS';
+    return;
+  }
   const heading = document.querySelector('.category-hero h1');
   const intro = document.querySelector('.category-hero p');
   if (heading) heading.textContent = category.title || category.key;
@@ -3850,23 +3918,37 @@ function setupDynamicCategoryPage() {
 function renderNormalizedHomepageCategoryCards() {
   if (inlineAdminPageKey() !== 'index.html') return;
   const grids = [...document.querySelectorAll('.featured-category-row .product-grid')];
-  const grid = grids[grids.length - 1];
-  if (!grid) return;
-  const represented = new Set([...document.querySelectorAll('.product-card .size-builder[data-admin-slug]')].map((builder) => STOREFRONT_CATEGORY_CARD_MAP[builder.dataset.adminSlug]).filter(Boolean));
-  Object.values(getAdminCategories())
-    .filter((category) => category.visible !== false && category.card?.visible !== false && !represented.has(category.key))
-    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
-    .forEach((category) => {
-      const slug = `${category.key}-category-card`;
-      if (grid.querySelector(`[data-admin-category-key="${CSS.escape(category.key)}"]`)) return;
-      const page = category.page || `category.html?category=${encodeURIComponent(category.key)}`;
-      grid.insertAdjacentHTML('beforeend', `
-        <div class="product-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}">
-          <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview" style="background-image:url('${escapeHtml(category.card?.backgroundImage || '')}')"><img class="product-cutout" src="${escapeHtml(category.card?.image || '')}" alt=""></div></a>
-          <h3><a href="${escapeHtml(page)}" class="product-title-link">${escapeHtml(category.card?.title || category.title || category.key)}</a></h3>
-          <p class="product-description">${escapeHtml(category.card?.description || category.description || '')}</p>
-        </div>`);
-    });
+  if (!grids.length) return;
+  const categories = Object.values(getAdminCategories())
+    .filter((category) => !category.parentKey && category.visible !== false && category.homepageVisible !== false && category.card?.visible !== false)
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0) || String(left.title || left.key).localeCompare(String(right.title || right.key)));
+  if (!categories.length) return;
+  grids.forEach((grid) => { grid.innerHTML = ''; });
+  const firstRowSize = Math.min(5, Math.ceil(categories.length / 2));
+  categories.forEach((category, index) => {
+    const slug = Object.entries(STOREFRONT_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
+      || `${category.key}-category-card`;
+    const page = category.page || `category.html?category=${encodeURIComponent(category.key)}`;
+    const globalDisplay = getAdminGlobalDisplaySettings();
+    const display = { ...globalDisplay, ...(category.displaySettings || {}) };
+    const globalSize = Number(globalDisplay.standeeSizePercent);
+    const inheritedSize = Number.isFinite(globalSize) && globalSize >= 20 ? Math.min(140, globalSize) : 63;
+    const requestedSize = Number(category.displaySettings?.standeeSizePercent ?? inheritedSize);
+    const size = Number.isFinite(requestedSize) && requestedSize >= 20 ? Math.min(140, requestedSize) : inheritedSize;
+    const horizontal = Math.max(-50, Math.min(50, Number(display.standeeLeftPercent) || 0));
+    const vertical = Math.max(-50, Math.min(50, Number(display.standeeVerticalPercent) || 0));
+    const left = Math.max(10, Math.min(90, 50 + horizontal));
+    const bottom = Math.max(0, Math.min(75, 18 - vertical));
+    const background = category.card?.backgroundImage || display.backgroundImage || getShowroomStageBackground();
+    const grid = grids[index < firstRowSize ? 0 : Math.min(1, grids.length - 1)];
+    grid.insertAdjacentHTML('beforeend', `
+      <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}">
+        <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview" style="background-image:url('${escapeHtml(background)}');background-position:${escapeHtml(display.backgroundPosition || 'center center')}">${category.card?.image ? `<img class="product-cutout" src="${escapeHtml(category.card.image)}" alt="${escapeHtml(category.card?.title || category.title || category.key)}" style="height:${size}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
+        <h3><a href="${escapeHtml(page)}" class="product-title-link">${escapeHtml(category.card?.title || category.title || category.key)}</a></h3>
+        <p class="product-description">${escapeHtml(category.card?.description || category.description || '')}</p>
+        <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
+      </article>`);
+  });
 }
 
 function managedCategoryCardMarkup(product) {
@@ -3879,16 +3961,92 @@ function managedCategoryCardMarkup(product) {
   `;
 }
 
+function visibleCategoryChildGroups(masterKey) {
+  return Object.values(getAdminCategories())
+    .filter((category) => category?.parentKey === masterKey && category.visible !== false)
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0)
+      || String(left.title || left.key).localeCompare(String(right.title || right.key)));
+}
+
+function categoryGroupHref(groupKey = '') {
+  const url = new URL(window.location.href);
+  if (groupKey) url.searchParams.set('group', groupKey);
+  else url.searchParams.delete('group');
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function categoryGroupState(masterKey) {
+  const children = visibleCategoryChildGroups(masterKey);
+  const requestedKey = new URLSearchParams(window.location.search).get('group') || '';
+  const activeChild = children.find((category) => category.key === requestedKey) || null;
+  return { children, requestedKey, activeChild, unavailable: Boolean(requestedKey && !activeChild) };
+}
+
+function renderCategoryGroupNavigation(page, masterKey, state) {
+  let nav = page.querySelector('[data-category-group-nav]');
+  const legacySportsNavigation = masterKey === 'sports' ? page.querySelector('.sport-type-carousel') : null;
+  if (!state.children.length && !state.requestedKey) {
+    nav?.remove();
+    if (legacySportsNavigation) legacySportsNavigation.hidden = false;
+    return;
+  }
+  if (legacySportsNavigation) legacySportsNavigation.hidden = state.children.length > 0;
+  if (!nav) {
+    nav = document.createElement('nav');
+    nav.className = 'category-group-nav';
+    nav.dataset.categoryGroupNav = masterKey;
+    nav.setAttribute('aria-label', 'Child Groups');
+    const hero = page.querySelector('.category-hero');
+    if (hero) hero.insertAdjacentElement('afterend', nav);
+    else page.prepend(nav);
+  }
+  nav.innerHTML = [
+    `<a href="${escapeHtml(categoryGroupHref())}" data-category-group-link="" class="${state.requestedKey ? '' : 'active'}">All</a>`,
+    ...state.children.map((child) => `<a href="${escapeHtml(categoryGroupHref(child.key))}" data-category-group-link="${escapeHtml(child.key)}" class="${state.activeChild?.key === child.key ? 'active' : ''}">${escapeHtml(child.title || child.key)}</a>`)
+  ].join('');
+}
+
+function productsForCategoryGroup(products, masterKey, childKey = '') {
+  const unique = new Map();
+  products.forEach((product) => {
+    const assignments = new Set(Array.isArray(product?.categories) ? product.categories : []);
+    if (!product?.slug || product.visible === false || !assignments.has(masterKey) || (childKey && !assignments.has(childKey))) return;
+    if (!unique.has(product.slug)) unique.set(product.slug, product);
+  });
+  return [...unique.values()];
+}
+
+function bindCategoryGroupNavigation() {
+  if (document.documentElement.dataset.categoryGroupNavigationBound) return;
+  document.documentElement.dataset.categoryGroupNavigationBound = 'true';
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('[data-category-group-link]');
+    if (!link) return;
+    event.preventDefault();
+    window.history.pushState({}, '', link.href);
+    renderManagedCategoryPageProducts();
+  });
+  window.addEventListener('popstate', () => renderManagedCategoryPageProducts());
+}
+
 function renderManagedCategoryPageProducts() {
   const category = getCurrentProductCategory();
   const page = document.querySelector('.category-page');
   if (!category || !page) return;
+  if (getAdminCategories()[category]?.visible === false) {
+    page.innerHTML = '<section class="category-hero"><h1>Category unavailable</h1><p>This collection is not currently available.</p></section>';
+    return;
+  }
 
-  const products = getManagedProductCatalog()
-    .filter((product) => product.visible !== false && product.categories.includes(category))
+  const groupState = categoryGroupState(category);
+  renderCategoryGroupNavigation(page, category, groupState);
+  bindCategoryGroupNavigation();
+
+  const products = productsForCategoryGroup(getManagedProductCatalog(), category, groupState.activeChild?.key || '')
     .sort((a, b) => {
-      const aOrder = Number(a.categoryOrder?.[category]);
-      const bOrder = Number(b.categoryOrder?.[category]);
+      const orderKey = groupState.activeChild?.key || category;
+      const aOrder = Number(a.categoryOrder?.[orderKey]);
+      const bOrder = Number(b.categoryOrder?.[orderKey]);
       return (Number.isFinite(aOrder) ? aOrder : Number.MAX_SAFE_INTEGER)
         - (Number.isFinite(bOrder) ? bOrder : Number.MAX_SAFE_INTEGER)
         || a.title.localeCompare(b.title);
@@ -3897,6 +4055,10 @@ function renderManagedCategoryPageProducts() {
   if (category === 'sports') {
     const grid = page.querySelector('.sports-player-grid');
     if (!grid) return;
+    if (groupState.unavailable) {
+      grid.innerHTML = '<p class="category-group-unavailable">This Child Group is not available.</p>';
+      return;
+    }
     grid.innerHTML = products.map((product) => `
       <article class="category-card sports-player-card" data-sports-player="${product.slug}" data-product-id="${product.slug}" data-admin-card-key="${product.slug}">
         <img src="${product.cutoutImage}" alt="${product.title} standee">
@@ -3910,6 +4072,10 @@ function renderManagedCategoryPageProducts() {
 
   const grid = page.querySelector('.category-panel .category-grid');
   if (!grid) return;
+  if (groupState.unavailable) {
+    grid.innerHTML = '<p class="category-group-unavailable">This Child Group is not available.</p>';
+    return;
+  }
   grid.innerHTML = products.map(managedCategoryCardMarkup).join('');
 }
 
@@ -6642,9 +6808,9 @@ function ensureInlineRecordEditor() {
 }
 
 function inlineProductEditorMarkup(product = {}) {
-  const categoryOptions = (window.MVPLUX_PRODUCT_CATEGORIES || []).map((category) => {
+  const categoryOptions = Object.values(getAdminCategories()).map((category) => {
     const key = String(category.key || '');
-    return `<label><input type="checkbox" name="categories" value="${escapeHtml(key)}" ${(product.categories || []).includes(key) ? 'checked' : ''}> ${escapeHtml(category.label || key)}</label>`;
+    return `<label><input type="checkbox" name="categories" value="${escapeHtml(key)}" ${(product.categories || []).includes(key) ? 'checked' : ''}> ${escapeHtml(category.title || key)}</label>`;
   }).join('');
   const display = product.displayOverrides || {};
   return `
@@ -7162,7 +7328,7 @@ function installInlineAdminMode() {
       </div>
       <div class="admin-toolbar-group admin-toolbar-page">
         ${newStorefrontAdminArchitectureEnabled() ? '<button type="button" class="admin-tool-control" data-admin-toolbar-action="edit-selected-record" title="Edit the selected product or category">Edit Product</button>' : ''}
-        <button type="button" class="admin-tool-control" data-admin-toolbar-action="mark-selected-ready" title="Mark the selected saved change Ready to publish">Mark Ready</button>
+        <a href="admin.html#products" title="Open Products to preview, save a draft, or publish">Products</a>
         <a href="admin.html#create-card">Add Card</a>
         <a href="admin.html">Orders/Admin</a>
         <details class="admin-toolbar-more"><summary>More</summary><div>

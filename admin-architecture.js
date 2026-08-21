@@ -270,17 +270,20 @@ function normalizeCategoryCard(value = {}) {
   };
 }
 
-export function normalizeCategories({ categoryDefinitions = [], existingCategories = {}, categoryCardDefaults = [], publishedCategoryCards = {}, savedProductOverrides = {}, categoryCardMap = {} } = {}) {
+export function normalizeCategories({ categoryDefinitions = [], existingCategories = {}, categoryCardDefaults = [], publishedCategoryCards = {}, savedProductOverrides = {}, categoryCardMap = {}, deletedCategories = [] } = {}) {
   const categories = {};
+  const deleted = new Set(Array.isArray(deletedCategories) ? deletedCategories : []);
   (Array.isArray(categoryDefinitions) ? categoryDefinitions : []).forEach((definition, index) => {
     const key = String(definition?.key || '').trim();
-    if (!key) return;
+    if (!key || deleted.has(key)) return;
     categories[key] = {
       key,
+      parentKey: String(definition.parentKey || ''),
       title: String(definition.label || key),
       description: '',
       page: String(definition.page || definition.pages?.[0] || ''),
       visible: definition.visible !== false,
+      homepageVisible: definition.homepageVisible !== false,
       order: index,
       card: normalizeCategoryCard({}),
       displaySettings: normalizeDisplaySettings({}),
@@ -291,7 +294,7 @@ export function normalizeCategories({ categoryDefinitions = [], existingCategori
 
   (Array.isArray(categoryCardDefaults) ? categoryCardDefaults : []).forEach((card, index) => {
     const key = String(categoryCardMap[card?.slug] || card?.categoryKey || card?.slug || '').trim();
-    if (!key) return;
+    if (!key || deleted.has(key)) return;
     const existing = categories[key] || {
       key, title: String(card.title || key), description: '', page: '', visible: true, order: index,
       card: normalizeCategoryCard({}), displaySettings: normalizeDisplaySettings({}),
@@ -301,22 +304,27 @@ export function normalizeCategories({ categoryDefinitions = [], existingCategori
     const saved = asObject(savedProductOverrides)[card.slug] || {};
     categories[key] = {
       ...existing,
+      page: String(existing.page || card.page || ''),
+      homepageVisible: existing.homepageVisible !== false,
       card: normalizeCategoryCard({ ...card, ...published, ...saved, order: existing.card?.order ?? index })
     };
   });
 
   Object.entries(asObject(existingCategories)).forEach(([key, value]) => {
+    if (deleted.has(key)) return;
     const current = categories[key] || { key, card: {}, displaySettings: {} };
     const source = asObject(value);
     categories[key] = {
       ...current,
       ...clone(source),
       key,
+      parentKey: String(source.parentKey || current.parentKey || ''),
       title: String(source.title || current.title || key),
       description: String(source.description || current.description || ''),
       funFact: String(source.funFact || current.funFact || ''),
       page: String(source.page || current.page || ''),
       visible: source.visible !== false,
+      homepageVisible: source.homepageVisible !== false,
       order: Number.isFinite(Number(source.order)) ? Number(source.order) : Number(current.order || 0),
       card: normalizeCategoryCard({ ...current.card, ...asObject(source.card) }),
       displaySettings: normalizeDisplaySettings({ ...current.displaySettings, ...asObject(source.displaySettings) })
@@ -359,10 +367,12 @@ export function buildNormalizedAdminCandidate({ adminGlobal = {}, fallbackCatalo
       categoryCardDefaults,
       publishedCategoryCards: asObject(publishedSnapshot).categoryDisplayCards,
       savedProductOverrides: source.products,
-      categoryCardMap
+      categoryCardMap,
+      deletedCategories: source.deletedCategories
     }),
     globalDisplaySettings: normalizeDisplaySettings(source.globalDisplaySettings || {}),
     imageDrafts: clone(asObject(source.imageDrafts)),
+    deletedCategories: clone(Array.isArray(source.deletedCategories) ? source.deletedCategories : []),
     feature: architectureFeature(source)
   };
 }
@@ -437,6 +447,7 @@ export function prepareAdminArchitectureMigration({ candidate = {}, siteEditRows
   return {
     products,
     categories: clone(asObject(candidate.categories)),
+    deletedCategories: clone(Array.isArray(candidate.deletedCategories) ? candidate.deletedCategories : []),
     globalDisplaySettings: clone(asObject(candidate.globalDisplaySettings)),
     migration: {
       version: 1,

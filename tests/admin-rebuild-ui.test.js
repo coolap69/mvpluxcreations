@@ -7,10 +7,14 @@ const assistantSource = await Deno.readTextFile(new URL('../supabase/functions/a
 const assistantProviderSource = await Deno.readTextFile(new URL('../supabase/functions/admin-content-assistant/ai-providers.ts', import.meta.url));
 const publisherSource = await Deno.readTextFile(new URL('../supabase/functions/publish-admin-changes/index.ts', import.meta.url));
 
-Deno.test('Admin workspace exposes focused creation, review, publish, and recovery areas', () => {
-  for (const id of ['dashboard', 'create-content', 'new-image-drafts', 'approved-products', 'publish-changes', 'recovery-advanced']) {
+Deno.test('Admin workspace exposes the simplified everyday areas and keeps technical publishing in Advanced', () => {
+  for (const id of ['dashboard', 'products', 'image-inbox', 'categories', 'orders', 'admin-settings', 'advanced']) {
     assert(adminHtml.includes(`id="${id}"`), `missing ${id} Admin area`);
   }
+  const navigation = adminHtml.slice(adminHtml.indexOf('id="adminWorkspaceNav"'), adminHtml.indexOf('</nav>', adminHtml.indexOf('id="adminWorkspaceNav"')));
+  for (const label of ['Dashboard', 'Products', 'Image Inbox', 'Categories', 'Orders &amp; Offers', 'Settings', 'Advanced']) assert(navigation.includes(`>${label}<`), `navigation is missing ${label}`);
+  assert(!navigation.includes('Review Changes') && !navigation.includes('>Publish<'), 'review and publish must not be everyday destinations');
+  assert(adminHtml.includes('id="publish-changes" data-admin-area="advanced"'), 'technical publisher must remain available in Advanced');
   assert(adminHtml.includes('Legacy Recovery Editor'), 'legacy editor must remain available only as recovery');
 });
 
@@ -43,7 +47,7 @@ Deno.test('product creation and Image Imports pass authoritative identity to AI 
 });
 
 Deno.test('shared storefront navigation reveals an Admin-only Dashboard link after authorization', () => {
-  assert(storefrontSource.includes('data-admin-dashboard-link href="admin.html">Admin Dashboard</a>'), 'shared navigation needs a direct Admin Dashboard link');
+  assert(storefrontSource.includes('data-admin-dashboard-link href="admin.html">Admin</a>'), 'shared navigation needs a direct Admin link');
   const revealStart = storefrontSource.indexOf('async function revealAdminControlsIfApproved');
   const revealEnd = storefrontSource.indexOf('async function turnOnCurrentPageAdminMode', revealStart);
   const reveal = storefrontSource.slice(revealStart, revealEnd);
@@ -92,7 +96,7 @@ Deno.test('normal Admin startup performs no migration, save, commerce, coupon, o
     'refreshCommerceAdmin();'
   ]) assert(!startup.includes(forbidden), `Admin startup must not call ${forbidden}`);
   assert(adminSource.includes("if (area === 'orders' && !adminCommerceLoaded) void refreshCommerceAdmin()"), 'commerce reads must be lazy and bounded to Orders');
-  assert(adminSource.includes("if (area === 'admin-settings')"), 'settings reads must be lazy and bounded to Settings');
+  assert(adminSource.includes("if (area === 'settings')"), 'settings reads must be lazy and bounded to Settings');
 });
 
 Deno.test('backup, migration preparation, activation, and publishing are separate explicit actions', () => {
@@ -138,11 +142,10 @@ Deno.test('storefront product editing routes every product-owned field to produc
 });
 
 Deno.test('Dashboard cards always have visible labels, values, explanations, and actions', () => {
-  for (const label of ['Draft Products', 'Draft Categories', 'New Image Imports', 'Waiting for Approval', 'Approved — Waiting to Publish', 'Save Errors', 'Conflicts', 'Hidden Products', 'Archived Products', 'Last Published']) {
+  for (const label of ['Products', 'Drafts', 'Unpublished Changes', 'Orders / Offers', 'Recent Publications', 'Errors']) {
     assert(adminSource.includes(`title: '${label}'`), `dashboard is missing ${label}`);
   }
   assert(adminSource.includes('admin-dashboard-card-title') && adminSource.includes('<strong>'), 'dashboard cards must render a title and value');
-  assert(adminSource.includes("'Not available'"), 'unavailable dashboard values must not render blank');
   const dashboardStart = adminHtml.indexOf('id="dashboard"');
   const dashboardEnd = adminHtml.indexOf('id="orders"');
   const dashboard = adminHtml.slice(dashboardStart, dashboardEnd);
@@ -161,8 +164,8 @@ Deno.test('Create Product and Create Category are visual builders with image pic
 
 Deno.test('Orders use plain-language tabs and Testing is outside Orders', () => {
   const ordersStart = adminHtml.indexOf('id="orders"');
-  const createStart = adminHtml.indexOf('id="create-content"');
-  const orders = adminHtml.slice(ordersStart, createStart);
+  const productsStart = adminHtml.indexOf('id="products"');
+  const orders = adminHtml.slice(ordersStart, productsStart);
   assert(!orders.includes('supabase-schema.sql') && !orders.includes('SQL'), 'Orders must not instruct the Admin to run SQL');
   for (const tab of ['New Orders', 'Offers', 'Awaiting Response', 'Completed', 'Archived']) assert(orders.includes(`>${tab}<`), `Orders is missing ${tab} tab`);
   assert(!orders.includes('adminTestModeForm') && !orders.includes('deleteAllTestOffers'), 'Test Mode must not appear in Orders');
@@ -170,13 +173,14 @@ Deno.test('Orders use plain-language tabs and Testing is outside Orders', () => 
   assert(adminHtml.indexOf('id="adminTestModeForm"') > settingsStart, 'Test Mode must be under Settings');
 });
 
-Deno.test('Review Changes never renders the full product editor', () => {
-  const reviewStart = adminHtml.indexOf('id="approved-products"');
-  const categoryStart = adminHtml.indexOf('id="category-display-cards"');
-  const review = adminHtml.slice(reviewStart, categoryStart);
-  assert(!review.includes('admin-product-card') && !review.includes('Save Product'), 'Review Changes must contain compact reviews only');
-  assert(adminSource.includes('approvedContainer.innerHTML = architectureReviewMarkup(reviewItems)'), 'review renderer must use compact review markup');
-  assert(!adminSource.includes("approvedContainer.innerHTML = productMarkup"), 'full product forms must never render into Review Changes');
+Deno.test('Products owns full editors while technical comparison remains in Advanced', () => {
+  assert(adminSource.includes('approvedContainer.innerHTML = productMarkup(approvedProducts)'), 'Products must render the shared product editor');
+  assert(adminSource.includes('Technical published/private comparison'), 'Advanced must retain the technical comparison');
+  assert(adminSource.includes('publishScopedChangeIds([`product:${slug}`]'), 'normal product publishing must scope itself to one product');
+  assert(adminSource.includes('publishScopedChangeIds([`category:${key}`]'), 'normal category publishing must scope itself to one category');
+  assert(adminHtml.includes('data-publish-new-product>Publish to Website</button>'), 'new products need a direct publish action');
+  assert(adminHtml.includes('data-publish-new-category>Publish to Website</button>'), 'new categories need a direct publish action');
+  assert(!adminHtml.includes('Mark Ready') && !storefrontSource.includes('>Mark Ready</button>'), 'normal Admin surfaces must not expose Ready terminology');
 });
 
 Deno.test('Legacy Recovery Editor is closed by default and rendered only on demand', () => {

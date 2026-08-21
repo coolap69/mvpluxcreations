@@ -3,6 +3,7 @@ function canonicalize(value) {
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(
     Object.entries(value)
+      .filter(([, item]) => item !== undefined)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, item]) => [key, canonicalize(item)])
   );
@@ -10,6 +11,220 @@ function canonicalize(value) {
 
 export function valuesEqual(left, right) {
   return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+}
+
+const DISPLAY_DEFAULTS = Object.freeze({
+  backgroundPosition: 'center center'
+});
+
+const ADMIN_ONLY_FIELDS = new Set([
+  'approvalStatus', 'draftStatus', 'createdAt', 'updatedAt', 'lastError',
+  'savedForLater', 'selected', 'status', 'subjectIdentity'
+]);
+
+function meaningfulScalar(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  return value;
+}
+
+function cleanSemanticValue(value) {
+  if (Array.isArray(value)) return value.map(cleanSemanticValue);
+  if (!value || typeof value !== 'object') return meaningfulScalar(value);
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key, item]) => !ADMIN_ONLY_FIELDS.has(key) && meaningfulScalar(item) !== undefined)
+      .map(([key, item]) => [key, cleanSemanticValue(item)])
+      .filter(([, item]) => item !== undefined)
+  );
+}
+
+function inheritedDisplaySettings(product = {}, context = {}) {
+  const inherited = {
+    ...DISPLAY_DEFAULTS,
+    ...(context.globalDisplaySettings || {})
+  };
+  for (const category of Array.isArray(product.categories) ? product.categories : []) {
+    Object.assign(inherited, context.categorySettings?.[category] || {});
+  }
+  return inherited;
+}
+
+export function normalizeProductForComparison(product = {}, context = {}) {
+  const normalized = cleanSemanticValue(product) || {};
+  const inherited = inheritedDisplaySettings(normalized, context);
+  const overrides = normalized.displayOverrides && typeof normalized.displayOverrides === 'object'
+    ? normalized.displayOverrides
+    : {};
+  normalized.displayOverrides = cleanSemanticValue({ ...inherited, ...overrides }) || {};
+  normalized.categories = [...new Set(Array.isArray(normalized.categories) ? normalized.categories : [])].sort();
+  if (normalized.categoryOrder && typeof normalized.categoryOrder === 'object') {
+    normalized.categoryOrder = Object.fromEntries(
+      Object.entries(normalized.categoryOrder)
+        .filter(([category, order]) => category && Number.isFinite(Number(order)))
+        .map(([category, order]) => [category, Number(order)])
+    );
+  }
+  if (normalized.priceOverride !== undefined && Number.isFinite(Number(normalized.priceOverride))) {
+    normalized.priceOverride = Number(normalized.priceOverride);
+  }
+  if (normalized.productOrder !== undefined && Number.isFinite(Number(normalized.productOrder))) {
+    normalized.productOrder = Number(normalized.productOrder);
+  }
+  return canonicalize(normalized);
+}
+
+export function semanticProductEqual(left, right, context = {}) {
+  if (!left || !right) return left === right;
+  return valuesEqual(
+    normalizeProductForComparison(left, context),
+    normalizeProductForComparison(right, context)
+  );
+}
+
+export function normalizeForSemanticComparison(value) {
+  return canonicalize(cleanSemanticValue(value));
+}
+
+export function semanticValuesEqual(left, right) {
+  return valuesEqual(normalizeForSemanticComparison(left), normalizeForSemanticComparison(right));
+}
+
+export function normalizeCategoryIdentity(value = '') {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.html(?:\?.*)?$/i, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+export function findEquivalentCategories(categories = {}, candidate = {}, excludedKey = '') {
+  const candidateKey = normalizeCategoryIdentity(candidate.key || candidate.title);
+  const candidateTitle = normalizeCategoryIdentity(candidate.title);
+  const candidatePage = normalizeCategoryIdentity(candidate.page);
+  const candidateParent = String(candidate.parentKey || '');
+  return Object.values(categories || {}).filter((category) => {
+    if (!category?.key || category.key === excludedKey) return false;
+    const sameKey = candidateKey && normalizeCategoryIdentity(category.key) === candidateKey;
+    const sameTitle = candidateTitle
+      && String(category.parentKey || '') === candidateParent
+      && normalizeCategoryIdentity(category.title) === candidateTitle;
+    const samePage = candidatePage && normalizeCategoryIdentity(category.page) === candidatePage;
+    return sameKey || sameTitle || samePage;
+  });
+}
+
+export function childCategories(categories = {}, parentKey = '', { includeHidden = true } = {}) {
+  return Object.values(categories || {})
+    .filter((category) => category?.key && category.parentKey === parentKey && (includeHidden || category.visible !== false))
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0)
+      || String(left.title || left.key).localeCompare(String(right.title || right.key)));
+}
+
+export function childCategoryDefaults(parentKey = '', value = {}) {
+  return {
+    ...value,
+    parentKey: String(parentKey || ''),
+    visible: value.visible !== false,
+    homepageVisible: false,
+    card: { ...(value.card || {}), visible: false }
+  };
+}
+
+export function filterProductsForCategoryGroup(products = {}, masterKey = '', childKey = '') {
+  const unique = new Map();
+  Object.values(products || {}).forEach((product) => {
+    const assignments = new Set(Array.isArray(product?.categories) ? product.categories : []);
+    if (!product?.slug || product.visible === false || !assignments.has(masterKey) || (childKey && !assignments.has(childKey))) return;
+    if (!unique.has(product.slug)) unique.set(product.slug, product);
+  });
+  return [...unique.values()];
+}
+
+export function categoryHierarchyWarnings(categories = {}, products = {}) {
+  const warnings = [];
+  Object.values(categories || {}).forEach((category) => {
+    const parentKey = String(category?.parentKey || '');
+    if (!category?.key || !parentKey) return;
+    if (parentKey === category.key) warnings.push({ type: 'self-parent', categoryKey: category.key, parentKey });
+    else if (!categories[parentKey]) warnings.push({ type: 'missing-parent', categoryKey: category.key, parentKey });
+    else {
+      const visited = new Set([category.key]);
+      let ancestorKey = parentKey;
+      while (ancestorKey && categories[ancestorKey]) {
+        if (visited.has(ancestorKey)) {
+          warnings.push({ type: 'parent-cycle', categoryKey: category.key, parentKey });
+          break;
+        }
+        visited.add(ancestorKey);
+        ancestorKey = String(categories[ancestorKey]?.parentKey || '');
+      }
+    }
+  });
+  Object.values(products || {}).forEach((product) => {
+    const assignments = new Set(Array.isArray(product?.categories) ? product.categories : []);
+    assignments.forEach((categoryKey) => {
+      const parentKey = String(categories?.[categoryKey]?.parentKey || '');
+      if (parentKey && !assignments.has(parentKey)) warnings.push({
+        type: 'missing-master-assignment', productSlug: product.slug, categoryKey, parentKey
+      });
+    });
+  });
+  return warnings;
+}
+
+export function categoryDeletionBlockers(categories = {}, categoryKeys = []) {
+  const requested = new Set(categoryKeys || []);
+  return [...requested].flatMap((key) => childCategories(categories, key)
+    .map((child) => ({ categoryKey: key, childKey: child.key, childTitle: child.title || child.key })));
+}
+
+export function categoryProductCounts(categories = {}, products = {}) {
+  const counts = Object.fromEntries(Object.keys(categories || {}).map((key) => [key, 0]));
+  Object.values(products || {}).forEach((product) => {
+    [...new Set(Array.isArray(product?.categories) ? product.categories : [])].forEach((key) => {
+      counts[key] = (counts[key] || 0) + 1;
+    });
+  });
+  return counts;
+}
+
+export function withProductCategories(product = {}, categoryKeys = []) {
+  const categories = [...new Set((categoryKeys || []).filter(Boolean))];
+  const existingOrder = product.categoryOrder && typeof product.categoryOrder === 'object'
+    ? product.categoryOrder
+    : {};
+  const categoryOrder = Object.fromEntries(categories.map((key, index) => [
+    key,
+    Number.isFinite(Number(existingOrder[key])) ? Number(existingOrder[key]) : 999 + index
+  ]));
+  return { ...product, categories, categoryOrder };
+}
+
+export function deleteCategoriesFromState({
+  categories = {}, products = {}, deletedCategories = [], homepageCategoryOrder = [], categoryCardMap = {}
+} = {}, categoryKeys = []) {
+  const deleted = new Set(categoryKeys || []);
+  const nextCategories = Object.fromEntries(
+    Object.entries(categories || {}).filter(([key]) => !deleted.has(key))
+  );
+  const nextProducts = Object.fromEntries(Object.entries(products || {}).map(([slug, product]) => [
+    slug,
+    withProductCategories(product, (product?.categories || []).filter((key) => !deleted.has(key)))
+  ]));
+  const cardSlugs = new Set(Object.entries(categoryCardMap || {})
+    .filter(([, key]) => deleted.has(key))
+    .map(([slug]) => slug));
+  categoryKeys.forEach((key) => cardSlugs.add(`${key}-category-card`));
+  const nextOrder = (Array.isArray(homepageCategoryOrder) ? homepageCategoryOrder : [])
+    .map((row) => (Array.isArray(row) ? row : []).filter((value) => !deleted.has(value) && !cardSlugs.has(value)));
+  return {
+    categories: nextCategories,
+    products: nextProducts,
+    deletedCategories: [...new Set([...(deletedCategories || []), ...deleted])],
+    homepageCategoryOrder: nextOrder,
+    removedCategoryKeys: [...deleted],
+    removedCardSlugs: [...cardSlugs]
+  };
 }
 
 export function applyRecordPatch(records = {}, key, patch = {}) {

@@ -6,7 +6,10 @@ import {
   applyMembershipPatch,
   applyRecordPatch,
   buildPublishedHomepageOrder,
-  chooseAuthoritativeState
+  chooseAuthoritativeState,
+  normalizeProductForComparison,
+  semanticProductEqual,
+  semanticValuesEqual
 } from '../admin-state-utils.js';
 
 function assert(condition, message) {
@@ -80,4 +83,50 @@ Deno.test('collection membership patches preserve unrelated set entries', () => 
   assert(analysis.canRebase, 'unrelated membership changes should rebase');
   assert(values.includes('remote') && values.includes('local'), 'both membership changes must survive');
   assert(!analyzeMembershipPatch([], ['same'], 'same', false).canRebase, 'same membership conflict should stop');
+});
+
+Deno.test('semantic product comparison treats an omitted display default as equivalent', () => {
+  const published = { slug: 'same-product', title: 'Same', categories: [], displayOverrides: {} };
+  const privateCopy = { ...published, displayOverrides: { backgroundPosition: 'center center' }, approvalStatus: 'approved' };
+  assert(semanticProductEqual(published, privateCopy), 'the built-in center default must not create an unpublished change');
+});
+
+Deno.test('semantic product comparison preserves a genuine inherited display override', () => {
+  const inherited = { globalDisplaySettings: { backgroundPosition: 'left center' } };
+  const published = { slug: 'changed-product', categories: [], displayOverrides: {} };
+  const privateCopy = { ...published, displayOverrides: { backgroundPosition: 'center center' } };
+  assert(!semanticProductEqual(published, privateCopy, inherited), 'an explicit value that changes the inherited result must remain dirty');
+});
+
+Deno.test('semantic comparison ignores metadata, undefined, empty optional fields, and object order', () => {
+  const left = { title: 'Same', optional: '', nested: { b: 2, a: 1 }, approvalStatus: 'approved' };
+  const right = { nested: { a: 1, b: 2, unused: undefined }, title: 'Same' };
+  assert(semanticValuesEqual(left, right), 'non-publishable representation differences must compare equal');
+});
+
+Deno.test('semantic product normalization preserves image-choice order', () => {
+  const first = normalizeProductForComparison({ imageChoices: [{ image: 'images/a.png' }, { image: 'images/b.png' }] });
+  const second = normalizeProductForComparison({ imageChoices: [{ image: 'images/b.png' }, { image: 'images/a.png' }] });
+  assert(JSON.stringify(first) !== JSON.stringify(second), 'customer-facing image order is meaningful');
+});
+
+Deno.test('current published catalog stays Published after equivalent display-default normalization', async () => {
+  const document = JSON.parse(await Deno.readTextFile(new URL('../published-admin-settings.json', import.meta.url)));
+  const snapshot = document.snapshot;
+  const context = {
+    globalDisplaySettings: snapshot.globalDisplaySettings || {},
+    categorySettings: snapshot.categorySettings || {}
+  };
+  for (const [slug, published] of Object.entries(snapshot.products || {})) {
+    const privateCopy = {
+      ...structuredClone(published),
+      displayOverrides: {
+        ...(published.displayOverrides || {}),
+        backgroundPosition: published.displayOverrides?.backgroundPosition || 'center center'
+      },
+      approvalStatus: 'approved',
+      draftStatus: 'ready'
+    };
+    assert(semanticProductEqual(published, privateCopy, context), `${slug} must not gain a false unpublished-change status`);
+  }
 });

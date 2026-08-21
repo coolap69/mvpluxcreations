@@ -246,6 +246,36 @@ function validatePublishedSnapshot(value: unknown) {
       const settings = category.displaySettings as Record<string, unknown> | undefined;
       if (settings?.backgroundImage && !isRepositoryImagePath(settings.backgroundImage)) throw new PublishError('validation', 400, 'INVALID_CATEGORY_BACKGROUND', `Category ${key} has an invalid display background.`);
     }
+    const categoryRecords = categories as Record<string, Record<string, unknown>>;
+    for (const [key, category] of Object.entries(categoryRecords)) {
+      const parentKey = typeof category.parentKey === 'string' ? category.parentKey.trim() : '';
+      if (!parentKey) continue;
+      if (parentKey === key || !categoryRecords[parentKey]) {
+        throw new PublishError('validation', 400, 'INVALID_CATEGORY_PARENT', `Child Group ${key} has an invalid Main Category.`);
+      }
+      const visited = new Set([key]);
+      let ancestorKey = parentKey;
+      while (ancestorKey) {
+        if (visited.has(ancestorKey)) throw new PublishError('validation', 400, 'CATEGORY_PARENT_CYCLE', `Child Group hierarchy contains a cycle at ${key}.`);
+        visited.add(ancestorKey);
+        const ancestor = categoryRecords[ancestorKey];
+        ancestorKey = ancestor && typeof ancestor.parentKey === 'string' ? ancestor.parentKey.trim() : '';
+      }
+    }
+    for (const product of Object.values((snapshot.products || {}) as Record<string, Record<string, unknown>>)) {
+      const assignments = new Set(Array.isArray(product.categories) ? product.categories.filter((key): key is string => typeof key === 'string') : []);
+      for (const categoryKey of assignments) {
+        const parentKey = typeof categoryRecords[categoryKey]?.parentKey === 'string' ? String(categoryRecords[categoryKey].parentKey).trim() : '';
+        if (parentKey && !assignments.has(parentKey)) {
+          throw new PublishError('validation', 400, 'MISSING_MASTER_CATEGORY', `Product ${product.slug || 'unknown'} is assigned to Child Group ${categoryKey} without Main Category ${parentKey}.`);
+        }
+      }
+    }
+  }
+  const deletedCategories = snapshot.deletedCategories;
+  if (deletedCategories !== undefined && (!Array.isArray(deletedCategories)
+    || deletedCategories.some((key) => typeof key !== 'string' || !key.trim()))) {
+    throw new PublishError('validation', 400, 'INVALID_DELETED_CATEGORIES', 'deletedCategories must be an array of Category keys.');
   }
   const globalDisplay = snapshot.globalDisplaySettings as Record<string, unknown> | undefined;
   if (globalDisplay?.backgroundImage && !isRepositoryImagePath(globalDisplay.backgroundImage)) {
@@ -342,6 +372,23 @@ async function deploymentResult(token: string, owner: string, repo: string, comm
   }
 }
 
+async function repositoryImageInventory(token: string, owner: string, repo: string, branch: string) {
+  const branchRef = `heads/${branch.split('/').map(encodeURIComponent).join('/')}`;
+  const reference = await githubRequest(token, `/repos/${owner}/${repo}/git/ref/${branchRef}`);
+  const commitHash = reference?.object?.sha || '';
+  if (!commitHash) throw new PublishError('github-inventory', 502, 'GITHUB_BRANCH_UNAVAILABLE', 'Could not read the GitHub branch for Image Inbox.');
+  const commit = await githubRequest(token, `/repos/${owner}/${repo}/git/commits/${commitHash}`);
+  const treeHash = commit?.tree?.sha || '';
+  if (!treeHash) throw new PublishError('github-inventory', 502, 'GITHUB_TREE_UNAVAILABLE', 'Could not read the GitHub image tree.');
+  const tree = await githubRequest(token, `/repos/${owner}/${repo}/git/trees/${treeHash}?recursive=1`);
+  if (tree?.truncated) throw new PublishError('github-inventory', 502, 'GITHUB_TREE_TRUNCATED', 'The GitHub image inventory was truncated, so Image Inbox stopped safely.');
+  const images = (Array.isArray(tree?.tree) ? tree.tree : [])
+    .filter((entry: { type?: string; path?: string }) => entry.type === 'blob' && isRepositoryImagePath(entry.path))
+    .map((entry: { path: string }) => entry.path)
+    .sort((left: string, right: string) => left.localeCompare(right));
+  return { images, commitHash };
+}
+
 async function publishSnapshot(
   token: string,
   owner: string,
@@ -435,6 +482,10 @@ Deno.serve(async (request) => {
     const payload = await request.json().catch(() => {
       throw new PublishError('validation', 400, 'INVALID_JSON', 'Request body must be valid JSON.');
     });
+    if (payload?.action === 'image-inventory') {
+      return jsonResponse(request, await repositoryImageInventory(token, owner, repo, branch));
+    }
+
     const initialAdminState = await readAdminGlobal(supabaseUrl, anonKey, authorization);
     const settings = initialAdminState.edits;
     const existingHistory = Array.isArray(settings.publishHistory) ? settings.publishHistory : [];
