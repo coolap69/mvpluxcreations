@@ -144,6 +144,7 @@ const openedCategoryEditors = new Set();
 const openedCategoryProductLists = new Set();
 const openedImageInboxItems = new Set();
 const categoryPublishOperations = new Map();
+let categoryBulkSelectionMode = false;
 const adminWorkingCollectionsLoaded = new Set();
 const ADMIN_DASHBOARD_COLLECTIONS = [
   'adminArchitectureV2', 'adminArchitectureMigrationV2', 'customProducts', 'deletedProducts',
@@ -1341,6 +1342,13 @@ function semanticValuesEqual(left, right) {
     : JSON.stringify(left) === JSON.stringify(right);
 }
 
+function semanticCategoryEqual(left, right) {
+  if (!left || !right) return left === right;
+  return adminStateUtils?.semanticCategoryEqual
+    ? adminStateUtils.semanticCategoryEqual(left, right)
+    : semanticValuesEqual(left, right);
+}
+
 function publishablePageContent(baseline = {}) {
   const pageContent = structuredClone(baseline || {});
   Object.entries(adminPageLiveEdits || {}).forEach(([pageKey, edits]) => {
@@ -1648,7 +1656,7 @@ function generatePublishChanges(before, after) {
   const beforeCategories = before?.categories || {};
   const afterCategories = after?.categories || {};
   [...new Set([...Object.keys(beforeCategories), ...Object.keys(afterCategories)])].sort().forEach((key) => {
-    if (!semanticValuesEqual(beforeCategories[key] || null, afterCategories[key] || null)) {
+    if (!semanticCategoryEqual(beforeCategories[key] || null, afterCategories[key] || null)) {
       const action = beforeCategories[key] && !afterCategories[key] ? 'Deleted'
         : beforeCategories[key] ? 'Updated' : 'Created';
       lines.push(`${action} category: ${afterCategories[key]?.title || beforeCategories[key]?.title || key}`);
@@ -2064,7 +2072,7 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null, { o
   const selected = architectureReviewItems().filter((item) => changeIds.includes(item.id));
   if (!selected.length) {
     setLocalStatus('Published — there are no meaningful changes to publish.', 'published');
-    renderAdminProducts();
+    refreshVisibleAdminAreaAfterPublish();
     return true;
   }
   const snapshot = buildSelectedArchitectureSnapshot(selected);
@@ -2111,7 +2119,11 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null, { o
     selectedPublishMode = false;
     timing.totalMs = now() - timing.startedAt;
     const timingText = publishTimingSummary(timing);
-    setLocalStatus(`Published successfully. GitHub commit ${result.commitHash?.slice(0, 7) || ''}; deployment ${result.deploymentResult || 'queued'}.${timingText ? ` ${timingText}.` : ''}`, 'published');
+    const deployment = result.deploymentResult || 'queued';
+    const deploymentMessage = deployment === 'queued'
+      ? 'Website deployment is queued and may take 10–30+ seconds.'
+      : `Website deployment status: ${deployment}.`;
+    setLocalStatus(`GitHub published successfully. Commit ${result.commitHash?.slice(0, 7) || ''}. ${deploymentMessage}${timingText ? ` ${timingText}.` : ''}`, 'published');
     refreshVisibleAdminAreaAfterPublish();
     return true;
   } catch (error) {
@@ -4120,7 +4132,7 @@ function architectureReviewItems() {
   Object.entries(readAdminCategories()).forEach(([key, category]) => {
     const before = baseline.categories?.[key];
     const after = publishableCategory({ ...category, key });
-    if (semanticValuesEqual(before || null, after)) return;
+    if (semanticCategoryEqual(before || null, after)) return;
     items.push({
       id: `category:${key}`,
       type: 'category', key,
@@ -4471,7 +4483,7 @@ function categoryLifecycleState(category) {
     if (!category.updatedAt && category.approvalStatus === 'approved') return 'Published';
     return 'Unpublished Changes';
   }
-  if (semanticValuesEqual(published, current)) return 'Published';
+  if (semanticCategoryEqual(published, current)) return 'Published';
   return category.approvalStatus === 'draft' ? 'Draft' : 'Unpublished Changes';
 }
 
@@ -4530,14 +4542,29 @@ function childGroupMarkup(masterCategory, categories) {
           <div class="admin-card-actions">
             <button type="button" data-open-child-products>Open Products</button>
             <button type="button" data-edit-child-group>Edit</button>
-            <button type="button" data-toggle-child-group="${child.visible === false ? 'show' : 'hide'}">${child.visible === false ? 'Show' : 'Hide'}</button>
+            ${categoryPublishButtonMarkup(child.key)}
+            <button type="button" data-toggle-child-group="${child.visible === false ? 'show' : 'hide'}">${child.visible === false ? 'Unhide Child Group' : 'Hide Child Group'}</button>
           </div>
           ${warnings.length ? `<p class="admin-warning-message">Assignment warning: ${warnings.map((warning) => warning.productSlug ? `${warning.productSlug} is assigned to ${child.title || child.key} without ${masterCategory.title || masterCategory.key}` : warning.type).join('; ')}. Nothing was repaired automatically.</p>` : ''}
           <details data-child-products-panel ${openedCategoryProductLists.has(child.key) ? 'open' : ''}><summary>Products (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(child.key) ? categoryProductsMarkup(child) : ''}</div></details>
           <details data-child-edit-panel ${openedCategoryEditors.has(child.key) ? 'open' : ''}><summary>Edit Child Group</summary><div data-category-editor-mount>${openedCategoryEditors.has(child.key) ? categoryEditMarkup(child) : ''}</div></details>
         </article>`;
       }).join('') : '<p class="admin-note">No Child Groups have been created for this Main Category.</p>'}
-      <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}" disabled title="Child creation will be enabled only after the first groups are approved.">+ Add Child Group</button>
+      <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}">+ Add Child Group</button>
+      <div class="admin-child-group-creator" data-child-group-creator="${escapeAdminHtml(masterCategory.key)}" hidden>
+        <form data-new-child-group-form="${escapeAdminHtml(masterCategory.key)}">
+          <h4>Add Child Group under ${escapeAdminHtml(masterCategory.title || masterCategory.key)}</h4>
+          <p class="admin-note">This creates a private Child Group only. It will not appear on the homepage and no products are assigned automatically.</p>
+          <div class="admin-category-settings-grid">
+            <label>Child Group title<input name="title" required placeholder="Example: Basketball"></label>
+            <label>Key<input name="key" placeholder="Generated from title"></label>
+            <label>Order<input name="order" type="number" min="0" value="999"></label>
+            <label><input name="visible" type="checkbox" checked> Visible after publication</label>
+          </div>
+          <div class="admin-panel-actions"><button type="submit">Save Child Group Draft</button><button type="button" data-cancel-child-group>Cancel</button></div>
+          <p class="admin-status" data-child-group-status aria-live="polite"></p>
+        </form>
+      </div>
     </div>
   </details>`;
 }
@@ -4545,11 +4572,26 @@ function childGroupMarkup(masterCategory, categories) {
 const CATEGORY_IMAGE_SIZE_DEFAULT = 63;
 const CATEGORY_IMAGE_SIZE_MIN = 20;
 const CATEGORY_IMAGE_SIZE_MAX = 140;
+const CATEGORY_TEXT_SIZE_DEFAULT = 100;
 
 function safeCategoryDisplayNumber(value, fallback, minimum, maximum) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < minimum) return fallback;
   return Math.min(maximum, number);
+}
+
+function safeCategoryTextAlignment(value) {
+  return ['left', 'center', 'right'].includes(String(value)) ? String(value) : 'center';
+}
+
+function categoryBackgroundPositionParts(value = 'center center') {
+  const wordValue = String(value || 'center center').trim().toLowerCase();
+  const words = { left: 0, center: 50, right: 100, top: 0, bottom: 100 };
+  const parts = wordValue.split(/\s+/);
+  const parse = (part, fallback) => part?.endsWith('%') && Number.isFinite(Number.parseFloat(part))
+    ? Math.max(0, Math.min(100, Number.parseFloat(part)))
+    : (words[part] ?? fallback);
+  return { x: parse(parts[0], 50), y: parse(parts[1], 50) };
 }
 
 function effectiveCategoryDisplaySettings(category = {}) {
@@ -4561,7 +4603,15 @@ function effectiveCategoryDisplaySettings(category = {}) {
     backgroundPosition: String(display.backgroundPosition || 'center center'),
     standeeSizePercent: safeCategoryDisplayNumber(display.standeeSizePercent, inheritedSize, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
     standeeLeftPercent: safeCategoryDisplayNumber(display.standeeLeftPercent, 0, -50, 50),
-    standeeVerticalPercent: safeCategoryDisplayNumber(display.standeeVerticalPercent, 0, -50, 50)
+    standeeVerticalPercent: safeCategoryDisplayNumber(display.standeeVerticalPercent, 0, -50, 50),
+    titleLeftPercent: safeCategoryDisplayNumber(display.titleLeftPercent, 0, -50, 50),
+    titleVerticalPercent: safeCategoryDisplayNumber(display.titleVerticalPercent, 0, -50, 50),
+    titleAlign: safeCategoryTextAlignment(display.titleAlign),
+    titleSizePercent: safeCategoryDisplayNumber(display.titleSizePercent, CATEGORY_TEXT_SIZE_DEFAULT, 70, 180),
+    descriptionLeftPercent: safeCategoryDisplayNumber(display.descriptionLeftPercent, 0, -50, 50),
+    descriptionVerticalPercent: safeCategoryDisplayNumber(display.descriptionVerticalPercent, 0, -50, 50),
+    descriptionAlign: safeCategoryTextAlignment(display.descriptionAlign),
+    descriptionSizePercent: safeCategoryDisplayNumber(display.descriptionSizePercent, CATEGORY_TEXT_SIZE_DEFAULT, 70, 180)
   };
 }
 
@@ -4667,6 +4717,7 @@ function categoryDisplayRangeMarkup(name, label, value, minimum, maximum, suffix
 
 function categoryEditMarkup(category) {
   const display = effectiveCategoryDisplaySettings(category);
+  const backgroundPosition = categoryBackgroundPositionParts(display.backgroundPosition);
   const parent = category.parentKey ? readAdminCategories()[category.parentKey] : null;
   return `
     <form class="admin-category-edit-form" data-category-edit="${escapeAdminHtml(category.key)}">
@@ -4696,6 +4747,20 @@ function categoryEditMarkup(category) {
             </div>
             <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
             <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
+            <div class="admin-category-text-controls">
+              <h4>Title and Description Placement</h4>
+              <div class="admin-category-position-controls">
+                ${categoryDisplayRangeMarkup('titleLeftPercent', 'Title Left / Right', display.titleLeftPercent, -50, 50)}
+                ${categoryDisplayRangeMarkup('titleVerticalPercent', 'Title Up / Down', display.titleVerticalPercent, -50, 50)}
+                ${categoryDisplayRangeMarkup('titleSizePercent', 'Title Size', display.titleSizePercent, 70, 180, '%')}
+                <label>Title alignment<select name="titleAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.titleAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
+                ${categoryDisplayRangeMarkup('descriptionLeftPercent', 'Description Left / Right', display.descriptionLeftPercent, -50, 50)}
+                ${categoryDisplayRangeMarkup('descriptionVerticalPercent', 'Description Up / Down', display.descriptionVerticalPercent, -50, 50)}
+                ${categoryDisplayRangeMarkup('descriptionSizePercent', 'Description Size', display.descriptionSizePercent, 70, 180, '%')}
+                <label>Description alignment<select name="descriptionAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.descriptionAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
+              </div>
+              <button type="button" data-reset-category-text>Reset Text Position</button>
+            </div>
           </fieldset>
           <fieldset class="admin-category-editor-section admin-category-image-section"><legend>Category Image</legend>
             ${categoryVisualImagePicker(category)}
@@ -4709,10 +4774,13 @@ function categoryEditMarkup(category) {
           </fieldset>
           <fieldset class="admin-category-editor-section admin-category-background-section"><legend>Category Background</legend>
             ${categoryVisualImagePicker(category, 'background')}
-            <label>Background position<select name="backgroundPosition">
-              ${['center center', 'left center', 'right center', 'center top', 'center bottom'].map((value) => `<option value="${value}" ${value === (display.backgroundPosition || 'center center') ? 'selected' : ''}>${value}</option>`).join('')}
-            </select></label>
+            <input name="backgroundPosition" type="hidden" value="${escapeAdminHtml(display.backgroundPosition)}">
+            <div class="admin-category-position-controls">
+              ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background Left / Right', backgroundPosition.x, 0, 100, '%')}
+              ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Up / Down', backgroundPosition.y, 0, 100, '%')}
+            </div>
             <button type="button" data-reset-category-background>Reset Background Position</button>
+            <p class="admin-note">The existing Category architecture stores background position. Background scale remains the storefront’s safe <code>cover</code> behavior.</p>
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
           </fieldset>
           <fieldset class="admin-category-editor-section admin-category-settings"><legend>Category Settings</legend>
@@ -4721,7 +4789,7 @@ function categoryEditMarkup(category) {
               <label>Destination page<input name="page" value="${escapeAdminHtml(category.page || '')}"></label>
               <label>Order<input name="order" type="number" min="0" value="${escapeAdminHtml(String(category.order ?? 0))}"></label>
               <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> Category visible to customers</label>
-              <label><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false ? 'checked' : ''}> Show on Homepage</label>
+              <label class="${category.visible === false || parent ? 'admin-control-secondary' : ''}"><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false && !parent ? 'checked' : ''} ${category.visible === false || parent ? 'disabled' : ''}> ${parent ? 'Child Groups do not appear on Homepage' : 'Show on Homepage'}</label>
             </div>
           </fieldset>
           <details class="admin-advanced-fields"><summary>Advanced Display Settings</summary>
@@ -4764,16 +4832,16 @@ function renderCategoryManager() {
     const imagePresentation = adminImageReferencePresentation(category.card?.image);
     return `
       <article class="admin-category-manager-card" data-category-card="${escapeAdminHtml(category.key)}" data-category-search-value="${escapeAdminHtml(`${category.title} ${category.key} ${category.page}`.toLowerCase())}">
-        <div class="admin-category-card-summary">
-          <label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select</label>
+        <div class="admin-category-card-summary ${categoryBulkSelectionMode ? 'bulk-select-active' : ''}">
+          ${categoryBulkSelectionMode ? `<label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select for bulk deletion</label>` : ''}
           <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
           <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Category: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span></div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom category — review assignments before changing it.</p>' : ''}</div>
           <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div>${childCount ? `<div><dt>Child Groups</dt><dd>${childCount}</dd></div>` : ''}<div><dt>Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
             <button type="button" data-edit-category>Edit</button>
             ${categoryPublishButtonMarkup(category.key)}
-            <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}">${category.visible === false ? 'Show Category' : 'Hide Category'}</button>
-            <button type="button" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}">${category.homepageVisible === false ? 'Show on Homepage' : 'Hide from Homepage'}</button>
+            <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}">${category.visible === false ? 'UNHIDE CATEGORY' : 'Hide Category'}</button>
+            <button type="button" class="${category.visible === false ? 'admin-button-secondary' : ''}" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}" ${category.visible === false ? 'disabled title="Unhide the Category before changing its homepage availability."' : ''}>${category.homepageVisible === false ? 'SHOW ON HOMEPAGE' : 'Hide from Homepage'}</button>
             <button type="button" data-open-category-products>Open Products</button>
             <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Category</button>
           </div>
@@ -4797,8 +4865,14 @@ function updateDeleteSelectedCategoriesButton() {
   const selected = document.querySelectorAll('[data-select-category]:checked').length;
   const button = document.getElementById('deleteSelectedCategories');
   if (!button) return;
+  button.hidden = !categoryBulkSelectionMode;
   button.disabled = selected === 0;
   button.textContent = selected ? `Delete Selected Categories (${selected})` : 'Delete Selected Categories';
+  const toggle = document.getElementById('bulkSelectCategories');
+  if (toggle) {
+    toggle.setAttribute('aria-pressed', String(categoryBulkSelectionMode));
+    toggle.textContent = categoryBulkSelectionMode ? 'Exit Bulk Select' : 'Bulk Select';
+  }
 }
 
 function categoryFromEditForm(form, approvalStatus = 'draft') {
@@ -4813,6 +4887,9 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
   const cardBackgroundImage = backgroundImageInput?.dataset.preserveInvalidReference === 'true'
     ? String(current.card?.backgroundImage || '')
     : String(data.get('cardBackgroundImage') || '');
+  const homepageVisible = current.parentKey
+    ? false
+    : (data.has('visible') ? data.has('homepageVisible') : current.homepageVisible !== false);
   return {
     ...current,
     key,
@@ -4821,15 +4898,23 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
     funFact: String(data.get('funFact') || '').trim(),
     page: String(data.get('page') || '').trim(),
     visible: data.has('visible'),
-    homepageVisible: data.has('homepageVisible'),
+    homepageVisible,
     order: Number(data.get('order') || 0),
-    card: { ...(current.card || {}), title: String(data.get('title') || '').trim(), description: String(data.get('description') || '').trim(), image: cardImage, backgroundImage: cardBackgroundImage, visible: data.has('homepageVisible'), order: Number(data.get('order') || 0) },
+    card: { ...(current.card || {}), title: String(data.get('title') || '').trim(), description: String(data.get('description') || '').trim(), image: cardImage, backgroundImage: cardBackgroundImage, visible: homepageVisible, order: Number(data.get('order') || 0) },
     displaySettings: {
       ...(current.displaySettings || {}),
       backgroundPosition: String(data.get('backgroundPosition') || 'center center'),
       standeeSizePercent: safeCategoryDisplayNumber(data.get('standeeSizePercent'), CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
       standeeLeftPercent: safeCategoryDisplayNumber(data.get('standeeLeftPercent'), 0, -50, 50),
-      standeeVerticalPercent: safeCategoryDisplayNumber(data.get('standeeVerticalPercent'), 0, -50, 50)
+      standeeVerticalPercent: safeCategoryDisplayNumber(data.get('standeeVerticalPercent'), 0, -50, 50),
+      titleLeftPercent: safeCategoryDisplayNumber(data.get('titleLeftPercent'), 0, -50, 50),
+      titleVerticalPercent: safeCategoryDisplayNumber(data.get('titleVerticalPercent'), 0, -50, 50),
+      titleAlign: safeCategoryTextAlignment(data.get('titleAlign')),
+      titleSizePercent: safeCategoryDisplayNumber(data.get('titleSizePercent'), CATEGORY_TEXT_SIZE_DEFAULT, 70, 180),
+      descriptionLeftPercent: safeCategoryDisplayNumber(data.get('descriptionLeftPercent'), 0, -50, 50),
+      descriptionVerticalPercent: safeCategoryDisplayNumber(data.get('descriptionVerticalPercent'), 0, -50, 50),
+      descriptionAlign: safeCategoryTextAlignment(data.get('descriptionAlign')),
+      descriptionSizePercent: safeCategoryDisplayNumber(data.get('descriptionSizePercent'), CATEGORY_TEXT_SIZE_DEFAULT, 70, 180)
     },
     updatedAt: new Date().toISOString(),
     draftStatus: approvalStatus === 'approved' ? 'ready' : 'draft',
@@ -4849,7 +4934,7 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
     form.querySelector('.admin-status').textContent = `${imageValidations[0].label}: ${imageValidations[0].reason}`;
     return false;
   }
-  if (approvalStatus === 'approved' && !category.card?.image) {
+  if (approvalStatus === 'approved' && !category.parentKey && !category.card?.image) {
     form.querySelector('.admin-status').textContent = 'Choose a Category image before publishing.';
     return false;
   }
@@ -4891,7 +4976,7 @@ async function publishCategoryByKey(categoryKey, form = null) {
     let saved = false;
     if (form) saved = await saveCategoryEditForm(form, 'approved', { render: false });
     else {
-      if (!initialCategory.card?.image) {
+      if (!initialCategory.parentKey && !initialCategory.card?.image) {
         setCategoryPublishState(categoryKey, 'Publish stopped: choose a Category image first.', 'failed');
         return false;
       }
@@ -4931,6 +5016,54 @@ async function saveCategoryProductAssignments(form, removeCurrent = false) {
   if (!result.ok) return false;
   renderAdminProducts();
   setStatus(removeCurrent ? 'Product removed from this Category. The product and image files were preserved.' : 'Product Category assignments saved privately.');
+  return true;
+}
+
+async function saveNewChildGroupFromForm(form) {
+  const parentKey = form.dataset.newChildGroupForm;
+  const parent = readAdminCategories()[parentKey];
+  const data = new FormData(form);
+  const title = String(data.get('title') || '').trim();
+  const key = makeSlug(data.get('key') || title);
+  const status = form.querySelector('[data-child-group-status]');
+  if (!parent || !title || !key) {
+    if (status) status.textContent = 'Add a Child Group title and key.';
+    return false;
+  }
+  const candidate = adminStateUtils.childCategoryDefaults(parentKey, { key, title });
+  const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), candidate);
+  if (duplicates.length) {
+    if (status) status.textContent = `A similar Child Group already exists under this Main Category: ${duplicates.map((item) => item.title || item.key).join(', ')}.`;
+    return false;
+  }
+  const now = new Date().toISOString();
+  const category = adminStateUtils.childCategoryDefaults(parentKey, {
+    key,
+    title,
+    description: '',
+    funFact: '',
+    page: '',
+    visible: data.has('visible'),
+    order: Number(data.get('order') || 999),
+    card: { title, description: '', image: '', backgroundImage: '', order: Number(data.get('order') || 999) },
+    displaySettings: { backgroundPosition: 'center center' },
+    createdAt: now,
+    updatedAt: now,
+    draftStatus: 'draft',
+    approvalStatus: 'draft'
+  });
+  if (status) status.textContent = 'Saving Child Group draft…';
+  const result = await saveAdminCollectionOperations([
+    { type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: undefined, patch: category },
+    { type: 'membership', collectionKey: 'deletedCategories', entryKey: key, present: false, baseValues: readDeletedCategories() }
+  ]);
+  if (!result.ok) {
+    if (status) status.textContent = adminLastSaveError || 'Child Group draft could not be saved.';
+    return false;
+  }
+  openedCategoryEditors.add(key);
+  renderCategoryManager();
+  setStatus(`${title} was saved privately under ${parent.title || parentKey}. It is hidden from the homepage and no products were assigned.`);
   return true;
 }
 
@@ -5015,10 +5148,12 @@ function previewCategoryEdit(form) {
   const backgroundPresentation = adminImageReferencePresentation(effectiveCategoryBackground(category), { background: true });
   const left = Math.max(10, Math.min(90, 50 + display.standeeLeftPercent));
   const bottom = Math.max(0, Math.min(75, 18 - display.standeeVerticalPercent));
+  const titleStyle = `transform:translate(${display.titleLeftPercent}%,${display.titleVerticalPercent}px);text-align:${display.titleAlign};font-size:${19 * display.titleSizePercent / 100}px`;
+  const descriptionStyle = `transform:translate(${display.descriptionLeftPercent}%,${display.descriptionVerticalPercent}px);text-align:${display.descriptionAlign};font-size:${14 * display.descriptionSizePercent / 100}px`;
   preview.hidden = false;
   preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(display.backgroundPosition)}">
     <div class="admin-category-preview-stage">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
-    <div><h4>${escapeAdminHtml(category.title)}</h4><p>${escapeAdminHtml(category.description)}</p><span>${category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage'}</span></div>
+    <div class="admin-category-preview-text"><h4 style="${titleStyle}">${escapeAdminHtml(category.title)}</h4><p style="${descriptionStyle}">${escapeAdminHtml(category.description)}</p><span>${category.visible === false ? 'Category hidden from customers' : (category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage')}</span></div>
   </article>`;
 }
 
@@ -5076,14 +5211,30 @@ function syncCategoryDisplayControl(form, target) {
   number.value = String(value);
 }
 
+function syncCategoryBackgroundPosition(form) {
+  const horizontal = form.elements.namedItem('backgroundPositionX');
+  const vertical = form.elements.namedItem('backgroundPositionY');
+  const stored = form.elements.namedItem('backgroundPosition');
+  if (horizontal && vertical && stored) stored.value = `${horizontal.value}% ${vertical.value}%`;
+}
+
 function syncCategoryDisplayOutputs(form) {
-  ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent'].forEach((name) => {
+  const percentageFields = new Set(['standeeSizePercent', 'titleSizePercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY']);
+  ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent', 'titleLeftPercent', 'titleVerticalPercent', 'titleSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY'].forEach((name) => {
     const input = form.elements.namedItem(name);
     const number = form.querySelector(`[data-category-display-number="${CSS.escape(name)}"]`);
     const output = form.querySelector(`[data-category-display-output="${name}"]`);
     if (input && number) number.value = input.value;
-    if (input && output) output.textContent = `${input.value}${name === 'standeeSizePercent' ? '%' : ''}`;
+    if (input && output) output.textContent = `${input.value}${percentageFields.has(name) ? '%' : ''}`;
   });
+}
+
+function syncCategoryVisibilityControls(form) {
+  const categoryVisible = form.elements.namedItem('visible');
+  const homepageVisible = form.elements.namedItem('homepageVisible');
+  if (!categoryVisible || !homepageVisible || readAdminCategories()[form.dataset.categoryEdit]?.parentKey) return;
+  homepageVisible.disabled = !categoryVisible.checked;
+  homepageVisible.closest('label')?.classList.toggle('admin-control-secondary', !categoryVisible.checked);
 }
 
 function setupCategoryManagerEvents() {
@@ -5110,6 +5261,10 @@ function setupCategoryManagerEvents() {
   document.getElementById('deleteSelectedCategories')?.addEventListener('click', () => {
     deleteAdminCategories([...document.querySelectorAll('[data-select-category]:checked')].map((input) => input.value));
   });
+  document.getElementById('bulkSelectCategories')?.addEventListener('click', () => {
+    categoryBulkSelectionMode = !categoryBulkSelectionMode;
+    renderCategoryManager();
+  });
   section.addEventListener('change', (event) => {
     if (event.target.matches('[data-select-category]')) updateDeleteSelectedCategoriesButton();
     if (event.target.closest('[data-category-edit]')) previewCategoryEdit(event.target.closest('[data-category-edit]'));
@@ -5122,16 +5277,20 @@ function setupCategoryManagerEvents() {
     const form = event.target.closest('[data-category-edit]');
     if (!form) return;
     syncCategoryDisplayControl(form, event.target);
+    syncCategoryBackgroundPosition(form);
     syncCategoryDisplayOutputs(form);
+    syncCategoryVisibilityControls(form);
     previewCategoryEdit(form);
   });
   section.addEventListener('submit', async (event) => {
     const categoryForm = event.target.closest('[data-category-edit]');
     const productForm = event.target.closest('[data-category-product]');
-    if (!categoryForm && !productForm) return;
+    const childGroupForm = event.target.closest('[data-new-child-group-form]');
+    if (!categoryForm && !productForm && !childGroupForm) return;
     event.preventDefault();
     if (categoryForm) await saveCategoryEditForm(categoryForm, 'draft');
-    else await saveCategoryProductAssignments(productForm, false);
+    else if (productForm) await saveCategoryProductAssignments(productForm, false);
+    else await saveNewChildGroupFromForm(childGroupForm);
   });
   section.addEventListener('click', async (event) => {
     const card = event.target.closest('[data-category-card]');
@@ -5186,6 +5345,20 @@ function setupCategoryManagerEvents() {
     }
     const childVisibility = event.target.closest('[data-toggle-child-group]');
     if (childVisibility) await saveCategoryVisibility(childCard?.dataset.childGroupCard, 'visible', childVisibility.dataset.toggleChildGroup === 'show');
+    const addChildGroup = event.target.closest('[data-add-child-group]');
+    if (addChildGroup) {
+      const creator = section.querySelector(`[data-child-group-creator="${CSS.escape(addChildGroup.dataset.addChildGroup)}"]`);
+      if (creator) {
+        creator.hidden = false;
+        creator.querySelector('input[name="title"]')?.focus();
+      }
+    }
+    const cancelChildGroup = event.target.closest('[data-cancel-child-group]');
+    if (cancelChildGroup) {
+      const creator = cancelChildGroup.closest('[data-child-group-creator]');
+      creator.querySelector('form')?.reset();
+      creator.hidden = true;
+    }
     const previewButton = event.target.closest('[data-preview-category-edit]');
     if (previewButton) previewCategoryEdit(previewButton.closest('[data-category-edit]'));
     const searchAllImages = event.target.closest('[data-search-all-category-images]');
@@ -5220,6 +5393,9 @@ function setupCategoryManagerEvents() {
     if (resetBackground) {
       const form = resetBackground.closest('[data-category-edit]');
       form.elements.namedItem('backgroundPosition').value = 'center center';
+      form.elements.namedItem('backgroundPositionX').value = '50';
+      form.elements.namedItem('backgroundPositionY').value = '50';
+      syncCategoryDisplayOutputs(form);
       previewCategoryEdit(form);
     }
     const centerImage = event.target.closest('[data-center-category-image]');
@@ -5236,7 +5412,16 @@ function setupCategoryManagerEvents() {
       form.elements.namedItem('standeeLeftPercent').value = '0';
       form.elements.namedItem('standeeVerticalPercent').value = '0';
       form.elements.namedItem('standeeSizePercent').value = String(CATEGORY_IMAGE_SIZE_DEFAULT);
-      form.elements.namedItem('backgroundPosition').value = 'center center';
+      syncCategoryDisplayOutputs(form);
+      previewCategoryEdit(form);
+    }
+    const resetText = event.target.closest('[data-reset-category-text]');
+    if (resetText) {
+      const form = resetText.closest('[data-category-edit]');
+      ['titleLeftPercent', 'titleVerticalPercent', 'descriptionLeftPercent', 'descriptionVerticalPercent'].forEach((name) => { form.elements.namedItem(name).value = '0'; });
+      ['titleSizePercent', 'descriptionSizePercent'].forEach((name) => { form.elements.namedItem(name).value = String(CATEGORY_TEXT_SIZE_DEFAULT); });
+      form.elements.namedItem('titleAlign').value = 'center';
+      form.elements.namedItem('descriptionAlign').value = 'center';
       syncCategoryDisplayOutputs(form);
       previewCategoryEdit(form);
     }

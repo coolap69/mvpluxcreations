@@ -14,7 +14,15 @@ export function valuesEqual(left, right) {
 }
 
 const DISPLAY_DEFAULTS = Object.freeze({
-  backgroundPosition: 'center center'
+  backgroundPosition: 'center center',
+  titleLeftPercent: 0,
+  titleVerticalPercent: 0,
+  titleAlign: 'center',
+  titleSizePercent: 100,
+  descriptionLeftPercent: 0,
+  descriptionVerticalPercent: 0,
+  descriptionAlign: 'center',
+  descriptionSizePercent: 100
 });
 
 const ADMIN_ONLY_FIELDS = new Set([
@@ -87,6 +95,20 @@ export function normalizeForSemanticComparison(value) {
 
 export function semanticValuesEqual(left, right) {
   return valuesEqual(normalizeForSemanticComparison(left), normalizeForSemanticComparison(right));
+}
+
+export function normalizeCategoryForComparison(category = {}) {
+  const normalized = cleanSemanticValue(category) || {};
+  normalized.displaySettings = cleanSemanticValue({
+    ...DISPLAY_DEFAULTS,
+    ...(normalized.displaySettings || {})
+  }) || {};
+  return canonicalize(normalized);
+}
+
+export function semanticCategoryEqual(left, right) {
+  if (!left || !right) return left === right;
+  return valuesEqual(normalizeCategoryForComparison(left), normalizeCategoryForComparison(right));
 }
 
 const ADMIN_REPOSITORY_IMAGE_PATTERN = /^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i;

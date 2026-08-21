@@ -3939,13 +3939,22 @@ function renderNormalizedHomepageCategoryCards() {
     const vertical = Math.max(-50, Math.min(50, Number(display.standeeVerticalPercent) || 0));
     const left = Math.max(10, Math.min(90, 50 + horizontal));
     const bottom = Math.max(0, Math.min(75, 18 - vertical));
+    const safeTextNumber = (value, fallback, minimum, maximum) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : fallback;
+    };
+    const safeTextAlign = (value) => ['left', 'center', 'right'].includes(String(value)) ? String(value) : 'center';
+    const titleSize = safeTextNumber(display.titleSizePercent, 100, 70, 180);
+    const descriptionSize = safeTextNumber(display.descriptionSizePercent, 100, 70, 180);
+    const titleStyle = `transform:translate(${safeTextNumber(display.titleLeftPercent, 0, -50, 50)}%,${safeTextNumber(display.titleVerticalPercent, 0, -50, 50)}px);text-align:${safeTextAlign(display.titleAlign)}`;
+    const descriptionStyle = `transform:translate(${safeTextNumber(display.descriptionLeftPercent, 0, -50, 50)}%,${safeTextNumber(display.descriptionVerticalPercent, 0, -50, 50)}px);text-align:${safeTextAlign(display.descriptionAlign)};font-size:${14 * descriptionSize / 100}px`;
     const background = category.card?.backgroundImage || display.backgroundImage || getShowroomStageBackground();
     const grid = grids[index < firstRowSize ? 0 : Math.min(1, grids.length - 1)];
     grid.insertAdjacentHTML('beforeend', `
       <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}">
         <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview" style="background-image:url('${escapeHtml(background)}');background-position:${escapeHtml(display.backgroundPosition || 'center center')}">${category.card?.image ? `<img class="product-cutout" src="${escapeHtml(category.card.image)}" alt="${escapeHtml(category.card?.title || category.title || category.key)}" style="height:${size}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
-        <h3><a href="${escapeHtml(page)}" class="product-title-link">${escapeHtml(category.card?.title || category.title || category.key)}</a></h3>
-        <p class="product-description">${escapeHtml(category.card?.description || category.description || '')}</p>
+        <h3 style="${titleStyle}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${19 * titleSize / 100}px">${escapeHtml(category.card?.title || category.title || category.key)}</a></h3>
+        <p class="product-description" style="${descriptionStyle}">${escapeHtml(category.card?.description || category.description || '')}</p>
         <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
       </article>`);
   });

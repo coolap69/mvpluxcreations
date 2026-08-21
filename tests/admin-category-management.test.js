@@ -162,7 +162,7 @@ Deno.test('published Sports assignments remain the seven proven products', async
 Deno.test('Category cards expose everyday visibility and confirmed Delete controls at the top', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const manager = source.slice(source.indexOf('function renderCategoryManager'), source.indexOf('function updateDeleteSelectedCategoriesButton'));
-  for (const token of ['Hide Category', 'Show Category', 'Hide from Homepage', 'Show on Homepage', 'Child Groups', 'data-delete-category']) {
+  for (const token of ['Hide Category', 'UNHIDE CATEGORY', 'Hide from Homepage', 'SHOW ON HOMEPAGE', 'Child Groups', 'data-delete-category']) {
     assert(manager.includes(token), `Category card is missing ${token}`);
   }
   assert(!manager.includes('admin-category-more-menu'), 'Delete Category must not require opening a More menu');
@@ -313,11 +313,40 @@ Deno.test('duplicate detection is sibling-aware while allowing the same title un
   assert(otherMaster.length === 0, 'same Child Group title under a different Main Category must be allowed when keys differ');
 });
 
-Deno.test('Admin renders compact Child Group rows without enabling creation', async () => {
+Deno.test('Admin renders compact Child Group rows and private creation without automatic assignments', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const markup = source.slice(source.indexOf('function childGroupMarkup'), source.indexOf('const CATEGORY_IMAGE_SIZE_DEFAULT'));
   for (const token of ['Child Groups', 'admin-child-group-row', 'Open Products', 'Edit Child Group', 'data-toggle-child-group', '+ Add Child Group']) assert(markup.includes(token), `missing Child Group UI token ${token}`);
-  assert(markup.includes('data-add-child-group') && markup.includes('disabled'), 'Add Child Group must remain disabled while no real records may be created');
+  assert(markup.includes('data-add-child-group') && markup.includes('data-new-child-group-form'), 'Add Child Group must open the private Child Group creator');
+  const save = source.slice(source.indexOf('async function saveNewChildGroupFromForm'), source.indexOf('async function saveCategoryVisibility'));
+  assert(save.includes('childCategoryDefaults(parentKey') && save.includes("homepageVisible: false") === false, 'Child Group creation must use the existing parentKey defaults');
+  assert(!save.includes("collectionKey: 'products'") && !save.includes('categories:'), 'Child Group creation must not assign or rewrite products');
+});
+
+Deno.test('Category bulk deletion checkboxes appear only in explicit Bulk Select mode', async () => {
+  const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  assert(html.includes('id="bulkSelectCategories"') && html.includes('id="deleteSelectedCategories"') && html.includes('hidden disabled'), 'toolbar must start with bulk deletion controls hidden');
+  assert(source.includes("categoryBulkSelectionMode ? `<label class=\"admin-category-select\"") && source.includes('categoryBulkSelectionMode = !categoryBulkSelectionMode'), 'Select checkboxes must mount only after Bulk Select is enabled');
+});
+
+Deno.test('Category text placement is independent, live, and published through displaySettings', async () => {
+  const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  for (const field of ['titleLeftPercent', 'titleVerticalPercent', 'titleAlign', 'titleSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent', 'descriptionAlign', 'descriptionSizePercent']) {
+    assert(adminSource.includes(field), `Admin editor must expose ${field}`);
+    assert(storefrontSource.includes(field), `storefront Category card must apply ${field}`);
+  }
+  const preview = adminSource.slice(adminSource.indexOf('function previewCategoryEdit'), adminSource.indexOf('function renderCategoryImagePickerGallery'));
+  assert(preview.includes('titleStyle') && preview.includes('descriptionStyle') && preview.includes('standeeLeftPercent'), 'one live preview must render independent image, title, and description placement');
+  assert(adminSource.includes('data-reset-category-text'), 'text placement must have its own reset action');
+});
+
+Deno.test('Background movement reuses the authoritative backgroundPosition field', async () => {
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  assert(source.includes("name=\"backgroundPosition\" type=\"hidden\"") && source.includes("categoryDisplayRangeMarkup('backgroundPositionX'") && source.includes("categoryDisplayRangeMarkup('backgroundPositionY'"), 'background editor must expose horizontal and vertical controls');
+  assert(source.includes("stored.value = `${horizontal.value}% ${vertical.value}%`"), 'visual background controls must save into the existing backgroundPosition field');
+  assert(source.includes("form.elements.namedItem('backgroundPosition').value = 'center center'"), 'background reset must restore the existing default');
 });
 
 Deno.test('homepage is generated from master Categories and filters hidden or deleted Categories', async () => {

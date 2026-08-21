@@ -6851,6 +6851,44 @@ button[aria-label="Add to cart"]::before {
   color: #ffd29a;
 }
 
+#categories .admin-category-card-summary button:disabled,
+#categories .admin-control-secondary {
+  opacity: .52;
+}
+
+#categories .admin-control-secondary {
+  color: var(--admin-muted);
+}
+
+#categories .admin-category-text-controls,
+#categories .admin-child-group-creator {
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid rgba(212,175,55,.2);
+  border-radius: 10px;
+  background: rgba(255,255,255,.025);
+}
+
+#categories .admin-child-group-creator[hidden] {
+  display: none;
+}
+
+#categories .admin-category-text-controls h4,
+#categories .admin-child-group-creator h4 {
+  margin: 0;
+}
+
+#categories .admin-category-preview-text {
+  overflow: hidden;
+}
+
+#categories .admin-category-preview-text h4,
+#categories .admin-category-preview-text p {
+  position: relative;
+  transform-origin: center;
+}
+
 #categories .admin-category-card-publish-status {
   grid-column: 1 / -1;
   min-height: 1.2em;
@@ -6955,9 +6993,13 @@ button[aria-label="Add to cart"]::before {
   }
 
   #categories .admin-category-card-summary {
-    grid-template-columns: auto 104px minmax(240px, .8fr) minmax(520px, 1.6fr);
+    grid-template-columns: 104px minmax(240px, .8fr) minmax(520px, 1.6fr);
     align-items: center;
     gap: 16px 20px;
+  }
+
+  #categories .admin-category-card-summary.bulk-select-active {
+    grid-template-columns: auto 104px minmax(240px, .8fr) minmax(520px, 1.6fr);
   }
 
   #categories .admin-category-card-summary .admin-review-image {
@@ -6992,6 +7034,10 @@ button[aria-label="Add to cart"]::before {
   }
 
   #categories .admin-category-card-summary {
+    grid-template-columns: 92px minmax(0, 1fr);
+  }
+
+  #categories .admin-category-card-summary.bulk-select-active {
     grid-template-columns: auto 92px minmax(0, 1fr);
   }
 

@@ -33,6 +33,14 @@ const DISPLAY_FIELDS = [
   'standeeSizePercent',
   'standeeLeftPercent',
   'standeeVerticalPercent',
+  'titleLeftPercent',
+  'titleVerticalPercent',
+  'titleAlign',
+  'titleSizePercent',
+  'descriptionLeftPercent',
+  'descriptionVerticalPercent',
+  'descriptionAlign',
+  'descriptionSizePercent',
   'logoSizePercent',
   'logoVerticalPercent'
 ];
@@ -188,7 +196,7 @@ export function normalizeDisplaySettings(value = {}) {
   };
   DISPLAY_FIELDS.forEach((field) => {
     if (field === 'backgroundPosition' || source[field] === undefined || source[field] === '') return;
-    normalized[field] = field === 'backgroundImage' ? String(source[field]) : Number(source[field]);
+    normalized[field] = ['backgroundImage', 'titleAlign', 'descriptionAlign'].includes(field) ? String(source[field]) : Number(source[field]);
   });
   const transform = asObject(source.imageTransform);
   if (Object.keys(transform).length) {

@@ -10,7 +10,7 @@ import {
   invalidAdminCollectionImageReferences,
   normalizeProductForComparison,
   semanticProductEqual,
-  semanticValuesEqual,
+  semanticValuesEqual, semanticCategoryEqual,
   validateAdminImageReference
 } from '../admin-state-utils.js';
 
@@ -104,6 +104,28 @@ Deno.test('semantic comparison ignores metadata, undefined, empty optional field
   const left = { title: 'Same', optional: '', nested: { b: 2, a: 1 }, approvalStatus: 'approved' };
   const right = { nested: { a: 1, b: 2, unused: undefined }, title: 'Same' };
   assert(semanticValuesEqual(left, right), 'non-publishable representation differences must compare equal');
+});
+
+Deno.test('Category display defaults do not create false unpublished changes', () => {
+  const published = { key: 'sports', title: 'Sports', displaySettings: {} };
+  const privateCopy = {
+    ...published,
+    displaySettings: {
+      backgroundPosition: 'center center',
+      titleLeftPercent: 0,
+      titleVerticalPercent: 0,
+      titleAlign: 'center',
+      titleSizePercent: 100,
+      descriptionLeftPercent: 0,
+      descriptionVerticalPercent: 0,
+      descriptionAlign: 'center',
+      descriptionSizePercent: 100
+    },
+    approvalStatus: 'draft'
+  };
+  assert(semanticCategoryEqual(published, privateCopy), 'omitted Category display defaults must compare equal to their effective values');
+  privateCopy.displaySettings.titleLeftPercent = 12;
+  assert(!semanticCategoryEqual(published, privateCopy), 'a genuine Category title movement must remain publishable');
 });
 
 Deno.test('semantic product normalization preserves image-choice order', () => {

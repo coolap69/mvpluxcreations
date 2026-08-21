@@ -72,7 +72,7 @@ Deno.test('top and editor Publish buttons share one Category publisher and state
 
 Deno.test('scoped publishing reports real stages and refreshes only the visible Admin area', () => {
   const scoped = extractedFunction('async function publishScopedChangeIds', 'async function publishExistingProductForm');
-  for (const stage of ['Validating the latest private save…', 'Preparing approved images…', 'Sending the scoped update to GitHub…', 'Synchronizing Admin state…', 'Published successfully']) {
+  for (const stage of ['Validating the latest private save…', 'Preparing approved images…', 'Sending the scoped update to GitHub…', 'Synchronizing Admin state…', 'GitHub published successfully']) {
     assert(scoped.includes(stage), `missing real publish stage ${stage}`);
   }
   assert(scoped.includes('refreshVisibleAdminAreaAfterPublish()'), 'post-publish refresh must be visibility-aware');
@@ -80,6 +80,7 @@ Deno.test('scoped publishing reports real stages and refreshes only the visible 
     assert(!scoped.includes(hiddenRender), 'scoped publish must not rebuild hidden workspaces');
   }
   assert(scoped.includes('performance?.now') && scoped.includes('publishTimingSummary'), 'publish timings must measure real work');
+  assert(scoped.includes('Website deployment is queued and may take 10–30+ seconds.'), 'queued Pages deployment must be stated honestly without pretending the live deployment already finished');
 });
 
 Deno.test('Edge publisher returns internal GitHub and synchronization timings', () => {
