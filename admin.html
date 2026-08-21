@@ -138,6 +138,14 @@
               <label>Description<textarea name="description" rows="3" placeholder="Short customer-friendly description"></textarea></label>
               <label>Fun Fact<textarea name="funFact" rows="2" placeholder="Optional interesting detail"></textarea></label>
             </div>
+            <div class="admin-ai-actions" aria-label="Optional AI assistance">
+              <button type="button" data-ai-suggest="title">Suggest Title</button>
+              <button type="button" data-ai-suggest="description">Suggest Description</button>
+              <button type="button" data-ai-suggest="funFact">Suggest Fun Fact</button>
+              <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
+            </div>
+            <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
+            <p class="admin-note">AI suggestions fill these fields for your review. They never save or publish automatically.</p>
             <label>Original Height<input name="originalHeight" type="text" placeholder="Example: 6'6" required></label>
             <label>Choose Background<select name="backgroundImage" data-admin-image-picker="background"><option value="">Use the clean showroom background</option></select></label>
             <fieldset><legend>Choose Category</legend><div class="admin-category-options" data-create-product-categories></div></fieldset>
@@ -181,6 +189,14 @@
               <label>Description<textarea name="description" rows="3" placeholder="What customers will find in this collection"></textarea></label>
               <label>Fun Fact <span>(optional)</span><textarea name="funFact" rows="2"></textarea></label>
             </div>
+            <div class="admin-ai-actions" aria-label="Optional AI assistance">
+              <button type="button" data-ai-suggest="title">Suggest Title</button>
+              <button type="button" data-ai-suggest="description">Suggest Description</button>
+              <button type="button" data-ai-suggest="funFact">Suggest Fun Fact</button>
+              <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
+            </div>
+            <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
+            <p class="admin-note">AI suggestions fill these fields for your review. They never save or publish automatically.</p>
             <label>Category Card Image<select name="cardImage" data-admin-image-picker="category"><option value="">Choose an image…</option></select></label>
             <label>Category Card Background<select name="cardBackgroundImage" data-admin-image-picker="background"><option value="">Use the clean showroom background</option></select></label>
             <label>Order<input name="order" type="number" min="0" step="1" value="999"></label>

@@ -2665,6 +2665,80 @@ function setCreationStatus(form, message, state = '') {
   status.dataset.state = state;
 }
 
+async function requestAdminContentSuggestion(form, action, button) {
+  if (button.dataset.aiBusy === 'true') return;
+  button.dataset.aiBusy = 'true';
+  button.disabled = true;
+  const client = getAdminClient();
+  const projectUrl = window.MVPLUX_SUPABASE?.url;
+  const status = form.querySelector('[data-ai-status], .admin-status, [data-image-draft-status]');
+  if (!client?.auth || !projectUrl) {
+    if (status) status.textContent = 'AI suggestions are unavailable. You can continue entering text manually.';
+    button.disabled = false;
+    delete button.dataset.aiBusy;
+    return;
+  }
+  const originalText = button.textContent;
+  button.textContent = 'Thinking…';
+  if (status) status.textContent = 'Preparing an editable suggestion…';
+  let timeout = 0;
+  try {
+    const { data, error: sessionError } = await client.auth.getSession();
+    if (sessionError) throw sessionError;
+    const token = data?.session?.access_token;
+    if (!token) throw new Error('Sign in as Admin to use optional AI suggestions.');
+    const formData = new FormData(form);
+    const controller = new AbortController();
+    timeout = window.setTimeout(() => controller.abort(), 45_000);
+    const response = await fetch(`${projectUrl}/functions/v1/admin-content-assistant`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, apikey: window.MVPLUX_SUPABASE?.publishableKey || '' },
+      body: JSON.stringify({
+        action,
+        imagePath: String(formData.get('selectedPreviewImage') || formData.get('cutoutImage') || formData.get('cardImage') || form.dataset.imagePath || ''),
+        category: formData.getAll('categories').join(', '),
+        context: {
+          title: String(formData.get('title') || ''),
+          description: String(formData.get('description') || ''),
+          funFact: String(formData.get('funFact') || '')
+        }
+      }),
+      signal: controller.signal
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || result.message || `AI request failed (HTTP ${response.status}).`);
+    const fieldNames = action === 'improve' ? ['title', 'description', 'funFact'] : [action];
+    fieldNames.forEach((fieldName) => {
+      const field = form.elements.namedItem(fieldName);
+      const suggestion = String(result[fieldName] || '').trim();
+      if (!field || !suggestion) return;
+      if (field.value.trim() && !window.confirm(`Replace the current ${fieldName === 'funFact' ? 'fun fact' : fieldName} with this suggestion?`)) return;
+      field.value = suggestion;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    if (status) status.textContent = 'Suggestion added for review. Nothing was saved.';
+  } catch (error) {
+    const message = error?.name === 'AbortError' ? 'The AI request timed out. Try again.' : error?.message || error;
+    if (status) status.textContent = `AI suggestion unavailable: ${message}. Manual entry still works.`;
+  } finally {
+    if (timeout) window.clearTimeout(timeout);
+    button.disabled = false;
+    button.textContent = originalText;
+    delete button.dataset.aiBusy;
+  }
+}
+
+function bindAdminAiAssistance(root = document) {
+  if (root.documentElement?.dataset.adminAiBound) return;
+  if (root.documentElement) root.documentElement.dataset.adminAiBound = 'true';
+  root.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-ai-suggest]');
+    const form = button?.closest('form');
+    if (!button || !form) return;
+    requestAdminContentSuggestion(form, button.dataset.aiSuggest, button);
+  });
+}
+
 async function saveNewProductFromForm(form, approvalStatus) {
   const formData = new FormData(form);
   const slug = makeSlug(formData.get('slug') || formData.get('title'));
@@ -5015,6 +5089,14 @@ function renderImageDrafts() {
               <label>Title<input name="title" type="text" value="${escapeAdminHtml(draft.title || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(draft.description || '')}</textarea></label>
               <label>Fun fact<textarea name="funFact" rows="2">${escapeAdminHtml(draft.funFact || '')}</textarea></label>
+              <div class="admin-ai-actions" aria-label="Optional AI assistance">
+                <button type="button" data-ai-suggest="title">Suggest Title</button>
+                <button type="button" data-ai-suggest="description">Suggest Description</button>
+                <button type="button" data-ai-suggest="funFact">Suggest Fun Fact</button>
+                <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
+              </div>
+              <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
+              <p class="admin-note">AI suggestions fill these fields for your review. They never save or publish automatically.</p>
               <label data-import-destinations="create-product">Original height<input name="originalHeight" type="text" value="${escapeAdminHtml(draft.originalHeight || '')}" placeholder="6'6 or 78"></label>
               <label>Background
                 <select name="backgroundImage">
@@ -5469,6 +5551,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   renderImageImportPending();
   renderAdminProducts();
+  bindAdminAiAssistance();
   setupAdminCreationWorkspace();
   setupAdminArchitectureWorkspace();
   setupPriceRules();

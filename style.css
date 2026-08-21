@@ -7188,6 +7188,9 @@ button[aria-label="Add to cart"]::before {
 .admin-review-item p { margin: 4px 0; }
 .admin-review-item details p { overflow-wrap: anywhere; }
 .admin-inline-category-products { display: grid; gap: 4px; max-height: 140px; overflow: auto; }
+.admin-ai-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0; }
+.admin-ai-actions button { min-height: 34px; padding: 6px 9px; }
+
 @media (max-width: 640px) {
   .admin-inline-record-editor {
     top: auto;

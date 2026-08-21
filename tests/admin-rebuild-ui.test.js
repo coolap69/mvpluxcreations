@@ -3,6 +3,8 @@ const assert = (condition, message) => { if (!condition) throw new Error(message
 const adminHtml = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
 const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
 const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+const assistantSource = await Deno.readTextFile(new URL('../supabase/functions/admin-content-assistant/index.ts', import.meta.url));
+const assistantProviderSource = await Deno.readTextFile(new URL('../supabase/functions/admin-content-assistant/ai-providers.ts', import.meta.url));
 const publisherSource = await Deno.readTextFile(new URL('../supabase/functions/publish-admin-changes/index.ts', import.meta.url));
 
 Deno.test('Admin workspace exposes focused creation, review, publish, and recovery areas', () => {
@@ -12,10 +14,29 @@ Deno.test('Admin workspace exposes focused creation, review, publish, and recove
   assert(adminHtml.includes('Legacy Recovery Editor'), 'legacy editor must remain available only as recovery');
 });
 
-Deno.test('manual creation forms save and reset without unrelated assistant dependencies', () => {
+Deno.test('manual creation remains available without AI and successful saves reset forms', () => {
   assert(adminHtml.includes('id="createProductForm"') && adminHtml.includes('id="createCategoryForm"'), 'manual creation forms must exist');
   assert(adminSource.includes("form.reset();"), 'successful creation must reset the focused form');
-  assert(!adminSource.includes('admin-content-assistant'), 'focused deployment must not alter the separate AI integration');
+  assert(adminSource.includes("Suggestion added for review. Nothing was saved."), 'AI response must be preview-only');
+});
+
+Deno.test('AI controls are enabled after secure Edge Function deployment and remain review-only', () => {
+  const staticButtons = [...adminHtml.matchAll(/<button[^>]+data-ai-suggest="[^"]+"[^>]*>/g)].map((match) => match[0]);
+  assert(staticButtons.length === 8, 'both visual builders must expose four AI controls');
+  assert(staticButtons.every((button) => !button.includes('disabled')), 'deployed AI controls must be enabled');
+  const dynamicButtons = [...adminSource.matchAll(/<button[^>]+data-ai-suggest="[^"]+"[^>]*>/g)].map((match) => match[0]);
+  assert(dynamicButtons.length >= 4 && dynamicButtons.every((button) => !button.includes('disabled')), 'Image Import AI controls must also be enabled');
+  assert(adminHtml.includes('They never save or publish automatically.'), 'AI controls must explain that suggestions are review-only');
+  assert(adminHtml.includes('data-ai-status aria-live="polite"') && adminSource.includes("form.querySelector('[data-ai-status]"), 'AI errors must render directly beneath the controls');
+  assert(adminSource.includes("button.dataset.aiBusy === 'true'") && adminSource.includes("button.dataset.aiBusy = 'true'"), 'duplicate simultaneous AI clicks must be blocked');
+});
+
+Deno.test('optional AI endpoint requires Admin authorization and keeps its API key server-side', () => {
+  assert(assistantSource.includes('admin_profiles?user_id=eq.'), 'AI endpoint must verify admin_profiles');
+  assert(assistantProviderSource.includes("configuredSecret(env, 'GEMINI_API_KEY')"), 'Gemini key must come from Edge Function environment');
+  assert(assistantProviderSource.includes("configuredSecret(env, 'OPENAI_API_KEY')"), 'OpenAI key support must remain server-side');
+  assert(!adminSource.includes('GEMINI_API_KEY') && !adminSource.includes('OPENAI_API_KEY'), 'browser Admin code must not contain AI secret names');
+  assert(assistantSource.includes('recentRequests') && assistantSource.includes('active.length >= 10'), 'AI endpoint must rate limit requests');
 });
 
 Deno.test('inline ownership routes products and categories away from page content', () => {
