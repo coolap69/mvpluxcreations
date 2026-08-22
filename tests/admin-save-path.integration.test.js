@@ -14,6 +14,65 @@ function memoryStorage(initial = {}) {
   };
 }
 
+class TestFormData {
+  constructor(form) { this.form = form; }
+  control(name) { return this.form?.elements?.namedItem?.(name) || null; }
+  has(name) {
+    const control = this.control(name);
+    if (!control || control.disabled) return false;
+    return control.type === 'checkbox' ? control.checked === true : true;
+  }
+  get(name) {
+    const control = this.control(name);
+    if (!control || control.disabled || (control.type === 'checkbox' && !control.checked)) return null;
+    return control.type === 'checkbox' ? (control.value || 'on') : (control.value ?? '');
+  }
+  getAll(name) {
+    const control = this.control(name);
+    if (!control) return [];
+    const controls = Array.isArray(control) ? control : [control];
+    return controls.filter((item) => !item.disabled && (item.type !== 'checkbox' || item.checked)).map((item) => item.value ?? '');
+  }
+}
+
+function categoryTestForm(values = {}) {
+  const controls = {};
+  const preview = { hidden: true, innerHTML: '' };
+  const checkbox = (checked, disabled = false) => ({ type: 'checkbox', checked, disabled, value: 'on', dataset: {} });
+  const input = (value = '') => ({ type: 'text', value: String(value), disabled: false, dataset: {} });
+  Object.assign(controls, {
+    title: input(values.title ?? 'Sports Legends'),
+    description: input(values.description ?? 'Sports description'),
+    funFact: input(values.funFact ?? 'Sports fun fact'),
+    page: input(values.page ?? 'sports-legends.html'),
+    order: input(values.order ?? 1),
+    visible: checkbox(values.visible ?? true),
+    homepageVisible: checkbox(values.homepageVisible ?? true, values.homepageDisabled ?? false),
+    cardImage: input(values.cardImage ?? 'images/sports.png'),
+    cardBackgroundImage: input(values.cardBackgroundImage ?? ''),
+    backgroundPosition: input(values.backgroundPosition ?? '25% 75%'),
+    standeeSizePercent: input(values.standeeSizePercent ?? 84),
+    standeeLeftPercent: input(values.standeeLeftPercent ?? 12),
+    standeeVerticalPercent: input(values.standeeVerticalPercent ?? -8),
+    titleLeftPercent: input(values.titleLeftPercent ?? 7),
+    titleVerticalPercent: input(values.titleVerticalPercent ?? -6),
+    titleAlign: input(values.titleAlign ?? 'right'),
+    titleSizePercent: input(values.titleSizePercent ?? 130),
+    descriptionLeftPercent: input(values.descriptionLeftPercent ?? -9),
+    descriptionVerticalPercent: input(values.descriptionVerticalPercent ?? 11),
+    descriptionAlign: input(values.descriptionAlign ?? 'left'),
+    descriptionSizePercent: input(values.descriptionSizePercent ?? 115)
+  });
+  return {
+    dataset: { categoryEdit: 'sports' },
+    elements: { namedItem: (name) => controls[name] || null },
+    querySelector(selector) { return selector === '[data-category-edit-preview]' ? preview : null; },
+    closest() { return null; },
+    controls,
+    preview
+  };
+}
+
 function emptyElement() {
   return {
     hidden: false,
@@ -157,7 +216,7 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
     return { ok: false, status: 400, json: async () => ({ error: 'Unsupported test publisher action.' }) };
   };
   const factory = new Function(
-    'adminUtils', 'window', 'document', 'localStorage', 'BroadcastChannel', 'fetch',
+    'adminUtils', 'window', 'document', 'localStorage', 'BroadcastChannel', 'fetch', 'FormData', 'CSS',
     `${source}
       return {
         saveAdminProductFieldPatch,
@@ -173,6 +232,10 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
         architectureReviewItems,
         buildSelectedArchitectureSnapshot,
         automaticPublishImagePaths,
+        categoryFromEditForm,
+        saveCategoryEditForm,
+        previewCategoryEdit,
+        readAdminCategories,
         allAdminProducts,
         __setLive(edits, revision) { adminLiveSettings = structuredClone(edits); adminLiveRevision = revision; },
         __setArchitectureState(settings, published = {}, pages = {}) {
@@ -185,7 +248,7 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
       };
     `
   );
-  return { helpers: factory(adminUtils, window, document, storage, undefined, publisherFetch), window, storage };
+  return { helpers: factory(adminUtils, window, document, storage, undefined, publisherFetch, TestFormData, { escape: (value) => String(value) }), window, storage };
 }
 
 function adminGlobalClient(rows, rpcHandler) {
@@ -444,6 +507,83 @@ Deno.test('Category publishing mirrors the authoritative root title into compati
   const snapshot = helpers.buildNormalizedPublishSnapshot();
   assert(snapshot.categories.sports.title === 'Sports Legends', 'normalized published Category must keep the root title');
   assert(snapshot.categoryDisplayCards['sport-legend-standee'].title === 'Sports Legends', 'legacy compatibility card must mirror the root title during Publish');
+});
+
+Deno.test('actual Category Save Draft persists text and every supported visual field without publishing', async () => {
+  const calls = [];
+  const sports = {
+    key: 'sports', title: 'Sports', description: '', funFact: '', page: 'sports-legends.html',
+    visible: true, homepageVisible: true, order: 0,
+    card: { image: 'images/sports.png', backgroundImage: '', visible: true, order: 0 },
+    displaySettings: { backgroundPosition: 'center center' }
+  };
+  const edits = { adminArchitectureV2: { enabled: true }, categories: { sports } };
+  const rows = [{ data: { edits, revision: 9 }, error: null }];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    calls.push(structuredClone(args));
+    return { data: { edits: { ...edits, ...args.p_edits }, revision: 10 }, error: null };
+  });
+  const { helpers } = await loadActualAdminHelpers({ client });
+  helpers.__setArchitectureState(edits, { categories: { sports } });
+  const form = categoryTestForm();
+  assert(await helpers.saveCategoryEditForm(form, 'draft'), 'the actual Category Save Draft handler must succeed');
+  assert(calls.length === 1, 'Save Draft must perform one revision-protected private save');
+  const saved = calls[0].p_edits.categories.sports;
+  assert(saved.key === 'sports' && saved.title === 'Sports Legends', 'Save Draft must preserve the key and save the authoritative title');
+  assert(saved.description === 'Sports description' && saved.funFact === 'Sports fun fact', 'description and fun fact must save');
+  assert(saved.draftStatus === 'draft' && saved.approvalStatus === 'draft', 'Save Draft must remain private and unapproved');
+  assert(saved.card.image === 'images/sports.png' && saved.card.backgroundImage === '', 'image references must save without modifying files');
+  assert(saved.displaySettings.backgroundPosition === '25% 75%', 'background X/Y must save through backgroundPosition');
+  for (const [field, expected] of Object.entries({
+    standeeSizePercent: 84, standeeLeftPercent: 12, standeeVerticalPercent: -8,
+    titleLeftPercent: 7, titleVerticalPercent: -6, titleSizePercent: 130,
+    descriptionLeftPercent: -9, descriptionVerticalPercent: 11, descriptionSizePercent: 115
+  })) assert(saved.displaySettings[field] === expected, `${field} must survive Save Draft`);
+  assert(saved.displaySettings.titleAlign === 'right' && saved.displaySettings.descriptionAlign === 'left', 'text alignment must survive Save Draft');
+  assert(helpers.readAdminCategories().sports.title === 'Sports Legends', 'the Admin working state must immediately reflect the saved title');
+});
+
+Deno.test('hidden Category form preserves both homepage visibility preferences when the disabled checkbox is absent', async () => {
+  for (const homepageVisible of [true, false]) {
+    const sports = { key: 'sports', title: 'Sports', visible: true, homepageVisible, card: { image: 'images/sports.png' }, displaySettings: {} };
+    const client = adminGlobalClient([], async () => ({ data: {}, error: null }));
+    const { helpers } = await loadActualAdminHelpers({ client });
+    helpers.__setArchitectureState({ adminArchitectureV2: { enabled: true }, categories: { sports } }, { categories: { sports } });
+    const hiddenForm = categoryTestForm({ visible: false, homepageVisible, homepageDisabled: true });
+    const hidden = helpers.categoryFromEditForm(hiddenForm);
+    assert(hidden.visible === false && hidden.homepageVisible === homepageVisible, `Hide must preserve homepageVisible=${homepageVisible}`);
+    hiddenForm.controls.visible.checked = true;
+    hiddenForm.controls.homepageVisible.disabled = false;
+    const unhidden = helpers.categoryFromEditForm(hiddenForm);
+    assert(unhidden.visible === true && unhidden.homepageVisible === homepageVisible, `Unhide must restore homepageVisible=${homepageVisible}`);
+  }
+});
+
+Deno.test('actual Category preview applies independent image, text, and background controls without saving', async () => {
+  let writes = 0;
+  const sports = { key: 'sports', title: 'Sports', visible: true, homepageVisible: true, card: { image: 'images/sports.png', backgroundImage: '' }, displaySettings: {} };
+  const client = adminGlobalClient([], async () => { writes += 1; return { data: {}, error: null }; });
+  const { helpers } = await loadActualAdminHelpers({ client });
+  helpers.__setArchitectureState({ adminArchitectureV2: { enabled: true }, categories: { sports } }, { categories: { sports } });
+  const form = categoryTestForm();
+  helpers.previewCategoryEdit(form);
+  const html = form.preview.innerHTML;
+  for (const token of [
+    'height:84%', 'left:62%', 'bottom:26%', 'background-position:25% 75%',
+    'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg',
+    'translate(7%,-6px)', 'text-align:right', 'font-size:24.7px',
+    'translate(-9%,11px)', 'text-align:left', 'font-size:16.1px',
+    'Sports Legends', 'Sports description'
+  ]) assert(html.includes(token), `live Category preview must apply ${token}`);
+  form.controls.standeeSizePercent.value = '63';
+  form.controls.standeeLeftPercent.value = '0';
+  form.controls.standeeVerticalPercent.value = '0';
+  form.controls.titleLeftPercent.value = '0';
+  form.controls.descriptionVerticalPercent.value = '0';
+  form.controls.backgroundPosition.value = 'center center';
+  helpers.previewCategoryEdit(form);
+  assert(form.preview.innerHTML.includes('height:63%') && form.preview.innerHTML.includes('left:50%') && form.preview.innerHTML.includes('background-position:center center'), 'reset values must immediately update the same preview');
+  assert(writes === 0, 'preview and cancel/no-save behavior must never write private or published state');
 });
 
 Deno.test('three Admin view modes separate private preview from published customer state', async () => {

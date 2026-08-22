@@ -2038,11 +2038,53 @@ function publishTimingSummary(timing = {}) {
     ['prepare', timing.preparationMs],
     ['images', timing.imagePreparationMs],
     ['publish request', timing.requestMs],
+    ['deployment wait', timing.deploymentWaitMs],
     ['sync', timing.syncMs],
     ['GitHub', timing.edge?.githubPublicationMs],
     ['deployment check', timing.edge?.deploymentLookupMs]
   ].filter(([, value]) => Number.isFinite(value));
   return parts.map(([label, value]) => `${label} ${Math.round(value)}ms`).join(' · ');
+}
+
+async function waitForPublishedDeployment(commitHash, {
+  onProgress = null,
+  timeoutMs = 120000,
+  pollIntervalMs = 3000,
+  now = () => globalThis.performance?.now?.() ?? Date.now(),
+  wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+} = {}) {
+  if (!/^[0-9a-f]{40}$/i.test(String(commitHash || ''))) {
+    return { confirmed: false, failed: true, status: 'invalid-commit', checks: 0, waitMs: 0 };
+  }
+  const startedAt = now();
+  let checks = 0;
+  let status = 'queued';
+  let lastError = '';
+  let publishHistory = [];
+  while (now() - startedAt <= timeoutMs) {
+    onProgress?.('Waiting for website deployment…', 'publishing');
+    try {
+      const result = await callAdminPublisher({ action: 'deployment-status', commitHash });
+      checks += 1;
+      status = String(result?.deploymentResult || 'unknown').toLowerCase();
+      publishHistory = Array.isArray(result?.publishHistory) ? result.publishHistory : publishHistory;
+      lastError = '';
+      if (['success', 'active'].includes(status)) {
+        return { confirmed: true, failed: false, timeout: false, status, checks, waitMs: now() - startedAt, publishHistory };
+      }
+      if (['failure', 'error', 'inactive'].includes(status)) {
+        return { confirmed: false, failed: true, timeout: false, status, checks, waitMs: now() - startedAt, publishHistory };
+      }
+    } catch (error) {
+      checks += 1;
+      status = 'unknown';
+      lastError = error?.message || String(error);
+    }
+    const elapsed = now() - startedAt;
+    if (elapsed >= timeoutMs) break;
+    await wait(Math.min(pollIntervalMs, timeoutMs - elapsed));
+  }
+  return { confirmed: false, failed: false, timeout: true, status, checks, waitMs: now() - startedAt, publishHistory, ...(lastError ? { error: lastError } : {}) };
 }
 
 async function publishScopedChangeIds(changeIds, label, statusTarget = null, { onProgress = null } = {}) {
@@ -2094,7 +2136,7 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null, { o
     const imageStart = now();
     const imageFiles = await loadSelectedPublishImages(selectedImages);
     timing.imagePreparationMs = now() - imageStart;
-    setLocalStatus('Sending the scoped update to GitHub…', 'publishing');
+    setLocalStatus('Publishing to GitHub…', 'publishing');
     const requestStart = now();
     const result = await callAdminPublisher({
       action: 'publish',
@@ -2106,9 +2148,16 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null, { o
     });
     timing.requestMs = now() - requestStart;
     timing.edge = result.timing || null;
-    setLocalStatus('GitHub committed the update. Synchronizing Admin state…', 'publishing');
+    if (!result.commitHash) throw new Error('GitHub accepted the publish request but did not return a commit hash.');
+    setLocalStatus(`GitHub commit created: ${result.commitHash.slice(0, 7)}.`, 'publishing');
+    const deployment = await waitForPublishedDeployment(result.commitHash, { onProgress: setLocalStatus });
+    timing.deploymentWaitMs = deployment.waitMs;
+    setLocalStatus('Synchronizing Admin…', 'publishing');
     const syncStart = now();
-    const tracked = await saveAdminSettingsLive({ lastPublishedSnapshot: snapshot, publishHistory: result.publishHistory || [] });
+    const publishHistory = (deployment.publishHistory?.length ? deployment.publishHistory : result.publishHistory || []).map((entry) => entry.commitHash === result.commitHash
+      ? { ...entry, deploymentResult: deployment.status }
+      : entry);
+    const tracked = await saveAdminSettingsLive({ lastPublishedSnapshot: snapshot, publishHistory });
     timing.syncMs = now() - syncStart;
     if (!tracked) throw new Error(`GitHub commit ${result.commitHash || ''} succeeded, but its published state could not be synchronized.`);
     adminPublishedBaseline = normalizePublishedBaseline(snapshot);
@@ -2119,12 +2168,16 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null, { o
     selectedPublishMode = false;
     timing.totalMs = now() - timing.startedAt;
     const timingText = publishTimingSummary(timing);
-    const deployment = result.deploymentResult || 'queued';
-    const deploymentMessage = deployment === 'queued'
-      ? 'Website deployment is queued and may take 10–30+ seconds.'
-      : `Website deployment status: ${deployment}.`;
-    setLocalStatus(`GitHub published successfully. Commit ${result.commitHash?.slice(0, 7) || ''}. ${deploymentMessage}${timingText ? ` ${timingText}.` : ''}`, 'published');
     refreshVisibleAdminAreaAfterPublish();
+    if (deployment.confirmed) {
+      setLocalStatus(`LIVE — Published successfully. Commit ${result.commitHash.slice(0, 7)}.${timingText ? ` ${timingText}.` : ''}`, 'published');
+      return true;
+    }
+    if (deployment.failed) {
+      setLocalStatus(`Publish Failed — GitHub commit ${result.commitHash.slice(0, 7)} was created, but website deployment reported ${deployment.status}.${timingText ? ` ${timingText}.` : ''}`, 'failed');
+      return false;
+    }
+    setLocalStatus(`Published to GitHub, but live deployment has not been confirmed yet. Commit ${result.commitHash.slice(0, 7)}.${timingText ? ` ${timingText}.` : ''}`, 'pending');
     return true;
   } catch (error) {
     adminLatestPublishError = error?.message || 'Publish failed.';
@@ -4939,28 +4992,40 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
 async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = true } = {}) {
   const category = categoryFromEditForm(form, approvalStatus);
   const current = readAdminCategories()[category.key] || {};
+  if (approvalStatus === 'draft') setCategoryPublishState(category.key, 'Saving Draft…', 'saving');
   const imageValidations = [
     ['Category image', category.card?.image, current.card?.image],
     ['Custom background', category.card?.backgroundImage, current.card?.backgroundImage]
   ].map(([label, value, original]) => ({ label, value, original, ...adminStateUtils.validateAdminImageReference(value, { allowBlank: true }) }))
     .filter((item) => !item.valid && item.value !== item.original);
   if (imageValidations.length) {
-    form.querySelector('.admin-status').textContent = `${imageValidations[0].label}: ${imageValidations[0].reason}`;
+    setCategoryPublishState(category.key, `${imageValidations[0].label}: ${imageValidations[0].reason}`, 'failed');
     return false;
   }
   if (approvalStatus === 'approved' && !category.parentKey && !category.card?.image) {
-    form.querySelector('.admin-status').textContent = 'Choose a Category image before publishing.';
+    setCategoryPublishState(category.key, 'Choose a Category image before publishing.', 'failed');
     return false;
   }
   const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), category, category.key);
   if (duplicates.length) {
-    form.querySelector('.admin-status').textContent = `A similar Category already exists: ${duplicates.map((item) => item.title).join(', ')}.`;
+    setCategoryPublishState(category.key, `A similar Category already exists: ${duplicates.map((item) => item.title).join(', ')}.`, 'failed');
     return false;
   }
   const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: category.key, baseRecord: readAdminCategories()[category.key], patch: category }]);
-  if (!result.ok) return false;
-  if (render) renderCategoryManager();
-  setStatus(approvalStatus === 'approved' ? 'Category saved and ready for scoped publishing.' : 'Category draft saved privately.');
+  if (!result.ok) {
+    setCategoryPublishState(category.key, adminLastSaveError || 'Category draft could not be saved.', 'failed');
+    return false;
+  }
+  if (render) {
+    const card = form.closest('[data-category-card]');
+    const summaryTitle = card?.querySelector('.admin-category-card-summary h3');
+    const editorTitle = form.querySelector('.admin-category-editor-header h3');
+    if (summaryTitle) summaryTitle.textContent = category.title || category.key;
+    if (editorTitle) editorTitle.textContent = category.title || category.key;
+  }
+  const message = approvalStatus === 'approved' ? 'Category saved. Validating latest private save…' : 'Draft saved privately.';
+  setCategoryPublishState(category.key, message, approvalStatus === 'approved' ? 'publishing' : 'draft');
+  setStatus(message);
   return true;
 }
 

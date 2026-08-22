@@ -572,6 +572,32 @@ Deno.serve(async (request) => {
     if (payload?.action === 'image-inventory') {
       return jsonResponse(request, await repositoryImageInventory(token, owner, repo, branch));
     }
+    if (payload?.action === 'deployment-status') {
+      const commitHash = String(payload.commitHash || '').trim();
+      if (!/^[0-9a-f]{40}$/i.test(commitHash)) {
+        throw new PublishError('validation', 400, 'INVALID_COMMIT_HASH', 'A full GitHub commit hash is required to check website deployment.');
+      }
+      const deploymentStartedAt = performance.now();
+      const result = await deploymentResult(token, owner, repo, commitHash);
+      const current = await readAdminGlobal(supabaseUrl, anonKey, authorization);
+      const currentHistory = Array.isArray(current.edits.publishHistory) ? current.edits.publishHistory : [];
+      const matchingEntry = currentHistory.find((entry) => entry?.commitHash === commitHash);
+      let publishHistory = currentHistory;
+      if (matchingEntry && result !== 'unknown' && matchingEntry.deploymentResult !== result) {
+        const saved = await patchAdminGlobal(supabaseUrl, anonKey, authorization, (latest) => ({
+          publishHistory: (Array.isArray(latest.publishHistory) ? latest.publishHistory : []).map((entry) => (
+            entry?.commitHash === commitHash ? { ...entry, deploymentResult: result } : entry
+          ))
+        }));
+        publishHistory = Array.isArray(saved?.edits?.publishHistory) ? saved.edits.publishHistory : currentHistory;
+      }
+      return jsonResponse(request, {
+        commitHash,
+        deploymentResult: result,
+        publishHistory,
+        timing: { deploymentLookupMs: Math.round(performance.now() - deploymentStartedAt) }
+      });
+    }
 
     const initialAdminState = await readAdminGlobal(supabaseUrl, anonKey, authorization);
     const settings = initialAdminState.edits;

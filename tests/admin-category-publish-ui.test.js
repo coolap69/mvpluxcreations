@@ -72,19 +72,63 @@ Deno.test('top and editor Publish buttons share one Category publisher and state
 
 Deno.test('scoped publishing reports real stages and refreshes only the visible Admin area', () => {
   const scoped = extractedFunction('async function publishScopedChangeIds', 'async function publishExistingProductForm');
-  for (const stage of ['Validating the latest private save…', 'Preparing approved images…', 'Sending the scoped update to GitHub…', 'Synchronizing Admin state…', 'GitHub published successfully']) {
+  const polling = extractedFunction('async function waitForPublishedDeployment', 'async function publishScopedChangeIds');
+  for (const stage of ['Validating the latest private save…', 'Preparing approved images…', 'Publishing to GitHub…', 'GitHub commit created:', 'Synchronizing Admin…', 'LIVE — Published successfully']) {
     assert(scoped.includes(stage), `missing real publish stage ${stage}`);
   }
+  assert(polling.includes('Waiting for website deployment…'), 'exact-commit polling must expose its live wait stage');
   assert(scoped.includes('refreshVisibleAdminAreaAfterPublish()'), 'post-publish refresh must be visibility-aware');
   for (const hiddenRender of ['renderAdminProducts();\n    renderAdminDashboard();', 'renderImageImportPending();\n    setLocalStatus']) {
     assert(!scoped.includes(hiddenRender), 'scoped publish must not rebuild hidden workspaces');
   }
   assert(scoped.includes('performance?.now') && scoped.includes('publishTimingSummary'), 'publish timings must measure real work');
-  assert(scoped.includes('Website deployment is queued and may take 10–30+ seconds.'), 'queued Pages deployment must be stated honestly without pretending the live deployment already finished');
+  assert(scoped.indexOf('waitForPublishedDeployment') < scoped.indexOf('LIVE — Published successfully'), 'LIVE success must remain impossible before exact-commit deployment polling');
+  assert(scoped.includes('Published to GitHub, but live deployment has not been confirmed yet.'), 'deployment timeout must not falsely report live success or failed publication');
 });
 
 Deno.test('Edge publisher returns internal GitHub and synchronization timings', () => {
   assert(publisherSource.includes('githubPublicationMs') && publisherSource.includes('deploymentLookupMs') && publisherSource.includes('historySaveMs'), 'Edge response must separate major remote publish stages');
   assert(publisherSource.includes("payload?.action === 'save-working-state'"), 'existing Edge Function must support the reduced private-save response');
   assert(publisherSource.includes('ADMIN_WORKING_STATE_KEYS.has(key)'), 'reduced private-save action must reject unsupported Admin collections');
+  assert(publisherSource.includes("payload?.action === 'deployment-status'") && publisherSource.includes('INVALID_COMMIT_HASH'), 'existing Edge publisher must expose an authenticated exact-commit deployment check');
+});
+
+function deploymentPollHarness(results) {
+  const functionSource = extractedFunction('async function waitForPublishedDeployment', 'async function publishScopedChangeIds');
+  let clock = 0;
+  let calls = 0;
+  const progress = [];
+  const factory = new Function('callAdminPublisher', 'window', `${functionSource}; return waitForPublishedDeployment;`);
+  const poll = factory(
+    async ({ action, commitHash }) => {
+      assert(action === 'deployment-status' && commitHash === 'a'.repeat(40), 'poll must check the exact published commit');
+      const value = results[Math.min(calls, results.length - 1)];
+      calls += 1;
+      if (value instanceof Error) throw value;
+      return { deploymentResult: value };
+    },
+    { setTimeout }
+  );
+  const run = (options = {}) => poll('a'.repeat(40), {
+    timeoutMs: options.timeoutMs ?? 30,
+    pollIntervalMs: 10,
+    now: () => clock,
+    wait: async (milliseconds) => { clock += milliseconds; },
+    onProgress: (message, state) => progress.push({ message, state })
+  });
+  return { run, progress, calls: () => calls };
+}
+
+Deno.test('deployment polling waits for exact-commit success', async () => {
+  const harness = deploymentPollHarness(['queued', 'in_progress', 'success']);
+  const result = await harness.run();
+  assert(result.confirmed && result.status === 'success' && result.checks === 3, 'queued deployment must be polled through success');
+  assert(harness.progress.every((entry) => entry.message === 'Waiting for website deployment…' && entry.state === 'publishing'), 'every wait must remain visibly in progress');
+});
+
+Deno.test('deployment polling distinguishes failure from timeout', async () => {
+  const failure = await deploymentPollHarness(['queued', 'failure']).run();
+  assert(failure.failed && !failure.confirmed && failure.status === 'failure', 'terminal deployment failure must be reported');
+  const timeout = await deploymentPollHarness(['queued']).run({ timeoutMs: 20 });
+  assert(timeout.timeout && !timeout.failed && !timeout.confirmed && timeout.status === 'queued', 'timeout must remain an unconfirmed GitHub publication, not a false failure');
 });
