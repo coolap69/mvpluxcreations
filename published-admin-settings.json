@@ -1,294 +1,447 @@
 {
-  "publishedAt": "2026-07-16T07:11:48.743Z",
-  "title": "Publish approved Admin products",
-  "changeSummary": "- Changed Endoskeleton Dark original height from 78\" to 74\"\n- Changed Faith & Celebration Standees original height from 72\" to 78\"\n- Changed Holiday Standees original height from 78\" to 6'3\n- Created product/card: Jesus Welcoming Pose\n- Added cutout image for Jesus Welcoming Pose: images/FaithCelebrationStandees/Jesus/J5L.png\n- Added background image for Jesus Welcoming Pose: images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg\n- Assigned Jesus Welcoming Pose to Faith / Celebration\n- Created product/card: Jesus Welcoming Pose 2\n- Added cutout image for Jesus Welcoming Pose 2: images/FaithCelebrationStandees/Jesus/J5printD.png\n- Added background image for Jesus Welcoming Pose 2: images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg\n- Assigned Jesus Welcoming Pose 2 to Faith / Celebration\n- Changed Music Artist Standees original height from 69\" to 78\"",
+  "publishedAt": "2026-08-22T02:36:12.970Z",
+  "title": "Publish Sport Legends",
+  "changeSummary": "- Changed title from Sport Legend Standees to Sport Legends\n- Changed description for Sport Legends\n- Changed Sport Legends original height from 78\" to not set\n- Changed cutout image for Sport Legends from images/FrontPageWeb/Sports-Kobe-KB1forprint.png to images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png\n- Changed background image for Sport Legends from images/FanBackgrounds/top-favorite-stage-gold.png to not set\n- Created category: Sport Legends",
   "snapshot": {
     "version": 1,
+    "schemaVersion": 2,
+    "priceSettings": {
+      "twoFootPrice": 35,
+      "threeFootPrice": 50,
+      "fullHeight": 78,
+      "fullPrice": 129.99,
+      "extraInchPrice": 2
+    },
     "products": {
       "kobe-bryant": {
         "slug": "kobe-bryant",
         "title": "Kobe Bryant",
         "description": "Preview Kobe Bryant with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/SportLegendStandees/Kobe/KB1nobackground.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "sports"
         ],
         "visible": true,
         "categoryOrder": {
           "sports": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "shaq": {
         "slug": "shaq",
         "title": "Shaquille O'Neal",
         "description": "Preview Shaquille O'Neal with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/SportLegendStandees/Shaq/shaqNEW.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "85",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "sports"
         ],
         "visible": true,
         "categoryOrder": {
           "sports": 1
-        }
+        },
+        "displayOverrides": {}
       },
       "basketball-center": {
         "slug": "basketball-center",
         "title": "Basketball Center Standee",
         "description": "Preview Basketball Center Standee with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/SportLegendStandees/Shaq/shaqNEW.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "85",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": false,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "alternate-sports-pose": {
         "slug": "alternate-sports-pose",
         "title": "Alternate Sports Pose Standee",
         "description": "Preview Alternate Sports Pose Standee with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/SportLegendStandees/Shaq/shaqDarker.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "85",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": false,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "michael-jordan": {
         "slug": "michael-jordan",
         "title": "Michael Jordan",
         "description": "Preview Michael Jordan with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/SportLegendStandees/MJordan/MJLAYUP1/Jordanemptybackground.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "sports"
         ],
         "visible": true,
         "categoryOrder": {
           "sports": 2
-        }
+        },
+        "displayOverrides": {}
       },
       "michael-jordan-layup": {
         "slug": "michael-jordan-layup",
         "title": "Michael Jordan Layup",
         "description": "Preview Michael Jordan Layup with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/SportLegendStandees/MJordan/MJLAYUP/Jordantofixlblueightlowres.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "sports"
         ],
         "visible": true,
         "categoryOrder": {
           "sports": 3
-        }
+        },
+        "displayOverrides": {}
       },
       "lionel-messi": {
         "slug": "lionel-messi",
         "title": "Lionel Messi",
         "description": "Preview Lionel Messi with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/SportLegendStandees/Messi/Messi2nobackground.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "67",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "sports"
         ],
         "visible": true,
         "categoryOrder": {
           "sports": 4
-        }
+        },
+        "displayOverrides": {}
       },
       "lionel-messi-classic": {
         "slug": "lionel-messi-classic",
         "title": "Lionel Messi Classic",
         "description": "Preview Lionel Messi Classic with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/SportLegendStandees/Messi/Messinnone.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "67",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "sports"
         ],
         "visible": true,
         "categoryOrder": {
           "sports": 5
-        }
+        },
+        "displayOverrides": {}
       },
       "tom-brady": {
         "slug": "tom-brady",
         "title": "Tom Brady",
         "description": "Preview Tom Brady with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/SportLegendStandees/TomBrady/TB12Nobackground.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "76",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "sports"
         ],
         "visible": true,
         "categoryOrder": {
           "sports": 6
-        }
+        },
+        "displayOverrides": {}
       },
       "endoskeleton-dark": {
         "slug": "endoskeleton-dark",
         "title": "Endoskeleton Dark",
         "description": "Preview Endoskeleton Dark with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "74",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "movie-characters"
         ],
         "visible": true,
         "categoryOrder": {
           "movie-characters": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "endoskeleton-white": {
         "slug": "endoskeleton-white",
         "title": "Endoskeleton White",
         "description": "Preview Endoskeleton White with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "movie-characters"
         ],
         "visible": true,
         "categoryOrder": {
           "movie-characters": 1
-        }
+        },
+        "displayOverrides": {}
       },
       "classic-horror-host": {
         "slug": "classic-horror-host",
         "title": "Classic Horror Host",
         "description": "Preview Classic Horror Host with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/MovieCharacterStandees/Elvira/elviranew.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "67",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "movie-characters"
         ],
         "visible": true,
         "categoryOrder": {
           "movie-characters": 2
-        }
+        },
+        "displayOverrides": {}
       },
       "public-figure-clean-cutout": {
         "slug": "public-figure-clean-cutout",
         "title": "Public Figure Clean Cutout",
         "description": "Preview Public Figure Clean Cutout with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/PeoplePublicFigureStandees/President/Nobackgroubd.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "people-public-figures"
         ],
         "visible": true,
         "categoryOrder": {
           "people-public-figures": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "public-figure-stage-look": {
         "slug": "public-figure-stage-look",
         "title": "Public Figure Stage Look",
         "description": "Preview Public Figure Stage Look with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/PeoplePublicFigureStandees/President/lasrT2.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "people-public-figures"
         ],
         "visible": true,
         "categoryOrder": {
           "people-public-figures": 1
-        }
+        },
+        "displayOverrides": {}
       },
       "public-figure-white-look": {
         "slug": "public-figure-white-look",
         "title": "Public Figure White Look",
         "description": "Preview Public Figure White Look with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/PeoplePublicFigureStandees/President/lasrT2white.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "people-public-figures"
         ],
         "visible": true,
         "categoryOrder": {
           "people-public-figures": 2
-        }
+        },
+        "displayOverrides": {}
       },
       "red-jacket-performer": {
         "slug": "red-jacket-performer",
         "title": "Red Jacket Performer",
         "description": "Preview Red Jacket Performer with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTR.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "69",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "music-artists"
         ],
         "visible": true,
         "categoryOrder": {
           "music-artists": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "zombie-dance-look": {
         "slug": "zombie-dance-look",
         "title": "Zombie Dance Look",
         "description": "Preview Zombie Dance Look with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "69",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "music-artists"
         ],
         "visible": true,
         "categoryOrder": {
           "music-artists": 1
-        }
+        },
+        "displayOverrides": {}
       },
       "pop-star-look": {
         "slug": "pop-star-look",
         "title": "Pop Star Look",
         "description": "Preview Pop Star Look with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/MusicArtistStandees/TaylorSwift/TSfinal.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "71",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "music-artists"
         ],
         "visible": true,
         "categoryOrder": {
           "music-artists": 2
-        }
+        },
+        "displayOverrides": {}
       },
       "celebration-display": {
         "slug": "celebration-display",
         "title": "Celebration Display",
         "description": "Preview Celebration Display with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/FaithCelebrationStandees/Jesus1/J13D.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [
@@ -304,293 +457,444 @@
           }
         ],
         "originalHeight": "72",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "faith-celebration"
         ],
         "visible": true,
         "categoryOrder": {
           "faith-celebration": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "holiday-display": {
         "slug": "holiday-display",
         "title": "Holiday Display",
         "description": "Preview Holiday Display with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Herobackgroundparts-hero8T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "holiday"
         ],
         "visible": true,
         "categoryOrder": {
           "holiday": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "seasonal-display": {
         "slug": "seasonal-display",
         "title": "Seasonal Display",
         "description": "Preview Seasonal Display with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero8T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "holiday"
         ],
         "visible": true,
         "categoryOrder": {
           "holiday": 1
-        }
+        },
+        "displayOverrides": {}
       },
       "holiday-event-display": {
         "slug": "holiday-event-display",
         "title": "Event Display",
         "description": "Preview Event Display with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero10E.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "holiday"
         ],
         "visible": true,
         "categoryOrder": {
           "holiday": 2
-        }
+        },
+        "displayOverrides": {}
       },
       "t-rex": {
         "slug": "t-rex",
         "title": "T-Rex",
         "description": "Preview T-Rex with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/DinosaurCreatureStandees/JPRex.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "72",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "dinosaur-animal"
         ],
         "visible": true,
         "categoryOrder": {
           "dinosaur-animal": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "dinosaur-group": {
         "slug": "dinosaur-group",
         "title": "Dinosaur Group",
         "description": "Preview Dinosaur Group with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/DinosaurCreatureStandees/JPall.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "dinosaur-animal"
         ],
         "visible": true,
         "categoryOrder": {
           "dinosaur-animal": 1
-        }
+        },
+        "displayOverrides": {}
       },
       "clean-t-rex": {
         "slug": "clean-t-rex",
         "title": "Clean T-Rex",
         "description": "Preview Clean T-Rex with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Dinosaurs-JPRex-clean.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "dinosaur-animal"
         ],
         "visible": true,
         "categoryOrder": {
           "dinosaur-animal": 2
-        }
+        },
+        "displayOverrides": {}
       },
       "dance-request": {
         "slug": "dance-request",
         "title": "Dance Request",
         "description": "Preview Dance Request with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "69",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "fan-requests"
         ],
         "visible": true,
         "categoryOrder": {
           "fan-requests": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "fan-hero": {
         "slug": "fan-hero",
         "title": "Fan Hero",
         "description": "Preview Fan Hero with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero4JB.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": false,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "guest-request": {
         "slug": "guest-request",
         "title": "Guest Request",
         "description": "Preview Guest Request with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/PeoplePublicFigureStandees/President/lasrT2.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": false,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "fantasy-hero": {
         "slug": "fantasy-hero",
         "title": "Fantasy Hero",
         "description": "Preview Fantasy Hero with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero10E.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "video-game-fantasy"
         ],
         "visible": true,
         "categoryOrder": {
           "video-game-fantasy": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "arcade-hero": {
         "slug": "arcade-hero",
         "title": "Arcade Hero",
         "description": "Preview Arcade Hero with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero7T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "video-game-fantasy"
         ],
         "visible": true,
         "categoryOrder": {
           "video-game-fantasy": 1
-        }
+        },
+        "displayOverrides": {}
       },
       "adventure-hero": {
         "slug": "adventure-hero",
         "title": "Adventure Hero",
         "description": "Preview Adventure Hero with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero8T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "video-game-fantasy"
         ],
         "visible": true,
         "categoryOrder": {
           "video-game-fantasy": 2
-        }
+        },
+        "displayOverrides": {}
       },
       "single-person": {
         "slug": "single-person",
         "title": "Single Person",
         "description": "Preview Single Person with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero7T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "custom-other"
         ],
         "visible": true,
         "categoryOrder": {
           "custom-other": 0
-        }
+        },
+        "displayOverrides": {}
       },
       "group-moment": {
         "slug": "group-moment",
         "title": "Group Moment",
         "description": "Preview Group Moment with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero-left.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "custom-other"
         ],
         "visible": true,
         "categoryOrder": {
           "custom-other": 1
-        }
+        },
+        "displayOverrides": {}
       },
       "custom-photo-event-display": {
         "slug": "custom-photo-event-display",
         "title": "Event Display",
         "description": "Preview Event Display with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero-right.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "custom-other"
         ],
         "visible": true,
         "categoryOrder": {
           "custom-other": 2
-        }
+        },
+        "displayOverrides": {}
       },
       "three-foot-starter": {
         "slug": "three-foot-starter",
         "title": "3ft Starter",
         "description": "Preview 3ft Starter with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero8T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "36",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "custom-other"
         ],
         "visible": true,
         "categoryOrder": {
           "custom-other": 3
-        }
+        },
+        "displayOverrides": {}
       },
       "table-display": {
         "slug": "table-display",
         "title": "Table Display",
         "description": "Preview Table Display with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero7T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "36",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "custom-other"
         ],
         "visible": true,
         "categoryOrder": {
           "custom-other": 4
-        }
+        },
+        "displayOverrides": {}
       },
       "party-bundle": {
         "slug": "party-bundle",
         "title": "Party Bundle",
         "description": "Preview Party Bundle with its available size and display options.",
+        "funFact": "",
         "cutoutImage": "images/Herobackgroundparts/hero10E.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "36",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "custom-other"
         ],
         "visible": true,
         "categoryOrder": {
           "custom-other": 5
-        }
+        },
+        "displayOverrides": {}
       },
       "jesus-welcome": {
         "slug": "jesus-welcome",
@@ -630,139 +934,283 @@
     "categoryDisplayCards": {
       "sport-legend-standee": {
         "slug": "sport-legend-standee",
-        "title": "Sport Legend Standees",
-        "description": "Shop sports-inspired standee styles, then choose different players, sizes, and background options inside the category.",
-        "cutoutImage": "images/FrontPageWeb/Sports-Kobe-KB1forprint.png",
-        "backgroundImage": "images/FanBackgrounds/top-favorite-stage-gold.png",
+        "title": "Sport Legends",
+        "description": "",
+        "funFact": "",
+        "cutoutImage": "images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png",
+        "backgroundImage": "",
         "imageChoices": [],
-        "originalHeight": "78",
+        "originalHeight": "",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "productOrder": 2,
+        "displayOverrides": {}
       },
       "movie-character-standee": {
         "slug": "movie-character-standee",
         "title": "Movie Character Standees",
         "description": "Browse movie-style standee categories and see more character looks, poses, and display backgrounds inside.",
+        "funFact": "",
         "cutoutImage": "images/MovieCharacterStandees/Endorskeleton/Endornobackground.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "74",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "people-public-figure-standee": {
         "slug": "people-public-figure-standee",
         "title": "People & Public Figure Standees",
         "description": "Plan actor, creator, historical figure, public speaker, or lookalike-style display ideas.",
+        "funFact": "",
         "cutoutImage": "images/PeoplePublicFigureStandees/President/Nobackgroubd.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "music-artist-standee": {
         "slug": "music-artist-standee",
         "title": "Music Artist Standees",
         "description": "Explore concert-style standee categories with different performers, stage looks, and custom display choices.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Music-MJackson-MJTR.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "faith-celebration-standee": {
         "slug": "faith-celebration-standee",
         "title": "Faith & Celebration Standees",
         "description": "View inspirational and celebration display categories for churches, holidays, events, rooms, and plays.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Religious-J13D.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "holiday-standee": {
         "slug": "holiday-standee",
         "title": "Holiday Standees",
         "description": "Seasonal displays for Christmas, Halloween, Easter, Valentine events, parties, and storefronts.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Herobackgroundparts-hero8T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "6'3",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "fan-request-standee": {
         "slug": "fan-request-standee",
         "title": "Fan Request Standees",
         "description": "See fan-inspired ideas, mashups, and custom concepts that can become full-size display pieces.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Music-MJackson-MJzombie.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "69",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "dinosaur-party-standee": {
         "slug": "dinosaur-party-standee",
         "title": "Dinosaur & Creature Standees",
         "description": "Shop dinosaur and creature-style displays for birthdays, rooms, outdoor setups, and big party moments.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Dinosaurs-JPRex.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "96",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "game-fantasy-standee": {
         "slug": "game-fantasy-standee",
         "title": "Game & Fantasy Standees",
         "description": "Browse game-room, fantasy, stream, and themed-event standee categories with custom scene options.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Herobackgroundparts-hero10E.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "72",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "custom-photo-standee": {
         "slug": "custom-photo-standee",
         "title": "Custom Photo Standees",
         "description": "Turn your own photo, family member, athlete, or guest of honor into a custom standee display.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Herobackgroundparts-hero7T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "66",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       },
       "small-standee-party-pack": {
         "slug": "small-standee-party-pack",
         "title": "Party Pack Standees",
         "description": "Shop smaller standee packs for tables, birthdays, rooms, gifts, and party displays.",
+        "funFact": "",
         "cutoutImage": "images/FrontPageWeb/Herobackgroundparts-hero8T.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "36",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [],
         "visible": true,
-        "categoryOrder": {}
+        "categoryOrder": {},
+        "displayOverrides": {}
       }
     },
     "deletedProducts": [],
+    "deletedCategories": [],
+    "homepageCategoryOrder": [],
     "ignoredImagePaths": [],
-    "homepageCategoryOrder": []
+    "pageVisualStates": {},
+    "extraImages": {},
+    "categories": {
+      "sports": {
+        "key": "sports",
+        "title": "Sport Legends",
+        "description": "",
+        "funFact": "",
+        "page": "sports-legends.html",
+        "visible": true,
+        "homepageVisible": true,
+        "order": 2,
+        "card": {
+          "title": "",
+          "description": "",
+          "image": "images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png",
+          "backgroundImage": "",
+          "visible": true,
+          "order": 2
+        },
+        "displaySettings": {
+          "backgroundPosition": "38% 0%",
+          "standeeSizePercent": 89,
+          "standeeLeftPercent": 14,
+          "standeeVerticalPercent": 39,
+          "titleLeftPercent": 0,
+          "titleVerticalPercent": 0,
+          "titleAlign": "center",
+          "titleSizePercent": 100,
+          "descriptionLeftPercent": -10,
+          "descriptionVerticalPercent": -9,
+          "descriptionAlign": "center",
+          "descriptionSizePercent": 180
+        }
+      }
+    },
+    "categorySettings": {
+      "sports": {
+        "backgroundPosition": "38% 0%",
+        "standeeSizePercent": 89,
+        "standeeLeftPercent": 14,
+        "standeeVerticalPercent": 39,
+        "titleLeftPercent": 0,
+        "titleVerticalPercent": 0,
+        "titleAlign": "center",
+        "titleSizePercent": 100,
+        "descriptionLeftPercent": -10,
+        "descriptionVerticalPercent": -9,
+        "descriptionAlign": "center",
+        "descriptionSizePercent": 180
+      }
+    },
+    "globalDisplaySettings": {},
+    "pageContent": {}
   }
 }
