@@ -142,11 +142,12 @@ Deno.test('current published catalog stays Published after equivalent display-de
     categorySettings: snapshot.categorySettings || {}
   };
   for (const [slug, published] of Object.entries(snapshot.products || {})) {
+    const effectiveBackgroundPosition = normalizeProductForComparison(published, context).displayOverrides?.backgroundPosition || 'center center';
     const privateCopy = {
       ...structuredClone(published),
       displayOverrides: {
         ...(published.displayOverrides || {}),
-        backgroundPosition: published.displayOverrides?.backgroundPosition || 'center center'
+        backgroundPosition: published.displayOverrides?.backgroundPosition || effectiveBackgroundPosition
       },
       approvalStatus: 'approved',
       draftStatus: 'ready'

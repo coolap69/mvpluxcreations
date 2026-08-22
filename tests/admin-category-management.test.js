@@ -372,9 +372,11 @@ Deno.test('homepage and Category-page inline titles are Category-owned, not page
 
 Deno.test('homepage is generated from master Categories and filters hidden or deleted Categories', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const selector = source.slice(source.indexOf('function homepageCategoryRecords'), source.indexOf('function renderNormalizedHomepageCategoryCards'));
   const renderer = source.slice(source.indexOf('function renderNormalizedHomepageCategoryCards'), source.indexOf('function managedCategoryCardMarkup'));
-  assert(renderer.includes('Object.values(getAdminCategories())'), 'homepage must read the master Category collection');
-  assert(renderer.includes('category.homepageVisible !== false'), 'homepage visibility must belong to the Category');
+  assert(selector.includes('categories = getAdminCategories()'), 'homepage must read the master Category collection');
+  assert(selector.includes('category.visible !== false') && selector.includes('category.homepageVisible !== false'), 'homepage visibility must use the normalized Category fields');
+  assert(!selector.includes('category.card?.visible'), 'legacy card visibility must not override normalized Category visibility');
   assert(renderer.includes("grids.forEach((grid) => { grid.innerHTML = ''; })"), 'hard-coded cards must stop acting as a parallel source once master Categories load');
   assert(source.includes('published.deletedCategories') && source.includes('deleted.has(key)'), 'storefront compatibility fallback must honor deletion tombstones');
 });

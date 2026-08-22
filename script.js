@@ -3920,13 +3920,17 @@ function setupDynamicCategoryPage() {
   document.title = `${category.title || category.key} | MVPLUXCREATIONS`;
 }
 
+function homepageCategoryRecords(categories = getAdminCategories()) {
+  return Object.values(categories || {})
+    .filter((category) => category && !category.parentKey && category.visible !== false && category.homepageVisible !== false)
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0) || String(left.title || left.key).localeCompare(String(right.title || right.key)));
+}
+
 function renderNormalizedHomepageCategoryCards() {
   if (inlineAdminPageKey() !== 'index.html') return;
   const grids = [...document.querySelectorAll('.featured-category-row .product-grid')];
   if (!grids.length) return;
-  const categories = Object.values(getAdminCategories())
-    .filter((category) => !category.parentKey && category.visible !== false && category.homepageVisible !== false && category.card?.visible !== false)
-    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0) || String(left.title || left.key).localeCompare(String(right.title || right.key)));
+  const categories = homepageCategoryRecords();
   if (!categories.length) return;
   grids.forEach((grid) => { grid.innerHTML = ''; });
   const firstRowSize = Math.min(5, Math.ceil(categories.length / 2));
@@ -7844,6 +7848,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   showInfoSlide(0);
   normalizeFrontPageCategoryLinks();
   await loadPublishedAdminSettings();
+  // Published storefront Categories must not wait for private Admin/Supabase reads.
+  renderNormalizedHomepageCategoryCards();
   await loadLiveAdminSettings().catch(() => {});
   if (localStorage.getItem('mvpluxIsAdminApproved') === 'true') refreshAdminViewControls();
   renderAdminViewModeLabel();
