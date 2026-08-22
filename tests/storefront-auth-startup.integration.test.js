@@ -32,9 +32,131 @@ Deno.test('sign-in submits immediately and binds only once before storefront sta
   assert(window.document.getElementById('signinForm').dataset.authFormBound === 'true', 'form must record idempotent binding');
 });
 
-Deno.test('sign-in and sign-up pages request the auth-startup cache version', async () => {
-  for (const page of ['signin.html', 'signup.html']) {
-    const html = await Deno.readTextFile(new URL(`../${page}`, import.meta.url));
-    assert(html.includes('script.js?v=20260822-auth-startup'), `${page} must load the fixed script without a stale cache`);
-  }
+Deno.test('sign-in requests the Admin redirect cache version while sign-up keeps immediate binding', async () => {
+  const signin = await Deno.readTextFile(new URL('../signin.html', import.meta.url));
+  const signup = await Deno.readTextFile(new URL('../signup.html', import.meta.url));
+  assert(signin.includes('script.js?v=20260822-admin-redirect'), 'signin.html must load the Admin redirect fix without a stale cache');
+  assert(signup.includes('script.js?v=20260822-auth-startup'), 'signup.html must retain the working immediate auth-form binder');
+});
+
+Deno.test('successful approved sign-in authorizes the session and navigates directly to Admin', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const start = source.indexOf('async function signInCustomerWithSupabase');
+  const end = source.indexOf('\n\nasync function signUpCustomerWithSupabase', start);
+  assert(start >= 0 && end > start, 'sign-in function must exist');
+  const storage = new Map();
+  const navigation = { href: 'signin.html' };
+  const calls = [];
+  const signIn = new Function('dependencies', `
+    const { getSupabaseClient, showSupabaseConnectionAlert, isSupabaseNetworkError, showSiteMessage,
+      checkCurrentUserAdminAccess, localStorage, window, console } = dependencies;
+    ${source.slice(start, end)}
+    return signInCustomerWithSupabase;
+  `)({
+    getSupabaseClient: () => ({ auth: { signInWithPassword: async (credentials) => {
+      calls.push(['supabase', credentials]);
+      return { data: { user: { id: 'admin-1', user_metadata: { screen_name: 'Admin' } } }, error: null };
+    } } }),
+    showSupabaseConnectionAlert: () => calls.push(['connection-error']),
+    isSupabaseNetworkError: () => false,
+    showSiteMessage: (...args) => calls.push(['message', ...args]),
+    checkCurrentUserAdminAccess: async (options) => { calls.push(['authorize', options]); return true; },
+    localStorage: { setItem: (key, value) => storage.set(key, value) },
+    window: { location: navigation }, console
+  });
+
+  await signIn('admin@example.com', 'secret');
+  assert(calls[0][0] === 'supabase' && calls[1][0] === 'authorize', 'Supabase login must precede Admin authorization');
+  assert(calls[1][1].showMessages === false, 'authorization must use explicit sign-in feedback');
+  assert(storage.get('mvpluxCustomerSignedIn') === 'true' && storage.get('mvpluxSignedInName') === 'Admin', 'successful Supabase session must update local signed-in state');
+  assert(navigation.href === 'admin.html', 'approved Admin must navigate directly to admin.html');
+});
+
+Deno.test('successful unapproved sign-in stays signed in and shows a visible Admin authorization error', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const start = source.indexOf('async function signInCustomerWithSupabase');
+  const end = source.indexOf('\n\nasync function signUpCustomerWithSupabase', start);
+  const messages = [];
+  const storage = new Map();
+  const navigation = { href: 'signin.html' };
+  const signIn = new Function('dependencies', `
+    const { getSupabaseClient, showSupabaseConnectionAlert, isSupabaseNetworkError, showSiteMessage,
+      checkCurrentUserAdminAccess, localStorage, window, console } = dependencies;
+    ${source.slice(start, end)}
+    return signInCustomerWithSupabase;
+  `)({
+    getSupabaseClient: () => ({ auth: { signInWithPassword: async () => ({
+      data: { user: { id: 'customer-1', user_metadata: {} } }, error: null
+    }) } }),
+    showSupabaseConnectionAlert: () => {}, isSupabaseNetworkError: () => false,
+    showSiteMessage: (...args) => messages.push(args), checkCurrentUserAdminAccess: async () => false,
+    localStorage: { setItem: (key, value) => storage.set(key, value) }, window: { location: navigation }, console
+  });
+
+  await signIn('customer@example.com', 'secret');
+  assert(storage.get('mvpluxCustomerSignedIn') === 'true', 'a valid Supabase session must remain signed in');
+  assert(navigation.href === 'signin.html', 'unapproved account must not enter Admin or silently navigate away');
+  assert(messages.some(([text, type]) => text.includes('not approved for Admin access') && type === 'error'), 'authorization failure must be visibly explained');
+});
+
+Deno.test('Admin authorization verifies the persisted session against admin_profiles', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const start = source.indexOf('async function checkCurrentUserAdminAccess');
+  const end = source.indexOf('\n\nfunction addAdminModeButtonIfMissing', start);
+  const storage = new Map();
+  const queries = [];
+  const profileQuery = {
+    select(column) { queries.push(['select', column]); return this; },
+    eq(column, value) { queries.push(['eq', column, value]); return this; },
+    async maybeSingle() { return { data: { user_id: 'admin-1' }, error: null }; }
+  };
+  const authorize = new Function('dependencies', `
+    const { getSupabaseClient, showSiteMessage, localStorage, logAdminInitializationException, console } = dependencies;
+    ${source.slice(start, end)}
+    return checkCurrentUserAdminAccess;
+  `)({
+    getSupabaseClient: () => ({
+      auth: { getSession: async () => ({ data: { session: { user: { id: 'admin-1', email: 'admin@example.com' } } } }) },
+      from: (table) => { queries.push(['from', table]); return profileQuery; }
+    }),
+    showSiteMessage: () => {}, localStorage: {
+      setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key)
+    }, logAdminInitializationException: () => {}, console
+  });
+
+  assert(await authorize({ showMessages: false }) === true, 'persisted approved session must authorize');
+  assert(queries.some(([operation, table]) => operation === 'from' && table === 'admin_profiles'), 'authorization must query admin_profiles');
+  assert(queries.some(([operation, column, value]) => operation === 'eq' && column === 'user_id' && value === 'admin-1'), 'authorization must match the signed-in user ID');
+  assert(storage.get('mvpluxIsAdminApproved') === 'true', 'approved session must set the Admin approval state');
+});
+
+Deno.test('admin.html restores the persisted Supabase session and repeats authorization after refresh', async () => {
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const start = source.indexOf('async function requireSupabaseAdminAccess');
+  const end = source.indexOf('\n\nfunction renderAdminTestMode', start);
+  const storage = new Map();
+  const navigation = { href: 'admin.html' };
+  const profileQuery = {
+    select() { return this; }, eq() { return this; },
+    async maybeSingle() { return { data: { user_id: 'admin-1' }, error: null }; }
+  };
+  const requireAccess = new Function('dependencies', `
+    const { getAdminClient, setCommerceStatus, setAdminSignedInAs, localStorage, window,
+      logAdminInitializationException, console } = dependencies;
+    ${source.slice(start, end)}
+    return requireSupabaseAdminAccess;
+  `)({
+    getAdminClient: () => ({
+      auth: { getSession: async () => ({ data: { session: { user: {
+        id: 'admin-1', email: 'admin@example.com', user_metadata: { screen_name: 'Admin' }
+      } } } }) }, from: () => profileQuery
+    }),
+    setCommerceStatus: () => {}, setAdminSignedInAs: () => {},
+    localStorage: { setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) },
+    window: { location: navigation }, logAdminInitializationException: () => {}, console
+  });
+
+  assert(await requireAccess() === true, 'Admin refresh must recognize the persisted approved session');
+  assert(navigation.href === 'admin.html', 'recognized Admin session must not redirect back to sign-in');
+  assert(storage.get('mvpluxCustomerSignedIn') === 'true' && storage.get('mvpluxSignedInName') === 'Admin', 'Admin refresh must restore local signed-in presentation state');
 });

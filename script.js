@@ -2388,7 +2388,12 @@ async function signInCustomerWithSupabase(email, password) {
     const screenName = user?.user_metadata?.screen_name || email.split('@')[0] || 'Guest';
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', screenName);
-    window.location.href = 'index.html';
+    const canUseAdmin = await checkCurrentUserAdminAccess({ showMessages: false });
+    if (!canUseAdmin) {
+      showSiteMessage('Sign-in succeeded, but this account is not approved for Admin access.', 'error');
+      return true;
+    }
+    window.location.href = 'admin.html';
   } catch (error) {
     console.warn('Supabase sign-in failed:', error);
     showSupabaseConnectionAlert('sign in');
