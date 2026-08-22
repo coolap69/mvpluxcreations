@@ -349,6 +349,27 @@ Deno.test('Background movement reuses the authoritative backgroundPosition field
   assert(source.includes("form.elements.namedItem('backgroundPosition').value = 'center center'"), 'background reset must restore the existing default');
 });
 
+Deno.test('full and inline Category editors share the normalized title authority', async () => {
+  const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const fullEditorSave = adminSource.slice(adminSource.indexOf('function categoryFromEditForm'), adminSource.indexOf('async function saveCategoryEditForm'));
+  assert(fullEditorSave.includes("title: String(data.get('title')") && fullEditorSave.includes("title: current.card?.titleOverride === true"), 'full editor must save the root title and stop duplicating ordinary titles into category.card.title');
+  const inlineMarkup = storefrontSource.slice(storefrontSource.indexOf('function inlineCategoryEditorMarkup'), storefrontSource.indexOf('function categoryDisplaySettingsFromForm'));
+  assert(inlineMarkup.includes('The homepage card uses the authoritative Category title') && !inlineMarkup.includes('name="cardTitle"') && !inlineMarkup.includes('name="cardDescription"'), 'quick inline editor must not expose competing card text fields');
+  const inlineSave = storefrontSource.slice(storefrontSource.indexOf('async function saveInlineRecordEditor'), storefrontSource.indexOf('function openInlineRecordEditor'));
+  assert(inlineSave.includes("changedInlineFields(base, candidate, ['title', 'description'") && inlineSave.includes("changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage', 'visible', 'order']"), 'inline save must route text to the Category root while retaining card image/settings fields');
+});
+
+Deno.test('homepage and Category-page inline titles are Category-owned, not page overrides', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const ownership = source.slice(source.indexOf('function inlineAdminOwnedField'), source.indexOf('const inlineOwnedFieldTimers'));
+  assert(ownership.includes("section: ''") && ownership.includes("['title', 'description'].includes(explicitCategoryField)"), 'Category title and description must map to the normalized root section');
+  const dynamicPage = source.slice(source.indexOf('function setupDynamicCategoryPage'), source.indexOf('function renderNormalizedHomepageCategoryCards'));
+  assert(dynamicPage.includes("page.dataset.adminCategoryKey = category.key") && dynamicPage.includes("heading.dataset.adminCategoryField = 'title'"), 'Category-page heading must declare normalized Category ownership');
+  const homepage = source.slice(source.indexOf('function renderNormalizedHomepageCategoryCards'), source.indexOf('function managedCategoryCardMarkup'));
+  assert(homepage.includes('data-admin-category-field="title"') && homepage.includes('category.title || category.card?.title'), 'homepage must render and edit the normalized root title first');
+});
+
 Deno.test('homepage is generated from master Categories and filters hidden or deleted Categories', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const renderer = source.slice(source.indexOf('function renderNormalizedHomepageCategoryCards'), source.indexOf('function managedCategoryCardMarkup'));

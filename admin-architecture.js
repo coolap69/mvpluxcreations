@@ -310,11 +310,13 @@ export function normalizeCategories({ categoryDefinitions = [], existingCategori
     };
     const published = asObject(publishedCategoryCards)[card.slug] || {};
     const saved = asObject(savedProductOverrides)[card.slug] || {};
+    const compatibilityCard = { ...card, ...published, ...saved };
     categories[key] = {
       ...existing,
+      title: String(compatibilityCard.title || existing.title || key),
       page: String(existing.page || card.page || ''),
       homepageVisible: existing.homepageVisible !== false,
-      card: normalizeCategoryCard({ ...card, ...published, ...saved, order: existing.card?.order ?? index })
+      card: normalizeCategoryCard({ ...compatibilityCard, order: existing.card?.order ?? index })
     };
   });
 

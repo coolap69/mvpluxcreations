@@ -40,16 +40,19 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
     "const adminArchitecturePromise = import('./admin-architecture.js');",
     'const adminArchitecturePromise = Promise.resolve({});'
   );
+  const queryElements = new Map();
   const document = {
     body: emptyElement(),
     addEventListener() {},
     getElementById() { return null; },
-    querySelector() { return null; },
+    querySelector(selector) { return queryElements.get(selector) || null; },
     querySelectorAll() { return []; },
-    createElement() { return emptyElement(); }
+    createElement() { return emptyElement(); },
+    __setQueryElement(selector, element) { queryElements.set(selector, element); }
   };
   const window = {
     MVPLUX_PRODUCT_CATALOG: [],
+    MVPLUX_PRODUCT_CATEGORIES: [],
     mvpluxPublishedAdminSettings: null,
     mvpluxLiveAdminSettings: null,
     mvpluxLiveAdminRevision: 0,
@@ -65,14 +68,20 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
     `${source}
       return {
         saveStorefrontProductPatch,
+        saveStorefrontCategoryPatch,
         saveStorefrontProductPatches,
         saveStorefrontListMembershipPatch,
         saveInlineAdminEditsLive,
         getAdminProducts,
+        getAdminCategories,
+        compatibilityMasterCategories,
+        inlineAdminOwnedField,
+        persistInlineOwnedField,
         getAdminViewMode,
         shouldUsePrivateAdminState,
         getInlineAdminPageEdits,
         withoutProductOwnedPageValues,
+        __setQueryElement(selector, element) { document.__setQueryElement(selector, element); },
         __setConflictSink(fn) { showStorefrontAdminConflict = fn; },
         __setInlineState(page, live, revision, draft, dirty, versions, base) {
           window.location.pathname = '/' + page;
@@ -344,6 +353,97 @@ Deno.test('new architecture prevents page rows from overriding product content b
   assert(!('src' in filtered['product-alpha-product-cutout']), 'product image source must be ignored');
   assert(filtered['product-alpha-product-cutout'].x === 9, 'page-specific product geometry must remain');
   assert(filtered['page-heading'].text === 'Page heading', 'page-owned content must remain');
+});
+
+Deno.test('inline Category title saves to the normalized root and reloads from the same record', async () => {
+  const calls = [];
+  const base = {
+    key: 'sports',
+    title: 'Sports',
+    card: { title: 'Legacy homepage title', image: 'images/sports.png' }
+  };
+  const rows = [{ data: { edits: { adminArchitectureV2: { enabled: true }, categories: { sports: base } }, revision: 4 }, error: null }];
+  const client = adminGlobalClient(rows, async (_name, args) => {
+    calls.push(structuredClone(args));
+    return { data: { edits: { adminArchitectureV2: { enabled: true }, ...args.p_edits }, revision: 5 }, error: null };
+  });
+  const storage = memoryStorage({ mvpluxIsAdminApproved: 'true', mvpluxAdminViewModeV2: 'preview' });
+  const { helpers, window } = await loadActualStorefrontHelpers({ client, storage });
+  window.mvpluxLiveAdminSettings = { adminArchitectureV2: { enabled: true }, categories: { sports: base } };
+  window.mvpluxLiveAdminStateLoaded = true;
+  const host = { dataset: { adminCategoryKey: 'sports' } };
+  const heading = {
+    dataset: { adminCategoryField: 'title' },
+    closest(selector) {
+      if (selector === '[data-admin-category-key]') return host;
+      if (selector === '[data-admin-category-field]') return this;
+      return null;
+    }
+  };
+  const owned = helpers.inlineAdminOwnedField(heading);
+  assert(owned?.categoryKey === 'sports' && owned.field === 'title' && owned.section === '', 'inline Sports heading must resolve to the normalized Category root');
+  assert(await helpers.persistInlineOwnedField(heading, owned, 'Sports Legends'), 'inline root Category save must succeed');
+  assert(calls.length === 1 && calls[0].p_page_key === 'admin-global', 'inline Category title must save only through admin-global');
+  assert(calls[0].p_edits.categories.sports.title === 'Sports Legends', 'authoritative categories.sports.title must receive the edit');
+  assert(calls[0].p_edits.categories.sports.card.image === 'images/sports.png', 'unrelated Category card fields must survive the title save');
+  assert(helpers.getAdminCategories().sports.title === 'Sports Legends', 'a reload/read must resolve the saved normalized root title');
+});
+
+Deno.test('legacy Category card title feeds the root only until a normalized Category exists', async () => {
+  const client = adminGlobalClient([], async () => ({ data: {}, error: null }));
+  const { helpers, window } = await loadActualStorefrontHelpers({ client });
+  window.MVPLUX_PRODUCT_CATEGORIES = [{ key: 'sports', label: 'Sports', page: 'sports-legends.html' }];
+  window.mvpluxPublishedAdminSettings = {
+    categoryDisplayCards: { 'sport-legend-standee': { title: 'Sport Legend Standees' } },
+    categories: {}
+  };
+  assert(helpers.compatibilityMasterCategories().sports.title === 'Sport Legend Standees', 'legacy published text must preserve the current visible title without remaining a competing render source');
+  window.mvpluxPublishedAdminSettings.categories.sports = { key: 'sports', title: 'Sports Legends' };
+  assert(helpers.compatibilityMasterCategories().sports.title === 'Sports Legends', 'normalized Category title must win once published');
+});
+
+Deno.test('Category-owned page title overrides are ignored instead of competing after reload', async () => {
+  const client = adminGlobalClient([], async () => ({ data: {}, error: null }));
+  const { helpers, window } = await loadActualStorefrontHelpers({ client });
+  window.mvpluxLiveAdminSettings = { adminArchitectureV2: { enabled: true }, categories: { sports: { key: 'sports', title: 'Sports Legends' } } };
+  const host = { dataset: { adminCategoryKey: 'sports' } };
+  const heading = {
+    dataset: { adminCategoryField: 'title' },
+    closest(selector) {
+      if (selector === '[data-admin-category-key]') return host;
+      if (selector === '[data-admin-category-field]') return this;
+      return null;
+    }
+  };
+  helpers.__setQueryElement('[data-admin-edit="sports-heading"]', heading);
+  const filtered = helpers.withoutProductOwnedPageValues({
+    'sports-heading': { text: 'Stale page override' },
+    'page-footer': { text: 'Keep this page-owned value' }
+  });
+  assert(!filtered['sports-heading'], 'stale Category title page override must not visually win after reload');
+  assert(filtered['page-footer'].text === 'Keep this page-owned value', 'unrelated page-owned content must remain');
+});
+
+Deno.test('Category publishing mirrors the authoritative root title into compatibility output', async () => {
+  const client = adminGlobalClient([], async () => ({ data: {}, error: null }));
+  const { helpers } = await loadActualAdminHelpers({ client });
+  helpers.__setArchitectureState({
+    categories: {
+      sports: {
+        key: 'sports', title: 'Sports Legends', description: 'Sports products', page: 'sports-legends.html',
+        visible: true, homepageVisible: true, order: 0,
+        card: { title: 'Stale legacy title', description: 'Stale legacy description', image: 'images/sports.png', visible: true, order: 0 },
+        displaySettings: {}, approvalStatus: 'approved', draftStatus: 'ready'
+      }
+    },
+    products: {}, deletedProducts: [], deletedCategories: []
+  }, {
+    version: 1, schemaVersion: 2, products: {}, categories: {}, categoryDisplayCards: {}, deletedProducts: [], deletedCategories: [],
+    homepageCategoryOrder: [], pageContent: {}, pageVisualStates: {}, extraImages: {}, globalDisplaySettings: {}, priceSettings: {}
+  });
+  const snapshot = helpers.buildNormalizedPublishSnapshot();
+  assert(snapshot.categories.sports.title === 'Sports Legends', 'normalized published Category must keep the root title');
+  assert(snapshot.categoryDisplayCards['sport-legend-standee'].title === 'Sports Legends', 'legacy compatibility card must mirror the root title during Publish');
 });
 
 Deno.test('three Admin view modes separate private preview from published customer state', async () => {

@@ -488,15 +488,15 @@ function categoryDefinitionsForAdmin() {
 
 function normalizedCategoryCardProducts() {
   return Object.values(readAdminCategories()).flatMap((category) => {
-    if (!category?.card || !category.card.title) return [];
+    if (!category?.card || (!category.title && !category.card.title)) return [];
     const slug = Object.entries(ADMIN_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
       || `${category.key}-category-card`;
     return [{
       slug,
       categoryKey: category.key,
       categoryCard: true,
-      title: category.card.title,
-      description: category.card.description,
+      title: category.title || category.card.title,
+      description: category.description || category.card.description,
       cutoutImage: category.card.image,
       backgroundImage: category.card.backgroundImage,
       visible: category.card.visible !== false,
@@ -1309,8 +1309,8 @@ function publishableCategory(category = {}) {
     homepageVisible: category.homepageVisible !== false,
     order: Number(category.order || 0),
     card: {
-      title: String(category.card?.title || category.title || ''),
-      description: String(category.card?.description || ''),
+      title: category.card?.titleOverride === true ? String(category.card.title || '') : '',
+      description: category.card?.descriptionOverride === true ? String(category.card.description || '') : '',
       image: publishImageReference(category.card?.image || ''),
       backgroundImage: publishImageReference(category.card?.backgroundImage || ''),
       visible: category.card?.visible !== false,
@@ -1476,8 +1476,8 @@ function buildNormalizedPublishSnapshot() {
       || `${category.key}-category-card`;
     categoryDisplayCards[slug] = publishableProduct({
       slug,
-      title: category.card?.title || category.title,
-      description: category.card?.description || category.description,
+      title: category.title || category.card?.title,
+      description: category.description || category.card?.description,
       cutoutImage: category.card?.image || '',
       backgroundImage: category.card?.backgroundImage || '',
       visible: category.visible !== false && category.card?.visible !== false,
@@ -3151,8 +3151,8 @@ async function saveNewCategoryFromForm(form, approvalStatus) {
     homepageVisible: formData.has('homepageVisible'),
     order: Number(formData.get('order') || 999),
     card: {
-      title: String(formData.get('title')).trim(),
-      description: String(formData.get('description') || '').trim(),
+      title: '',
+      description: '',
       image: String(formData.get('cardImage') || '').trim(),
       backgroundImage: String(formData.get('cardBackgroundImage') || '').trim(),
       visible: formData.has('homepageVisible'),
@@ -3566,7 +3566,8 @@ async function saveProductForm(form, message = 'Saved product changes live. Go b
   let result;
   const categoryKey = newAdminArchitectureEnabled() ? ADMIN_CATEGORY_CARD_MAP[form.dataset.slug] : '';
   if (categoryKey) {
-    const cardFieldMap = { title: 'title', description: 'description', cutoutImage: 'image', backgroundImage: 'backgroundImage', visible: 'visible' };
+    const rootPatch = Object.fromEntries(Object.entries(patch).filter(([field]) => ['title', 'description'].includes(field)));
+    const cardFieldMap = { cutoutImage: 'image', backgroundImage: 'backgroundImage', visible: 'visible' };
     const cardPatch = Object.fromEntries(Object.entries(patch).flatMap(([field, value]) => cardFieldMap[field] ? [[cardFieldMap[field], value]] : []));
     const displayFieldMap = {
       stageBackgroundPosition: 'backgroundPosition',
@@ -3579,6 +3580,11 @@ async function saveProductForm(form, message = 'Saved product changes live. Go b
     const displayPatch = Object.fromEntries(Object.entries(patch).flatMap(([field, value]) => displayFieldMap[field] ? [[displayFieldMap[field], value === '' ? null : Number(value)]] : []));
     const latestCategory = readAdminCategories()[categoryKey] || {};
     const operations = [];
+    if (Object.keys(rootPatch).length) operations.push({
+      type: 'record', collectionKey: 'categories', entryKey: categoryKey,
+      baseRecord: latestCategory,
+      patch: { ...rootPatch, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'draft' }
+    });
     if (Object.keys(cardPatch).length) operations.push({
       type: 'record', collectionKey: 'categories', entryKey: categoryKey,
       baseRecord: latestCategory,
@@ -4900,7 +4906,15 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
     visible: data.has('visible'),
     homepageVisible,
     order: Number(data.get('order') || 0),
-    card: { ...(current.card || {}), title: String(data.get('title') || '').trim(), description: String(data.get('description') || '').trim(), image: cardImage, backgroundImage: cardBackgroundImage, visible: homepageVisible, order: Number(data.get('order') || 0) },
+    card: {
+      ...(current.card || {}),
+      title: current.card?.titleOverride === true ? String(current.card.title || '') : '',
+      description: current.card?.descriptionOverride === true ? String(current.card.description || '') : '',
+      image: cardImage,
+      backgroundImage: cardBackgroundImage,
+      visible: homepageVisible,
+      order: Number(data.get('order') || 0)
+    },
     displaySettings: {
       ...(current.displaySettings || {}),
       backgroundPosition: String(data.get('backgroundPosition') || 'center center'),
@@ -5045,7 +5059,7 @@ async function saveNewChildGroupFromForm(form) {
     page: '',
     visible: data.has('visible'),
     order: Number(data.get('order') || 999),
-    card: { title, description: '', image: '', backgroundImage: '', order: Number(data.get('order') || 999) },
+    card: { title: '', description: '', image: '', backgroundImage: '', order: Number(data.get('order') || 999) },
     displaySettings: { backgroundPosition: 'center center' },
     createdAt: now,
     updatedAt: now,
@@ -6243,7 +6257,7 @@ async function configureImageDraft(form, approvalStatus = 'approved') {
           page: draft.categoryPage || `category.html?category=${encodeURIComponent(draft.slug)}`,
           visible: true,
           order: 999,
-          card: { title: draft.title, description: draft.description, image: cardImage, backgroundImage: categoryBackground, visible: true, order: 999 },
+          card: { title: '', description: '', image: cardImage, backgroundImage: categoryBackground, visible: true, order: 999 },
           displaySettings: { backgroundImage: categoryBackground, backgroundPosition: 'center center' },
           createdAt: now,
           updatedAt: now,

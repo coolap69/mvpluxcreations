@@ -2876,8 +2876,8 @@ function getAdminProducts() {
         || `${categoryKey}-category-card`;
       return [slug, {
         slug,
-        title: category.card?.title || category.title,
-        description: category.card?.description || category.description,
+        title: category.title || category.card?.title,
+        description: category.description || category.card?.description,
         cutoutImage: category.card?.image || '',
         backgroundImage: category.card?.backgroundImage || '',
         visible: category.visible !== false && category.card?.visible !== false,
@@ -2936,6 +2936,7 @@ function compatibilityMasterCategories() {
     const current = categories[key] || { key, title: card.title || key, description: '', page: STOREFRONT_CATEGORY_PAGE_MAP[slug] || '', visible: true, homepageVisible: true, order: index, displaySettings: {} };
     categories[key] = {
       ...current,
+      title: card.title || current.title,
       card: {
         title: card.title || current.title,
         description: card.description || current.description || '',
@@ -3910,6 +3911,10 @@ function setupDynamicCategoryPage() {
   }
   const heading = document.querySelector('.category-hero h1');
   const intro = document.querySelector('.category-hero p');
+  const page = document.querySelector('.category-page');
+  if (page) page.dataset.adminCategoryKey = category.key;
+  if (heading) heading.dataset.adminCategoryField = 'title';
+  if (intro) intro.dataset.adminCategoryField = 'description';
   if (heading) heading.textContent = category.title || category.key;
   if (intro) intro.textContent = category.description || 'Choose a standee and preview the available display options.';
   document.title = `${category.title || category.key} | MVPLUXCREATIONS`;
@@ -3953,8 +3958,8 @@ function renderNormalizedHomepageCategoryCards() {
     grid.insertAdjacentHTML('beforeend', `
       <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}">
         <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview" style="background-image:url('${escapeHtml(background)}');background-position:${escapeHtml(display.backgroundPosition || 'center center')}">${category.card?.image ? `<img class="product-cutout" src="${escapeHtml(category.card.image)}" alt="${escapeHtml(category.card?.title || category.title || category.key)}" style="height:${size}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
-        <h3 style="${titleStyle}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${19 * titleSize / 100}px">${escapeHtml(category.card?.title || category.title || category.key)}</a></h3>
-        <p class="product-description" style="${descriptionStyle}">${escapeHtml(category.card?.description || category.description || '')}</p>
+        <h3 data-admin-category-field="title" style="${titleStyle}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${19 * titleSize / 100}px">${escapeHtml(category.title || category.card?.title || category.key)}</a></h3>
+        <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeHtml(category.description || category.card?.description || '')}</p>
         <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
       </article>`);
   });
@@ -5104,7 +5109,8 @@ function newStorefrontAdminArchitectureEnabled() {
     ||
     (window.mvpluxLiveAdminSettings.products && typeof window.mvpluxLiveAdminSettings.products === 'object')
     || (window.mvpluxLiveAdminSettings.categories && typeof window.mvpluxLiveAdminSettings.categories === 'object')
-  ));
+  )) || Boolean(window.mvpluxPublishedAdminSettings?.categories
+    && Object.keys(window.mvpluxPublishedAdminSettings.categories).length);
 }
 
 function withoutProductOwnedPageValues(pageEdits = {}) {
@@ -5114,6 +5120,10 @@ function withoutProductOwnedPageValues(pageEdits = {}) {
     const productText = /^product-.+-(?:title-link|title-heading|description|original-choice|original-size-label)$/i.test(key);
     const productHeight = /^product-height-.+/i.test(key);
     if (productText || productHeight) return;
+    const escapedKey = globalThis.CSS?.escape?.(key) || String(key).replace(/["\\]/g, '\\$&');
+    const element = document.querySelector(`[data-admin-edit="${escapedKey}"]`);
+    const owned = inlineAdminOwnedField(element);
+    if (owned?.type === 'category-card' && ['title', 'description'].includes(owned.field)) return;
     const productImage = /^product-.+-(?:product-cutout|product-stage-bg)$/i.test(key);
     if (productImage && edit && typeof edit === 'object') {
       const { src: _src, text: _text, originalHeight: _height, ...pageOnlyState } = edit;
@@ -5191,6 +5201,12 @@ function inlineAdminProductSlugForElement(element) {
 
 function inlineAdminOwnedField(element) {
   if (!newStorefrontAdminArchitectureEnabled() || !element) return null;
+  const categoryHost = element.closest?.('[data-admin-category-key]');
+  const explicitCategoryField = element.dataset?.adminCategoryField
+    || element.closest?.('[data-admin-category-field]')?.dataset.adminCategoryField;
+  if (categoryHost?.dataset.adminCategoryKey && ['title', 'description'].includes(explicitCategoryField)) {
+    return { type: 'category-card', categoryKey: categoryHost.dataset.adminCategoryKey, field: explicitCategoryField, section: '' };
+  }
   const slug = inlineAdminProductSlugForElement(element);
   if (!slug) return null;
   const categoryKey = element.closest?.('[data-admin-category-key]')?.dataset.adminCategoryKey || STOREFRONT_CATEGORY_CARD_MAP[slug];
@@ -5202,7 +5218,7 @@ function inlineAdminOwnedField(element) {
   else if (element.matches?.('.product-stage-bg')) field = 'backgroundImage';
   if (!field) return null;
   return categoryKey
-    ? { type: 'category-card', categoryKey, slug, field: field === 'cutoutImage' ? 'image' : field }
+    ? { type: 'category-card', categoryKey, slug, field: field === 'cutoutImage' ? 'image' : field, section: ['title', 'description'].includes(field) ? '' : 'card' }
     : { type: 'product', slug, field };
 }
 
@@ -5213,7 +5229,7 @@ async function persistInlineOwnedField(element, owned, value) {
   if (!owned) return false;
   if (owned.type === 'category-card') {
     const base = window.mvpluxLiveAdminSettings?.categories?.[owned.categoryKey] || {};
-    return saveStorefrontCategoryPatch(owned.categoryKey, 'card', { [owned.field]: value }, base);
+    return saveStorefrontCategoryPatch(owned.categoryKey, owned.section || '', { [owned.field]: value }, base);
   }
   const base = getManagedProductBySlug(owned.slug) || {};
   return saveStorefrontProductPatch(owned.slug, { [owned.field]: value, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'draft' }, base);
@@ -6915,8 +6931,7 @@ function inlineCategoryEditorMarkup(category = {}) {
       <label>Order<input name="order" type="number" value="${escapeHtml(String(category.order ?? 0))}"></label>
     </details>
     <details open><summary>Category card</summary>
-      <label>Card title<input name="cardTitle" value="${escapeHtml(card.title || '')}"></label>
-      <label>Card description<textarea name="cardDescription">${escapeHtml(card.description || '')}</textarea></label>
+      <p class="admin-note">The homepage card uses the authoritative Category title and description above.</p>
       <label>Card image<input name="cardImage" value="${escapeHtml(card.image || '')}"></label>
       <label>Card background<input name="cardBackgroundImage" value="${escapeHtml(card.backgroundImage || '')}"></label>
       <label><input name="cardVisible" type="checkbox" ${card.visible !== false ? 'checked' : ''}> Card visible</label>
@@ -7004,8 +7019,6 @@ async function saveInlineRecordEditor(event) {
       order: Number(data.get('order') || 0)
     };
     const cardCandidate = {
-      title: String(data.get('cardTitle') || '').trim(),
-      description: String(data.get('cardDescription') || '').trim(),
       image: String(data.get('cardImage') || '').trim(),
       backgroundImage: String(data.get('cardBackgroundImage') || '').trim(),
       visible: data.has('cardVisible'),
@@ -7013,7 +7026,7 @@ async function saveInlineRecordEditor(event) {
     };
     const displayCandidate = categoryDisplaySettingsFromForm(form);
     const rootPatch = changedInlineFields(base, candidate, ['title', 'description', 'page', 'visible', 'order']);
-    const cardPatch = changedInlineFields(base.card || {}, cardCandidate, ['title', 'description', 'image', 'backgroundImage', 'visible', 'order']);
+    const cardPatch = changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage', 'visible', 'order']);
     const displayPatch = JSON.stringify(base.displaySettings || {}) === JSON.stringify(displayCandidate) ? {} : displayCandidate;
     let saved = true;
     if (Object.keys(rootPatch).length) saved = await saveStorefrontCategoryPatch(panel.dataset.recordKey, '', rootPatch, base);
@@ -7077,7 +7090,7 @@ function openInlineRecordEditor(element = inlineAdminSelectedRecordElement || in
   panel.dataset.recordType = context.type;
   panel.dataset.recordKey = context.categoryKey || context.slug;
   if (context.type === 'category-card') {
-    const category = structuredClone(window.mvpluxLiveAdminSettings?.categories?.[context.categoryKey] || {});
+    const category = structuredClone(getAdminCategories()[context.categoryKey] || {});
     panel._baseRecord = category;
     panel.querySelector('[data-inline-record-title]').textContent = `Edit category: ${category.title || context.categoryKey}`;
     form.innerHTML = inlineCategoryEditorMarkup(category);
