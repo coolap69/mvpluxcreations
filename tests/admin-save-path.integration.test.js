@@ -51,6 +51,7 @@ function categoryTestForm(values = {}) {
     cardImage: input(values.cardImage ?? 'images/sports.png'),
     cardBackgroundImage: input(values.cardBackgroundImage ?? ''),
     backgroundPosition: input(values.backgroundPosition ?? '25% 75%'),
+    backgroundSizePercent: input(values.backgroundSizePercent ?? 135),
     standeeSizePercent: input(values.standeeSizePercent ?? 84),
     standeeLeftPercent: input(values.standeeLeftPercent ?? 12),
     standeeVerticalPercent: input(values.standeeVerticalPercent ?? -8),
@@ -534,6 +535,7 @@ Deno.test('actual Category Save Draft persists text and every supported visual f
   assert(saved.draftStatus === 'draft' && saved.approvalStatus === 'draft', 'Save Draft must remain private and unapproved');
   assert(saved.card.image === 'images/sports.png' && saved.card.backgroundImage === '', 'image references must save without modifying files');
   assert(saved.displaySettings.backgroundPosition === '25% 75%', 'background X/Y must save through backgroundPosition');
+  assert(saved.displaySettings.backgroundSizePercent === 135, 'background zoom must survive Save Draft');
   for (const [field, expected] of Object.entries({
     standeeSizePercent: 84, standeeLeftPercent: 12, standeeVerticalPercent: -8,
     titleLeftPercent: 7, titleVerticalPercent: -6, titleSizePercent: 130,
@@ -569,7 +571,7 @@ Deno.test('actual Category preview applies independent image, text, and backgrou
   helpers.previewCategoryEdit(form);
   const html = form.preview.innerHTML;
   for (const token of [
-    'height:84%', 'left:62%', 'bottom:26%', 'background-position:25% 75%',
+    'height:84%', 'left:62%', 'bottom:26%', 'background-position:25% 75%', 'transform:scale(1.35)',
     'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg',
     'translate(7%,-6px)', 'text-align:right', 'font-size:24.7px',
     'translate(-9%,11px)', 'text-align:left', 'font-size:16.1px',

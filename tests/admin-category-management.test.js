@@ -202,10 +202,32 @@ Deno.test('hidden Categories are unavailable on Category pages while homepage vi
 Deno.test('Category image sizing rejects zero and storefront rendering uses the same safe range', async () => {
   const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
-  assert(adminSource.includes('CATEGORY_IMAGE_SIZE_MIN = 20') && adminSource.includes('CATEGORY_IMAGE_SIZE_MAX = 140'), 'Admin must expose a safe 20–140% range');
+  assert(adminSource.includes('CATEGORY_IMAGE_SIZE_MIN = 10') && adminSource.includes('CATEGORY_IMAGE_SIZE_MAX = 250'), 'Admin must expose a safe 10–250% range');
   assert(adminSource.includes('number < minimum') && adminSource.includes('CATEGORY_IMAGE_SIZE_DEFAULT = 63'), 'zero must resolve to the safe default instead of collapsing the image');
-  assert(storefrontSource.includes('requestedSize >= 20 ? Math.min(140, requestedSize) : inheritedSize'), 'published Category cards must enforce the same nonzero size rule');
+  assert(storefrontSource.includes('requestedSize >= 10 ? Math.min(250, requestedSize) : inheritedSize'), 'published Category cards must enforce the same nonzero size rule');
   assert(storefrontSource.includes('getShowroomStageBackground()'), 'blank Category backgrounds must inherit the shared showroom background');
+});
+
+Deno.test('Category background zoom is independent and uses the published 50–300% range', async () => {
+  const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  assert(adminSource.includes('CATEGORY_BACKGROUND_SIZE_MIN = 50') && adminSource.includes('CATEGORY_BACKGROUND_SIZE_MAX = 300'), 'Admin must expose safe 50–300% background zoom');
+  assert(adminSource.includes("categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom'") && adminSource.includes('transform:scale(${display.backgroundSizePercent / 100})'), 'Admin zoom must update the existing live preview');
+  assert(storefrontSource.includes('display.backgroundSizePercent') && storefrontSource.includes('class="category-background-layer"'), 'storefront must use the same published background zoom field');
+});
+
+Deno.test('Category image and background sliders stay synchronized with numeric inputs', async () => {
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const start = source.indexOf('function syncCategoryDisplayControl');
+  const end = source.indexOf('\n\nfunction syncCategoryBackgroundPosition', start);
+  const sync = new Function('CSS', `${source.slice(start, end)}\nreturn syncCategoryDisplayControl;`)({ escape: (value) => value });
+  for (const [name, requested, expected] of [['standeeSizePercent', 240, 240], ['backgroundSizePercent', 280, 280]]) {
+    const range = { min: name === 'standeeSizePercent' ? '10' : '50', max: name === 'standeeSizePercent' ? '250' : '300', value: '100' };
+    const number = { value: String(requested), dataset: { categoryDisplayNumber: name } };
+    const form = { querySelector: (selector) => selector.includes('data-category-display-range') ? range : number };
+    sync(form, number);
+    assert(Number(range.value) === expected && Number(number.value) === expected, `${name} slider and numeric value must synchronize`);
+  }
 });
 
 Deno.test('existing categories array can filter Sports child groups without a sportType product field', () => {

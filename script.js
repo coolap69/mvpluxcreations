@@ -3941,9 +3941,9 @@ function renderNormalizedHomepageCategoryCards() {
     const globalDisplay = getAdminGlobalDisplaySettings();
     const display = { ...globalDisplay, ...(category.displaySettings || {}) };
     const globalSize = Number(globalDisplay.standeeSizePercent);
-    const inheritedSize = Number.isFinite(globalSize) && globalSize >= 20 ? Math.min(140, globalSize) : 63;
+    const inheritedSize = Number.isFinite(globalSize) && globalSize >= 10 ? Math.min(250, globalSize) : 63;
     const requestedSize = Number(category.displaySettings?.standeeSizePercent ?? inheritedSize);
-    const size = Number.isFinite(requestedSize) && requestedSize >= 20 ? Math.min(140, requestedSize) : inheritedSize;
+    const size = Number.isFinite(requestedSize) && requestedSize >= 10 ? Math.min(250, requestedSize) : inheritedSize;
     const horizontal = Math.max(-50, Math.min(50, Number(display.standeeLeftPercent) || 0));
     const vertical = Math.max(-50, Math.min(50, Number(display.standeeVerticalPercent) || 0));
     const left = Math.max(10, Math.min(90, 50 + horizontal));
@@ -3955,13 +3955,14 @@ function renderNormalizedHomepageCategoryCards() {
     const safeTextAlign = (value) => ['left', 'center', 'right'].includes(String(value)) ? String(value) : 'center';
     const titleSize = safeTextNumber(display.titleSizePercent, 100, 70, 180);
     const descriptionSize = safeTextNumber(display.descriptionSizePercent, 100, 70, 180);
+    const backgroundSize = safeTextNumber(display.backgroundSizePercent, 100, 50, 300);
     const titleStyle = `transform:translate(${safeTextNumber(display.titleLeftPercent, 0, -50, 50)}%,${safeTextNumber(display.titleVerticalPercent, 0, -50, 50)}px);text-align:${safeTextAlign(display.titleAlign)}`;
     const descriptionStyle = `transform:translate(${safeTextNumber(display.descriptionLeftPercent, 0, -50, 50)}%,${safeTextNumber(display.descriptionVerticalPercent, 0, -50, 50)}px);text-align:${safeTextAlign(display.descriptionAlign)};font-size:${14 * descriptionSize / 100}px`;
     const background = category.card?.backgroundImage || display.backgroundImage || getShowroomStageBackground();
     const grid = grids[index < firstRowSize ? 0 : Math.min(1, grids.length - 1)];
     grid.insertAdjacentHTML('beforeend', `
       <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}">
-        <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview" style="background-image:url('${escapeHtml(background)}');background-position:${escapeHtml(display.backgroundPosition || 'center center')}">${category.card?.image ? `<img class="product-cutout" src="${escapeHtml(category.card.image)}" alt="${escapeHtml(category.card?.title || category.title || category.key)}" style="height:${size}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
+        <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(background)}');background-position:${escapeHtml(display.backgroundPosition || 'center center')};transform:scale(${backgroundSize / 100})" aria-hidden="true"></span>${category.card?.image ? `<img class="product-cutout" src="${escapeHtml(category.card.image)}" alt="${escapeHtml(category.card?.title || category.title || category.key)}" style="height:${size}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
         <h3 data-admin-category-field="title" style="${titleStyle}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${19 * titleSize / 100}px">${escapeHtml(category.title || category.card?.title || category.key)}</a></h3>
         <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeHtml(category.description || category.card?.description || '')}</p>
         <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
@@ -6945,6 +6946,7 @@ function inlineCategoryEditorMarkup(category = {}) {
       <p class="admin-note">These defaults affect products without an individual override.</p>
       <label>Background image<input name="displayBackgroundImage" value="${escapeHtml(display.backgroundImage || '')}"></label>
       <label>Background position<input name="displayBackgroundPosition" value="${escapeHtml(display.backgroundPosition || 'center center')}"></label>
+      <label>Background zoom %<input name="displayBackgroundSizePercent" type="number" min="50" max="300" value="${escapeHtml(String(display.backgroundSizePercent ?? 100))}"></label>
       <label>Standee size %<input name="displayStandeeSizePercent" type="number" value="${escapeHtml(String(display.standeeSizePercent ?? ''))}"></label>
       <label>Left / right %<input name="displayStandeeLeftPercent" type="number" value="${escapeHtml(String(display.standeeLeftPercent ?? ''))}"></label>
       <label>Up / down %<input name="displayStandeeVerticalPercent" type="number" value="${escapeHtml(String(display.standeeVerticalPercent ?? ''))}"></label>
@@ -6969,7 +6971,7 @@ function categoryDisplaySettingsFromForm(form) {
   };
   const image = String(data.get('displayBackgroundImage') || '').trim();
   if (image) settings.backgroundImage = image;
-  const fields = ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent', 'logoSizePercent', 'logoVerticalPercent'];
+  const fields = ['backgroundSizePercent', 'standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent', 'logoSizePercent', 'logoVerticalPercent'];
   fields.forEach((field) => {
     const formName = `display${field.charAt(0).toUpperCase()}${field.slice(1)}`;
     const value = String(data.get(formName) || '').trim();
@@ -7841,15 +7843,15 @@ function bindBuyerImagePurchaseJumps() {
 document.addEventListener('DOMContentLoaded', async function () {
   console.log('[ADMIN] DOMContentLoaded');
   try {
-    await syncSupabaseAuthState().catch(() => {});
+  // Published customer content must render before any optional auth/Admin request.
+  await loadPublishedAdminSettings();
+  renderNormalizedHomepageCategoryCards();
+  await syncSupabaseAuthState().catch(() => {});
   await loadStorefrontTestMode().catch(() => {});
   setupAuthState();
   updateCart();
   showInfoSlide(0);
   normalizeFrontPageCategoryLinks();
-  await loadPublishedAdminSettings();
-  // Published storefront Categories must not wait for private Admin/Supabase reads.
-  renderNormalizedHomepageCategoryCards();
   await loadLiveAdminSettings().catch(() => {});
   if (localStorage.getItem('mvpluxIsAdminApproved') === 'true') refreshAdminViewControls();
   renderAdminViewModeLabel();

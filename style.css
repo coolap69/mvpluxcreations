@@ -1038,6 +1038,24 @@ button:hover,
     linear-gradient(180deg, #070707 0%, rgba(7,7,7,0) var(--category-edge-blend-top, 16%), rgba(7,7,7,0) calc(100% - var(--category-edge-blend-bottom, 22%)), #070707 100%);
 }
 
+.admin-category-storefront-stage {
+  background-image: none;
+}
+
+.category-background-layer {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.admin-master-category-card .product-cutout {
+  max-width: none;
+}
+
 .product-stage-bg {
   display: none;
 }
@@ -6606,6 +6624,26 @@ button[aria-label="Add to cart"]::before {
   border-radius: 12px;
 }
 
+#categories .admin-category-preview-background {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background-size: cover;
+  background-repeat: no-repeat;
+  transform-origin: center;
+  pointer-events: none;
+}
+
+#categories .admin-category-placement-preview {
+  position: relative;
+}
+
+#categories .admin-category-preview-stage,
+#categories .admin-category-preview-text {
+  position: relative;
+  z-index: 1;
+}
+
 #categories .admin-category-editor-section > legend {
   padding: 0 7px;
   color: var(--admin-gold-light);
@@ -6804,7 +6842,7 @@ button[aria-label="Add to cart"]::before {
 #categories .admin-category-preview-stage > img {
   position: absolute;
   width: auto;
-  max-width: 90%;
+  max-width: none;
   object-fit: contain;
   transform: translateX(-50%);
   filter: drop-shadow(0 14px 18px rgba(0,0,0,.65));
@@ -6993,18 +7031,18 @@ button[aria-label="Add to cart"]::before {
   }
 
   #categories .admin-category-card-summary {
-    grid-template-columns: 104px minmax(240px, .8fr) minmax(520px, 1.6fr);
+    grid-template-columns: 76px minmax(190px, .6fr) minmax(340px, 1fr) minmax(560px, 1.4fr);
     align-items: center;
-    gap: 16px 20px;
+    gap: 8px 14px;
   }
 
   #categories .admin-category-card-summary.bulk-select-active {
-    grid-template-columns: auto 104px minmax(240px, .8fr) minmax(520px, 1.6fr);
+    grid-template-columns: auto 76px minmax(190px, .6fr) minmax(340px, 1fr) minmax(560px, 1.4fr);
   }
 
   #categories .admin-category-card-summary .admin-review-image {
-    width: 104px;
-    height: 104px;
+    width: 76px;
+    height: 76px;
   }
 
 #categories .admin-category-card-summary dl {
@@ -7016,11 +7054,93 @@ button[aria-label="Add to cart"]::before {
   }
 
   #categories .admin-category-card-summary > .admin-card-actions {
-    grid-column: 1 / -1;
+    grid-column: auto;
+    justify-content: flex-end;
   }
 
   #categories .admin-category-product-row {
     grid-template-columns: 82px minmax(190px, .7fr) minmax(360px, 1.4fr) minmax(300px, auto);
+  }
+}
+
+@media (min-width: 1100px) {
+  #categories .admin-category-manager-card {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  #categories .admin-category-card-summary dl {
+    gap: 5px;
+  }
+
+  #categories .admin-category-card-summary dl div {
+    padding: 5px 7px;
+  }
+
+  #categories .admin-category-card-summary dt,
+  #categories .admin-category-status-badges span {
+    font-size: .78rem;
+  }
+
+  #categories .admin-category-card-summary dd {
+    font-size: 1rem;
+  }
+
+  #categories .admin-category-card-summary .admin-card-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  #categories .admin-category-card-summary .admin-card-actions button {
+    min-height: 38px;
+    padding: 7px 10px;
+    font-size: .95rem;
+    white-space: nowrap;
+  }
+
+  #categories .admin-category-edit-form {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  #categories .admin-category-editor-workspace {
+    grid-template-columns: minmax(430px, .9fr) minmax(650px, 1.4fr);
+    gap: 14px;
+  }
+
+  #categories .admin-category-controls-column {
+    gap: 10px;
+  }
+
+  #categories .admin-category-editor-section {
+    gap: 9px;
+    padding: 10px 12px;
+  }
+
+  #categories .admin-category-information .admin-input-group,
+  #categories .admin-category-position-controls {
+    gap: 8px 10px;
+  }
+
+  #categories .admin-category-position-controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #categories .admin-category-position-controls > label:first-child {
+    grid-column: auto;
+  }
+
+  #categories .admin-category-current-image img {
+    height: 160px;
+  }
+
+  #categories .admin-category-preview-column {
+    padding: 10px;
+  }
+
+  #categories .admin-category-preview-column .admin-category-placement-preview {
+    min-height: 560px;
+    grid-template-rows: minmax(400px, 1fr) auto;
   }
 }
 

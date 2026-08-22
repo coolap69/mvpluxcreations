@@ -15,6 +15,7 @@ export function valuesEqual(left, right) {
 
 const DISPLAY_DEFAULTS = Object.freeze({
   backgroundPosition: 'center center',
+  backgroundSizePercent: 100,
   titleLeftPercent: 0,
   titleVerticalPercent: 0,
   titleAlign: 'center',

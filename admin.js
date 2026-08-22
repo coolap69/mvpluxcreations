@@ -4629,8 +4629,11 @@ function childGroupMarkup(masterCategory, categories) {
 }
 
 const CATEGORY_IMAGE_SIZE_DEFAULT = 63;
-const CATEGORY_IMAGE_SIZE_MIN = 20;
-const CATEGORY_IMAGE_SIZE_MAX = 140;
+const CATEGORY_IMAGE_SIZE_MIN = 10;
+const CATEGORY_IMAGE_SIZE_MAX = 250;
+const CATEGORY_BACKGROUND_SIZE_DEFAULT = 100;
+const CATEGORY_BACKGROUND_SIZE_MIN = 50;
+const CATEGORY_BACKGROUND_SIZE_MAX = 300;
 const CATEGORY_TEXT_SIZE_DEFAULT = 100;
 
 function safeCategoryDisplayNumber(value, fallback, minimum, maximum) {
@@ -4660,6 +4663,7 @@ function effectiveCategoryDisplaySettings(category = {}) {
   return {
     ...display,
     backgroundPosition: String(display.backgroundPosition || 'center center'),
+    backgroundSizePercent: safeCategoryDisplayNumber(display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
     standeeSizePercent: safeCategoryDisplayNumber(display.standeeSizePercent, inheritedSize, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
     standeeLeftPercent: safeCategoryDisplayNumber(display.standeeLeftPercent, 0, -50, 50),
     standeeVerticalPercent: safeCategoryDisplayNumber(display.standeeVerticalPercent, 0, -50, 50),
@@ -4837,9 +4841,10 @@ function categoryEditMarkup(category) {
             <div class="admin-category-position-controls">
               ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background Left / Right', backgroundPosition.x, 0, 100, '%')}
               ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Up / Down', backgroundPosition.y, 0, 100, '%')}
+              ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom', display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
             </div>
-            <button type="button" data-reset-category-background>Reset Background Position</button>
-            <p class="admin-note">The existing Category architecture stores background position. Background scale remains the storefront’s safe <code>cover</code> behavior.</p>
+            <button type="button" data-reset-category-background>Reset Background</button>
+            <p class="admin-note">Background Zoom scales the existing cover image without changing the physical file.</p>
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
           </fieldset>
           <fieldset class="admin-category-editor-section admin-category-settings"><legend>Category Settings</legend>
@@ -4971,6 +4976,7 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
     displaySettings: {
       ...(current.displaySettings || {}),
       backgroundPosition: String(data.get('backgroundPosition') || 'center center'),
+      backgroundSizePercent: safeCategoryDisplayNumber(data.get('backgroundSizePercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
       standeeSizePercent: safeCategoryDisplayNumber(data.get('standeeSizePercent'), CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
       standeeLeftPercent: safeCategoryDisplayNumber(data.get('standeeLeftPercent'), 0, -50, 50),
       standeeVerticalPercent: safeCategoryDisplayNumber(data.get('standeeVerticalPercent'), 0, -50, 50),
@@ -5230,7 +5236,8 @@ function previewCategoryEdit(form) {
   const titleStyle = `transform:translate(${display.titleLeftPercent}%,${display.titleVerticalPercent}px);text-align:${display.titleAlign};font-size:${19 * display.titleSizePercent / 100}px`;
   const descriptionStyle = `transform:translate(${display.descriptionLeftPercent}%,${display.descriptionVerticalPercent}px);text-align:${display.descriptionAlign};font-size:${14 * display.descriptionSizePercent / 100}px`;
   preview.hidden = false;
-  preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(display.backgroundPosition)}">
+  preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview">
+    <span class="admin-category-preview-background" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(display.backgroundPosition)};transform:scale(${display.backgroundSizePercent / 100})" aria-hidden="true"></span>
     <div class="admin-category-preview-stage">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
     <div class="admin-category-preview-text"><h4 style="${titleStyle}">${escapeAdminHtml(category.title)}</h4><p style="${descriptionStyle}">${escapeAdminHtml(category.description)}</p><span>${category.visible === false ? 'Category hidden from customers' : (category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage')}</span></div>
   </article>`;
@@ -5298,8 +5305,8 @@ function syncCategoryBackgroundPosition(form) {
 }
 
 function syncCategoryDisplayOutputs(form) {
-  const percentageFields = new Set(['standeeSizePercent', 'titleSizePercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY']);
-  ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent', 'titleLeftPercent', 'titleVerticalPercent', 'titleSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY'].forEach((name) => {
+  const percentageFields = new Set(['standeeSizePercent', 'titleSizePercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent']);
+  ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent', 'titleLeftPercent', 'titleVerticalPercent', 'titleSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent'].forEach((name) => {
     const input = form.elements.namedItem(name);
     const number = form.querySelector(`[data-category-display-number="${CSS.escape(name)}"]`);
     const output = form.querySelector(`[data-category-display-output="${name}"]`);
@@ -5474,6 +5481,7 @@ function setupCategoryManagerEvents() {
       form.elements.namedItem('backgroundPosition').value = 'center center';
       form.elements.namedItem('backgroundPositionX').value = '50';
       form.elements.namedItem('backgroundPositionY').value = '50';
+      form.elements.namedItem('backgroundSizePercent').value = String(CATEGORY_BACKGROUND_SIZE_DEFAULT);
       syncCategoryDisplayOutputs(form);
       previewCategoryEdit(form);
     }

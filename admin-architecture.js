@@ -30,6 +30,7 @@ const PRODUCT_FIELDS = [
 const DISPLAY_FIELDS = [
   'backgroundImage',
   'backgroundPosition',
+  'backgroundSizePercent',
   'standeeSizePercent',
   'standeeLeftPercent',
   'standeeVerticalPercent',
