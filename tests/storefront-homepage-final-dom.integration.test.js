@@ -97,9 +97,11 @@ Deno.test('final homepage DOM retains visible Sport Legends and another publishe
 Deno.test('homepage startup renders published Categories before auth and test-mode network work', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const init = source.slice(source.indexOf("document.addEventListener('DOMContentLoaded'"));
+  const authForms = init.indexOf('bindAuthForms()');
   const published = init.indexOf('await loadPublishedAdminSettings()');
   const render = init.indexOf('renderNormalizedHomepageCategoryCards()', published);
   const auth = init.indexOf('await syncSupabaseAuthState()', published);
   const testMode = init.indexOf('await loadStorefrontTestMode()', published);
+  assert(authForms >= 0 && authForms < published, 'auth forms must bind before unrelated published storefront work');
   assert(published >= 0 && render > published && auth > render && testMode > render, 'published final-DOM rendering must precede optional Supabase/auth requests');
 });

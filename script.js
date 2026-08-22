@@ -2438,33 +2438,42 @@ async function signUpCustomerWithSupabase(screenName, email, password) {
   return true;
 }
 
-function setupAuthState() {
-  cleanStaleAdminState();
-
+function bindAuthForms() {
   const signinForm = document.getElementById('signinForm');
   const signupForm = document.getElementById('signupForm');
+  if (signinForm && !signinForm.dataset.authFormBound) {
+    signinForm.dataset.authFormBound = 'true';
+    signinForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const email = document.getElementById('signinEmail')?.value.trim().toLowerCase() || '';
+      const password = document.getElementById('signinPassword')?.value.trim() || '';
+
+      await signInCustomerWithSupabase(email, password);
+    });
+  }
+
+  if (signupForm && !signupForm.dataset.authFormBound) {
+    signupForm.dataset.authFormBound = 'true';
+    signupForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const screenName = document.getElementById('signupScreenName')?.value.trim() || 'Guest';
+      const email = document.getElementById('signupEmail')?.value.trim().toLowerCase() || '';
+      const password = document.getElementById('signupPassword')?.value.trim() || '';
+
+      await signUpCustomerWithSupabase(screenName, email, password);
+    });
+  }
+}
+
+function setupAuthState() {
+  cleanStaleAdminState();
+  bindAuthForms();
+
   const signedInNotice = document.getElementById('signedInNotice');
 
   if (signedInNotice && isAdminSignedIn()) {
     signedInNotice.innerHTML = `You are signed in as <strong>${getSignedInName()}</strong>. <button type="button" class="admin-inline-signout" data-admin-signout>Log Out</button>`;
   }
-
-  signinForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const email = document.getElementById('signinEmail')?.value.trim().toLowerCase() || '';
-    const password = document.getElementById('signinPassword')?.value.trim() || '';
-
-    await signInCustomerWithSupabase(email, password);
-  });
-
-  signupForm?.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const screenName = document.getElementById('signupScreenName')?.value.trim() || 'Guest';
-    const email = document.getElementById('signupEmail')?.value.trim().toLowerCase() || '';
-    const password = document.getElementById('signupPassword')?.value.trim() || '';
-
-    await signUpCustomerWithSupabase(screenName, email, password);
-  });
 
   const signedInName = getSignedInName();
   const isSignedIn = Boolean(isAdminSignedIn() || isCustomerSignedIn());
@@ -7843,6 +7852,8 @@ function bindBuyerImagePurchaseJumps() {
 document.addEventListener('DOMContentLoaded', async function () {
   console.log('[ADMIN] DOMContentLoaded');
   try {
+  // Authentication forms must work immediately, without waiting for unrelated storefront data.
+  bindAuthForms();
   // Published customer content must render before any optional auth/Admin request.
   await loadPublishedAdminSettings();
   renderNormalizedHomepageCategoryCards();
