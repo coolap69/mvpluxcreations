@@ -1,7 +1,7 @@
 {
-  "publishedAt": "2026-08-22T02:36:12.970Z",
-  "title": "Publish Sport Legends",
-  "changeSummary": "- Changed title from Sport Legend Standees to Sport Legends\n- Changed description for Sport Legends\n- Changed Sport Legends original height from 78\" to not set\n- Changed cutout image for Sport Legends from images/FrontPageWeb/Sports-Kobe-KB1forprint.png to images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png\n- Changed background image for Sport Legends from images/FanBackgrounds/top-favorite-stage-gold.png to not set\n- Created category: Sport Legends",
+  "publishedAt": "2026-08-22T08:11:42.632Z",
+  "title": "Publish Movie Characters",
+  "changeSummary": "- Changed title from Movie Character Standees to Movie Characters\n- Changed description for Movie Characters\n- Changed Movie Characters original height from 74\" to not set\n- Created category: Movie Characters",
   "snapshot": {
     "version": 1,
     "schemaVersion": 2,
@@ -950,18 +950,18 @@
         "categories": [],
         "visible": true,
         "categoryOrder": {},
-        "productOrder": 2,
-        "displayOverrides": {}
+        "displayOverrides": {},
+        "productOrder": 2
       },
       "movie-character-standee": {
         "slug": "movie-character-standee",
-        "title": "Movie Character Standees",
-        "description": "Browse movie-style standee categories and see more character looks, poses, and display backgrounds inside.",
+        "title": "Movie Characters",
+        "description": "",
         "funFact": "",
         "cutoutImage": "images/MovieCharacterStandees/Endorskeleton/Endornobackground.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
-        "originalHeight": "74",
+        "originalHeight": "",
         "cutoutHeight": "",
         "cutoutLeft": "",
         "cutoutBottom": "",
@@ -971,6 +971,7 @@
         "categories": [],
         "visible": true,
         "categoryOrder": {},
+        "productOrder": 0,
         "displayOverrides": {}
       },
       "people-public-figure-standee": {
@@ -1192,6 +1193,27 @@
           "descriptionAlign": "center",
           "descriptionSizePercent": 180
         }
+      },
+      "movie-characters": {
+        "key": "movie-characters",
+        "title": "Movie Characters",
+        "description": "",
+        "funFact": "",
+        "page": "movie-inspired.html",
+        "visible": true,
+        "homepageVisible": true,
+        "order": 1,
+        "card": {
+          "title": "",
+          "description": "",
+          "image": "images/MovieCharacterStandees/Endorskeleton/Endornobackground.png",
+          "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
+          "visible": true,
+          "order": 0
+        },
+        "displaySettings": {
+          "backgroundPosition": "center center"
+        }
       }
     },
     "categorySettings": {
@@ -1208,6 +1230,9 @@
         "descriptionVerticalPercent": -9,
         "descriptionAlign": "center",
         "descriptionSizePercent": 180
+      },
+      "movie-characters": {
+        "backgroundPosition": "center center"
       }
     },
     "globalDisplaySettings": {},
