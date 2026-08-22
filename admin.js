@@ -4771,10 +4771,10 @@ function categoryPublishButtonMarkup(categoryKey, { editor = false } = {}) {
 }
 
 function categoryDisplayRangeMarkup(name, label, value, minimum, maximum, suffix = '') {
-  return `<label>${label} <output data-category-display-output="${name}">${value}${suffix}</output>
-    <input name="${name}" type="range" min="${minimum}" max="${maximum}" step="1" value="${value}" data-category-display-range="${name}">
-    <span class="admin-category-range-value"><input type="number" min="${minimum}" max="${maximum}" step="1" value="${value}" data-category-display-number="${name}" aria-label="${label} numeric value">${suffix}</span>
-    <span>${minimum}${suffix} minimum · ${maximum}${suffix} maximum</span>
+  return `<label class="admin-category-range-control"><span class="admin-category-range-heading">${label} <output data-category-display-output="${name}">${value}${suffix}</output></span>
+    <span class="admin-category-range-inputs"><input name="${name}" type="range" min="${minimum}" max="${maximum}" step="1" value="${value}" data-category-display-range="${name}">
+    <span class="admin-category-range-value"><input type="number" min="${minimum}" max="${maximum}" step="1" value="${value}" data-category-display-number="${name}" aria-label="${label} numeric value">${suffix}</span></span>
+    <small>${minimum}${suffix}–${maximum}${suffix}</small>
   </label>`;
 }
 
@@ -4796,34 +4796,37 @@ function categoryEditMarkup(category) {
         </aside>
         <div class="admin-category-controls-column">
           <fieldset class="admin-category-editor-section admin-category-information"><legend>Category Information</legend>
-            <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
             <div class="admin-input-group">
               <label>Title<input name="title" required value="${escapeAdminHtml(category.title || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(category.description || '')}</textarea></label>
               <label>Fun Fact<textarea name="funFact" rows="2">${escapeAdminHtml(category.funFact || '')}</textarea></label>
             </div>
-            <div class="admin-ai-actions" aria-label="Optional AI assistance">
-              <button type="button" data-ai-suggest="title">Generate Title</button>
-              <button type="button" data-ai-suggest="description">Generate Description</button>
-              <button type="button" data-ai-suggest="funFact">Generate Fun Fact</button>
-              <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
-            </div>
-            <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
-            <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
-            <div class="admin-category-text-controls">
-              <h4>Title and Description Placement</h4>
-              <div class="admin-category-position-controls">
-                ${categoryDisplayRangeMarkup('titleLeftPercent', 'Title Left / Right', display.titleLeftPercent, -50, 50)}
-                ${categoryDisplayRangeMarkup('titleVerticalPercent', 'Title Up / Down', display.titleVerticalPercent, -50, 50)}
-                ${categoryDisplayRangeMarkup('titleSizePercent', 'Title Size', display.titleSizePercent, 70, 180, '%')}
-                <label>Title alignment<select name="titleAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.titleAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
-                ${categoryDisplayRangeMarkup('descriptionLeftPercent', 'Description Left / Right', display.descriptionLeftPercent, -50, 50)}
-                ${categoryDisplayRangeMarkup('descriptionVerticalPercent', 'Description Up / Down', display.descriptionVerticalPercent, -50, 50)}
-                ${categoryDisplayRangeMarkup('descriptionSizePercent', 'Description Size', display.descriptionSizePercent, 70, 180, '%')}
-                <label>Description alignment<select name="descriptionAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.descriptionAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
+            <details class="admin-category-ai-text-tools">
+              <summary>AI Assistance &amp; Advanced Text Positioning</summary>
+              <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
+              <div class="admin-ai-actions" aria-label="Optional AI assistance">
+                <button type="button" data-ai-suggest="title">Generate Title</button>
+                <button type="button" data-ai-suggest="description">Generate Description</button>
+                <button type="button" data-ai-suggest="funFact">Generate Fun Fact</button>
+                <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
               </div>
-              <button type="button" data-reset-category-text>Reset Text Position</button>
-            </div>
+              <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
+              <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
+              <div class="admin-category-text-controls">
+                <h4>Title and Description Placement</h4>
+                <div class="admin-category-position-controls">
+                  ${categoryDisplayRangeMarkup('titleSizePercent', 'Title Size', display.titleSizePercent, 70, 180, '%')}
+                  ${categoryDisplayRangeMarkup('titleLeftPercent', 'Title Left / Right', display.titleLeftPercent, -50, 50)}
+                  ${categoryDisplayRangeMarkup('titleVerticalPercent', 'Title Up / Down', display.titleVerticalPercent, -50, 50)}
+                  <label>Title alignment<select name="titleAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.titleAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
+                  ${categoryDisplayRangeMarkup('descriptionSizePercent', 'Description Size', display.descriptionSizePercent, 70, 180, '%')}
+                  ${categoryDisplayRangeMarkup('descriptionLeftPercent', 'Description Left / Right', display.descriptionLeftPercent, -50, 50)}
+                  ${categoryDisplayRangeMarkup('descriptionVerticalPercent', 'Description Up / Down', display.descriptionVerticalPercent, -50, 50)}
+                  <label>Description alignment<select name="descriptionAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.descriptionAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
+                </div>
+                <button type="button" data-reset-category-text>Reset Text Position</button>
+              </div>
+            </details>
           </fieldset>
           <fieldset class="admin-category-editor-section admin-category-image-section"><legend>Category Image</legend>
             ${categoryVisualImagePicker(category)}
@@ -4900,7 +4903,7 @@ function renderCategoryManager() {
           ${categoryBulkSelectionMode ? `<label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select for bulk deletion</label>` : ''}
           <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
           <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Category: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span></div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom category — review assignments before changing it.</p>' : ''}</div>
-          <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div>${childCount ? `<div><dt>Child Groups</dt><dd>${childCount}</dd></div>` : ''}<div><dt>Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
+          <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
             <button type="button" data-edit-category>Edit</button>
             ${categoryPublishButtonMarkup(category.key)}
@@ -5233,13 +5236,17 @@ function previewCategoryEdit(form) {
   const backgroundPresentation = adminImageReferencePresentation(effectiveCategoryBackground(category), { background: true });
   const left = Math.max(10, Math.min(90, 50 + display.standeeLeftPercent));
   const bottom = Math.max(0, Math.min(75, 18 - display.standeeVerticalPercent));
-  const titleStyle = `transform:translate(${display.titleLeftPercent}%,${display.titleVerticalPercent}px);text-align:${display.titleAlign};font-size:${19 * display.titleSizePercent / 100}px`;
+  const titleStyle = `transform:translate(${display.titleLeftPercent}%,${display.titleVerticalPercent}px);text-align:${display.titleAlign}`;
   const descriptionStyle = `transform:translate(${display.descriptionLeftPercent}%,${display.descriptionVerticalPercent}px);text-align:${display.descriptionAlign};font-size:${14 * display.descriptionSizePercent / 100}px`;
   preview.hidden = false;
-  preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview">
-    <span class="admin-category-preview-background" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(display.backgroundPosition)};transform:scale(${display.backgroundSizePercent / 100})" aria-hidden="true"></span>
-    <div class="admin-category-preview-stage">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
-    <div class="admin-category-preview-text"><h4 style="${titleStyle}">${escapeAdminHtml(category.title)}</h4><p style="${descriptionStyle}">${escapeAdminHtml(category.description)}</p><span>${category.visible === false ? 'Category hidden from customers' : (category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage')}</span></div>
+  preview.innerHTML = `<article class="product-card admin-master-category-card admin-category-placement-preview">
+    <div class="product-stage-preview admin-category-storefront-stage admin-category-preview-stage">
+      <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(display.backgroundPosition)};transform:scale(${display.backgroundSizePercent / 100})" aria-hidden="true"></span>
+      ${imagePresentation.preview ? `<img class="product-cutout" src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}
+    </div>
+    <h3 data-admin-category-field="title" style="${titleStyle}"><span class="product-title-link" style="text-align:inherit;font-size:${19 * display.titleSizePercent / 100}px">${escapeAdminHtml(category.title)}</span></h3>
+    <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeAdminHtml(category.description)}</p>
+    <span class="admin-category-preview-status">${category.visible === false ? 'Category hidden from customers' : (category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage')}</span>
   </article>`;
 }
 

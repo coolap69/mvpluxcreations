@@ -73,7 +73,7 @@ Deno.test('product creation and Image Imports pass authoritative identity to AI 
 });
 
 Deno.test('shared storefront navigation reveals an Admin-only Dashboard link after authorization', () => {
-  assert(storefrontSource.includes('data-admin-dashboard-link href="admin.html">Admin</a>'), 'shared navigation needs a direct Admin link');
+  assert(storefrontSource.includes('data-admin-dashboard-link href="/admin.html">Admin Dashboard</a>'), 'shared navigation needs a clear direct Admin Dashboard link');
   const revealStart = storefrontSource.indexOf('async function revealAdminControlsIfApproved');
   const revealEnd = storefrontSource.indexOf('async function turnOnCurrentPageAdminMode', revealStart);
   const reveal = storefrontSource.slice(revealStart, revealEnd);

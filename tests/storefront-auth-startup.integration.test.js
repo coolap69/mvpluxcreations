@@ -32,14 +32,14 @@ Deno.test('sign-in submits immediately and binds only once before storefront sta
   assert(window.document.getElementById('signinForm').dataset.authFormBound === 'true', 'form must record idempotent binding');
 });
 
-Deno.test('sign-in requests the Admin redirect cache version while sign-up keeps immediate binding', async () => {
+Deno.test('sign-in requests the homepage Admin cache version while sign-up keeps immediate binding', async () => {
   const signin = await Deno.readTextFile(new URL('../signin.html', import.meta.url));
   const signup = await Deno.readTextFile(new URL('../signup.html', import.meta.url));
-  assert(signin.includes('script.js?v=20260822-admin-redirect'), 'signin.html must load the Admin redirect fix without a stale cache');
+  assert(signin.includes('script.js?v=20260822-homepage-admin'), 'signin.html must load the homepage Admin navigation fix without a stale cache');
   assert(signup.includes('script.js?v=20260822-auth-startup'), 'signup.html must retain the working immediate auth-form binder');
 });
 
-Deno.test('successful approved sign-in authorizes the session and navigates directly to Admin', async () => {
+Deno.test('successful approved sign-in authorizes the session and returns to the normal homepage', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const start = source.indexOf('async function signInCustomerWithSupabase');
   const end = source.indexOf('\n\nasync function signUpCustomerWithSupabase', start);
@@ -69,7 +69,7 @@ Deno.test('successful approved sign-in authorizes the session and navigates dire
   assert(calls[0][0] === 'supabase' && calls[1][0] === 'authorize', 'Supabase login must precede Admin authorization');
   assert(calls[1][1].showMessages === false, 'authorization must use explicit sign-in feedback');
   assert(storage.get('mvpluxCustomerSignedIn') === 'true' && storage.get('mvpluxSignedInName') === 'Admin', 'successful Supabase session must update local signed-in state');
-  assert(navigation.href === 'admin.html', 'approved Admin must navigate directly to admin.html');
+  assert(navigation.href === '/', 'approved Admin must return to the normal homepage');
 });
 
 Deno.test('successful unapproved sign-in stays signed in and shows a visible Admin authorization error', async () => {
@@ -130,6 +130,30 @@ Deno.test('Admin authorization verifies the persisted session against admin_prof
   assert(storage.get('mvpluxIsAdminApproved') === 'true', 'approved session must set the Admin approval state');
 });
 
+Deno.test('homepage refresh restores Admin approval before auth synchronization completes', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const start = source.indexOf('async function syncSupabaseAuthState');
+  const end = source.indexOf('\n\nasync function signInCustomerWithSupabase', start);
+  const storage = new Map();
+  let authorizationFinished = false;
+  const sync = new Function('dependencies', `
+    const { getSupabaseClient, localStorage, checkCurrentUserAdminAccess, console } = dependencies;
+    ${source.slice(start, end)}
+    return syncSupabaseAuthState;
+  `)({
+    getSupabaseClient: () => ({ auth: { getSession: async () => ({ data: { session: { user: {
+      id: 'admin-1', email: 'admin@example.com', user_metadata: { screen_name: 'Admin' }
+    } } } }) } }),
+    localStorage: { setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) },
+    checkCurrentUserAdminAccess: async () => { await Promise.resolve(); authorizationFinished = true; return true; },
+    console
+  });
+
+  await sync();
+  assert(authorizationFinished, 'homepage session restoration must await the admin_profiles authorization result');
+  assert(storage.get('mvpluxCustomerSignedIn') === 'true', 'homepage refresh must retain the persisted signed-in presentation');
+});
+
 Deno.test('admin.html restores the persisted Supabase session and repeats authorization after refresh', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const start = source.indexOf('async function requireSupabaseAdminAccess');
@@ -159,4 +183,17 @@ Deno.test('admin.html restores the persisted Supabase session and repeats author
   assert(await requireAccess() === true, 'Admin refresh must recognize the persisted approved session');
   assert(navigation.href === 'admin.html', 'recognized Admin session must not redirect back to sign-in');
   assert(storage.get('mvpluxCustomerSignedIn') === 'true' && storage.get('mvpluxSignedInName') === 'Admin', 'Admin refresh must restore local signed-in presentation state');
+});
+
+Deno.test('approved homepage session exposes Admin Dashboard and normal navigation never signs out', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const adminHtml = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
+  const addLink = source.slice(source.indexOf('function addAdminDashboardLinkIfMissing'), source.indexOf('function refreshAdminViewControls'));
+  const signOut = source.slice(source.indexOf('async function signOutCurrentUser'), source.indexOf('function signOutAdmin'));
+  assert(addLink.includes('href="/admin.html">Admin Dashboard</a>'), 'approved header must expose the explicit Admin Dashboard link');
+  assert(adminHtml.includes('href="index.html#home">Home</a>') && adminHtml.includes('href="index.html#shop" class="sign-up-link">Back to Site</a>'), 'Admin Home and Back to Site must remain plain navigation links');
+  assert(!adminHtml.includes('signOutCurrentUser') && !adminHtml.includes('auth.signOut'), 'Admin navigation markup must not sign out');
+  assert(signOut.includes('await client.auth.signOut()'), 'the explicit logout function must remain the one Supabase sign-out path');
+  assert(signOut.includes("localStorage.removeItem('mvpluxIsAdminApproved')"), 'explicit logout must clear the cached approval presentation');
+  assert((source.match(/\.auth\.signOut\(/g) || []).length === 1, 'no normal navigation path may call Supabase signOut');
 });

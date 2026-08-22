@@ -605,6 +605,24 @@ button[aria-label="Add to cart"]::before {
   gap: 22px;
 }
 
+.homepage-category-grid {
+  --featured-stage-ratio: 4 / 3;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+
+.homepage-category-grid[hidden],
+[data-homepage-category-fallback][hidden] {
+  display: none !important;
+}
+
+#homepageCategoryGrid > .admin-master-category-card {
+  width: 100%;
+  min-width: 0;
+}
+
 .featured-category-row {
   display: grid;
   gap: 12px;
@@ -6808,6 +6826,52 @@ button[aria-label="Add to cart"]::before {
   align-items: end;
 }
 
+#categories .admin-category-range-heading,
+#categories .admin-category-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+#categories .admin-category-range-heading {
+  justify-content: space-between;
+  color: var(--admin-text);
+  font-size: .96rem;
+  font-weight: 850;
+}
+
+#categories .admin-category-range-inputs > input[type="range"] {
+  flex: 1 1 auto;
+}
+
+#categories .admin-category-range-control > small {
+  color: var(--admin-muted);
+  font-size: .72rem;
+}
+
+#categories .admin-category-ai-text-tools {
+  display: grid;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid rgba(212,175,55,.24);
+  border-radius: 10px;
+  background: rgba(255,255,255,.025);
+}
+
+#categories .admin-category-ai-text-tools > summary {
+  cursor: pointer;
+  color: var(--admin-gold-light);
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+#categories .admin-category-preview-status {
+  color: var(--admin-gold-light);
+  font-size: .82rem;
+  font-weight: 850;
+  text-align: center;
+}
+
 #categories .admin-category-settings-grid {
   grid-template-columns: minmax(320px, 2fr) minmax(100px, .5fr) minmax(150px, .7fr) minmax(180px, .8fr);
   align-items: end;
@@ -7104,12 +7168,19 @@ button[aria-label="Add to cart"]::before {
   }
 
   #categories .admin-category-editor-workspace {
-    grid-template-columns: minmax(430px, .9fr) minmax(650px, 1.4fr);
-    gap: 14px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
   }
 
   #categories .admin-category-controls-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  #categories .admin-category-information,
+  #categories .admin-category-settings,
+  #categories .admin-category-controls-column > .admin-advanced-fields {
+    grid-column: 1 / -1;
   }
 
   #categories .admin-category-editor-section {
@@ -7131,16 +7202,61 @@ button[aria-label="Add to cart"]::before {
   }
 
   #categories .admin-category-current-image img {
-    height: 160px;
+    height: 118px;
   }
 
   #categories .admin-category-preview-column {
-    padding: 10px;
+    position: static;
+    padding: 10px 12px;
   }
 
   #categories .admin-category-preview-column .admin-category-placement-preview {
-    min-height: 560px;
-    grid-template-rows: minmax(400px, 1fr) auto;
+    width: min(100%, 760px);
+    min-height: 0;
+    margin-inline: auto;
+    --featured-stage-ratio: 4 / 3;
+  }
+
+  #categories .admin-category-preview-column .admin-builder-preview-panel {
+    position: static;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  #categories .admin-category-preview-column .admin-category-preview-stage {
+    min-height: 0;
+  }
+
+  #categories .admin-category-information .admin-input-group {
+    grid-template-columns: minmax(220px, .7fr) minmax(320px, 1.15fr) minmax(280px, 1fr);
+  }
+
+  #categories .admin-category-information .admin-input-group > label:nth-child(n) {
+    grid-column: auto;
+  }
+
+  #categories .admin-category-image-section,
+  #categories .admin-category-background-section {
+    align-content: start;
+  }
+
+  #categories .admin-category-position-controls > label {
+    padding: 7px 8px;
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 8px;
+    background: rgba(255,255,255,.02);
+  }
+
+  #categories .admin-category-position-controls > label > small {
+    display: none;
+  }
+
+  #categories .admin-category-range-value input {
+    width: 76px;
+    min-height: 38px;
+    padding: 6px 8px;
+    font-size: 1rem;
   }
 }
 

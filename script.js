@@ -1834,7 +1834,8 @@ async function registerFanVote(voteId, button) {
 function filterProducts() {
   const searchInput = document.getElementById('searchInput');
   const categoryFilter = document.getElementById('categoryFilter');
-  const products = document.querySelectorAll('.product-card');
+  const products = [...document.querySelectorAll('.product-card')]
+    .filter((product) => !product.closest('#homepageCategoryGrid'));
 
   if (!searchInput || !categoryFilter) return;
 
@@ -2106,6 +2107,7 @@ async function signOutCurrentUser() {
 
   localStorage.removeItem('mvpluxAdminSignedIn');
   localStorage.removeItem('mvpluxAdminAnywhere');
+  localStorage.removeItem('mvpluxIsAdminApproved');
   localStorage.removeItem('mvpluxSignedInName');
   localStorage.removeItem('mvpluxCustomerSignedIn');
   window.location.href = 'index.html';
@@ -2221,7 +2223,7 @@ function addAdminDashboardLinkIfMissing() {
   document.querySelectorAll('.auth-links').forEach((links) => {
     if (links.querySelector('[data-admin-dashboard-link]')) return;
     const signout = links.querySelector('[data-auth-signout]');
-    const linkHtml = '<a class="admin-header-link" data-admin-dashboard-link href="admin.html">Admin</a>';
+    const linkHtml = '<a class="admin-header-link" data-admin-dashboard-link href="/admin.html">Admin Dashboard</a>';
     if (signout) signout.insertAdjacentHTML('beforebegin', linkHtml);
     else links.insertAdjacentHTML('beforeend', linkHtml);
   });
@@ -2360,7 +2362,7 @@ async function syncSupabaseAuthState() {
     const screenName = user.user_metadata?.screen_name || user.email?.split('@')[0] || 'Guest';
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', screenName);
-    checkCurrentUserAdminAccess({ showMessages: false });
+    await checkCurrentUserAdminAccess({ showMessages: false });
   } catch (error) {
     console.warn('Supabase session check failed:', error);
   }
@@ -2393,7 +2395,7 @@ async function signInCustomerWithSupabase(email, password) {
       showSiteMessage('Sign-in succeeded, but this account is not approved for Admin access.', 'error');
       return true;
     }
-    window.location.href = 'admin.html';
+    window.location.href = '/';
   } catch (error) {
     console.warn('Supabase sign-in failed:', error);
     showSupabaseConnectionAlert('sign in');
@@ -3942,13 +3944,12 @@ function homepageCategoryRecords(categories = getAdminCategories()) {
 
 function renderNormalizedHomepageCategoryCards() {
   if (inlineAdminPageKey() !== 'index.html') return;
-  const grids = [...document.querySelectorAll('.featured-category-row .product-grid')];
-  if (!grids.length) return;
+  const grid = document.getElementById('homepageCategoryGrid');
+  if (!grid) return;
   const categories = homepageCategoryRecords();
   if (!categories.length) return;
-  grids.forEach((grid) => { grid.innerHTML = ''; });
-  const firstRowSize = Math.min(5, Math.ceil(categories.length / 2));
-  categories.forEach((category, index) => {
+  grid.innerHTML = '';
+  categories.forEach((category) => {
     const slug = Object.entries(STOREFRONT_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
       || `${category.key}-category-card`;
     const page = category.page || `category.html?category=${encodeURIComponent(category.key)}`;
@@ -3973,15 +3974,17 @@ function renderNormalizedHomepageCategoryCards() {
     const titleStyle = `transform:translate(${safeTextNumber(display.titleLeftPercent, 0, -50, 50)}%,${safeTextNumber(display.titleVerticalPercent, 0, -50, 50)}px);text-align:${safeTextAlign(display.titleAlign)}`;
     const descriptionStyle = `transform:translate(${safeTextNumber(display.descriptionLeftPercent, 0, -50, 50)}%,${safeTextNumber(display.descriptionVerticalPercent, 0, -50, 50)}px);text-align:${safeTextAlign(display.descriptionAlign)};font-size:${14 * descriptionSize / 100}px`;
     const background = category.card?.backgroundImage || display.backgroundImage || getShowroomStageBackground();
-    const grid = grids[index < firstRowSize ? 0 : Math.min(1, grids.length - 1)];
     grid.insertAdjacentHTML('beforeend', `
-      <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}">
+      <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${category.title || category.key} ${category.description || category.card?.description || ''}`)}">
         <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(background)}');background-position:${escapeHtml(display.backgroundPosition || 'center center')};transform:scale(${backgroundSize / 100})" aria-hidden="true"></span>${category.card?.image ? `<img class="product-cutout" src="${escapeHtml(category.card.image)}" alt="${escapeHtml(category.card?.title || category.title || category.key)}" style="height:${size}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
         <h3 data-admin-category-field="title" style="${titleStyle}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${19 * titleSize / 100}px">${escapeHtml(category.title || category.card?.title || category.key)}</a></h3>
         <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeHtml(category.description || category.card?.description || '')}</p>
         <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
       </article>`);
   });
+  grid.hidden = false;
+  const fallback = document.querySelector('[data-homepage-category-fallback]');
+  if (fallback) fallback.hidden = true;
 }
 
 function managedCategoryCardMarkup(product) {
@@ -6562,6 +6565,7 @@ function bindInlineAdminToolbarDragResize() {
 
 function applyInlineHiddenCards() {
   document.querySelectorAll('.fan-vote-card, .fan-gallery-card, .product-card, .category-card').forEach((card, index) => {
+    if (card.closest('#homepageCategoryGrid')) return;
     getCardAdminKey(card);
     const hidden = isCardHiddenByAdmin(card);
     card.classList.toggle('admin-card-hidden-preview', hidden);

@@ -113,7 +113,7 @@ Deno.test('Category visual picker prioritizes assigned product images and search
   assert(!picker.includes('<select'), 'Category image selection must not fall back to a giant native dropdown');
 });
 
-Deno.test('Category editor uses a two-column live workspace with visible background controls', async () => {
+Deno.test('Category editor uses a wide preview-first workspace with compact visible controls', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
   const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
@@ -124,8 +124,9 @@ Deno.test('Category editor uses a two-column live workspace with visible backgro
   assert(editor.includes('admin-category-editor-workspace') && editor.includes('admin-category-preview-column') && editor.includes('admin-category-controls-column'), 'editor must expose the desktop preview/control workspace');
   assert(editor.includes('data-category-edit-preview') && !editor.includes('data-category-edit-preview hidden'), 'live preview must be visible as soon as the lazy editor mounts');
   assert(editor.includes("categoryDisplayRangeMarkup('standeeSizePercent'") && source.includes('data-category-display-number') && source.includes('data-category-display-range'), 'image placement must keep numeric and slider controls together');
-  assert(styles.includes('grid-template-columns: minmax(420px, .95fr) minmax(560px, 1.25fr)') && styles.includes('#categories .admin-category-preview-column'), 'desktop editor must use a wide preview/control grid');
-  assert(styles.includes('position: sticky') && styles.includes('admin-category-preview-column'), 'desktop live preview should remain visible while controls scroll');
+  assert(styles.includes('#categories .admin-category-editor-workspace') && styles.includes('grid-template-columns: minmax(0, 1fr)'), 'desktop editor must put the wide preview above controls');
+  assert(styles.includes('grid-template-columns: repeat(2, minmax(0, 1fr))') && styles.includes('admin-category-information'), 'desktop controls must use horizontal space instead of one tall column');
+  assert(editor.includes('admin-category-ai-text-tools') && editor.includes('AI Assistance &amp; Advanced Text Positioning'), 'less-used AI and text positioning must be collapsible');
   assert(!editor.includes('Standee size %'), 'legacy Standee Size wording must be absent from normal Category editing');
 });
 
@@ -133,10 +134,23 @@ Deno.test('Category image and background controls update the existing preview im
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const preview = source.slice(source.indexOf('function previewCategoryEdit'), source.indexOf('function renderCategoryImagePickerGallery'));
   assert(preview.includes('effectiveCategoryBackground(category)') && preview.includes('display.backgroundPosition'), 'preview must use the saved Category background architecture');
+  assert(preview.includes('product-card admin-master-category-card admin-category-placement-preview') && preview.includes('product-stage-preview admin-category-storefront-stage'), 'Admin preview must reuse the storefront Category card presentation classes');
   for (const field of ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent']) assert(preview.includes(field), `preview must use ${field}`);
   const events = source.slice(source.indexOf('function setupCategoryManagerEvents()'), source.indexOf('function renderAdminProducts()'));
   assert(events.includes('syncCategoryDisplayControl(form, event.target)') && events.includes('previewCategoryEdit(form)'), 'slider and numeric inputs must synchronize and rerender immediately');
   assert(events.includes('data-reset-category-background') && events.includes("backgroundPosition').value = 'center center'"), 'background positioning must reset through the existing field');
+});
+
+Deno.test('Admin preview and storefront use the same background priority and clipped layer order', async () => {
+  const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
+  const adminResolver = adminSource.slice(adminSource.indexOf('function effectiveCategoryBackground'), adminSource.indexOf('function repositoryCategoryImageLibrary'));
+  const storefrontRenderer = storefrontSource.slice(storefrontSource.indexOf('function renderNormalizedHomepageCategoryCards'), storefrontSource.indexOf('function managedCategoryCardMarkup'));
+  assert(adminResolver.includes('category.card?.backgroundImage || category.displaySettings?.backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND'), 'Admin must prefer explicit card background, inherited display background, then the shared safe default');
+  assert(storefrontRenderer.includes('category.card?.backgroundImage || display.backgroundImage || getShowroomStageBackground()'), 'storefront must use the same explicit, inherited, shared background order');
+  assert(styles.includes('.product-stage-preview {') && styles.includes('overflow: hidden;'), 'the shared stage must clip zoomed backgrounds');
+  assert(styles.includes('.category-background-layer {') && styles.includes('z-index: 0;') && styles.includes('.product-cutout {') && styles.includes('z-index: 3;'), 'background, cutout, and text must retain safe visual layering');
 });
 
 Deno.test('All, Visible, and Hidden filters keep hidden Categories recoverable in Admin', async () => {
@@ -399,6 +413,6 @@ Deno.test('homepage is generated from master Categories and filters hidden or de
   assert(selector.includes('categories = getAdminCategories()'), 'homepage must read the master Category collection');
   assert(selector.includes('category.visible !== false') && selector.includes('category.homepageVisible !== false'), 'homepage visibility must use the normalized Category fields');
   assert(!selector.includes('category.card?.visible'), 'legacy card visibility must not override normalized Category visibility');
-  assert(renderer.includes("grids.forEach((grid) => { grid.innerHTML = ''; })"), 'hard-coded cards must stop acting as a parallel source once master Categories load');
+  assert(renderer.includes("document.getElementById('homepageCategoryGrid')") && renderer.includes('fallback.hidden = true'), 'master Categories must own the dedicated mount and retire the legacy fallback after rendering');
   assert(source.includes('published.deletedCategories') && source.includes('deleted.has(key)'), 'storefront compatibility fallback must honor deletion tombstones');
 });
