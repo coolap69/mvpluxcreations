@@ -111,7 +111,7 @@ Deno.test('Category display defaults do not create false unpublished changes', (
   const privateCopy = {
     ...published,
     displaySettings: {
-      backgroundPosition: 'center center',
+      backgroundPosition: 'center bottom',
       titleLeftPercent: 0,
       titleVerticalPercent: 0,
       titleAlign: 'center',

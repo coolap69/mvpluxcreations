@@ -193,7 +193,7 @@ export function architectureFeature(settings = {}) {
 export function normalizeDisplaySettings(value = {}) {
   const source = asObject(value);
   const normalized = {
-    backgroundPosition: String(source.backgroundPosition || 'center center')
+    backgroundPosition: String(source.backgroundPosition || 'center bottom')
   };
   DISPLAY_FIELDS.forEach((field) => {
     if (field === 'backgroundPosition' || source[field] === undefined || source[field] === '') return;

@@ -3,6 +3,7 @@
     twoFootPrice: 35.00,
     threeFootPrice: 50.00,
     fullHeight: 78,
+    defaultMerchandiseHeight: 78,
     fullPrice: 129.99,
     extraInchPrice: 2.00
   });
@@ -37,9 +38,14 @@
       twoFootPrice: positiveNumber(settings.twoFootPrice, DEFAULT_PRICE_SETTINGS.twoFootPrice),
       threeFootPrice: positiveNumber(settings.threeFootPrice, DEFAULT_PRICE_SETTINGS.threeFootPrice),
       fullHeight: parseHeight(settings.fullHeight) || DEFAULT_PRICE_SETTINGS.fullHeight,
+      defaultMerchandiseHeight: parseHeight(settings.defaultMerchandiseHeight) || DEFAULT_PRICE_SETTINGS.defaultMerchandiseHeight,
       fullPrice: positiveNumber(settings.fullPrice, DEFAULT_PRICE_SETTINGS.fullPrice),
       extraInchPrice: positiveNumber(settings.extraInchPrice, DEFAULT_PRICE_SETTINGS.extraInchPrice)
     };
+  }
+
+  function resolveMerchandiseHeight(value, settings = {}) {
+    return parseHeight(value) || normalizePriceSettings(settings).defaultMerchandiseHeight;
   }
 
   function calculateHeightPrice(height, settings = {}) {
@@ -65,6 +71,7 @@
     DEFAULT_PRICE_SETTINGS,
     parseHeight,
     normalizePriceSettings,
+    resolveMerchandiseHeight,
     calculateHeightPrice
   });
 })(window);

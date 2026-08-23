@@ -1623,7 +1623,7 @@ async function sendBuyerFinalCounterOffer() {
 }
 
 function openCustomForm() {
-  showSiteMessage('Custom standee order form will be added here.');
+  window.location.href = 'custom-order.html';
 }
 
 function openFanRequest() {
@@ -2540,6 +2540,10 @@ function calculateCutoutPrice(inches, builder = null) {
   const originalHeight = Number(builder?.dataset.originalHeight);
   if (Number.isFinite(override) && override >= 0 && Number(inches) === originalHeight) return override;
   return window.MVPLUX_PRICING.calculateHeightPrice(inches, getPriceSettingsForBuilder(builder));
+}
+
+function resolveSellableProductHeight(value, builder = null) {
+  return window.MVPLUX_PRICING.resolveMerchandiseHeight(value, getPriceSettingsForBuilder(builder));
 }
 
 const finishChoices = [
@@ -3658,7 +3662,7 @@ function getShowroomStageBackground() {
 }
 
 function getShowroomOriginalPrice(originalHeight) {
-  return calculateCutoutPrice(parseInt(originalHeight || '78', 10) || 78);
+  return calculateCutoutPrice(resolveSellableProductHeight(originalHeight));
 }
 
 function findWhiteTriangleImage(options = []) {
@@ -3674,7 +3678,7 @@ function findWhiteTriangleImage(options = []) {
 }
 
 function showroomPurchaseMarkup(productName = 'Selected Standee', originalHeight = 78, slug = '') {
-  const height = parseInt(originalHeight || '78', 10) || 78;
+  const height = resolveSellableProductHeight(originalHeight);
   const price = getShowroomOriginalPrice(height);
   const radioName = `${getStandeeSlug(slug || productName) || 'selected'}ShowroomSizeMode`;
   return `
@@ -3704,7 +3708,7 @@ function showroomPurchaseMarkup(productName = 'Selected Standee', originalHeight
 
 function updateShowroomPurchase(state, productName, originalHeight, slug) {
   if (!state?.builder) return;
-  const height = parseInt(originalHeight || '78', 10) || 78;
+  const height = resolveSellableProductHeight(originalHeight, state.builder);
   const price = getShowroomOriginalPrice(height);
   const productSlug = getStandeeSlug(slug || productName);
   state.builder.dataset.productName = productName;
@@ -3740,6 +3744,16 @@ function updateShowroomPurchase(state, productName, originalHeight, slug) {
   state.builder.querySelector('.finish-builder')?.remove();
   ensureFinishChoices(state.builder);
   updateBuilderOriginalDisplay(state.builder);
+}
+
+function initializeSellableProductPricing(root = document) {
+  root.querySelectorAll?.('.size-builder').forEach((builder) => {
+    if (builder.closest('[data-homepage-category-fallback][hidden]')) return;
+    applyAdminProductOverrides(builder);
+    const height = resolveSellableProductHeight(builder.dataset.originalHeight, builder);
+    builder.dataset.originalHeight = String(height);
+    updateBuilderOriginalDisplay(builder);
+  });
 }
 
 function refreshCategoryShowroomPricing() {
@@ -3978,7 +3992,7 @@ function renderNormalizedHomepageCategoryCards() {
     const horizontal = Math.max(-50, Math.min(50, Number(display.standeeLeftPercent) || 0));
     const vertical = Math.max(-50, Math.min(50, Number(display.standeeVerticalPercent) || 0));
     const left = Math.max(10, Math.min(90, 50 + horizontal));
-    const bottom = Math.max(0, Math.min(75, 18 - vertical));
+    const bottom = Math.max(0, Math.min(75, 2 - vertical));
     const safeTextNumber = (value, fallback, minimum, maximum) => {
       const number = Number(value);
       return Number.isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : fallback;
@@ -3992,7 +4006,7 @@ function renderNormalizedHomepageCategoryCards() {
     const background = category.card?.backgroundImage || display.backgroundImage || getShowroomStageBackground();
     grid.insertAdjacentHTML('beforeend', `
       <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${category.title || category.key} ${category.description || category.card?.description || ''}`)}">
-        <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(background)}');background-position:${escapeHtml(display.backgroundPosition || 'center center')};transform:scale(${backgroundSize / 100})" aria-hidden="true"></span>${category.card?.image ? `<img class="product-cutout" src="${escapeHtml(category.card.image)}" alt="${escapeHtml(category.card?.title || category.title || category.key)}" style="height:${size}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
+        <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(background)}');background-position:${escapeHtml(display.backgroundPosition || 'center bottom')};transform:scale(${backgroundSize / 100})" aria-hidden="true"></span>${category.card?.image ? `<img class="product-cutout" src="${escapeHtml(category.card.image)}" alt="${escapeHtml(category.card?.title || category.title || category.key)}" style="height:${size}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
         <h3 data-admin-category-field="title" style="${titleStyle}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${19 * titleSize / 100}px">${escapeHtml(category.title || category.card?.title || category.key)}</a></h3>
         <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeHtml(category.description || category.card?.description || '')}</p>
         <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
@@ -4542,7 +4556,7 @@ function renderStandeeDetailPage() {
   const requestedSlug = params.get('item') || 'kobe-bryant';
   const product = getStandeeBySlug(requestedSlug);
   const slug = product.slug || requestedSlug;
-  const originalHeight = parseInt(product.originalHeight || '78', 10);
+  const originalHeight = resolveSellableProductHeight(product.originalHeight);
   const originalPrice = calculateCutoutPrice(originalHeight);
   window.currentStandeeProduct = product;
   document.title = `${product.title} | MVPLUXCREATIONS`;
@@ -4642,8 +4656,8 @@ function applyAdminExtraImages() {
 function productCardMarkup(product) {
   const slug = product.slug || getProductSlug(product.title);
   const radioName = `${slug.replace(/-/g, '')}SizeMode`;
-  const originalHeight = product.originalHeight || 78;
-  const originalPrice = calculateCutoutPrice(parseHeightToInches(String(originalHeight)) || originalHeight);
+  const originalHeight = resolveSellableProductHeight(product.originalHeight);
+  const originalPrice = calculateCutoutPrice(originalHeight);
 
   return `
     <div class="product-card" data-category="custom" data-name="${product.title || 'Custom card'}" data-admin-card-key="${slug}">
@@ -7080,7 +7094,7 @@ function inlineCategoryEditorMarkup(category = {}) {
     <details open><summary>Category-wide display settings</summary>
       <p class="admin-note">These defaults affect products without an individual override.</p>
       <label>Background image<input name="displayBackgroundImage" value="${escapeHtml(display.backgroundImage || '')}"></label>
-      <label>Background position<input name="displayBackgroundPosition" value="${escapeHtml(display.backgroundPosition || 'center center')}"></label>
+      <label>Background position<input name="displayBackgroundPosition" value="${escapeHtml(display.backgroundPosition || 'center bottom')}"></label>
       <label>Background zoom %<input name="displayBackgroundSizePercent" type="number" min="50" max="300" value="${escapeHtml(String(display.backgroundSizePercent ?? 100))}"></label>
       <label>Standee size %<input name="displayStandeeSizePercent" type="number" value="${escapeHtml(String(display.standeeSizePercent ?? ''))}"></label>
       <label>Left / right %<input name="displayStandeeLeftPercent" type="number" value="${escapeHtml(String(display.standeeLeftPercent ?? ''))}"></label>
@@ -7102,7 +7116,7 @@ function inlineCategoryEditorMarkup(category = {}) {
 function categoryDisplaySettingsFromForm(form) {
   const data = new FormData(form);
   const settings = {
-    backgroundPosition: String(data.get('displayBackgroundPosition') || 'center center').trim() || 'center center'
+    backgroundPosition: String(data.get('displayBackgroundPosition') || 'center bottom').trim() || 'center bottom'
   };
   const image = String(data.get('displayBackgroundImage') || '').trim();
   if (image) settings.backgroundImage = image;
@@ -7120,7 +7134,7 @@ async function saveInlineCategoryDisplayAction(panel, { clearAll = false, resetS
   const baseCategory = panel._baseRecord || {};
   const products = Object.values(getAdminProducts()).filter((product) => (product.categories || []).includes(categoryKey));
   const overrideProducts = products.filter((product) => Object.keys(product.displayOverrides || {}).length);
-  let settings = resetCategory ? { backgroundPosition: 'center center' } : categoryDisplaySettingsFromForm(panel.querySelector('form'));
+  let settings = resetCategory ? { backgroundPosition: 'center bottom' } : categoryDisplaySettingsFromForm(panel.querySelector('form'));
   if (resetCategory && !window.confirm('Reset this category to the global display defaults?')) return false;
   if (clearAll && !window.confirm(`Update the category defaults and clear individual overrides for ${overrideProducts.length} product(s)?`)) return false;
   if (!clearAll && !resetSelected && !resetCategory && !window.confirm(`Save category defaults for ${products.length} product(s)? ${overrideProducts.length} individual override(s) will remain unchanged.`)) return false;
@@ -7194,7 +7208,7 @@ async function saveInlineRecordEditor(event) {
     title: String(data.get('title') || '').trim(),
     description: String(data.get('description') || '').trim(),
     funFact: String(data.get('funFact') || '').trim(),
-    originalHeight: String(data.get('originalHeight') || '').trim(),
+    originalHeight: String(resolveSellableProductHeight(data.get('originalHeight'))),
     priceOverride: String(data.get('priceOverride') || '').trim() === '' ? null : Number(data.get('priceOverride')),
     cutoutImage: String(data.get('cutoutImage') || '').trim(),
     backgroundImage: String(data.get('backgroundImage') || '').trim(),
@@ -7980,12 +7994,19 @@ document.addEventListener('DOMContentLoaded', async function () {
   try {
   // Authentication forms must work immediately, without waiting for unrelated storefront data.
   bindAuthForms();
+  // Start persisted-session restoration immediately. Published storefront data still renders
+  // before we wait for optional Admin authorization, but a slow snapshot request can no longer
+  // prevent an already signed-in Admin session from being recognized.
+  const authStatePromise = syncSupabaseAuthState().catch((error) => {
+    console.warn('Supabase session restoration failed:', error);
+  });
   // Published customer content must render before any optional auth/Admin request.
   await loadPublishedAdminSettings();
   renderNormalizedHomepageCategoryCards();
   // Category shopping must initialize as soon as published products and pricing are available.
   initializeCategoryShowroomExperience();
-  await syncSupabaseAuthState().catch(() => {});
+  initializeSellableProductPricing();
+  await authStatePromise;
   await loadStorefrontTestMode().catch(() => {});
   setupAuthState();
   updateCart();

@@ -1152,6 +1152,10 @@ function readPriceSettings() {
   return { ...getAdminLiveValue('priceSettings', readJsonStorage('mvpluxAdminPriceSettings', {})) };
 }
 
+function adminDefaultMerchandiseHeight(settings = readPriceSettings()) {
+  return window.MVPLUX_PRICING.resolveMerchandiseHeight(settings.defaultMerchandiseHeight, settings);
+}
+
 async function writePriceSettings(settings) {
   const values = settings || {};
   if (!await saveAdminSettingsLive({ priceSettings: values })) return null;
@@ -2374,7 +2378,7 @@ function adminDate(value) {
 
 function adminListItems(items) {
   if (!Array.isArray(items) || !items.length) return 'No item listed';
-  return items.map((item) => `${item.name || 'Item'} (${adminMoney(item.price)})`).join(', ');
+  return items.map((item) => `${escapeAdminHtml(item.name || 'Item')} (${adminMoney(item.price)})`).join(', ');
 }
 
 function adminAddressText(address) {
@@ -2384,7 +2388,7 @@ function adminAddressText(address) {
     address.address2,
     [address.city, address.state, address.zip].filter(Boolean).join(', '),
     address.country
-  ].filter(Boolean).join(' | ') || 'No address yet';
+  ].filter(Boolean).map(escapeAdminHtml).join(' | ') || 'No address yet';
 }
 
 function commerceEmptyMarkup(text) {
@@ -2394,6 +2398,8 @@ function commerceEmptyMarkup(text) {
 function orderCardMarkup(order) {
   const status = order.status === 'sent_to_production' ? 'in_production' : String(order.status || 'new');
   const isTest = Boolean(order.is_test);
+  const customItem = (Array.isArray(order.items) ? order.items : []).find((item) => item?.type === 'custom-order');
+  const referencePaths = Array.isArray(customItem?.reference_images) ? customItem.reference_images.filter(Boolean) : [];
   const nextAction = status === 'new'
     ? { status: 'in_production', label: 'Start Production' }
     : status === 'in_production'
@@ -2406,20 +2412,85 @@ function orderCardMarkup(order) {
   return `
     <article class="admin-commerce-card ${status === 'in_production' ? 'is-production-sent' : ''} ${isTest ? 'is-test-record' : ''}">
       <div class="admin-commerce-card-head">
-        <strong>${order.customer_name || 'Customer'}</strong>
+        <strong>${escapeAdminHtml(order.customer_name || 'Customer')}</strong>
         <span>${isTest ? '<b class="test-record-badge">TEST</b> ' : ''}${escapeAdminHtml(status.replace(/_/g, ' '))}</span>
       </div>
       <p>${adminListItems(order.items)}</p>
       <p><strong>Original:</strong> ${adminMoney(order.original_amount ?? order.subtotal)}${order.applied_discount_code ? ` · <strong>Code:</strong> ${escapeAdminHtml(order.applied_discount_code)} · <strong>Discount:</strong> ${adminMoney(order.discount_amount)}` : ''}</p>
-      <p><strong>Total:</strong> ${adminMoney(order.total)} · <strong>Pay:</strong> ${order.payment_method || 'Not chosen'}</p>
-      <p><strong>Email:</strong> ${order.customer_email || 'Not provided'} · <strong>Phone:</strong> ${order.customer_phone || 'Not provided'}</p>
+      <p><strong>Total:</strong> ${adminMoney(order.total)} · <strong>Pay:</strong> ${escapeAdminHtml(order.payment_method || 'Not chosen')}</p>
+      <p><strong>Email:</strong> ${escapeAdminHtml(order.customer_email || 'Not provided')} · <strong>Phone:</strong> ${escapeAdminHtml(order.customer_phone || 'Not provided')}</p>
       <p><strong>Ship:</strong> ${adminAddressText(order.shipping_address)}</p>
-      ${order.notes ? `<p><strong>Notes:</strong> ${order.notes}</p>` : ''}
+      ${order.notes ? `<p><strong>Notes:</strong> ${escapeAdminHtml(order.notes)}</p>` : ''}
+      ${customItem ? `<section class="admin-custom-order" data-custom-order-request>
+        <h4>Custom Order Design Request</h4>
+        <p data-custom-order-source><strong>Description:</strong> ${escapeAdminHtml(customItem.description || '')}<br><strong>Desired height:</strong> ${escapeAdminHtml(formatPublishedHeight(customItem.selected_height || ''))}<br><strong>Preferred contact:</strong> ${escapeAdminHtml(customItem.contact_preference || 'email')}</p>
+        <div class="admin-custom-order-references">${referencePaths.map((path) => `<a data-custom-reference-path="${escapeAdminHtml(path)}"><span>Loading private reference…</span></a>`).join('')}</div>
+        <label>Editable design brief<textarea data-custom-order-design-brief rows="8" placeholder="Generate a draft brief, then edit it here."></textarea></label>
+        <div class="admin-card-actions"><button type="button" data-generate-custom-order-brief>Generate Design Brief with AI</button></div>
+        <p data-custom-order-ai-status aria-live="polite">AI suggestions never approve artwork, save changes, or publish anything.</p>
+      </section>` : ''}
       <small>${adminDate(order.created_at)}</small>
       ${nextAction ? `<button class="admin-production-toggle" type="button" data-order-status="${nextAction.status}" data-id="${escapeAdminHtml(order.id)}">${nextAction.label}</button>` : ''}
       ${isTest ? `<button class="admin-commerce-delete" type="button" data-delete-commerce="order" data-id="${escapeAdminHtml(order.id)}">Delete Test Record</button>` : ''}
     </article>
   `;
+}
+
+async function hydrateCustomOrderReferences(root = document) {
+  const client = getAdminClient();
+  if (!client) return;
+  await Promise.all([...root.querySelectorAll('[data-custom-reference-path]')].map(async (link) => {
+    if (link.dataset.referenceLoaded) return;
+    link.dataset.referenceLoaded = 'true';
+    const path = link.dataset.customReferencePath;
+    const { data, error } = await client.storage.from('custom-order-references').createSignedUrl(path, 3600);
+    if (error || !data?.signedUrl) {
+      link.textContent = 'Private reference unavailable';
+      return;
+    }
+    link.href = data.signedUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.innerHTML = `<img src="${escapeAdminHtml(data.signedUrl)}" alt="Private custom-order reference"><span>Open reference</span>`;
+  }));
+}
+
+async function generateCustomOrderDesignBrief(button) {
+  const card = button.closest('[data-custom-order-request]');
+  const output = card?.querySelector('[data-custom-order-design-brief]');
+  const status = card?.querySelector('[data-custom-order-ai-status]');
+  const source = card?.querySelector('[data-custom-order-source]')?.textContent?.trim() || '';
+  if (!card || !output || !status || !source || button.dataset.aiBusy === 'true') return;
+  button.dataset.aiBusy = 'true';
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = 'Generating…';
+  status.textContent = 'Creating an editable suggestion from the submitted information…';
+  try {
+    const client = getAdminClient();
+    const token = (await client?.auth?.getSession())?.data?.session?.access_token;
+    if (!token) throw new Error('Sign in as Admin to use the design-brief helper.');
+    const response = await fetch(`${window.MVPLUX_SUPABASE.url}/functions/v1/admin-content-assistant`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, apikey: window.MVPLUX_SUPABASE.publishableKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'designBrief',
+        identity: 'Custom standee design request',
+        category: 'Custom Order',
+        context: { description: source }
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'The design brief could not be generated.');
+    output.value = String(result.designBrief || result.description || '').trim();
+    status.textContent = 'Editable suggestion added. Nothing was saved, approved, or published.';
+  } catch (error) {
+    status.textContent = error?.message || 'The design brief could not be generated.';
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+    delete button.dataset.aiBusy;
+  }
 }
 
 function parseOfferDetails(message) {
@@ -2654,6 +2725,11 @@ async function deleteCommerceRecord(button) {
 }
 
 function handleCommerceAdminClick(event) {
+  const briefButton = event.target.closest?.('[data-generate-custom-order-brief]');
+  if (briefButton) {
+    generateCustomOrderDesignBrief(briefButton);
+    return;
+  }
   const offerButton = event.target.closest?.('[data-offer-action]');
   if (offerButton) {
     updateAdminOffer(offerButton);
@@ -2823,6 +2899,7 @@ async function refreshCommerceAdmin() {
       ? ordersByQueue[queue].map(orderCardMarkup).join('')
       : commerceEmptyMarkup(queue === 'new' ? 'No new orders right now.' : `No ${queue.replace(/_/g, ' ')} orders right now.`);
   });
+  await hydrateCustomOrderReferences();
 
   setCommerceStatus(`Loaded ${ordersResponse.data?.length || 0} orders and ${offersResponse.data?.length || 0} offers.${historyError ? ' Some conversation details are temporarily unavailable.' : ''}`);
   const technical = document.getElementById('commerceTechnicalDetails');
@@ -2960,7 +3037,7 @@ function buildNewProductRecord({ slug, title, description = '', funFact = '', or
     title: String(title || '').trim(),
     description: String(description || '').trim(),
     funFact: String(funFact || '').trim(),
-    originalHeight: String(originalHeight || '').trim(),
+    originalHeight: String(parseAdminHeight(originalHeight) || adminDefaultMerchandiseHeight()),
     ...(Number.isFinite(price) && price >= 0 ? { priceOverride: price } : {}),
     cutoutImage: String(cutoutImage || '').trim(),
     backgroundImage: String(backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND).trim(),
@@ -3022,12 +3099,12 @@ function renderNewCategoryPreview(form) {
   const background = form.elements.namedItem('cardBackgroundImage')?.value.trim() || IMAGE_IMPORT_DEFAULT_BACKGROUND;
   const title = form.elements.namedItem('title')?.value.trim() || 'Example Collection';
   const description = form.elements.namedItem('description')?.value.trim() || 'A short description of this collection appears here.';
-  const position = form.elements.namedItem('backgroundPosition')?.value || 'center center';
+  const position = form.elements.namedItem('backgroundPosition')?.value || 'center bottom';
   const size = safeCategoryDisplayNumber(form.elements.namedItem('standeeSizePercent')?.value, CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX);
   const horizontal = safeCategoryDisplayNumber(form.elements.namedItem('standeeLeftPercent')?.value, 0, -50, 50);
   const vertical = safeCategoryDisplayNumber(form.elements.namedItem('standeeVerticalPercent')?.value, 0, -50, 50);
   const left = Math.max(10, Math.min(90, 50 + horizontal));
-  const bottom = Math.max(0, Math.min(75, 18 - vertical));
+  const bottom = Math.max(0, Math.min(75, 2 - vertical));
   preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview" style="background-image:url('${escapeAdminHtml(background)}');background-position:${escapeAdminHtml(position)}">
     <div class="admin-category-preview-stage"><img src="${escapeAdminHtml(image)}" alt="Category preview" style="height:${size}%;left:${left}%;bottom:${bottom}%"></div>
     <div><h4>${escapeAdminHtml(title)}</h4><p>${escapeAdminHtml(description)}</p><span class="admin-button admin-button-primary">View Collection</span></div>
@@ -3135,8 +3212,8 @@ function bindAdminAiAssistance(root = document) {
 async function saveNewProductFromForm(form, approvalStatus) {
   const formData = new FormData(form);
   const slug = makeSlug(formData.get('slug') || formData.get('title'));
-  if (!slug || !formData.get('title') || !formData.get('cutoutImage') || !formData.get('originalHeight')) {
-    setCreationStatus(form, 'Add the title, slug, main image, and original height.', 'error');
+  if (!slug || !formData.get('title') || !formData.get('cutoutImage')) {
+    setCreationStatus(form, 'Add the title, slug, and main image.', 'error');
     return false;
   }
   const latest = await fetchAuthoritativeAdminGlobal();
@@ -3600,6 +3677,9 @@ function collectProductFormData(form, dirtyFields = form?._adminDirtyFields || n
   textFields.forEach((field) => {
     if (dirtyFields.has(field)) patch[field] = String(formData.get(field) || '').trim();
   });
+  if (Object.prototype.hasOwnProperty.call(patch, 'originalHeight')) {
+    patch.originalHeight = String(parseAdminHeight(patch.originalHeight) || adminDefaultMerchandiseHeight());
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'priceOverride')) {
     patch.priceOverride = patch.priceOverride === '' ? null : Number(patch.priceOverride);
   }
@@ -4646,8 +4726,8 @@ function safeCategoryTextAlignment(value) {
   return ['left', 'center', 'right'].includes(String(value)) ? String(value) : 'center';
 }
 
-function categoryBackgroundPositionParts(value = 'center center') {
-  const wordValue = String(value || 'center center').trim().toLowerCase();
+function categoryBackgroundPositionParts(value = 'center bottom') {
+  const wordValue = String(value || 'center bottom').trim().toLowerCase();
   const words = { left: 0, center: 50, right: 100, top: 0, bottom: 100 };
   const parts = wordValue.split(/\s+/);
   const parse = (part, fallback) => part?.endsWith('%') && Number.isFinite(Number.parseFloat(part))
@@ -4662,7 +4742,7 @@ function effectiveCategoryDisplaySettings(category = {}) {
   const inheritedSize = safeCategoryDisplayNumber(global.standeeSizePercent, CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX);
   return {
     ...display,
-    backgroundPosition: String(display.backgroundPosition || 'center center'),
+    backgroundPosition: String(display.backgroundPosition || 'center bottom'),
     backgroundSizePercent: safeCategoryDisplayNumber(display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
     standeeSizePercent: safeCategoryDisplayNumber(display.standeeSizePercent, inheritedSize, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
     standeeLeftPercent: safeCategoryDisplayNumber(display.standeeLeftPercent, 0, -50, 50),
@@ -5168,7 +5248,7 @@ async function saveNewChildGroupFromForm(form) {
     visible: data.has('visible'),
     order: Number(data.get('order') || 999),
     card: { title: '', description: '', image: '', backgroundImage: '', order: Number(data.get('order') || 999) },
-    displaySettings: { backgroundPosition: 'center center' },
+    displaySettings: { backgroundPosition: 'center bottom' },
     createdAt: now,
     updatedAt: now,
     draftStatus: 'draft',
@@ -5269,7 +5349,7 @@ function previewCategoryEdit(form) {
   const imagePresentation = adminImageReferencePresentation(category.card?.image);
   const backgroundPresentation = adminImageReferencePresentation(effectiveCategoryBackground(category), { background: true });
   const left = Math.max(10, Math.min(90, 50 + display.standeeLeftPercent));
-  const bottom = Math.max(0, Math.min(75, 18 - display.standeeVerticalPercent));
+  const bottom = Math.max(0, Math.min(75, 2 - display.standeeVerticalPercent));
   const titleStyle = `transform:translate(${display.titleLeftPercent}%,${display.titleVerticalPercent}px);text-align:${display.titleAlign}`;
   const descriptionStyle = `transform:translate(${display.descriptionLeftPercent}%,${display.descriptionVerticalPercent}px);text-align:${display.descriptionAlign};font-size:${14 * display.descriptionSizePercent / 100}px`;
   preview.hidden = false;
@@ -5521,7 +5601,7 @@ function setupCategoryManagerEvents() {
     const resetBackground = event.target.closest('[data-reset-category-background]');
     if (resetBackground) {
       const form = resetBackground.closest('[data-category-edit]');
-      form.elements.namedItem('backgroundPosition').value = 'center center';
+      form.elements.namedItem('backgroundPosition').value = 'center bottom';
       form.elements.namedItem('backgroundPositionX').value = '50';
       form.elements.namedItem('backgroundPositionY').value = '50';
       form.elements.namedItem('backgroundSizePercent').value = String(CATEGORY_BACKGROUND_SIZE_DEFAULT);
@@ -5890,12 +5970,14 @@ function fillPriceSettingsForm() {
   const twoFootPrice = document.getElementById('twoFootPrice');
   const threeFootPrice = document.getElementById('threeFootPrice');
   const fullHeight = document.getElementById('fullHeight');
+  const defaultMerchandiseHeight = document.getElementById('defaultMerchandiseHeight');
   const fullPrice = document.getElementById('fullPrice');
   const extraInchPrice = document.getElementById('extraInchPrice');
 
   if (twoFootPrice) twoFootPrice.value = settings.twoFootPrice || '35.00';
   if (threeFootPrice) threeFootPrice.value = settings.threeFootPrice || '50.00';
   if (fullHeight) fullHeight.value = settings.fullHeight || '78';
+  if (defaultMerchandiseHeight) defaultMerchandiseHeight.value = settings.defaultMerchandiseHeight || settings.fullHeight || '78';
   if (fullPrice) fullPrice.value = settings.fullPrice || '129.99';
   if (extraInchPrice) extraInchPrice.value = settings.extraInchPrice || '2.00';
 }
@@ -5910,6 +5992,7 @@ function setupPriceRules() {
     twoFootPrice: document.getElementById('twoFootPrice')?.value,
     threeFootPrice: document.getElementById('threeFootPrice')?.value,
     fullHeight: document.getElementById('fullHeight')?.value,
+    defaultMerchandiseHeight: document.getElementById('defaultMerchandiseHeight')?.value,
     fullPrice: document.getElementById('fullPrice')?.value,
     extraInchPrice: document.getElementById('extraInchPrice')?.value
   });
@@ -5928,6 +6011,7 @@ function setupPriceRules() {
       twoFootPrice: document.getElementById('twoFootPrice')?.value.trim() || '35.00',
       threeFootPrice: document.getElementById('threeFootPrice')?.value.trim() || '50.00',
       fullHeight: String(parseAdminHeight(document.getElementById('fullHeight')?.value || '78') || 78),
+      defaultMerchandiseHeight: String(parseAdminHeight(document.getElementById('defaultMerchandiseHeight')?.value || '') || parseAdminHeight(document.getElementById('fullHeight')?.value || '78') || 78),
       fullPrice: document.getElementById('fullPrice')?.value.trim() || '129.99',
       extraInchPrice: document.getElementById('extraInchPrice')?.value.trim() || '2.00'
     };
@@ -6345,7 +6429,7 @@ async function configureImageDraft(form, approvalStatus = 'approved') {
     } else if (draft.destination === 'create-product') {
       draft.slug = draft.slug || makeSlug(draft.title);
       if (!draft.title || !draft.slug) throw new Error('Add a title first. The product ID will be generated automatically.');
-      if (!draft.originalHeight) throw new Error('Add the original height first.');
+      draft.originalHeight = String(parseAdminHeight(draft.originalHeight) || adminDefaultMerchandiseHeight());
       if (allAdminProducts().some((product) => product.slug === draft.slug)) throw new Error('That slug already belongs to another product or card.');
       const owner = findProductImageOwner(draft.path);
       if (owner) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
@@ -6374,7 +6458,7 @@ async function configureImageDraft(form, approvalStatus = 'approved') {
           visible: true,
           order: 999,
           card: { title: '', description: '', image: cardImage, backgroundImage: categoryBackground, visible: true, order: 999 },
-          displaySettings: { backgroundImage: categoryBackground, backgroundPosition: 'center center' },
+          displaySettings: { backgroundImage: categoryBackground, backgroundPosition: 'center bottom' },
           createdAt: now,
           updatedAt: now,
           draftStatus: 'ready',

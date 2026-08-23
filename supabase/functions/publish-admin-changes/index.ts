@@ -230,6 +230,15 @@ function isRepositoryImagePath(value: unknown) {
     && !value.includes('\\');
 }
 
+function isValidMerchandiseHeight(value: unknown) {
+  const raw = String(value ?? '').trim();
+  if (/^\d+(?:\.\d+)?$/.test(raw)) return Number(raw) >= 24 && Number(raw) <= 120;
+  const match = raw.match(/^(\d+)\s*'\s*(\d+)?\s*"?$/);
+  if (!match) return false;
+  const inches = (Number(match[1]) * 12) + Number(match[2] || 0);
+  return Number(match[2] || 0) < 12 && inches >= 24 && inches <= 120;
+}
+
 function validatePublishedSnapshot(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new PublishError('validation', 400, 'INVALID_SNAPSHOT', 'Published snapshot must be an object.');
@@ -264,6 +273,9 @@ function validatePublishedSnapshot(value: unknown) {
       }
       if (!Array.isArray(product.categories) || typeof product.visible !== 'boolean') {
         throw new PublishError('validation', 400, 'INVALID_PRODUCT_SETTINGS', `Product ${slug} has invalid category or visibility settings.`);
+      }
+      if (collectionName === 'products' && !isValidMerchandiseHeight(product.originalHeight)) {
+        throw new PublishError('validation', 400, 'MISSING_PRODUCT_HEIGHT', `Product ${slug} needs an original or default merchandise height before publishing.`);
       }
       for (const choice of Array.isArray(product.imageChoices) ? product.imageChoices : []) {
         if (!isRepositoryImagePath(choice?.image) || (choice?.stage && !isRepositoryImagePath(choice.stage))) {

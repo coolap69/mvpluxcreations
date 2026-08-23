@@ -138,7 +138,7 @@ Deno.test('Category image and background controls update the existing preview im
   for (const field of ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent']) assert(preview.includes(field), `preview must use ${field}`);
   const events = source.slice(source.indexOf('function setupCategoryManagerEvents()'), source.indexOf('function renderAdminProducts()'));
   assert(events.includes('syncCategoryDisplayControl(form, event.target)') && events.includes('previewCategoryEdit(form)'), 'slider and numeric inputs must synchronize and rerender immediately');
-  assert(events.includes('data-reset-category-background') && events.includes("backgroundPosition').value = 'center center'"), 'background positioning must reset through the existing field');
+  assert(events.includes('data-reset-category-background') && events.includes("backgroundPosition').value = 'center bottom'"), 'background positioning must reset through the existing field');
 });
 
 Deno.test('Admin preview and storefront use the same background priority and clipped layer order', async () => {
@@ -382,7 +382,7 @@ Deno.test('Background movement reuses the authoritative backgroundPosition field
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   assert(source.includes("name=\"backgroundPosition\" type=\"hidden\"") && source.includes("categoryDisplayRangeMarkup('backgroundPositionX'") && source.includes("categoryDisplayRangeMarkup('backgroundPositionY'"), 'background editor must expose horizontal and vertical controls');
   assert(source.includes("stored.value = `${horizontal.value}% ${vertical.value}%`"), 'visual background controls must save into the existing backgroundPosition field');
-  assert(source.includes("form.elements.namedItem('backgroundPosition').value = 'center center'"), 'background reset must restore the existing default');
+  assert(source.includes("form.elements.namedItem('backgroundPosition').value = 'center bottom'"), 'background reset must restore the existing default');
 });
 
 Deno.test('full and inline Category editors share the normalized title authority', async () => {

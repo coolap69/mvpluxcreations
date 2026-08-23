@@ -35,8 +35,8 @@ Deno.test('sign-in submits immediately and binds only once before storefront sta
 Deno.test('sign-in requests the homepage Admin cache version while sign-up keeps immediate binding', async () => {
   const signin = await Deno.readTextFile(new URL('../signin.html', import.meta.url));
   const signup = await Deno.readTextFile(new URL('../signup.html', import.meta.url));
-  assert(signin.includes('script.js?v=20260822-homepage-admin'), 'signin.html must load the homepage Admin navigation fix without a stale cache');
-  assert(signup.includes('script.js?v=20260822-auth-startup'), 'signup.html must retain the working immediate auth-form binder');
+  assert(signin.includes('script.js?v=20260823-auth-height'), 'signin.html must load the current auth restoration fix without a stale cache');
+  assert(signup.includes('script.js?v=20260823-auth-height'), 'signup.html must retain the current immediate auth-form binder');
 });
 
 Deno.test('successful approved sign-in authorizes the session and returns to the normal homepage', async () => {

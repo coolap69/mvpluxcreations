@@ -13,7 +13,7 @@ export function valuesEqual(left, right) {
   return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
 }
 
-const DISPLAY_DEFAULTS = Object.freeze({
+const PRODUCT_DISPLAY_DEFAULTS = Object.freeze({
   backgroundPosition: 'center center',
   backgroundSizePercent: 100,
   titleLeftPercent: 0,
@@ -24,6 +24,11 @@ const DISPLAY_DEFAULTS = Object.freeze({
   descriptionVerticalPercent: 0,
   descriptionAlign: 'center',
   descriptionSizePercent: 100
+});
+
+const CATEGORY_DISPLAY_DEFAULTS = Object.freeze({
+  ...PRODUCT_DISPLAY_DEFAULTS,
+  backgroundPosition: 'center bottom'
 });
 
 const ADMIN_ONLY_FIELDS = new Set([
@@ -49,7 +54,7 @@ function cleanSemanticValue(value) {
 
 function inheritedDisplaySettings(product = {}, context = {}) {
   const inherited = {
-    ...DISPLAY_DEFAULTS,
+    ...PRODUCT_DISPLAY_DEFAULTS,
     ...(context.globalDisplaySettings || {})
   };
   for (const category of Array.isArray(product.categories) ? product.categories : []) {
@@ -101,7 +106,7 @@ export function semanticValuesEqual(left, right) {
 export function normalizeCategoryForComparison(category = {}) {
   const normalized = cleanSemanticValue(category) || {};
   normalized.displaySettings = cleanSemanticValue({
-    ...DISPLAY_DEFAULTS,
+    ...CATEGORY_DISPLAY_DEFAULTS,
     ...(normalized.displaySettings || {})
   }) || {};
   return canonicalize(normalized);

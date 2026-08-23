@@ -117,11 +117,12 @@ Deno.test('homepage startup binds auth then renders the dedicated Category mount
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const init = source.slice(source.indexOf("document.addEventListener('DOMContentLoaded'"));
   const authForms = init.indexOf('bindAuthForms()');
+  const authStart = init.indexOf('const authStatePromise = syncSupabaseAuthState()');
   const published = init.indexOf('await loadPublishedAdminSettings()');
   const render = init.indexOf('renderNormalizedHomepageCategoryCards()', published);
-  const auth = init.indexOf('await syncSupabaseAuthState()', published);
+  const authWait = init.indexOf('await authStatePromise', published);
   const privateLoad = init.indexOf('await loadLiveAdminSettings()', published);
-  assert(authForms >= 0 && authForms < published && render > published, 'auth binding and published Category render must lead startup');
-  assert(auth > render && privateLoad > render, 'optional auth and private Admin reads must follow the published mount render');
+  assert(authForms >= 0 && authForms < authStart && authStart < published && render > published, 'auth binding and session restoration must start before the published Category request');
+  assert(authWait > render && privateLoad > render, 'startup must render the published mount before waiting for Admin authorization or private state');
   assert(source.includes("document.getElementById('homepageCategoryGrid')"), 'renderer must target only the permanent dedicated mount');
 });

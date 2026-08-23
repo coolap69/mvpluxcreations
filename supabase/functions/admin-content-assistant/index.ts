@@ -69,7 +69,7 @@ Deno.serve(async (request) => {
       return json(request, { error: 'The AI request could not be read.' }, 400);
     }
     const action = cleanText(body?.action, 30);
-    if (!['title', 'description', 'funFact', 'improve'].includes(action)) return json(request, { error: 'Unsupported suggestion action.' }, 400);
+    if (!['title', 'description', 'funFact', 'improve', 'designBrief'].includes(action)) return json(request, { error: 'Unsupported suggestion action.' }, 400);
     const imagePath = cleanText(body?.imagePath, 500);
     if (imagePath && (!/^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i.test(imagePath) || imagePath.includes('..'))) {
       return json(request, { error: 'The selected image path is invalid.' }, 400);
@@ -78,13 +78,15 @@ Deno.serve(async (request) => {
     const identity = cleanText(body?.identity, 200);
     const category = cleanText(body?.category, 300);
     const currentTitle = cleanText(context.title, 160);
-    const currentDescription = cleanText(context.description, 800);
+    const currentDescription = cleanText(context.description, action === 'designBrief' ? 3000 : 800);
     const currentFunFact = cleanText(context.funFact, 400);
     if (!identity && !imagePath && !category && !currentTitle && !currentDescription && !currentFunFact) {
       return json(request, { error: 'Choose an image or enter some product information first.' }, 400);
     }
     const prompt = [
-      'Create concise customer-facing content for a custom cardboard standee store.',
+      action === 'designBrief'
+        ? 'Create an internal production design brief from a customer custom-standee request.'
+        : 'Create concise customer-facing content for a custom cardboard standee store.',
       'Return only valid JSON with keys title, description, and funFact.',
       `Requested action: ${action}.`,
       `Authoritative identity/context supplied by the Admin: ${identity || 'not supplied'}.`,
@@ -96,6 +98,7 @@ Deno.serve(async (request) => {
       'For description requests, describe only details supported by the supplied context or visible image.',
       'For fun facts, do not invent a fact. If the subject cannot be identified reliably, explain briefly that more information is needed.',
       'For improve requests, preserve the meaning and useful details of the existing text.',
+      'For designBrief requests, put the complete editable brief in description. Organize only supplied facts into subject, composition, size, reference notes, customer preferences, open questions, and production checks. Never claim artwork is approved or ready to publish.',
       'When the Admin supplies identity/context, treat it as authoritative. Never replace, contradict, or override it based on the image.',
       'Use the selected image only for additional visible details that are consistent with the Admin-supplied identity/context.',
       'Do not make claims about licensing, availability, materials, price, or exact identity that are not provided.',
@@ -106,10 +109,12 @@ Deno.serve(async (request) => {
     const imageUrl = imagePath ? `${origin}/${imagePath.split('/').map(encodeURIComponent).join('/')}` : '';
     const raw = (await callSelectedProvider({ prompt, imageUrl, userId })).replace(/^```json\s*|\s*```$/g, '').trim();
     const suggestion = JSON.parse(raw);
+    const cleanedDescription = cleanText(suggestion.description, action === 'designBrief' ? 3000 : 300);
     return json(request, {
       title: cleanText(suggestion.title, 70),
-      description: cleanText(suggestion.description, 300),
-      funFact: cleanText(suggestion.funFact, 180)
+      description: cleanedDescription,
+      funFact: cleanText(suggestion.funFact, 180),
+      ...(action === 'designBrief' ? { designBrief: cleanedDescription } : {})
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260822-category-mount" />
+  <link rel="stylesheet" href="style.css?v=20260823-custom-order" />
 </head>
 <body class="admin-shell">
   <header class="top-nav">
@@ -12,7 +12,7 @@
     <nav>
       <a href="index.html#home">Home</a>
       <a href="index.html#shop">Shop</a>
-      <a href="index.html#custom">Custom Orders</a>
+      <a href="custom-order.html">Custom Orders</a>
       <a href="index.html#fan-requests">Fan Requests</a>
       <a href="index.html#why-customers">Why Us</a>
       <a href="index.html#contact">Contact</a>
@@ -140,7 +140,7 @@
             </div>
             <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
             <p class="admin-note">AI suggestions fill these fields for your review. They never save or publish automatically.</p>
-            <label>Original Height<input name="originalHeight" type="text" placeholder="Example: 6'6" required></label>
+            <label>Original Height<input name="originalHeight" type="text" placeholder="Known height, or leave blank for the Admin default"></label>
             <label>Choose Background<select name="backgroundImage" data-admin-image-picker="background"><option value="">Use the clean showroom background</option></select></label>
             <fieldset><legend>Choose Category</legend><div class="admin-category-options" data-create-product-categories></div></fieldset>
             <details class="admin-advanced-fields"><summary>Advanced</summary>
@@ -338,6 +338,11 @@
           <input id="fullHeight" type="text" placeholder="6'6 or 78" />
         </label>
         <label>
+          Default merchandise height
+          <input id="defaultMerchandiseHeight" type="text" placeholder="6'6 or 78" />
+          <small>Used only when a new sellable product has no known real-world height.</small>
+        </label>
+        <label>
           Full-size price
           <input id="fullPrice" type="number" min="0" step="0.01" placeholder="129.99" />
         </label>
@@ -472,8 +477,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
-  <script src="pricing.js?v=20260714-height-source"></script>
+  <script src="pricing.js?v=20260823-merchandise-height"></script>
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
-  <script src="admin.js?v=20260823-category-order"></script>
+  <script src="admin.js?v=20260823-custom-orders"></script>
 </body>
 </html>

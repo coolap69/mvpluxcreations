@@ -571,7 +571,7 @@ Deno.test('actual Category preview applies independent image, text, and backgrou
   helpers.previewCategoryEdit(form);
   const html = form.preview.innerHTML;
   for (const token of [
-    'height:84%', 'left:62%', 'bottom:26%', 'background-position:25% 75%', 'transform:scale(1.35)',
+    'height:84%', 'left:62%', 'bottom:10%', 'background-position:25% 75%', 'transform:scale(1.35)',
     'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg',
     'translate(7%,-6px)', 'text-align:right', 'font-size:24.7px',
     'translate(-9%,11px)', 'text-align:left', 'font-size:16.1px',

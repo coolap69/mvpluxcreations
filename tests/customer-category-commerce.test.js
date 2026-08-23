@@ -94,11 +94,12 @@ Deno.test('showroom pricing is correct immediately and updates synchronously whe
     return pricingWindow.MVPLUX_PRICING.calculateHeightPrice(height, {});
   };
   const updateShowroomPurchase = new Function('dependencies', `
-    const { getShowroomOriginalPrice, getStandeeSlug, getAdminProducts, ensureFinishChoices, updateBuilderOriginalDisplay } = dependencies;
+    const { getShowroomOriginalPrice, resolveSellableProductHeight, getStandeeSlug, getAdminProducts, ensureFinishChoices, updateBuilderOriginalDisplay } = dependencies;
     ${purchaseSource}
     return updateShowroomPurchase;
   `)({
     getShowroomOriginalPrice: (height) => calculateCutoutPrice(height),
+    resolveSellableProductHeight: (height) => pricingWindow.MVPLUX_PRICING.resolveMerchandiseHeight(height, {}),
     getStandeeSlug: (value) => String(value).toLowerCase().replace(/\W+/g, '-'), getAdminProducts: () => ({}), ensureFinishChoices: () => {},
     updateBuilderOriginalDisplay: (builder) => {
       builder.dataset.originalPrice = String(calculateCutoutPrice(Number(builder.dataset.originalHeight)));
@@ -114,5 +115,5 @@ Deno.test('showroom pricing is correct immediately and updates synchronously whe
   assert(builder.dataset.originalHeight === '36' && builder.querySelector('.live-size-price').textContent === '$50.00', 'selecting another product must immediately replace height and price');
   assert(centralPriceCalls >= 4, 'both selection updates must use central price calculation without a timer');
   const init = source.slice(source.indexOf("document.addEventListener('DOMContentLoaded'"));
-  assert(init.indexOf('initializeCategoryShowroomExperience()') < init.indexOf('await syncSupabaseAuthState()'), 'showroom pricing must initialize before optional authentication and private Admin work');
+  assert(init.indexOf('initializeCategoryShowroomExperience()') < init.indexOf('await authStatePromise'), 'showroom pricing must initialize before waiting for optional authentication and private Admin work');
 });
