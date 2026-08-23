@@ -2314,9 +2314,9 @@ function renderAdminViewModeLabel() {
   if (!adminArchitectureViewModesEnabled() || localStorage.getItem('mvpluxIsAdminApproved') !== 'true') return;
   const mode = getAdminViewMode();
   const labels = {
-    edit: 'Edit Mode — private changes auto-save',
-    preview: 'Previewing Unpublished Changes',
-    published: 'Viewing Published Version'
+    edit: 'Edit Mode — changes save privately',
+    preview: 'Previewing Saved Draft — not live',
+    published: 'Customer View — published website'
   };
   document.body.insertAdjacentHTML('beforeend', `<div class="admin-view-mode-label" data-admin-view-label data-mode="${mode}">${labels[mode]}</div>`);
 }
@@ -5427,6 +5427,8 @@ function inlineAdminOwnedField(element) {
 
 const inlineOwnedFieldTimers = new Map();
 const inlineOwnedDisplayTimers = new Map();
+const inlineOwnedFieldSaves = new Map();
+const inlineOwnedDisplaySaves = new Map();
 
 async function persistInlineOwnedField(element, owned, value) {
   if (!owned) return false;
@@ -5446,15 +5448,26 @@ function scheduleInlineOwnedFieldSave(element, owned, value, delay = 650) {
   updateInlineAdminToolbarState('Unsaved changes');
   const timer = window.setTimeout(async () => {
     inlineOwnedFieldTimers.delete(key);
-    const saved = await persistInlineOwnedField(element, owned, value);
+    const savePromise = persistInlineOwnedField(element, owned, value);
+    inlineOwnedFieldSaves.set(key, savePromise);
+    const saved = await savePromise;
+    if (inlineOwnedFieldSaves.get(key) === savePromise) inlineOwnedFieldSaves.delete(key);
     if (saved) delete element.dataset.adminOwnedDirty;
-    inlineAdminHasUnsavedLocalChanges = inlineOwnedFieldTimers.size > 0 || Boolean(inlineAdminDirtyKeys[inlineAdminPageKey()]?.size);
+    inlineAdminHasUnsavedLocalChanges = inlineOwnedFieldTimers.size > 0
+      || inlineOwnedFieldSaves.size > 0
+      || inlineOwnedDisplayTimers.size > 0
+      || inlineOwnedDisplaySaves.size > 0
+      || Boolean(inlineAdminDirtyKeys[inlineAdminPageKey()]?.size);
     if (saved && !inlineAdminHasUnsavedLocalChanges) updateInlineAdminToolbarState('Saved Privately');
   }, delay);
   inlineOwnedFieldTimers.set(key, timer);
 }
 
 async function flushInlineOwnedFieldSaves() {
+  if (inlineOwnedFieldSaves.size) {
+    const results = await Promise.all([...inlineOwnedFieldSaves.values()]);
+    if (results.some((saved) => !saved)) return false;
+  }
   if (!inlineOwnedFieldTimers.size) return true;
   const pendingElements = [...document.querySelectorAll('[data-admin-owned-dirty="true"]')];
   inlineOwnedFieldTimers.forEach((timer) => window.clearTimeout(timer));
@@ -5470,19 +5483,61 @@ async function flushInlineOwnedFieldSaves() {
   return true;
 }
 
-function scheduleInlineOwnedDisplaySave(image, state, delay = 450) {
-  if (!newStorefrontAdminArchitectureEnabled()) return false;
-  const owned = inlineAdminOwnedField(image);
-  if (!owned || owned.type !== 'product') return false;
-  const key = `display:${owned.slug}`;
-  window.clearTimeout(inlineOwnedDisplayTimers.get(key));
-  image.dataset.adminOwnedDisplayDirty = 'true';
-  inlineAdminHasUnsavedLocalChanges = true;
-  updateInlineAdminToolbarState('Unsaved changes');
-  inlineOwnedDisplayTimers.set(key, window.setTimeout(async () => {
-    inlineOwnedDisplayTimers.delete(key);
-    const base = getManagedProductBySlug(owned.slug) || {};
-    const displayOverrides = {
+function inlineCategoryDisplayPatch(image, state, owned = inlineAdminOwnedField(image)) {
+  if (!image || owned?.type !== 'category-card') return null;
+  const presentation = getEffectiveCategoryPresentation(owned.categoryKey, 'draft');
+  const display = presentation.display || {};
+  const baseline = image._adminCategoryDisplayBase || {
+    standeeSizePercent: Number(display.standeeSizePercent) || 63,
+    standeeLeftPercent: Number(display.standeeLeftPercent) || 0,
+    standeeVerticalPercent: Number(display.standeeVerticalPercent) || 0
+  };
+  image._adminCategoryDisplayBase = baseline;
+  const frame = getInlineAdminImageFrame(image);
+  const frameRect = frame?.getBoundingClientRect?.() || {};
+  const width = Math.max(1, Number(frameRect.width) || Number(frame?.clientWidth) || 400);
+  const height = Math.max(1, Number(frameRect.height) || Number(frame?.clientHeight) || 300);
+  return {
+    standeeSizePercent: Math.max(10, Math.min(250, baseline.standeeSizePercent * (Number(state?.scale) || 1))),
+    standeeLeftPercent: Math.max(-50, Math.min(50, baseline.standeeLeftPercent + ((Number(state?.x) || 0) / width * 100))),
+    standeeVerticalPercent: Math.max(-50, Math.min(50, baseline.standeeVerticalPercent + ((Number(state?.y) || 0) / height * 100)))
+  };
+}
+
+function applySavedInlineCategoryDisplay(image, patch) {
+  if (!image || !patch) return;
+  image._adminCategoryDisplayBase = { ...patch };
+  image.style.height = `${patch.standeeSizePercent}%`;
+  image.style.left = `${Math.max(10, Math.min(90, 50 + patch.standeeLeftPercent))}%`;
+  image.style.bottom = `${Math.max(0, Math.min(75, 2 - patch.standeeVerticalPercent))}%`;
+  image.style.setProperty('--admin-base-transform', 'translateX(-50%)');
+  image._adminImageState = {
+    x: 0,
+    y: 0,
+    scale: 1,
+    rotate: 0,
+    locked: Boolean(image._adminImageState?.locked)
+  };
+  renderInlineAdminImageState(image);
+}
+
+async function persistInlineOwnedDisplay(image, state, owned = inlineAdminOwnedField(image)) {
+  if (owned?.type === 'category-card') {
+    const patch = inlineCategoryDisplayPatch(image, state, owned);
+    const base = window.mvpluxLiveAdminSettings?.categories?.[owned.categoryKey]
+      || getAdminCategories()[owned.categoryKey]
+      || {};
+    const saved = await saveStorefrontCategoryPatch(owned.categoryKey, 'displaySettings', patch, base);
+    if (saved) {
+      applySavedInlineCategoryDisplay(image, patch);
+      updateInlineAdminToolbarState('Saved Privately — publish in Dashboard to update customers');
+    }
+    return saved;
+  }
+  if (owned?.type !== 'product') return false;
+  const base = getManagedProductBySlug(owned.slug) || {};
+  return saveStorefrontProductPatch(owned.slug, {
+    displayOverrides: {
       ...(base.displayOverrides || {}),
       imageTransform: {
         x: Number(state.x) || 0,
@@ -5490,22 +5545,43 @@ function scheduleInlineOwnedDisplaySave(image, state, delay = 450) {
         scale: Number(state.scale) || 1,
         rotate: Number(state.rotate) || 0
       }
-    };
-    const saved = await saveStorefrontProductPatch(owned.slug, {
-      displayOverrides,
-      updatedAt: new Date().toISOString(),
-      draftStatus: 'ready',
-      approvalStatus: 'draft'
-    }, base);
+    },
+    updatedAt: new Date().toISOString(),
+    draftStatus: 'ready',
+    approvalStatus: 'draft'
+  }, base);
+}
+
+function scheduleInlineOwnedDisplaySave(image, state, delay = 450) {
+  if (!newStorefrontAdminArchitectureEnabled()) return false;
+  const owned = inlineAdminOwnedField(image);
+  if (!owned || !['product', 'category-card'].includes(owned.type)) return false;
+  const key = `display:${owned.categoryKey || owned.slug}`;
+  window.clearTimeout(inlineOwnedDisplayTimers.get(key));
+  image.dataset.adminOwnedDisplayDirty = 'true';
+  inlineAdminHasUnsavedLocalChanges = true;
+  updateInlineAdminToolbarState('Unsaved changes');
+  inlineOwnedDisplayTimers.set(key, window.setTimeout(async () => {
+    inlineOwnedDisplayTimers.delete(key);
+    const savePromise = persistInlineOwnedDisplay(image, state, owned);
+    inlineOwnedDisplaySaves.set(key, savePromise);
+    const saved = await savePromise;
+    if (inlineOwnedDisplaySaves.get(key) === savePromise) inlineOwnedDisplaySaves.delete(key);
     if (saved) delete image.dataset.adminOwnedDisplayDirty;
     inlineAdminHasUnsavedLocalChanges = inlineOwnedFieldTimers.size > 0
+      || inlineOwnedFieldSaves.size > 0
       || inlineOwnedDisplayTimers.size > 0
+      || inlineOwnedDisplaySaves.size > 0
       || Boolean(inlineAdminDirtyKeys[inlineAdminPageKey()]?.size);
   }, delay));
   return true;
 }
 
 async function flushInlineOwnedDisplaySaves() {
+  if (inlineOwnedDisplaySaves.size) {
+    const results = await Promise.all([...inlineOwnedDisplaySaves.values()]);
+    if (results.some((saved) => !saved)) return false;
+  }
   if (!inlineOwnedDisplayTimers.size) return true;
   const pending = [...document.querySelectorAll('img[data-admin-owned-display-dirty="true"]')];
   inlineOwnedDisplayTimers.forEach((timer) => window.clearTimeout(timer));
@@ -5513,22 +5589,8 @@ async function flushInlineOwnedDisplaySaves() {
   for (const image of pending) {
     const state = image._adminImageState || {};
     const owned = inlineAdminOwnedField(image);
-    if (!owned || owned.type !== 'product') continue;
-    const base = getManagedProductBySlug(owned.slug) || {};
-    if (!await saveStorefrontProductPatch(owned.slug, {
-      displayOverrides: {
-        ...(base.displayOverrides || {}),
-        imageTransform: {
-          x: Number(state.x) || 0,
-          y: Number(state.y) || 0,
-          scale: Number(state.scale) || 1,
-          rotate: Number(state.rotate) || 0
-        }
-      },
-      updatedAt: new Date().toISOString(),
-      draftStatus: 'ready',
-      approvalStatus: 'draft'
-    }, base)) return false;
+    if (!owned || !['product', 'category-card'].includes(owned.type)) continue;
+    if (!await persistInlineOwnedDisplay(image, state, owned)) return false;
     delete image.dataset.adminOwnedDisplayDirty;
   }
   return true;
@@ -5846,9 +5908,7 @@ function saveInlineAdminEdit(element, patch) {
   let pagePatch = { ...(patch || {}) };
   const owned = inlineAdminOwnedField(element);
   if (owned) {
-    const attemptedCategoryDisplayEdit = element.tagName === 'IMG' && owned.type === 'category-card'
-      && ['x', 'y', 'scale', 'rotate'].some((field) => pagePatch[field] !== undefined);
-    if (element.tagName === 'IMG' && owned.type === 'product'
+    if (element.tagName === 'IMG' && ['product', 'category-card'].includes(owned.type)
       && ['x', 'y', 'scale', 'rotate'].some((field) => pagePatch[field] !== undefined)) {
       scheduleInlineOwnedDisplaySave(element, pagePatch);
     }
@@ -5863,7 +5923,6 @@ function saveInlineAdminEdit(element, patch) {
     }
     delete pagePatch.locked;
     if (!Object.keys(pagePatch).length) {
-      if (attemptedCategoryDisplayEdit) updateInlineAdminToolbarState('Open Edit selected item to save Category placement');
       return;
     }
   }
@@ -6218,6 +6277,11 @@ function changeSelectedInlineAdminImage(patch) {
     updateInlineAdminToolbarState('Backgrounds stay full size');
     return;
   }
+  const owned = inlineAdminOwnedField(image);
+  if (owned?.type === 'category-card' && patch.rotate !== undefined && Number(patch.rotate) !== 0) {
+    updateInlineAdminToolbarState('Category rotation is not a shared Dashboard setting');
+    return;
+  }
 
   const before = getInlineAdminSnapshot(image);
   const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
@@ -6226,9 +6290,15 @@ function changeSelectedInlineAdminImage(patch) {
     ...patch
   };
 
-  next.x = safeAdminImageNumber(next.x, 0, -140, 140);
-  next.y = safeAdminImageNumber(next.y, 0, -140, 140);
-  next.scale = safeAdminImageNumber(next.scale, 1, 0.45, 2.1);
+  const categoryBase = owned?.type === 'category-card' ? inlineCategoryDisplayPatch(image, state, owned) : null;
+  const frameRect = getInlineAdminImageFrame(image)?.getBoundingClientRect?.() || {};
+  const maximumX = owned?.type === 'category-card' ? Math.max(140, Number(frameRect.width) / 2 || 140) : 140;
+  const maximumY = owned?.type === 'category-card' ? Math.max(140, Number(frameRect.height) / 2 || 140) : 140;
+  const minimumScale = categoryBase ? Math.max(0.05, 10 / categoryBase.standeeSizePercent) : 0.45;
+  const maximumScale = categoryBase ? Math.max(minimumScale, 250 / categoryBase.standeeSizePercent) : 2.1;
+  next.x = safeAdminImageNumber(next.x, 0, -maximumX, maximumX);
+  next.y = safeAdminImageNumber(next.y, 0, -maximumY, maximumY);
+  next.scale = safeAdminImageNumber(next.scale, 1, minimumScale, maximumScale);
   next.rotate = safeAdminImageNumber(next.rotate, 0, -28, 28);
   image._adminImageState = next;
   renderInlineAdminImageState(image);
@@ -6309,6 +6379,22 @@ function nudgeSelectedInlineAdminImage(dx, dy) {
 function resetSelectedInlineAdminImage() {
   const image = getActiveInlineAdminImage();
   if (!image) return;
+
+  const owned = inlineAdminOwnedField(image);
+  if (owned?.type === 'category-card') {
+    const base = image._adminCategoryDisplayBase || inlineCategoryDisplayPatch(image, image._adminImageState || {}, owned);
+    const frameRect = getInlineAdminImageFrame(image)?.getBoundingClientRect?.() || {};
+    const width = Math.max(1, Number(frameRect.width) || 400);
+    const height = Math.max(1, Number(frameRect.height) || 300);
+    changeSelectedInlineAdminImage({
+      x: -(Number(base.standeeLeftPercent) || 0) * width / 100,
+      y: -(Number(base.standeeVerticalPercent) || 0) * height / 100,
+      scale: 63 / (Number(base.standeeSizePercent) || 63),
+      rotate: 0
+    });
+    updateInlineAdminToolbarState('Resetting Category image privately…');
+    return;
+  }
 
   changeSelectedInlineAdminImage({
     x: 0,
@@ -7626,10 +7712,10 @@ function installInlineAdminMode() {
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onpointerdown="runInlineAdminToolbarAction('rotate-right'); return false;" onclick="runInlineAdminToolbarAction('rotate-right'); return false;">Rotate +</button>
       </div>
       <div class="admin-toolbar-group admin-toolbar-page">
-        ${newStorefrontAdminArchitectureEnabled() ? '<button type="button" class="admin-tool-control" data-admin-toolbar-action="edit-selected-record" title="Edit the selected product or category">Edit Product</button>' : ''}
+        ${newStorefrontAdminArchitectureEnabled() ? '<button type="button" class="admin-tool-control" data-admin-toolbar-action="edit-selected-record" title="Edit the selected product or category">Edit Selected</button>' : ''}
         <a href="admin.html#products" title="Open Products to preview, save a draft, or publish">Products</a>
         <a href="admin.html#create-card">Add Card</a>
-        <a href="admin.html#dashboard">Open Admin Dashboard</a>
+        <a href="admin.html#categories" title="Publish saved Category drafts from the Dashboard">Open Dashboard to Publish</a>
         <details class="admin-toolbar-more"><summary>More</summary><div>
           <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image" onpointerdown="runInlineAdminToolbarAction('copy-code'); return false;" onclick="runInlineAdminToolbarAction('copy-code'); return false;">Copy CSS</button>
         </div></details>
@@ -7772,7 +7858,18 @@ function installInlineAdminMode() {
       const productDisplay = owned?.type === 'product'
         ? getManagedProductBySlug(owned.slug)?.displayOverrides?.imageTransform
         : null;
-      const saved = productDisplay || getInlineAdminPageEdits()[inlineAdminKey(image)] || {};
+      const categoryDisplay = owned?.type === 'category-card'
+        ? getEffectiveCategoryPresentation(owned.categoryKey, 'draft').display
+        : null;
+      if (categoryDisplay) {
+        image._adminCategoryDisplayBase = {
+          standeeSizePercent: Number(categoryDisplay.standeeSizePercent) || 63,
+          standeeLeftPercent: Number(categoryDisplay.standeeLeftPercent) || 0,
+          standeeVerticalPercent: Number(categoryDisplay.standeeVerticalPercent) || 0
+        };
+        image.style.setProperty('--admin-base-transform', 'translateX(-50%)');
+      }
+      const saved = productDisplay || (categoryDisplay ? {} : getInlineAdminPageEdits()[inlineAdminKey(image)] || {});
       image._adminImageState = {
         x: safeAdminImageNumber(saved.x, 0, -140, 140),
         y: safeAdminImageNumber(saved.y, 0, -140, 140),

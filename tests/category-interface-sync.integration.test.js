@@ -86,10 +86,54 @@ Deno.test('interface switching is navigation-only and preserves private drafts a
     Deno.readTextFile(new URL('../admin.html', import.meta.url))
   ]);
   const turnOff = source.slice(source.indexOf('function turnOffInlineAdminMode'), source.indexOf('function installInlineAdminMode'));
-  assert(source.includes('Open Admin Dashboard') && source.includes('href="admin.html#dashboard"'), 'Admin Mode must link clearly to Dashboard');
+  assert(source.includes('Open Dashboard to Publish') && source.includes('href="admin.html#categories"'), 'Admin Mode must link clearly to the Dashboard publishing workflow');
   assert(adminHtml.includes('View/Edit on Website') && adminHtml.includes('index.html?adminView=edit#home'), 'Dashboard must link clearly to storefront editing');
   assert(!turnOff.includes('signOut') && !turnOff.includes('mvpluxLiveAdminSettings') && !turnOff.includes('categories'), 'turning off Admin Mode must not sign out or discard Category drafts');
   assert((source.match(/\.auth\.signOut\(/g) || []).length === 1, 'only explicit Log Out may call Supabase signOut');
+});
+
+Deno.test('Storefront Category movement controls save the same normalized display fields as Dashboard', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const start = source.indexOf('function inlineCategoryDisplayPatch');
+  const end = source.indexOf('\n\nfunction applySavedInlineCategoryDisplay', start);
+  const inlineCategoryDisplayPatch = new Function('dependencies', `
+    const { inlineAdminOwnedField, getEffectiveCategoryPresentation, getInlineAdminImageFrame } = dependencies;
+    ${source.slice(start, end)}
+    return inlineCategoryDisplayPatch;
+  `)({
+    inlineAdminOwnedField: () => ({ type: 'category-card', categoryKey: 'sports' }),
+    getEffectiveCategoryPresentation: () => ({ display: { standeeSizePercent: 80, standeeLeftPercent: 10, standeeVerticalPercent: -5 } }),
+    getInlineAdminImageFrame: () => ({ getBoundingClientRect: () => ({ width: 400, height: 200 }) })
+  });
+  const patch = inlineCategoryDisplayPatch({}, { x: 40, y: 20, scale: 1.5 });
+  assert(patch.standeeSizePercent === 120, 'Storefront Size must map to normalized standeeSizePercent');
+  assert(patch.standeeLeftPercent === 20, 'Storefront horizontal movement must map to normalized standeeLeftPercent');
+  assert(patch.standeeVerticalPercent === 5, 'Storefront vertical movement must map to normalized standeeVerticalPercent');
+
+  const persistence = source.slice(source.indexOf('async function persistInlineOwnedDisplay'), source.indexOf('function scheduleInlineOwnedDisplaySave'));
+  const inlineSave = source.slice(source.indexOf('function saveInlineAdminEdit'), source.indexOf('function scheduleInlineAdminAutoSave'));
+  assert(persistence.includes("saveStorefrontCategoryPatch(owned.categoryKey, 'displaySettings', patch"), 'Category toolbar placement must use the shared normalized private Category save');
+  assert(inlineSave.includes("['product', 'category-card'].includes(owned.type)"), 'Category and Product toolbar movement must enter the same owned-display save path');
+  assert(!inlineSave.includes('Open Edit selected item to save Category placement'), 'the old visual-only Category movement path must be removed');
+  const movement = source.slice(source.indexOf('function changeSelectedInlineAdminImage'), source.indexOf('function getInlineAdminImageFrame'));
+  assert(movement.includes("owned?.type === 'category-card'") && movement.includes('Category rotation is not a shared Dashboard setting'), 'unsupported Category rotation must not pretend to save a visual-only override');
+});
+
+Deno.test('switching modes waits for in-flight normalized saves before reloading', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const fieldFlush = source.slice(source.indexOf('async function flushInlineOwnedFieldSaves'), source.indexOf('function inlineCategoryDisplayPatch'));
+  const displayFlush = source.slice(source.indexOf('async function flushInlineOwnedDisplaySaves'), source.indexOf('function inlineAdminKey'));
+  assert(source.includes('const inlineOwnedFieldSaves = new Map()') && source.includes('const inlineOwnedDisplaySaves = new Map()'), 'owned saves must remain tracked after their debounce timer fires');
+  assert(fieldFlush.indexOf('await Promise.all([...inlineOwnedFieldSaves.values()])') < fieldFlush.indexOf('if (!inlineOwnedFieldTimers.size) return true'), 'text save flush must await an in-flight Supabase write before allowing view navigation');
+  assert(displayFlush.indexOf('await Promise.all([...inlineOwnedDisplaySaves.values()])') < displayFlush.indexOf('if (!inlineOwnedDisplayTimers.size) return true'), 'visual save flush must await an in-flight Supabase write before allowing view navigation');
+});
+
+Deno.test('Admin view labels distinguish private drafts from the published customer website', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const labels = source.slice(source.indexOf('function renderAdminViewModeLabel'), source.indexOf('async function toggleCurrentPageAdminMode'));
+  assert(labels.includes('Edit Mode — changes save privately'), 'Edit Mode must identify private saving');
+  assert(labels.includes('Previewing Saved Draft — not live'), 'Preview mode must identify the saved draft as not live');
+  assert(labels.includes('Customer View — published website'), 'Published mode must identify the actual customer version');
 });
 
 Deno.test('Dashboard preview and storefront rendering both call the shared resolver', async () => {
