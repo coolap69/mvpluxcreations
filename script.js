@@ -2356,6 +2356,7 @@ async function syncSupabaseAuthState() {
       localStorage.removeItem('mvpluxAdminSignedIn');
       localStorage.removeItem('mvpluxIsAdminApproved');
       localStorage.removeItem('mvpluxAdminAnywhere');
+      setupAuthState();
       return;
     }
 
@@ -2363,6 +2364,7 @@ async function syncSupabaseAuthState() {
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', screenName);
     await checkCurrentUserAdminAccess({ showMessages: false });
+    setupAuthState();
   } catch (error) {
     console.warn('Supabase session check failed:', error);
   }
@@ -2472,18 +2474,27 @@ function bindAuthForms() {
   }
 }
 
-function setupAuthState() {
-  cleanStaleAdminState();
-  bindAuthForms();
-
+function renderSharedAuthHeader() {
   const signedInNotice = document.getElementById('signedInNotice');
-
-  if (signedInNotice && isAdminSignedIn()) {
-    signedInNotice.innerHTML = `You are signed in as <strong>${getSignedInName()}</strong>. <button type="button" class="admin-inline-signout" data-admin-signout>Log Out</button>`;
-  }
-
   const signedInName = getSignedInName();
   const isSignedIn = Boolean(isAdminSignedIn() || isCustomerSignedIn());
+
+  if (!isSignedIn) {
+    document.querySelectorAll('.sign-in-link').forEach((link) => {
+      link.textContent = 'Sign In';
+      link.setAttribute('href', 'signin.html');
+      link.removeAttribute('aria-current');
+    });
+    document.querySelectorAll('.sign-up-link').forEach((link) => {
+      link.style.display = '';
+    });
+    document.querySelectorAll('[data-auth-signout], [data-admin-signout], [data-admin-dashboard-link], [data-admin-mode-toggle], [data-admin-view-controls]').forEach((control) => control.remove());
+    return;
+  }
+
+  if (signedInNotice && isAdminSignedIn()) {
+    signedInNotice.innerHTML = `You are signed in as <strong>${signedInName}</strong>. <button type="button" class="admin-inline-signout" data-admin-signout>Log Out</button>`;
+  }
 
   if (isSignedIn) {
     document.querySelectorAll('.sign-in-link').forEach((link) => {
@@ -2502,17 +2513,25 @@ function setupAuthState() {
       links.insertAdjacentHTML('beforeend', `<button type="button" class="admin-inline-signout" data-auth-signout>Log Out</button>`);
     });
 
-    revealAdminControlsIfApproved();
+    if (localStorage.getItem('mvpluxIsAdminApproved') === 'true') {
+      addAdminDashboardLinkIfMissing();
+      addAdminModeButtonIfMissing();
+    } else {
+      document.querySelectorAll('[data-admin-dashboard-link], [data-admin-mode-toggle], [data-admin-view-controls]').forEach((control) => control.remove());
+    }
   }
 
-  document.querySelectorAll('[data-admin-mode-toggle]').forEach((button) => {
-    updateAdminModeToggleButtons();
-    button.addEventListener('click', () => toggleCurrentPageAdminMode(button));
-  });
-
   document.querySelectorAll('[data-auth-signout], [data-admin-signout]').forEach((button) => {
+    if (button.dataset.authSignoutReady) return;
+    button.dataset.authSignoutReady = 'true';
     button.addEventListener('click', signOutCurrentUser);
   });
+}
+
+function setupAuthState() {
+  cleanStaleAdminState();
+  bindAuthForms();
+  renderSharedAuthHeader();
 }
 
 /* ---------------- PREMIUM SIZE BUILDER ---------------- */

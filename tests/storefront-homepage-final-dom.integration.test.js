@@ -78,6 +78,8 @@ async function actualFinalHomepageDom() {
     getInlineAdminPageEdits: () => ({})
   });
 
+  const authLinks = window.document.querySelector('.auth-links');
+  authLinks.innerHTML = '<a data-admin-dashboard-link href="/admin.html">Admin Dashboard</a><button data-admin-mode-toggle>Admin Mode</button><button data-auth-signout>Log Out</button>';
   functions.renderNormalizedHomepageCategoryCards();
   const initiallyRendered = window.document.querySelectorAll('#homepageCategoryGrid > .admin-master-category-card').length;
   functions.renderAdminManagedCards();
@@ -111,6 +113,15 @@ Deno.test('later storefront functions cannot erase, reorder, or hide the dedicat
   const finalCards = window.document.querySelectorAll('#homepageCategoryGrid > .admin-master-category-card');
   assert(initiallyRendered > 0 && finalCards.length === initiallyRendered, 'later storefront startup must not erase dedicated Category cards');
   assert([...finalCards].every((card) => !card.hidden && card.style.display !== 'none'), 'later hidden-card logic must ignore dedicated Category cards');
+});
+
+Deno.test('later homepage startup renderers cannot overwrite the restored approved Admin header', async () => {
+  const { window } = await actualFinalHomepageDom();
+  const header = window.document.querySelector('.auth-links');
+  assert(header.querySelector('[data-admin-dashboard-link]')?.textContent === 'Admin Dashboard', 'later homepage rendering must retain Admin Dashboard');
+  assert(header.querySelector('[data-admin-mode-toggle]')?.textContent === 'Admin Mode', 'later homepage rendering must retain Admin Mode');
+  assert(header.querySelector('[data-auth-signout]')?.textContent === 'Log Out', 'later homepage rendering must retain Log Out');
+  assert(!header.querySelector('.sign-in-link, .sign-up-link'), 'later homepage rendering must not restore guest auth links');
 });
 
 Deno.test('homepage startup binds auth then renders the dedicated Category mount before private Admin work', async () => {

@@ -35,8 +35,86 @@ Deno.test('sign-in submits immediately and binds only once before storefront sta
 Deno.test('sign-in requests the homepage Admin cache version while sign-up keeps immediate binding', async () => {
   const signin = await Deno.readTextFile(new URL('../signin.html', import.meta.url));
   const signup = await Deno.readTextFile(new URL('../signup.html', import.meta.url));
-  assert(signin.includes('script.js?v=20260823-auth-height'), 'signin.html must load the current auth restoration fix without a stale cache');
-  assert(signup.includes('script.js?v=20260823-auth-height'), 'signup.html must retain the current immediate auth-form binder');
+  assert(signin.includes('script.js?v=20260823-shared-auth-header'), 'signin.html must load the shared auth-header fix without a stale cache');
+  assert(signup.includes('script.js?v=20260823-shared-auth-header'), 'signup.html must retain the current shared auth-header path');
+});
+
+function memoryStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key)
+  };
+}
+
+async function renderApprovedHeader(pageFile, storage) {
+  const [source, html] = await Promise.all([
+    Deno.readTextFile(new URL('../script.js', import.meta.url)),
+    Deno.readTextFile(new URL(`../${pageFile}`, import.meta.url))
+  ]);
+  const window = new Window({ url: `https://mvpluxcreations.com/${pageFile}` });
+  window.document.write(html);
+  const modeStart = source.indexOf('function addAdminModeButtonIfMissing');
+  const modeEnd = source.indexOf('\n\nfunction addAdminDashboardLinkIfMissing', modeStart);
+  const dashboardStart = modeEnd + 2;
+  const dashboardEnd = source.indexOf('\n\nfunction refreshAdminViewControls', dashboardStart);
+  const renderStart = source.indexOf('function renderSharedAuthHeader');
+  const renderEnd = source.indexOf('\n\nfunction setupAuthState', renderStart);
+  const render = new Function('document', 'localStorage', 'dependencies', `
+    const { adminArchitectureViewModesEnabled, updateAdminModeToggleButtons, toggleCurrentPageAdminMode,
+      setAdminViewMode, isAdminSignedIn, isCustomerSignedIn, getSignedInName, signOutCurrentUser } = dependencies;
+    ${source.slice(modeStart, modeEnd)}
+    ${source.slice(dashboardStart, dashboardEnd)}
+    ${source.slice(renderStart, renderEnd)}
+    return renderSharedAuthHeader;
+  `)(window.document, storage, {
+    adminArchitectureViewModesEnabled: () => false,
+    updateAdminModeToggleButtons: () => {}, toggleCurrentPageAdminMode: () => {}, setAdminViewMode: () => {},
+    isAdminSignedIn: () => false,
+    isCustomerSignedIn: () => storage.getItem('mvpluxCustomerSignedIn') === 'true',
+    getSignedInName: () => storage.getItem('mvpluxSignedInName') || '', signOutCurrentUser: () => {}
+  });
+  render();
+  return window;
+}
+
+Deno.test('Home and Custom Order finish with the same approved persisted-session header', async () => {
+  for (const page of ['index.html', 'custom-order.html']) {
+    const storage = memoryStorage({
+      mvpluxCustomerSignedIn: 'true', mvpluxSignedInName: 'Admin', mvpluxIsAdminApproved: 'true'
+    });
+    const window = await renderApprovedHeader(page, storage);
+    const header = window.document.querySelector('.auth-links');
+    assert(header.querySelector('[data-admin-dashboard-link]')?.textContent === 'Admin Dashboard', `${page} must show Admin Dashboard`);
+    assert(header.querySelector('[data-admin-mode-toggle]')?.textContent === 'Admin Mode', `${page} must show Admin Mode`);
+    assert(header.querySelector('[data-auth-signout]')?.textContent === 'Log Out', `${page} must show Log Out`);
+    assert(header.querySelector('.sign-up-link').style.display === 'none', `${page} must hide Sign Up after restoration`);
+    assert(![...header.querySelectorAll('a,button')].some((item) => item.textContent.trim() === 'Sign In'), `${page} must not visibly retain Sign In`);
+  }
+});
+
+Deno.test('refreshing Home and Custom Order restores the same approved header from persisted state', async () => {
+  const storage = memoryStorage({
+    mvpluxCustomerSignedIn: 'true', mvpluxSignedInName: 'Admin', mvpluxIsAdminApproved: 'true'
+  });
+  const firstHome = await renderApprovedHeader('index.html', storage);
+  const customOrder = await renderApprovedHeader('custom-order.html', storage);
+  const refreshedHome = await renderApprovedHeader('index.html', storage);
+  for (const window of [firstHome, customOrder, refreshedHome]) {
+    assert(window.document.querySelector('[data-admin-dashboard-link]'), 'persisted approved session must survive page navigation and refresh');
+    assert(window.document.querySelector('[data-auth-signout]'), 'persisted approved session must retain explicit Log Out');
+  }
+});
+
+Deno.test('session synchronization renders the shared header immediately after admin_profiles authorization', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const start = source.indexOf('async function syncSupabaseAuthState');
+  const end = source.indexOf('\n\nasync function signInCustomerWithSupabase', start);
+  const syncSource = source.slice(start, end);
+  const authorization = syncSource.indexOf('await checkCurrentUserAdminAccess');
+  const headerRender = syncSource.indexOf('setupAuthState()', authorization);
+  assert(authorization >= 0 && headerRender > authorization, 'session restoration must render the shared header immediately after authorization');
 });
 
 Deno.test('successful approved sign-in authorizes the session and returns to the normal homepage', async () => {
@@ -136,8 +214,9 @@ Deno.test('homepage refresh restores Admin approval before auth synchronization 
   const end = source.indexOf('\n\nasync function signInCustomerWithSupabase', start);
   const storage = new Map();
   let authorizationFinished = false;
+  let headerRendered = false;
   const sync = new Function('dependencies', `
-    const { getSupabaseClient, localStorage, checkCurrentUserAdminAccess, console } = dependencies;
+    const { getSupabaseClient, localStorage, checkCurrentUserAdminAccess, setupAuthState, console } = dependencies;
     ${source.slice(start, end)}
     return syncSupabaseAuthState;
   `)({
@@ -146,11 +225,13 @@ Deno.test('homepage refresh restores Admin approval before auth synchronization 
     } } } }) } }),
     localStorage: { setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) },
     checkCurrentUserAdminAccess: async () => { await Promise.resolve(); authorizationFinished = true; return true; },
+    setupAuthState: () => { headerRendered = true; },
     console
   });
 
   await sync();
   assert(authorizationFinished, 'homepage session restoration must await the admin_profiles authorization result');
+  assert(headerRendered, 'homepage session restoration must immediately render the authorized header');
   assert(storage.get('mvpluxCustomerSignedIn') === 'true', 'homepage refresh must retain the persisted signed-in presentation');
 });
 
