@@ -4854,7 +4854,7 @@ function categoryEditMarkup(category) {
             <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Category'}. Child Groups use the same Category records with <code>parentKey</code> and do not automatically appear on the homepage.</p>
             <div class="admin-category-settings-grid">
               <label>Destination page<input name="page" value="${escapeAdminHtml(category.page || '')}"></label>
-              <label>Order<input name="order" type="number" min="0" value="${escapeAdminHtml(String(category.order ?? 0))}"></label>
+              <label>Homepage Order<input name="order" type="number" min="0" value="${escapeAdminHtml(String(category.order ?? 0))}"></label>
               <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> Category visible to customers</label>
               <label class="${category.visible === false || parent ? 'admin-control-secondary' : ''}"><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false && !parent ? 'checked' : ''} ${category.visible === false || parent ? 'disabled' : ''}> ${parent ? 'Child Groups do not appear on Homepage' : 'Show on Homepage'}</label>
             </div>
@@ -4878,6 +4878,36 @@ function suspiciousCategoryKeys(categories) {
   return ['custom-other', 'custom-photo', 'small-party-packs'].filter((key) => keys.has(key));
 }
 
+function homepageOrderedAdminCategories(categories = readAdminCategories()) {
+  const deleted = new Set(readDeletedCategories());
+  return Object.values(categories || {})
+    .filter((category) => category?.key && !category.parentKey && category.visible !== false && category.homepageVisible !== false && !deleted.has(category.key))
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0)
+      || String(left.title || left.key).localeCompare(String(right.title || right.key)));
+}
+
+async function moveCategoryHomepageOrder(categoryKey, direction) {
+  const ordered = homepageOrderedAdminCategories();
+  const index = ordered.findIndex((category) => category.key === categoryKey);
+  const targetIndex = index + Number(direction || 0);
+  if (index < 0 || targetIndex < 0 || targetIndex >= ordered.length) return false;
+  const current = ordered[index];
+  const target = ordered[targetIndex];
+  const currentOrder = Number.isFinite(Number(current.order)) ? Number(current.order) : index;
+  const targetOrder = Number.isFinite(Number(target.order)) ? Number(target.order) : targetIndex;
+  const nextCurrentOrder = currentOrder === targetOrder ? targetIndex : targetOrder;
+  const nextTargetOrder = currentOrder === targetOrder ? index : currentOrder;
+  const now = new Date().toISOString();
+  const result = await saveAdminCollectionOperations([
+    { type: 'record', collectionKey: 'categories', entryKey: current.key, baseRecord: readAdminCategories()[current.key], patch: { order: nextCurrentOrder, updatedAt: now, draftStatus: 'draft', approvalStatus: 'draft' } },
+    { type: 'record', collectionKey: 'categories', entryKey: target.key, baseRecord: readAdminCategories()[target.key], patch: { order: nextTargetOrder, updatedAt: now, draftStatus: 'draft', approvalStatus: 'draft' } }
+  ]);
+  if (!result.ok) return false;
+  renderAdminProducts();
+  setStatus(`Homepage order saved privately. ${current.title || current.key} moved ${direction < 0 ? 'up' : 'down'}. Hidden Categories do not consume a homepage position. Publish the affected Category changes when ready.`);
+  return true;
+}
+
 function renderCategoryManager() {
   const container = document.getElementById('adminProducts');
   if (!container) return;
@@ -4891,6 +4921,8 @@ function renderCategoryManager() {
     .filter((category) => !category.parentKey)
     .filter((category) => visibilityFilter === 'all' || (visibilityFilter === 'hidden' ? category.visible === false : category.visible !== false))
     .filter((category) => !query || `${category.title} ${category.key} ${category.page} ${categoryChildGroups(category.key, categoriesByKey).map((child) => `${child.title} ${child.key}`).join(' ')}`.toLowerCase().includes(query));
+  const homepageOrder = homepageOrderedAdminCategories(categoriesByKey);
+  const homepageOrderIndex = new Map(homepageOrder.map((category, index) => [category.key, index]));
   const suspicious = new Set(suspiciousCategoryKeys(Object.fromEntries(categories.map((category) => [category.key, category]))));
   container.innerHTML = categories.map((category) => {
     const count = categoryAssignedProducts(category.key).length;
@@ -4903,10 +4935,12 @@ function renderCategoryManager() {
           ${categoryBulkSelectionMode ? `<label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select for bulk deletion</label>` : ''}
           <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
           <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Category: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span></div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom category — review assignments before changing it.</p>' : ''}</div>
-          <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
+          <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
             <button type="button" data-edit-category>Edit</button>
             ${categoryPublishButtonMarkup(category.key)}
+            <button type="button" data-move-category-homepage="-1" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) > 0 ? '' : 'disabled'}>Move Up</button>
+            <button type="button" data-move-category-homepage="1" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) < homepageOrder.length - 1 ? '' : 'disabled'}>Move Down</button>
             <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}">${category.visible === false ? 'UNHIDE CATEGORY' : 'Hide Category'}</button>
             <button type="button" class="${category.visible === false ? 'admin-button-secondary' : ''}" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}" ${category.visible === false ? 'disabled title="Unhide the Category before changing its homepage availability."' : ''}>${category.homepageVisible === false ? 'SHOW ON HOMEPAGE' : 'Hide from Homepage'}</button>
             <button type="button" data-open-category-products>Open Products</button>
@@ -5478,6 +5512,8 @@ function setupCategoryManagerEvents() {
     if (visibilityButton) await saveCategoryVisibility(card?.dataset.categoryCard, 'visible', visibilityButton.dataset.toggleCategoryVisibility === 'show');
     const homepageButton = event.target.closest('[data-toggle-category-homepage]');
     if (homepageButton) await saveCategoryVisibility(card?.dataset.categoryCard, 'homepageVisible', homepageButton.dataset.toggleCategoryHomepage === 'show');
+    const moveHomepage = event.target.closest('[data-move-category-homepage]');
+    if (moveHomepage) await moveCategoryHomepageOrder(card?.dataset.categoryCard, Number(moveHomepage.dataset.moveCategoryHomepage));
     const imageChoice = event.target.closest('[data-category-image-choice]');
     if (imageChoice) updateCategoryPickerValue(imageChoice.closest('[data-category-image-picker]'), imageChoice.dataset.categoryImageChoice);
     const sharedBackground = event.target.closest('[data-use-shared-category-background]');

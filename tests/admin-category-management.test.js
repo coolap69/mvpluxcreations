@@ -416,3 +416,29 @@ Deno.test('homepage is generated from master Categories and filters hidden or de
   assert(renderer.includes("document.getElementById('homepageCategoryGrid')") && renderer.includes('fallback.hidden = true'), 'master Categories must own the dedicated mount and retire the legacy fallback after rendering');
   assert(source.includes('published.deletedCategories') && source.includes('deleted.has(key)'), 'storefront compatibility fallback must honor deletion tombstones');
 });
+
+Deno.test('Homepage Move Up and Move Down save normalized Category order without a second order store', async () => {
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const start = source.indexOf('function homepageOrderedAdminCategories');
+  const end = source.indexOf('\n\nfunction renderCategoryManager', start);
+  const categories = {
+    hidden: { key: 'hidden', title: 'Hidden', visible: true, homepageVisible: false, order: 0 },
+    first: { key: 'first', title: 'First', visible: true, homepageVisible: true, order: 1 },
+    second: { key: 'second', title: 'Second', visible: true, homepageVisible: true, order: 2 }
+  };
+  const operations = [];
+  const api = new Function('dependencies', `
+    const { readAdminCategories, readDeletedCategories, saveAdminCollectionOperations, renderAdminProducts, setStatus } = dependencies;
+    ${source.slice(start, end)}
+    return { homepageOrderedAdminCategories, moveCategoryHomepageOrder };
+  `)({
+    readAdminCategories: () => categories, readDeletedCategories: () => [],
+    saveAdminCollectionOperations: async (value) => { operations.push(...value); return { ok: true }; },
+    renderAdminProducts: () => {}, setStatus: () => {}
+  });
+  assert(api.homepageOrderedAdminCategories().map((item) => item.key).join(',') === 'first,second', 'homepage-hidden Categories must not consume an ordering position');
+  assert(await api.moveCategoryHomepageOrder('second', -1), 'Move Up must save');
+  assert(operations.length === 2 && operations.every((operation) => operation.collectionKey === 'categories'), 'ordering must patch only the two normalized Category records');
+  assert(operations.find((operation) => operation.entryKey === 'second').patch.order === 1, 'moved Category must receive the adjacent normalized order');
+  assert(!source.slice(start, end).includes('categoryDisplayCards') && !source.slice(start, end).includes('homepageCategoryCardOrder'), 'ordering must not create or write a legacy competing order store');
+});

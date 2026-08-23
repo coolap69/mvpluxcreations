@@ -3742,6 +3742,13 @@ function updateShowroomPurchase(state, productName, originalHeight, slug) {
   updateBuilderOriginalDisplay(state.builder);
 }
 
+function refreshCategoryShowroomPricing() {
+  document.querySelectorAll('.sports-showroom .size-builder, .generic-showroom .size-builder').forEach((builder) => {
+    applyAdminProductOverrides(builder);
+    refreshBuilderPrice(builder);
+  });
+}
+
 function selectSportsOption(index) {
   const product = sportsStandeeCatalog[selectedSportsStandeeKey];
   const option = product?.options?.[index];
@@ -3833,6 +3840,7 @@ function selectSportsStandee(key, shouldScroll = true) {
 
   selectSportsOption(0);
   applyInlineAdminEdits();
+  updateCategoryGroupCurrentProduct(key);
   if (shouldScroll) document.querySelector('.sports-showroom')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -3870,6 +3878,14 @@ function initSportsShowroom() {
   const player = params.get('player');
   const startingKey = sportsStandeeCatalog[player] ? player : selectedSportsStandeeKey;
   selectSportsStandee(startingKey, false);
+}
+
+function initializeCategoryShowroomExperience() {
+  renderManagedCategoryPageProducts();
+  setupDynamicCategoryPage();
+  setupGenericCategoryShowroom();
+  initSportsShowroom();
+  refreshCategoryShowroomPricing();
 }
 
 function getGenericCategoryFallbackStage() {
@@ -4061,6 +4077,93 @@ function productsForCategoryGroup(products, masterKey, childKey = '') {
   return [...unique.values()];
 }
 
+function orderedCategoryProducts(products, orderKey) {
+  return [...products].sort((left, right) => {
+    const leftOrder = Number(left.categoryOrder?.[orderKey]);
+    const rightOrder = Number(right.categoryOrder?.[orderKey]);
+    return (Number.isFinite(leftOrder) ? leftOrder : Number.MAX_SAFE_INTEGER)
+      - (Number.isFinite(rightOrder) ? rightOrder : Number.MAX_SAFE_INTEGER)
+      || String(left.title || left.slug).localeCompare(String(right.title || right.slug));
+  });
+}
+
+function rotateCategoryDiscovery(products, offset = 0) {
+  if (products.length < 2) return [...products];
+  const start = ((Number(offset) || 0) % products.length + products.length) % products.length;
+  return [...products.slice(start), ...products.slice(0, start)];
+}
+
+function categoryDiscoveryRotation(masterKey, childKey, length) {
+  if (length < 2) return 0;
+  const dailyKey = `${masterKey}:${childKey}:${new Date().toISOString().slice(0, 10)}`;
+  return [...dailyKey].reduce((total, character) => total + character.charCodeAt(0), 0) % length;
+}
+
+function categoryGroupDiscovery(masterKey, childKey, currentSlug = '', products = getManagedProductCatalog(), categories = getAdminCategories(), limit = 4, rotation = null) {
+  const child = categories[childKey];
+  if (!childKey || child?.parentKey !== masterKey || child.visible === false) return { primary: [], secondary: [] };
+  const primary = orderedCategoryProducts(productsForCategoryGroup(products, masterKey, childKey), childKey)
+    .filter((product) => product.slug !== currentSlug);
+  const used = new Set([currentSlug, ...primary.map((product) => product.slug)]);
+  const visibleSiblingKeys = new Set(Object.values(categories)
+    .filter((category) => category?.parentKey === masterKey && category.key !== childKey && category.visible !== false)
+    .map((category) => category.key));
+  const candidates = orderedCategoryProducts(productsForCategoryGroup(products, masterKey), masterKey)
+    .filter((product) => product?.slug && !used.has(product.slug));
+  const siblingProducts = candidates.filter((product) => (product.categories || []).some((key) => visibleSiblingKeys.has(key)));
+  const ungroupedProducts = candidates.filter((product) => !(product.categories || []).some((key) => visibleSiblingKeys.has(key)));
+  const offset = rotation === null ? categoryDiscoveryRotation(masterKey, childKey, Math.max(siblingProducts.length, ungroupedProducts.length)) : rotation;
+  const secondary = [
+    ...rotateCategoryDiscovery(siblingProducts, offset),
+    ...rotateCategoryDiscovery(ungroupedProducts, offset)
+  ].slice(0, Math.max(0, limit));
+  return { primary, secondary };
+}
+
+function categoryCollectionTitle(value, prefix = 'More') {
+  const title = String(value || 'Standees').trim();
+  return `${prefix} ${/standees$/i.test(title) ? title : `${title} Standees`}`;
+}
+
+function categoryDiscoveryCardMarkup(product) {
+  return `<a class="standee-related-card" href="standee.html?item=${encodeURIComponent(product.slug)}" data-related-product-slug="${escapeHtml(product.slug)}">
+    <img src="${escapeHtml(product.cutoutImage || product.image || '')}" alt="${escapeHtml(product.title || product.slug)}">
+    <strong>${escapeHtml(product.title || product.slug)}</strong>
+    <span>View Product</span>
+  </a>`;
+}
+
+function renderCategoryGroupDiscovery(page, masterKey, state, currentSlug) {
+  page.querySelector('[data-category-group-discovery]')?.remove();
+  const panel = masterKey === 'sports' ? page.querySelector('.sports-roster-panel') : page.querySelector('.category-panel');
+  const heading = panel?.querySelector('h2');
+  if (!state.activeChild) {
+    if (heading?.dataset.defaultCategoryHeading) heading.textContent = heading.dataset.defaultCategoryHeading;
+    return;
+  }
+  if (heading) {
+    heading.dataset.defaultCategoryHeading ||= heading.textContent || 'Available Standees';
+    heading.textContent = categoryCollectionTitle(state.activeChild.title || state.activeChild.key);
+  }
+  const discovery = categoryGroupDiscovery(masterKey, state.activeChild.key, currentSlug, getManagedProductCatalog(), getAdminCategories());
+  if (!discovery.secondary.length || !panel) return;
+  panel.insertAdjacentHTML('afterend', `<section class="category-panel category-group-discovery" data-category-group-discovery>
+    <h2>${escapeHtml(categoryCollectionTitle(getAdminCategories()[masterKey]?.title || masterKey, 'Explore More'))}</h2>
+    <div class="standee-related-grid">${discovery.secondary.map(categoryDiscoveryCardMarkup).join('')}</div>
+  </section>`);
+}
+
+function updateCategoryGroupCurrentProduct(currentSlug) {
+  const masterKey = getCurrentProductCategory();
+  const state = masterKey ? categoryGroupState(masterKey) : null;
+  if (!state?.activeChild) return;
+  const page = document.querySelector('.category-page');
+  const grid = masterKey === 'sports' ? page?.querySelector('.sports-player-grid') : page?.querySelector('.category-panel .category-grid');
+  grid?.querySelectorAll('[data-product-id]').forEach((card) => {
+    card.hidden = card.dataset.productId === currentSlug;
+  });
+}
+
 function bindCategoryGroupNavigation() {
   if (document.documentElement.dataset.categoryGroupNavigationBound) return;
   document.documentElement.dataset.categoryGroupNavigationBound = 'true';
@@ -4087,15 +4190,11 @@ function renderManagedCategoryPageProducts() {
   renderCategoryGroupNavigation(page, category, groupState);
   bindCategoryGroupNavigation();
 
-  const products = productsForCategoryGroup(getManagedProductCatalog(), category, groupState.activeChild?.key || '')
-    .sort((a, b) => {
-      const orderKey = groupState.activeChild?.key || category;
-      const aOrder = Number(a.categoryOrder?.[orderKey]);
-      const bOrder = Number(b.categoryOrder?.[orderKey]);
-      return (Number.isFinite(aOrder) ? aOrder : Number.MAX_SAFE_INTEGER)
-        - (Number.isFinite(bOrder) ? bOrder : Number.MAX_SAFE_INTEGER)
-        || a.title.localeCompare(b.title);
-    });
+  const orderKey = groupState.activeChild?.key || category;
+  const products = orderedCategoryProducts(productsForCategoryGroup(getManagedProductCatalog(), category, groupState.activeChild?.key || ''), orderKey);
+  const currentBuilderSlug = page.querySelector('.showroom-size-builder')?.dataset.adminSlug || '';
+  const currentSlug = products.some((product) => product.slug === currentBuilderSlug) ? currentBuilderSlug : products[0]?.slug || '';
+  if (groupState.unavailable) renderCategoryGroupDiscovery(page, category, { ...groupState, activeChild: null }, '');
 
   if (category === 'sports') {
     const grid = page.querySelector('.sports-player-grid');
@@ -4112,6 +4211,11 @@ function renderManagedCategoryPageProducts() {
       </article>
     `).join('');
     grid.querySelector('.sports-player-card')?.classList.add('active');
+    renderCategoryGroupDiscovery(page, category, groupState, currentSlug);
+    if (groupState.activeChild && currentSlug) {
+      selectSportsStandee(currentSlug, false);
+      updateCategoryGroupCurrentProduct(currentSlug);
+    }
     return;
   }
 
@@ -4122,6 +4226,8 @@ function renderManagedCategoryPageProducts() {
     return;
   }
   grid.innerHTML = products.map(managedCategoryCardMarkup).join('');
+  renderCategoryGroupDiscovery(page, category, groupState, currentSlug);
+  if (document.querySelector('.generic-showroom')) setupGenericCategoryShowroom({ rebuild: true, selectedSlug: currentSlug });
 }
 
 function renderGenericCategoryOptions(state, options) {
@@ -4179,9 +4285,20 @@ function buildGenericCategoryOptions(card, backgroundImages) {
   }];
 }
 
-function setupGenericCategoryShowroom() {
+function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {}) {
   const page = document.querySelector('.category-page');
-  if (!page || document.querySelector('.sports-showroom') || document.querySelector('.generic-showroom')) return;
+  const existing = document.querySelector('.generic-showroom');
+  if (!page || (document.querySelector('.sports-showroom') && !existing) || (existing && !rebuild)) return;
+
+  let storedBackgroundImages = [];
+  if (existing) {
+    try {
+      storedBackgroundImages = JSON.parse(existing.dataset.categoryBackgroundImages || '[]');
+    } catch (error) {
+      storedBackgroundImages = [];
+    }
+    existing.remove();
+  }
 
   const cards = [...page.querySelectorAll('.category-card')];
   if (!cards.length) return;
@@ -4189,16 +4306,19 @@ function setupGenericCategoryShowroom() {
   const backgroundPanel = [...page.querySelectorAll('.category-panel')].find((panel) => {
     return panel.querySelector('.background-carousel') || /Background Options/i.test(panel.textContent || '');
   });
-  const backgroundImages = [...(backgroundPanel?.querySelectorAll('.background-carousel img') || [])];
+  const backgroundImages = backgroundPanel
+    ? [...backgroundPanel.querySelectorAll('.background-carousel img')]
+    : storedBackgroundImages.map((src) => ({ getAttribute: (name) => name === 'src' ? src : '' }));
   if (backgroundPanel) backgroundPanel.remove();
 
-  const firstCard = cards[0];
+  const firstCard = cards.find((card) => card.dataset.productId === selectedSlug) || cards[0];
   const firstTitle = firstCard.querySelector('h3')?.textContent.trim() || 'Standee';
   const firstImage = firstCard.querySelector('img')?.getAttribute('src') || '';
 
   const showroom = document.createElement('section');
   showroom.id = 'selected-standee';
   showroom.className = 'sports-showroom generic-showroom';
+  showroom.dataset.categoryBackgroundImages = JSON.stringify(backgroundImages.map((image) => image.getAttribute('src') || '').filter(Boolean));
   showroom.setAttribute('aria-label', 'Selected category standee');
   showroom.innerHTML = `
     <div class="category-featured-art generic-main-stage" style="background-image: url('${getGenericCategoryFallbackStage()}');">
@@ -4261,6 +4381,7 @@ function setupGenericCategoryShowroom() {
     });
 
     applyInlineAdminEdits();
+    updateCategoryGroupCurrentProduct(product?.slug || getStandeeSlug(productId));
   };
 
   cards.forEach((card, index) => {
@@ -4362,22 +4483,18 @@ function relatedProductGroups(product, products = getManagedProductCatalog(), ca
   const child = assignments.map((key) => categories[key]).find((category) => category?.parentKey && category.visible !== false) || null;
   const masterKey = child?.parentKey || assignments.find((key) => categories[key] && !categories[key].parentKey) || '';
   if (!masterKey) return [];
-  const used = new Set([currentSlug]);
-  const take = (items) => items.filter((item) => {
-    if (!item?.slug || used.has(item.slug)) return false;
-    used.add(item.slug);
-    return true;
-  }).slice(0, limit);
   const groups = [];
   if (child) {
-    const sameChild = take(productsForCategoryGroup(products, masterKey, child.key));
-    if (sameChild.length) groups.push({ title: `More ${child.title || child.key}`, products: sameChild });
+    const discovery = categoryGroupDiscovery(masterKey, child.key, currentSlug, products, categories, limit);
+    const sameChild = discovery.primary.slice(0, limit);
+    if (sameChild.length) groups.push({ title: categoryCollectionTitle(child.title || child.key), products: sameChild });
+    if (discovery.secondary.length) groups.push({ title: categoryCollectionTitle(categories[masterKey]?.title || masterKey, 'Explore More'), products: discovery.secondary });
+    return groups;
   }
-  const remaining = Math.max(0, limit - groups.reduce((total, group) => total + group.products.length, 0));
-  if (remaining) {
-    const sameMaster = take(productsForCategoryGroup(products, masterKey)).slice(0, remaining);
-    if (sameMaster.length) groups.push({ title: `More ${categories[masterKey]?.title || masterKey}`, products: sameMaster });
-  }
+  const sameMaster = orderedCategoryProducts(productsForCategoryGroup(products, masterKey), masterKey)
+    .filter((item) => item?.slug && item.slug !== currentSlug);
+  const rotated = rotateCategoryDiscovery(sameMaster, categoryDiscoveryRotation(masterKey, '', sameMaster.length)).slice(0, limit);
+  if (rotated.length) groups.push({ title: categoryCollectionTitle(categories[masterKey]?.title || masterKey, 'Explore More'), products: rotated });
   return groups;
 }
 
@@ -7866,6 +7983,8 @@ document.addEventListener('DOMContentLoaded', async function () {
   // Published customer content must render before any optional auth/Admin request.
   await loadPublishedAdminSettings();
   renderNormalizedHomepageCategoryCards();
+  // Category shopping must initialize as soon as published products and pricing are available.
+  initializeCategoryShowroomExperience();
   await syncSupabaseAuthState().catch(() => {});
   await loadStorefrontTestMode().catch(() => {});
   setupAuthState();
@@ -7905,12 +8024,10 @@ document.addEventListener('DOMContentLoaded', async function () {
   renderAdminManagedCards();
   applyHomepageCategoryCardOrder();
   applyInlineHiddenCards();
-  renderManagedCategoryPageProducts();
-  setupDynamicCategoryPage();
   renderNormalizedHomepageCategoryCards();
   renderStandeeDetailPage();
-  setupGenericCategoryShowroom();
-  initSportsShowroom();
+  if (shouldUsePrivateAdminState()) initializeCategoryShowroomExperience();
+  else refreshCategoryShowroomPricing();
   ensureProductAdminSlugs();
   scrollToSelectedStandeeHash();
   bindSportsShowroomClicks();

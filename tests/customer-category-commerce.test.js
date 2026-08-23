@@ -1,4 +1,5 @@
 import { filterProductsForCategoryGroup } from '../admin-state-utils.js';
+import { Window } from 'npm:happy-dom@18.0.1';
 
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
@@ -36,8 +37,8 @@ Deno.test('Child Group results and related discovery deduplicate products by slu
   };
   assert(filterProductsForCategoryGroup(fixture, 'sports', 'basketball').map((product) => product.slug).join(',') === 'kobe,jordan', 'filtered cards must deduplicate by slug');
   const related = between('function relatedProductGroups', 'function setStandeeBackground');
-  assert(related.includes('const used = new Set([currentSlug])'), 'related products must exclude the current product');
-  assert(related.includes('productsForCategoryGroup(products, masterKey, child.key)') && related.includes('productsForCategoryGroup(products, masterKey)'), 'related discovery must prefer Child Group then Main Category');
+  assert(related.includes('categoryGroupDiscovery(masterKey, child.key, currentSlug') && related.includes('item.slug !== currentSlug'), 'related products must exclude the current product and reuse generic Child Group discovery');
+  assert(related.includes('discovery.primary') && related.includes('discovery.secondary'), 'related discovery must present Child Group products before broader Main Category discovery');
   assert(related.includes('standee.html?item='), 'related cards must lead to the existing normal product page');
 });
 
@@ -48,4 +49,70 @@ Deno.test('invalid or hidden Child Group URLs remain unavailable without changin
   assert(groupFramework.includes('unavailable: hiddenRequestedChild'), 'hidden Child Group query must remain unavailable');
   const published = JSON.parse(await Deno.readTextFile(new URL('../published-admin-settings.json', import.meta.url))).snapshot;
   assert(!Object.values(published.categories || {}).some((category) => category.parentKey === 'sports'), 'this code task must not create real Sports Child Groups');
+});
+
+Deno.test('Child Group discovery is generic, ordered, and excludes current or already shown slugs', () => {
+  const framework = between('function productsForCategoryGroup', 'function bindCategoryGroupNavigation');
+  const categoryGroupDiscovery = new Function(`
+    ${framework}
+    return categoryGroupDiscovery;
+  `)();
+  const categories = {
+    sports: { key: 'sports', title: 'Sports', visible: true },
+    basketball: { key: 'basketball', title: 'Basketball', parentKey: 'sports', visible: true },
+    soccer: { key: 'soccer', title: 'Soccer', parentKey: 'sports', visible: true },
+    movies: { key: 'movies', title: 'Movies', visible: true },
+    robots: { key: 'robots', title: 'Robots', parentKey: 'movies', visible: true },
+    heroes: { key: 'heroes', title: 'Heroes', parentKey: 'movies', visible: true }
+  };
+  const products = [
+    { slug: 'current', title: 'Current', visible: true, categories: ['sports', 'basketball'], categoryOrder: { basketball: 0, sports: 0 } },
+    { slug: 'jordan', title: 'Jordan', visible: true, categories: ['sports', 'basketball'], categoryOrder: { basketball: 1, sports: 1 } },
+    { slug: 'messi', title: 'Messi', visible: true, categories: ['sports', 'soccer'], categoryOrder: { sports: 2 } },
+    { slug: 'brady', title: 'Brady', visible: true, categories: ['sports', 'soccer'], categoryOrder: { sports: 3 } },
+    { slug: 'robot-current', title: 'Robot Current', visible: true, categories: ['movies', 'robots'], categoryOrder: { robots: 0 } },
+    { slug: 'robot-two', title: 'Robot Two', visible: true, categories: ['movies', 'robots'], categoryOrder: { robots: 1 } },
+    { slug: 'hero-one', title: 'Hero One', visible: true, categories: ['movies', 'heroes'], categoryOrder: { movies: 2 } }
+  ];
+  const sports = categoryGroupDiscovery('sports', 'basketball', 'current', products, categories, 4, 0);
+  assert(sports.primary.map((item) => item.slug).join(',') === 'jordan', 'primary discovery must contain only the selected Child Group in its saved order and exclude current');
+  assert(sports.secondary.map((item) => item.slug).join(',') === 'messi,brady', 'secondary discovery must use the Main Category without duplicating current or primary products');
+  assert(categoryGroupDiscovery('sports', 'basketball', 'current', products, categories, 4, 1).secondary.map((item) => item.slug).join(',') === 'brady,messi', 'secondary discovery must rotate while preserving the preferred sibling-product pool');
+  const movies = categoryGroupDiscovery('movies', 'robots', 'robot-current', products, categories, 4, 0);
+  assert(movies.primary.map((item) => item.slug).join(',') === 'robot-two' && movies.secondary.map((item) => item.slug).join(',') === 'hero-one', 'the same hierarchy algorithm must work for a non-Sports fixture');
+  const allSlugs = [...sports.primary, ...sports.secondary].map((item) => item.slug);
+  assert(new Set(allSlugs).size === allSlugs.length, 'discovery groups must never duplicate a slug');
+});
+
+Deno.test('showroom pricing is correct immediately and updates synchronously when selection changes', async () => {
+  const pricingWindow = {};
+  new Function('window', await Deno.readTextFile(new URL('../pricing.js', import.meta.url)))(pricingWindow);
+  const purchaseSource = between('function showroomPurchaseMarkup', 'function selectSportsOption');
+  let centralPriceCalls = 0;
+  const calculateCutoutPrice = (height) => {
+    centralPriceCalls += 1;
+    return pricingWindow.MVPLUX_PRICING.calculateHeightPrice(height, {});
+  };
+  const updateShowroomPurchase = new Function('dependencies', `
+    const { getShowroomOriginalPrice, getStandeeSlug, getAdminProducts, ensureFinishChoices, updateBuilderOriginalDisplay } = dependencies;
+    ${purchaseSource}
+    return updateShowroomPurchase;
+  `)({
+    getShowroomOriginalPrice: (height) => calculateCutoutPrice(height),
+    getStandeeSlug: (value) => String(value).toLowerCase().replace(/\W+/g, '-'), getAdminProducts: () => ({}), ensureFinishChoices: () => {},
+    updateBuilderOriginalDisplay: (builder) => {
+      builder.dataset.originalPrice = String(calculateCutoutPrice(Number(builder.dataset.originalHeight)));
+      builder.querySelector('.live-size-price').textContent = `$${Number(builder.dataset.originalPrice).toFixed(2)}`;
+    }
+  });
+  const window = new Window();
+  window.document.body.innerHTML = `<div class="size-builder"><label class="showroom-size-button"><input type="radio" value="original" checked><span></span></label><label class="showroom-size-button"><input type="radio" value="custom"><span></span></label><input class="custom-height-input"><span class="live-size-price">Calculating...</span></div>`;
+  const builder = window.document.querySelector('.size-builder');
+  updateShowroomPurchase({ builder }, 'Known 72', 72, 'known-72');
+  assert(builder.dataset.originalHeight === '72' && builder.querySelector('.live-size-price').textContent === '$118.56', 'known original height must calculate immediately with the central pricing rules');
+  updateShowroomPurchase({ builder }, 'Known 36', 36, 'known-36');
+  assert(builder.dataset.originalHeight === '36' && builder.querySelector('.live-size-price').textContent === '$50.00', 'selecting another product must immediately replace height and price');
+  assert(centralPriceCalls >= 4, 'both selection updates must use central price calculation without a timer');
+  const init = source.slice(source.indexOf("document.addEventListener('DOMContentLoaded'"));
+  assert(init.indexOf('initializeCategoryShowroomExperience()') < init.indexOf('await syncSupabaseAuthState()'), 'showroom pricing must initialize before optional authentication and private Admin work');
 });
