@@ -133,7 +133,7 @@ Deno.test('Category editor uses a wide preview-first workspace with compact visi
 Deno.test('Category image and background controls update the existing preview immediately', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const preview = source.slice(source.indexOf('function previewCategoryEdit'), source.indexOf('function renderCategoryImagePickerGallery'));
-  assert(preview.includes('effectiveCategoryBackground(category)') && preview.includes('display.backgroundPosition'), 'preview must use the saved Category background architecture');
+  assert(preview.includes('effectiveAdminCategoryPresentation(category)') && preview.includes('presentation.background') && preview.includes('display.backgroundPosition'), 'preview must use the shared effective Category presentation');
   assert(preview.includes('product-card admin-master-category-card admin-category-placement-preview') && preview.includes('product-stage-preview admin-category-storefront-stage'), 'Admin preview must reuse the storefront Category card presentation classes');
   for (const field of ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent']) assert(preview.includes(field), `preview must use ${field}`);
   const events = source.slice(source.indexOf('function setupCategoryManagerEvents()'), source.indexOf('function renderAdminProducts()'));
@@ -144,11 +144,12 @@ Deno.test('Category image and background controls update the existing preview im
 Deno.test('Admin preview and storefront use the same background priority and clipped layer order', async () => {
   const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const resolverSource = await Deno.readTextFile(new URL('../category-presentation.js', import.meta.url));
   const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
-  const adminResolver = adminSource.slice(adminSource.indexOf('function effectiveCategoryBackground'), adminSource.indexOf('function repositoryCategoryImageLibrary'));
   const storefrontRenderer = storefrontSource.slice(storefrontSource.indexOf('function renderNormalizedHomepageCategoryCards'), storefrontSource.indexOf('function managedCategoryCardMarkup'));
-  assert(adminResolver.includes('category.card?.backgroundImage || category.displaySettings?.backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND'), 'Admin must prefer explicit card background, inherited display background, then the shared safe default');
-  assert(storefrontRenderer.includes('category.card?.backgroundImage || display.backgroundImage || getShowroomStageBackground()'), 'storefront must use the same explicit, inherited, shared background order');
+  assert(adminSource.includes('MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation') && storefrontSource.includes('MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation'), 'Admin and storefront must use the same Category presentation resolver');
+  assert(resolverSource.includes('category.card?.backgroundImage || category.displaySettings?.backgroundImage || options.defaultBackground'), 'shared resolver must prefer explicit card background, inherited legacy background, then shared default');
+  assert(storefrontRenderer.includes('presentation.background'), 'storefront must render the background returned by the shared resolver');
   assert(styles.includes('.product-stage-preview {') && styles.includes('overflow: hidden;'), 'the shared stage must clip zoomed backgrounds');
   assert(styles.includes('.category-background-layer {') && styles.includes('z-index: 0;') && styles.includes('.product-cutout {') && styles.includes('z-index: 3;'), 'background, cutout, and text must retain safe visual layering');
 });
@@ -215,11 +216,11 @@ Deno.test('hidden Categories are unavailable on Category pages while homepage vi
 
 Deno.test('Category image sizing rejects zero and storefront rendering uses the same safe range', async () => {
   const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
-  const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const resolverSource = await Deno.readTextFile(new URL('../category-presentation.js', import.meta.url));
   assert(adminSource.includes('CATEGORY_IMAGE_SIZE_MIN = 10') && adminSource.includes('CATEGORY_IMAGE_SIZE_MAX = 250'), 'Admin must expose a safe 10–250% range');
   assert(adminSource.includes('number < minimum') && adminSource.includes('CATEGORY_IMAGE_SIZE_DEFAULT = 63'), 'zero must resolve to the safe default instead of collapsing the image');
-  assert(storefrontSource.includes('requestedSize >= 10 ? Math.min(250, requestedSize) : inheritedSize'), 'published Category cards must enforce the same nonzero size rule');
-  assert(storefrontSource.includes('getShowroomStageBackground()'), 'blank Category backgrounds must inherit the shared showroom background');
+  assert(resolverSource.includes('clampNumber(display.standeeSizePercent, inheritedImageSize, 10, 250)'), 'shared resolver must enforce the same nonzero image-size range');
+  assert(resolverSource.includes('options.defaultBackground'), 'blank Category backgrounds must inherit the caller-provided shared showroom background');
 });
 
 Deno.test('Category background zoom is independent and uses the published 50–300% range', async () => {
@@ -393,7 +394,7 @@ Deno.test('full and inline Category editors share the normalized title authority
   const inlineMarkup = storefrontSource.slice(storefrontSource.indexOf('function inlineCategoryEditorMarkup'), storefrontSource.indexOf('function categoryDisplaySettingsFromForm'));
   assert(inlineMarkup.includes('The homepage card uses the authoritative Category title') && !inlineMarkup.includes('name="cardTitle"') && !inlineMarkup.includes('name="cardDescription"'), 'quick inline editor must not expose competing card text fields');
   const inlineSave = storefrontSource.slice(storefrontSource.indexOf('async function saveInlineRecordEditor'), storefrontSource.indexOf('function openInlineRecordEditor'));
-  assert(inlineSave.includes("changedInlineFields(base, candidate, ['title', 'description'") && inlineSave.includes("changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage', 'visible', 'order']"), 'inline save must route text to the Category root while retaining card image/settings fields');
+  assert(inlineSave.includes("changedInlineFields(base, candidate, ['title', 'description', 'funFact', 'page', 'visible', 'homepageVisible', 'order']") && inlineSave.includes("changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage']"), 'inline save must route normalized fields to the Category root while limiting card ownership to image references');
 });
 
 Deno.test('homepage and Category-page inline titles are Category-owned, not page overrides', async () => {
@@ -403,7 +404,7 @@ Deno.test('homepage and Category-page inline titles are Category-owned, not page
   const dynamicPage = source.slice(source.indexOf('function setupDynamicCategoryPage'), source.indexOf('function renderNormalizedHomepageCategoryCards'));
   assert(dynamicPage.includes("page.dataset.adminCategoryKey = category.key") && dynamicPage.includes("heading.dataset.adminCategoryField = 'title'"), 'Category-page heading must declare normalized Category ownership');
   const homepage = source.slice(source.indexOf('function renderNormalizedHomepageCategoryCards'), source.indexOf('function managedCategoryCardMarkup'));
-  assert(homepage.includes('data-admin-category-field="title"') && homepage.includes('category.title || category.card?.title'), 'homepage must render and edit the normalized root title first');
+  assert(homepage.includes('data-admin-category-field="title"') && homepage.includes('presentation.title'), 'homepage must render and edit the authoritative title from the shared resolver');
 });
 
 Deno.test('homepage is generated from master Categories and filters hidden or deleted Categories', async () => {

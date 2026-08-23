@@ -91,6 +91,7 @@ function emptyElement() {
 }
 
 async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }) {
+  const presentationSource = await Deno.readTextFile(new URL('../category-presentation.js', import.meta.url));
   let source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   source = source.replace(
     "const adminStateUtilsPromise = import('./admin-state-utils.js');",
@@ -123,6 +124,7 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
     setTimeout,
     location: { pathname: '/index.html', reload() {} }
   };
+  new Function('window', presentationSource)(window);
   const factory = new Function(
     'adminUtils', 'window', 'document', 'localStorage', 'sessionStorage', 'BroadcastChannel',
     `${source}
@@ -134,7 +136,9 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
         saveInlineAdminEditsLive,
         getAdminProducts,
         getAdminCategories,
+        getEffectiveCategoryPresentation,
         compatibilityMasterCategories,
+        homepageCategoryRecords,
         inlineAdminOwnedField,
         persistInlineOwnedField,
         getAdminViewMode,
@@ -172,6 +176,7 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
 }
 
 async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
+  const presentationSource = await Deno.readTextFile(new URL('../category-presentation.js', import.meta.url));
   let source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   source = source.replace(
     "const adminStateUtilsPromise = import('./admin-state-utils.js');",
@@ -202,6 +207,7 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
     addEventListener() {},
     location: { hash: '' }
   };
+  new Function('window', presentationSource)(window);
   const publisherFetch = async (_url, init = {}) => {
     const payload = JSON.parse(init.body || '{}');
     if (payload.action === 'working-state') {
@@ -419,6 +425,28 @@ Deno.test('new architecture prevents page rows from overriding product content b
   assert(filtered['page-heading'].text === 'Page heading', 'page-owned content must remain');
 });
 
+Deno.test('normalized Category fields reject every competing inline page override', async () => {
+  const client = adminGlobalClient([{ edits: {}, revision: 1 }], async () => ({ data: {}, error: null }));
+  const { helpers, window } = await loadActualStorefrontHelpers({ client });
+  window.mvpluxLiveAdminSettings = { adminArchitectureV2: { enabled: true }, categories: { sports: { key: 'sports' } } };
+  const host = { dataset: { adminCategoryKey: 'sports', adminSlug: 'sport-legend-standee' } };
+  const image = {
+    tagName: 'IMG', dataset: { adminEdit: 'sports-category-image' },
+    matches: (selector) => selector.includes('.product-cutout'),
+    closest(selector) {
+      if (selector === '[data-admin-category-key]' || selector.includes('.product-card')) return host;
+      return null;
+    }
+  };
+  helpers.__setQueryElement('[data-admin-edit="sports-category-image"]', image);
+  const filtered = helpers.withoutProductOwnedPageValues({
+    'sports-category-image': { src: 'images/stale.png', x: 20, y: -8, scale: 1.5, rotate: 4, locked: true },
+    'page-heading': { text: 'Page-owned heading' }
+  });
+  assert(!filtered['sports-category-image'], 'Category image source and geometry must not survive as page-owned inline data');
+  assert(filtered['page-heading'].text === 'Page-owned heading', 'true page-owned content must remain available');
+});
+
 Deno.test('inline Category title saves to the normalized root and reloads from the same record', async () => {
   const calls = [];
   const base = {
@@ -453,6 +481,48 @@ Deno.test('inline Category title saves to the normalized root and reloads from t
   assert(helpers.getAdminCategories().sports.title === 'Sports Legends', 'a reload/read must resolve the saved normalized root title');
 });
 
+Deno.test('Dashboard Category size save is the value Storefront Admin Mode resolves', async () => {
+  const base = { key: 'sports', title: 'Sports', visible: true, homepageVisible: true, card: {}, displaySettings: { standeeSizePercent: 80 } };
+  let savedEdits = null;
+  const dashboardClient = adminGlobalClient([
+    { data: { edits: { categories: { sports: base } }, revision: 2 }, error: null }
+  ], async (_name, args) => {
+    savedEdits = structuredClone(args.p_edits);
+    return { data: { edits: savedEdits, revision: 3 }, error: null };
+  });
+  const { helpers: dashboard } = await loadActualAdminHelpers({ client: dashboardClient });
+  dashboard.__setArchitectureState({ categories: { sports: base } }, { categories: { sports: base } });
+  assert(await dashboard.saveCategoryEditForm(categoryTestForm({ standeeSizePercent: 144 }), 'draft'), 'Dashboard Category draft save must succeed');
+  assert(savedEdits.categories.sports.displaySettings.standeeSizePercent === 144, 'Dashboard must save size to categories.sports.displaySettings');
+
+  const storefrontClient = adminGlobalClient([], async () => ({ data: null, error: null }));
+  const storage = memoryStorage({ mvpluxIsAdminApproved: 'true', mvpluxAdminViewModeV2: 'preview' });
+  const { helpers: storefront, window } = await loadActualStorefrontHelpers({ client: storefrontClient, storage });
+  window.mvpluxPublishedAdminSettings = { categories: { sports: base }, globalDisplaySettings: {} };
+  window.mvpluxLiveAdminSettings = { adminArchitectureV2: { enabled: true }, ...savedEdits };
+  window.mvpluxLiveAdminStateLoaded = true;
+  assert(storefront.getEffectiveCategoryPresentation('sports', 'draft').display.standeeSizePercent === 144, 'Admin Mode must read the exact Dashboard-saved size');
+});
+
+Deno.test('Storefront Admin Mode Category X save is the value Dashboard reads', async () => {
+  const base = { key: 'sports', title: 'Sports', visible: true, homepageVisible: true, card: {}, displaySettings: { standeeLeftPercent: 0 } };
+  let savedEdits = null;
+  const storefrontClient = adminGlobalClient([
+    { data: { edits: { adminArchitectureV2: { enabled: true }, categories: { sports: base } }, revision: 5 }, error: null }
+  ], async (_name, args) => {
+    savedEdits = structuredClone(args.p_edits);
+    return { data: { edits: { adminArchitectureV2: { enabled: true }, ...savedEdits }, revision: 6 }, error: null };
+  });
+  const { helpers: storefront } = await loadActualStorefrontHelpers({ client: storefrontClient });
+  assert(await storefront.saveStorefrontCategoryPatch('sports', 'displaySettings', { standeeLeftPercent: 23 }, base), 'Admin Mode Category display save must succeed');
+  assert(savedEdits.categories.sports.displaySettings.standeeLeftPercent === 23, 'Admin Mode must save X to the normalized Category displaySettings');
+
+  const dashboardClient = adminGlobalClient([], async () => ({ data: null, error: null }));
+  const { helpers: dashboard } = await loadActualAdminHelpers({ client: dashboardClient });
+  dashboard.__setArchitectureState({ categories: savedEdits.categories }, { categories: { sports: base } });
+  assert(dashboard.readAdminCategories().sports.displaySettings.standeeLeftPercent === 23, 'Dashboard must read the exact Admin Mode-saved X value');
+});
+
 Deno.test('legacy Category card title feeds the root only until a normalized Category exists', async () => {
   const client = adminGlobalClient([], async () => ({ data: {}, error: null }));
   const { helpers, window } = await loadActualStorefrontHelpers({ client });
@@ -464,6 +534,33 @@ Deno.test('legacy Category card title feeds the root only until a normalized Cat
   assert(helpers.compatibilityMasterCategories().sports.title === 'Sport Legend Standees', 'legacy published text must preserve the current visible title without remaining a competing render source');
   window.mvpluxPublishedAdminSettings.categories.sports = { key: 'sports', title: 'Sports Legends' };
   assert(helpers.compatibilityMasterCategories().sports.title === 'Sports Legends', 'normalized Category title must win once published');
+});
+
+Deno.test('normalized Category visibility and image override conflicting legacy compatibility values', async () => {
+  const client = adminGlobalClient([], async () => ({ data: {}, error: null }));
+  const { helpers, window } = await loadActualStorefrontHelpers({ client });
+  window.MVPLUX_PRODUCT_CATEGORIES = [{ key: 'sports', label: 'Sports fallback', page: 'sports-legends.html' }];
+  window.mvpluxPublishedAdminSettings = {
+    categoryDisplayCards: {
+      'sport-legend-standee': {
+        title: 'Legacy Sports', cutoutImage: 'images/old-image.png', backgroundImage: 'images/old-stage.png', visible: true, productOrder: 1
+      }
+    },
+    categories: {
+      sports: {
+        key: 'sports', title: 'Sports Legends', visible: true, homepageVisible: false, order: 8,
+        card: { image: 'images/new-image.png', backgroundImage: '' },
+        displaySettings: { standeeSizePercent: 121 }
+      }
+    },
+    globalDisplaySettings: {}
+  };
+  const category = helpers.compatibilityMasterCategories().sports;
+  assert(category.homepageVisible === false, 'legacy shown state must never resurrect a normalized Homepage Hidden Category');
+  assert(!helpers.homepageCategoryRecords().some((item) => item.key === 'sports'), 'normalized homepageVisible:false must exclude the Category');
+  assert(category.card.image === 'images/new-image.png', 'normalized card.image must override the stale legacy cutoutImage');
+  assert(category.card.backgroundImage === '', 'an intentional normalized blank background must not be replaced by a legacy background');
+  assert(helpers.getEffectiveCategoryPresentation('sports', 'published').image === 'images/new-image.png', 'published presentation must resolve the normalized image');
 });
 
 Deno.test('Category-owned page title overrides are ignored instead of competing after reload', async () => {
@@ -508,6 +605,40 @@ Deno.test('Category publishing mirrors the authoritative root title into compati
   const snapshot = helpers.buildNormalizedPublishSnapshot();
   assert(snapshot.categories.sports.title === 'Sports Legends', 'normalized published Category must keep the root title');
   assert(snapshot.categoryDisplayCards['sport-legend-standee'].title === 'Sports Legends', 'legacy compatibility card must mirror the root title during Publish');
+});
+
+Deno.test('scoped Category publication retains normalized image and Homepage Hidden state', async () => {
+  const client = adminGlobalClient([], async () => ({ data: {}, error: null }));
+  const { helpers } = await loadActualAdminHelpers({ client });
+  const published = {
+    version: 1, schemaVersion: 2, products: {},
+    categories: {
+      sports: {
+        key: 'sports', title: 'Sports Legends', visible: true, homepageVisible: true, order: 1,
+        card: { image: 'images/old-image.png', backgroundImage: '' }, displaySettings: {}
+      }
+    },
+    categoryDisplayCards: {
+      'sport-legend-standee': { slug: 'sport-legend-standee', title: 'Sports Legends', cutoutImage: 'images/old-image.png', backgroundImage: '', categories: [], visible: true }
+    },
+    categorySettings: {}, deletedProducts: [], deletedCategories: [], homepageCategoryOrder: [],
+    pageContent: {}, pageVisualStates: {}, extraImages: {}, globalDisplaySettings: {}, priceSettings: {}
+  };
+  helpers.__setArchitectureState({
+    categories: {
+      sports: {
+        key: 'sports', title: 'Sports Legends', visible: true, homepageVisible: false, order: 1,
+        card: { image: 'images/new-image.png', backgroundImage: '' }, displaySettings: {},
+        approvalStatus: 'approved', draftStatus: 'ready'
+      }
+    },
+    products: {}, deletedProducts: [], deletedCategories: []
+  }, published);
+  const item = helpers.architectureReviewItems().find((entry) => entry.id === 'category:sports');
+  assert(item, 'the normalized image/visibility change must become a scoped Category review item');
+  const snapshot = helpers.buildSelectedArchitectureSnapshot([item]);
+  assert(snapshot.categories.sports.card.image === 'images/new-image.png', 'scoped snapshot must publish normalized card.image');
+  assert(snapshot.categories.sports.homepageVisible === false, 'scoped snapshot must publish normalized homepageVisible:false');
 });
 
 Deno.test('actual Category Save Draft persists text and every supported visual field without publishing', async () => {

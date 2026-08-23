@@ -12,11 +12,12 @@ function sourceFunction(source, start, end) {
 }
 
 async function actualFinalHomepageDom() {
-  const [html, css, source, catalogSource, publishedDocument] = await Promise.all([
+  const [html, css, source, catalogSource, presentationSource, publishedDocument] = await Promise.all([
     Deno.readTextFile(new URL('../index.html', import.meta.url)),
     Deno.readTextFile(new URL('../style.css', import.meta.url)),
     Deno.readTextFile(new URL('../script.js', import.meta.url)),
     Deno.readTextFile(new URL('../product-catalog.js', import.meta.url)),
+    Deno.readTextFile(new URL('../category-presentation.js', import.meta.url)),
     Deno.readTextFile(new URL('../published-admin-settings.json', import.meta.url)).then(JSON.parse)
   ]);
   const window = new Window({ url: 'https://mvpluxcreations.com/index.html', width: 1440, height: 1200 });
@@ -25,10 +26,12 @@ async function actualFinalHomepageDom() {
   style.textContent = css;
   window.document.head.append(style);
   new Function('window', catalogSource)(window);
+  new Function('window', presentationSource)(window);
   window.mvpluxPublishedAdminSettings = structuredClone(publishedDocument.snapshot);
 
   const code = [
     sourceFunction(source, 'function compatibilityMasterCategories', 'function getAdminGlobalDisplaySettings'),
+    sourceFunction(source, 'function getEffectiveCategoryPresentation', 'function resolveStorefrontProductDisplay'),
     sourceFunction(source, 'function homepageCategoryRecords', 'function managedCategoryCardMarkup'),
     sourceFunction(source, 'function renderAdminManagedCards', 'function applyAdminProductOverrides'),
     sourceFunction(source, 'function applyInlineHiddenCards', 'function getHomepageCategoryRows'),

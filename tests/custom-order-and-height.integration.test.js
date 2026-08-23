@@ -64,16 +64,17 @@ Deno.test('Admin Custom Order AI helper is editable and never saves, approves, o
 });
 
 Deno.test('homepage Category cards remain browse-only with full-width bottom-anchored artwork', async () => {
-  const [html, source, css] = await Promise.all([
+  const [html, source, presentationSource, css] = await Promise.all([
     Deno.readTextFile(new URL('../index.html', import.meta.url)),
     Deno.readTextFile(new URL('../script.js', import.meta.url)),
+    Deno.readTextFile(new URL('../category-presentation.js', import.meta.url)),
     Deno.readTextFile(new URL('../style.css', import.meta.url))
   ]);
   const renderer = source.slice(source.indexOf('function renderNormalizedHomepageCategoryCards'), source.indexOf('\n\nfunction managedCategoryCardMarkup'));
   assert(html.includes('id="homepageCategoryGrid"'), 'homepage must retain its dedicated Category mount');
   assert(renderer.includes('View Collection') && !renderer.includes('size-builder') && !renderer.includes('Buy Now') && !renderer.includes('Offer'), 'Category cards must be navigation cards, not purchase forms');
   assert(css.includes('width: min(96%, 1400px);') && css.includes('#homepageCategoryGrid .admin-category-storefront-stage'), 'Featured Categories must use the major-panel width and anchored stage treatment');
-  assert(renderer.includes('2 - vertical') && renderer.includes("'center bottom'"), 'standee and fallback background must anchor near the stage bottom');
+  assert(renderer.includes('2 - display.standeeVerticalPercent') && presentationSource.includes("'center bottom'"), 'standee and shared fallback background must anchor near the stage bottom');
 });
 
 Deno.test('auth restoration starts before storefront snapshot loading but is awaited after public rendering', async () => {

@@ -91,3 +91,12 @@ Deno.test('homepage Category rendering begins before private Admin state reads',
   const privateLoad = init.indexOf('await loadLiveAdminSettings()', publishedLoad);
   assert(publishedLoad >= 0 && firstRender > publishedLoad && privateLoad > firstRender, 'published homepage cards must render before private Supabase/Admin reads');
 });
+
+Deno.test('homepage renderer clears stale cards when no Categories remain eligible', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const start = source.indexOf('function renderNormalizedHomepageCategoryCards');
+  const end = source.indexOf('\n\nfunction managedCategoryCardMarkup', start);
+  const renderer = source.slice(start, end);
+  assert(renderer.indexOf("grid.innerHTML = ''") < renderer.indexOf('if (!categories.length)'), 'renderer must clear the authoritative mount before returning for an empty eligible set');
+  assert(renderer.includes('grid.hidden = true'), 'an empty Category mount must not retain a stale visible card');
+});

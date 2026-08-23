@@ -2063,6 +2063,15 @@ function getAdminViewMode() {
   return localStorage.getItem('mvpluxAdminAnywhere') === 'true' ? 'edit' : 'preview';
 }
 
+function applyRequestedAdminViewMode() {
+  if (localStorage.getItem('mvpluxIsAdminApproved') !== 'true') return;
+  const requested = new URLSearchParams(window.location.search).get('adminView');
+  if (!['edit', 'preview', 'published'].includes(requested)) return;
+  localStorage.setItem(ADMIN_VIEW_MODE_KEY, requested);
+  if (requested === 'edit') localStorage.setItem('mvpluxAdminAnywhere', 'true');
+  else localStorage.removeItem('mvpluxAdminAnywhere');
+}
+
 function isInlineAdminEditingEnabled() {
   return getAdminViewMode() === 'edit';
 }
@@ -2919,8 +2928,8 @@ function getAdminProducts() {
         description: category.description || category.card?.description,
         cutoutImage: category.card?.image || '',
         backgroundImage: category.card?.backgroundImage || '',
-        visible: category.visible !== false && category.card?.visible !== false,
-        productOrder: category.card?.order ?? category.order,
+        visible: category.visible !== false && category.homepageVisible !== false,
+        productOrder: category.order,
         categoryCard: true
       }];
     }));
@@ -2987,7 +2996,16 @@ function compatibilityMasterCategories() {
     };
   });
   Object.entries(published.categories || {}).forEach(([key, category]) => {
-    if (!deleted.has(key)) categories[key] = { ...(categories[key] || {}), ...structuredClone(category), key };
+    if (deleted.has(key)) return;
+    const compatibility = categories[key] || {};
+    const normalized = structuredClone(category);
+    categories[key] = {
+      ...compatibility,
+      ...normalized,
+      key,
+      card: { ...(compatibility.card || {}), ...(normalized.card || {}) },
+      displaySettings: { ...(compatibility.displaySettings || {}), ...(normalized.displaySettings || {}) }
+    };
   });
   return categories;
 }
@@ -3003,6 +3021,19 @@ function getAdminCategories() {
 function getAdminGlobalDisplaySettings() {
   if (shouldUsePrivateAdminState()) return window.mvpluxLiveAdminSettings?.globalDisplaySettings || {};
   return window.mvpluxPublishedAdminSettings?.globalDisplaySettings || {};
+}
+
+function getEffectiveCategoryPresentation(categoryKey, mode = shouldUsePrivateAdminState() ? 'draft' : 'published') {
+  const categories = mode === 'published' ? compatibilityMasterCategories() : getAdminCategories();
+  const category = categories[categoryKey] || { key: categoryKey, card: {}, displaySettings: {} };
+  const globalDisplaySettings = mode === 'published'
+    ? window.mvpluxPublishedAdminSettings?.globalDisplaySettings || {}
+    : window.mvpluxLiveAdminSettings?.globalDisplaySettings || window.mvpluxPublishedAdminSettings?.globalDisplaySettings || {};
+  return window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation(category, {
+    mode,
+    globalDisplaySettings,
+    defaultBackground: getShowroomStageBackground()
+  });
 }
 
 function resolveStorefrontProductDisplay(product = {}) {
@@ -3996,38 +4027,26 @@ function renderNormalizedHomepageCategoryCards() {
   const grid = document.getElementById('homepageCategoryGrid');
   if (!grid) return;
   const categories = homepageCategoryRecords();
-  if (!categories.length) return;
   grid.innerHTML = '';
+  if (!categories.length) {
+    grid.hidden = true;
+    return;
+  }
   categories.forEach((category) => {
+    const presentation = getEffectiveCategoryPresentation(category.key);
     const slug = Object.entries(STOREFRONT_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
       || `${category.key}-category-card`;
-    const page = category.page || `category.html?category=${encodeURIComponent(category.key)}`;
-    const globalDisplay = getAdminGlobalDisplaySettings();
-    const display = { ...globalDisplay, ...(category.displaySettings || {}) };
-    const globalSize = Number(globalDisplay.standeeSizePercent);
-    const inheritedSize = Number.isFinite(globalSize) && globalSize >= 10 ? Math.min(250, globalSize) : 63;
-    const requestedSize = Number(category.displaySettings?.standeeSizePercent ?? inheritedSize);
-    const size = Number.isFinite(requestedSize) && requestedSize >= 10 ? Math.min(250, requestedSize) : inheritedSize;
-    const horizontal = Math.max(-50, Math.min(50, Number(display.standeeLeftPercent) || 0));
-    const vertical = Math.max(-50, Math.min(50, Number(display.standeeVerticalPercent) || 0));
-    const left = Math.max(10, Math.min(90, 50 + horizontal));
-    const bottom = Math.max(0, Math.min(75, 2 - vertical));
-    const safeTextNumber = (value, fallback, minimum, maximum) => {
-      const number = Number(value);
-      return Number.isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : fallback;
-    };
-    const safeTextAlign = (value) => ['left', 'center', 'right'].includes(String(value)) ? String(value) : 'center';
-    const titleSize = safeTextNumber(display.titleSizePercent, 100, 70, 180);
-    const descriptionSize = safeTextNumber(display.descriptionSizePercent, 100, 70, 180);
-    const backgroundSize = safeTextNumber(display.backgroundSizePercent, 100, 50, 300);
-    const titleStyle = `transform:translate(${safeTextNumber(display.titleLeftPercent, 0, -50, 50)}%,${safeTextNumber(display.titleVerticalPercent, 0, -50, 50)}px);text-align:${safeTextAlign(display.titleAlign)}`;
-    const descriptionStyle = `transform:translate(${safeTextNumber(display.descriptionLeftPercent, 0, -50, 50)}%,${safeTextNumber(display.descriptionVerticalPercent, 0, -50, 50)}px);text-align:${safeTextAlign(display.descriptionAlign)};font-size:${14 * descriptionSize / 100}px`;
-    const background = category.card?.backgroundImage || display.backgroundImage || getShowroomStageBackground();
+    const page = presentation.page || `category.html?category=${encodeURIComponent(category.key)}`;
+    const display = presentation.display;
+    const left = Math.max(10, Math.min(90, 50 + display.standeeLeftPercent));
+    const bottom = Math.max(0, Math.min(75, 2 - display.standeeVerticalPercent));
+    const titleStyle = `transform:translate(${display.titleLeftPercent}%,${display.titleVerticalPercent}px);text-align:${display.titleAlign}`;
+    const descriptionStyle = `transform:translate(${display.descriptionLeftPercent}%,${display.descriptionVerticalPercent}px);text-align:${display.descriptionAlign};font-size:${14 * display.descriptionSizePercent / 100}px`;
     grid.insertAdjacentHTML('beforeend', `
-      <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${category.title || category.key} ${category.description || category.card?.description || ''}`)}">
-        <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(background)}');background-position:${escapeHtml(display.backgroundPosition || 'center bottom')};transform:scale(${backgroundSize / 100})" aria-hidden="true"></span>${category.card?.image ? `<img class="product-cutout" src="${escapeHtml(category.card.image)}" alt="${escapeHtml(category.card?.title || category.title || category.key)}" style="height:${size}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
-        <h3 data-admin-category-field="title" style="${titleStyle}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${19 * titleSize / 100}px">${escapeHtml(category.title || category.card?.title || category.key)}</a></h3>
-        <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeHtml(category.description || category.card?.description || '')}</p>
+      <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
+        <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(presentation.background)}');background-position:${escapeHtml(display.backgroundPosition)};transform:scale(${display.backgroundSizePercent / 100})" aria-hidden="true"></span>${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
+        <h3 data-admin-category-field="title" style="${titleStyle}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${19 * display.titleSizePercent / 100}px">${escapeHtml(presentation.title)}</a></h3>
+        <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeHtml(presentation.description)}</p>
         <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
       </article>`);
   });
@@ -5295,7 +5314,13 @@ function withoutProductOwnedPageValues(pageEdits = {}) {
     const escapedKey = globalThis.CSS?.escape?.(key) || String(key).replace(/["\\]/g, '\\$&');
     const element = document.querySelector(`[data-admin-edit="${escapedKey}"]`);
     const owned = inlineAdminOwnedField(element);
-    if (owned?.type === 'category-card' && ['title', 'description'].includes(owned.field)) return;
+    if (owned?.type === 'category-card') {
+      if (!edit || typeof edit !== 'object') return;
+      const { text: _text, src: _src, originalHeight: _height, x: _x, y: _y, scale: _scale,
+        rotate: _rotate, locked: _locked, ...pageOnlyState } = edit;
+      if (Object.keys(pageOnlyState).length) filtered[key] = pageOnlyState;
+      return;
+    }
     const productImage = /^product-.+-(?:product-cutout|product-stage-bg)$/i.test(key);
     if (productImage && edit && typeof edit === 'object') {
       const { src: _src, text: _text, originalHeight: _height, ...pageOnlyState } = edit;
@@ -5815,6 +5840,8 @@ function saveInlineAdminEdit(element, patch) {
   let pagePatch = { ...(patch || {}) };
   const owned = inlineAdminOwnedField(element);
   if (owned) {
+    const attemptedCategoryDisplayEdit = element.tagName === 'IMG' && owned.type === 'category-card'
+      && ['x', 'y', 'scale', 'rotate'].some((field) => pagePatch[field] !== undefined);
     if (element.tagName === 'IMG' && owned.type === 'product'
       && ['x', 'y', 'scale', 'rotate'].some((field) => pagePatch[field] !== undefined)) {
       scheduleInlineOwnedDisplaySave(element, pagePatch);
@@ -5822,14 +5849,17 @@ function saveInlineAdminEdit(element, patch) {
     delete pagePatch.text;
     delete pagePatch.src;
     delete pagePatch.originalHeight;
-    if (element.tagName === 'IMG' && owned.type === 'product') {
+    if (element.tagName === 'IMG') {
       delete pagePatch.x;
       delete pagePatch.y;
       delete pagePatch.scale;
       delete pagePatch.rotate;
     }
     delete pagePatch.locked;
-    if (!Object.keys(pagePatch).length) return;
+    if (!Object.keys(pagePatch).length) {
+      if (attemptedCategoryDisplayEdit) updateInlineAdminToolbarState('Open Edit selected item to save Category placement');
+      return;
+    }
   }
   pagePatch.approvalStatus = 'draft';
   pagePatch.updatedAt = new Date().toISOString();
@@ -6373,6 +6403,19 @@ function isCardHiddenByAdmin(card) {
 async function setInlineAdminCardHidden(card, hiddenValue) {
   const key = getCardAdminKey(card);
   if (!key) return;
+  const categoryKey = String(card.dataset.adminCategoryKey || '').trim();
+  if (categoryKey) {
+    const base = window.mvpluxLiveAdminSettings?.categories?.[categoryKey]
+      || getAdminCategories()[categoryKey]
+      || {};
+    const saved = await saveStorefrontCategoryPatch(categoryKey, '', {
+      homepageVisible: !hiddenValue
+    }, base);
+    if (!saved) return false;
+    card.classList.toggle('admin-card-hidden-preview', Boolean(hiddenValue));
+    updateInlineAdminToolbarState(hiddenValue ? 'Saved Privately — hidden from Homepage' : 'Saved Privately — shown on Homepage');
+    return true;
+  }
   const hidden = readInlineHiddenCards();
   const page = inlineAdminPageKey();
   hidden[page] = hidden[page] || {};
@@ -7092,34 +7135,40 @@ function inlineProductEditorMarkup(product = {}) {
 
 function inlineCategoryEditorMarkup(category = {}) {
   const card = category.card || {};
-  const display = category.displaySettings || {};
+  const presentation = getEffectiveCategoryPresentation(category.key);
+  const display = presentation.display;
   const products = Object.values(getAdminProducts()).filter((product) => (product.categories || []).includes(category.key));
   const overrideProducts = products.filter((product) => Object.keys(product.displayOverrides || {}).length);
   return `
     <details open><summary>Category information</summary>
       <label>Title<input name="title" value="${escapeHtml(category.title || '')}"></label>
       <label>Description<textarea name="description">${escapeHtml(category.description || '')}</textarea></label>
+      <label>Fun fact<textarea name="funFact">${escapeHtml(category.funFact || '')}</textarea></label>
       <label>Page<input name="page" value="${escapeHtml(category.page || '')}"></label>
       <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> Visible</label>
+      <label><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false && !category.parentKey ? 'checked' : ''} ${category.parentKey ? 'disabled' : ''}> ${category.parentKey ? 'Child Groups stay off the Homepage' : 'Show on Homepage'}</label>
       <label>Order<input name="order" type="number" value="${escapeHtml(String(category.order ?? 0))}"></label>
     </details>
     <details open><summary>Category card</summary>
       <p class="admin-note">The homepage card uses the authoritative Category title and description above.</p>
       <label>Card image<input name="cardImage" value="${escapeHtml(card.image || '')}"></label>
       <label>Card background<input name="cardBackgroundImage" value="${escapeHtml(card.backgroundImage || '')}"></label>
-      <label><input name="cardVisible" type="checkbox" ${card.visible !== false ? 'checked' : ''}> Card visible</label>
-      <label>Card order<input name="cardOrder" type="number" value="${escapeHtml(String(card.order ?? 0))}"></label>
     </details>
     <details open><summary>Category-wide display settings</summary>
-      <p class="admin-note">These defaults affect products without an individual override.</p>
-      <label>Background image<input name="displayBackgroundImage" value="${escapeHtml(display.backgroundImage || '')}"></label>
+      <p class="admin-note">These are the same normalized Category display settings used by Dashboard preview and the published storefront.</p>
       <label>Background position<input name="displayBackgroundPosition" value="${escapeHtml(display.backgroundPosition || 'center bottom')}"></label>
       <label>Background zoom %<input name="displayBackgroundSizePercent" type="number" min="50" max="300" value="${escapeHtml(String(display.backgroundSizePercent ?? 100))}"></label>
-      <label>Standee size %<input name="displayStandeeSizePercent" type="number" value="${escapeHtml(String(display.standeeSizePercent ?? ''))}"></label>
-      <label>Left / right %<input name="displayStandeeLeftPercent" type="number" value="${escapeHtml(String(display.standeeLeftPercent ?? ''))}"></label>
-      <label>Up / down %<input name="displayStandeeVerticalPercent" type="number" value="${escapeHtml(String(display.standeeVerticalPercent ?? ''))}"></label>
-      <label>Logo size %<input name="displayLogoSizePercent" type="number" value="${escapeHtml(String(display.logoSizePercent ?? ''))}"></label>
-      <label>Logo up / down %<input name="displayLogoVerticalPercent" type="number" value="${escapeHtml(String(display.logoVerticalPercent ?? ''))}"></label>
+      <label>Category image size %<input name="displayStandeeSizePercent" type="number" min="10" max="250" value="${escapeHtml(String(display.standeeSizePercent))}"></label>
+      <label>Image left / right %<input name="displayStandeeLeftPercent" type="number" min="-50" max="50" value="${escapeHtml(String(display.standeeLeftPercent))}"></label>
+      <label>Image up / down %<input name="displayStandeeVerticalPercent" type="number" min="-50" max="50" value="${escapeHtml(String(display.standeeVerticalPercent))}"></label>
+      <label>Title size %<input name="displayTitleSizePercent" type="number" min="70" max="180" value="${escapeHtml(String(display.titleSizePercent))}"></label>
+      <label>Title left / right %<input name="displayTitleLeftPercent" type="number" min="-50" max="50" value="${escapeHtml(String(display.titleLeftPercent))}"></label>
+      <label>Title up / down %<input name="displayTitleVerticalPercent" type="number" min="-50" max="50" value="${escapeHtml(String(display.titleVerticalPercent))}"></label>
+      <label>Title alignment<select name="displayTitleAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${display.titleAlign === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label>
+      <label>Description size %<input name="displayDescriptionSizePercent" type="number" min="70" max="180" value="${escapeHtml(String(display.descriptionSizePercent))}"></label>
+      <label>Description left / right %<input name="displayDescriptionLeftPercent" type="number" min="-50" max="50" value="${escapeHtml(String(display.descriptionLeftPercent))}"></label>
+      <label>Description up / down %<input name="displayDescriptionVerticalPercent" type="number" min="-50" max="50" value="${escapeHtml(String(display.descriptionVerticalPercent))}"></label>
+      <label>Description alignment<select name="displayDescriptionAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${display.descriptionAlign === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label>
       <p>${products.length} products total; ${overrideProducts.length} have individual overrides.</p>
       <div class="admin-inline-category-products">${overrideProducts.map((product) => `<label><input type="checkbox" name="resetOverrideSlugs" value="${escapeHtml(product.slug)}"> ${escapeHtml(product.title || product.slug)}</label>`).join('') || '<small>No products have overrides.</small>'}</div>
       <button type="button" data-inline-preview-category>Preview Category Changes</button>
@@ -7137,14 +7186,14 @@ function categoryDisplaySettingsFromForm(form) {
   const settings = {
     backgroundPosition: String(data.get('displayBackgroundPosition') || 'center bottom').trim() || 'center bottom'
   };
-  const image = String(data.get('displayBackgroundImage') || '').trim();
-  if (image) settings.backgroundImage = image;
-  const fields = ['backgroundSizePercent', 'standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent', 'logoSizePercent', 'logoVerticalPercent'];
+  const fields = ['backgroundSizePercent', 'standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent', 'titleSizePercent', 'titleLeftPercent', 'titleVerticalPercent', 'descriptionSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent'];
   fields.forEach((field) => {
     const formName = `display${field.charAt(0).toUpperCase()}${field.slice(1)}`;
     const value = String(data.get(formName) || '').trim();
     if (value !== '' && Number.isFinite(Number(value))) settings[field] = Number(value);
   });
+  settings.titleAlign = ['left', 'center', 'right'].includes(String(data.get('displayTitleAlign'))) ? String(data.get('displayTitleAlign')) : 'center';
+  settings.descriptionAlign = ['left', 'center', 'right'].includes(String(data.get('displayDescriptionAlign'))) ? String(data.get('displayDescriptionAlign')) : 'center';
   return settings;
 }
 
@@ -7188,19 +7237,19 @@ async function saveInlineRecordEditor(event) {
     const candidate = {
       title: String(data.get('title') || '').trim(),
       description: String(data.get('description') || '').trim(),
+      funFact: String(data.get('funFact') || '').trim(),
       page: String(data.get('page') || '').trim(),
       visible: data.has('visible'),
+      homepageVisible: base.parentKey ? false : data.has('homepageVisible'),
       order: Number(data.get('order') || 0)
     };
     const cardCandidate = {
       image: String(data.get('cardImage') || '').trim(),
-      backgroundImage: String(data.get('cardBackgroundImage') || '').trim(),
-      visible: data.has('cardVisible'),
-      order: Number(data.get('cardOrder') || 0)
+      backgroundImage: String(data.get('cardBackgroundImage') || '').trim()
     };
     const displayCandidate = categoryDisplaySettingsFromForm(form);
-    const rootPatch = changedInlineFields(base, candidate, ['title', 'description', 'page', 'visible', 'order']);
-    const cardPatch = changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage', 'visible', 'order']);
+    const rootPatch = changedInlineFields(base, candidate, ['title', 'description', 'funFact', 'page', 'visible', 'homepageVisible', 'order']);
+    const cardPatch = changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage']);
     const displayPatch = JSON.stringify(base.displaySettings || {}) === JSON.stringify(displayCandidate) ? {} : displayCandidate;
     let saved = true;
     if (Object.keys(rootPatch).length) saved = await saveStorefrontCategoryPatch(panel.dataset.recordKey, '', rootPatch, base);
@@ -7546,7 +7595,7 @@ function installInlineAdminMode() {
 
     document.body.insertAdjacentHTML('beforeend', `
     <div class="admin-mode-badge" role="status">
-      <strong>ADMIN MODE ON</strong>
+      <strong>ADMIN PREVIEW — UNPUBLISHED CHANGES</strong>
       <span>${getInlineAdminLabel()}</span>
     </div>
     <div class="admin-anywhere-toolbar">
@@ -7574,7 +7623,7 @@ function installInlineAdminMode() {
         ${newStorefrontAdminArchitectureEnabled() ? '<button type="button" class="admin-tool-control" data-admin-toolbar-action="edit-selected-record" title="Edit the selected product or category">Edit Product</button>' : ''}
         <a href="admin.html#products" title="Open Products to preview, save a draft, or publish">Products</a>
         <a href="admin.html#create-card">Add Card</a>
-        <a href="admin.html">Orders/Admin</a>
+        <a href="admin.html#dashboard">Open Admin Dashboard</a>
         <details class="admin-toolbar-more"><summary>More</summary><div>
           <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image" onpointerdown="runInlineAdminToolbarAction('copy-code'); return false;" onclick="runInlineAdminToolbarAction('copy-code'); return false;">Copy CSS</button>
         </div></details>
@@ -8026,6 +8075,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   initializeCategoryShowroomExperience();
   initializeSellableProductPricing();
   await authStatePromise;
+  applyRequestedAdminViewMode();
   await loadStorefrontTestMode().catch(() => {});
   setupAuthState();
   updateCart();

@@ -1316,9 +1316,7 @@ function publishableCategory(category = {}) {
       title: category.card?.titleOverride === true ? String(category.card.title || '') : '',
       description: category.card?.descriptionOverride === true ? String(category.card.description || '') : '',
       image: publishImageReference(category.card?.image || ''),
-      backgroundImage: publishImageReference(category.card?.backgroundImage || ''),
-      visible: category.card?.visible !== false,
-      order: Number(category.card?.order || 0)
+      backgroundImage: publishImageReference(category.card?.backgroundImage || '')
     },
     displaySettings: structuredClone(category.displaySettings || { backgroundPosition: 'center center' })
   };
@@ -1484,8 +1482,8 @@ function buildNormalizedPublishSnapshot() {
       description: category.description || category.card?.description,
       cutoutImage: category.card?.image || '',
       backgroundImage: category.card?.backgroundImage || '',
-      visible: category.visible !== false && category.card?.visible !== false,
-      productOrder: category.card?.order ?? category.order,
+      visible: category.visible !== false && category.homepageVisible !== false,
+      productOrder: category.order,
       categories: []
     });
   });
@@ -4737,29 +4735,19 @@ function categoryBackgroundPositionParts(value = 'center bottom') {
 }
 
 function effectiveCategoryDisplaySettings(category = {}) {
-  const global = adminLiveSettings?.globalDisplaySettings || adminPublishedBaseline?.globalDisplaySettings || {};
-  const display = { ...global, ...(category.displaySettings || {}) };
-  const inheritedSize = safeCategoryDisplayNumber(global.standeeSizePercent, CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX);
-  return {
-    ...display,
-    backgroundPosition: String(display.backgroundPosition || 'center bottom'),
-    backgroundSizePercent: safeCategoryDisplayNumber(display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
-    standeeSizePercent: safeCategoryDisplayNumber(display.standeeSizePercent, inheritedSize, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
-    standeeLeftPercent: safeCategoryDisplayNumber(display.standeeLeftPercent, 0, -50, 50),
-    standeeVerticalPercent: safeCategoryDisplayNumber(display.standeeVerticalPercent, 0, -50, 50),
-    titleLeftPercent: safeCategoryDisplayNumber(display.titleLeftPercent, 0, -50, 50),
-    titleVerticalPercent: safeCategoryDisplayNumber(display.titleVerticalPercent, 0, -50, 50),
-    titleAlign: safeCategoryTextAlignment(display.titleAlign),
-    titleSizePercent: safeCategoryDisplayNumber(display.titleSizePercent, CATEGORY_TEXT_SIZE_DEFAULT, 70, 180),
-    descriptionLeftPercent: safeCategoryDisplayNumber(display.descriptionLeftPercent, 0, -50, 50),
-    descriptionVerticalPercent: safeCategoryDisplayNumber(display.descriptionVerticalPercent, 0, -50, 50),
-    descriptionAlign: safeCategoryTextAlignment(display.descriptionAlign),
-    descriptionSizePercent: safeCategoryDisplayNumber(display.descriptionSizePercent, CATEGORY_TEXT_SIZE_DEFAULT, 70, 180)
-  };
+  return effectiveAdminCategoryPresentation(category).display;
 }
 
 function effectiveCategoryBackground(category = {}) {
-  return String(category.card?.backgroundImage || category.displaySettings?.backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND);
+  return effectiveAdminCategoryPresentation(category).background;
+}
+
+function effectiveAdminCategoryPresentation(category = {}) {
+  return window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation(category, {
+    mode: 'draft',
+    globalDisplaySettings: adminLiveSettings?.globalDisplaySettings || adminPublishedBaseline?.globalDisplaySettings || {},
+    defaultBackground: IMAGE_IMPORT_DEFAULT_BACKGROUND
+  });
 }
 
 function repositoryCategoryImageLibrary() {
@@ -5071,6 +5059,7 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
   const homepageVisible = current.parentKey
     ? false
     : (data.has('visible') ? data.has('homepageVisible') : current.homepageVisible !== false);
+  const { visible: _legacyCardVisible, order: _legacyCardOrder, ...currentCard } = current.card || {};
   return {
     ...current,
     key,
@@ -5082,13 +5071,11 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
     homepageVisible,
     order: Number(data.get('order') || 0),
     card: {
-      ...(current.card || {}),
+      ...currentCard,
       title: current.card?.titleOverride === true ? String(current.card.title || '') : '',
       description: current.card?.descriptionOverride === true ? String(current.card.description || '') : '',
       image: cardImage,
-      backgroundImage: cardBackgroundImage,
-      visible: homepageVisible,
-      order: Number(data.get('order') || 0)
+      backgroundImage: cardBackgroundImage
     },
     displaySettings: {
       ...(current.displaySettings || {}),
@@ -5275,7 +5262,6 @@ async function saveCategoryVisibility(categoryKey, field, visible) {
   if (!category) return false;
   const patch = {
     [field]: visible,
-    ...(field === 'homepageVisible' ? { card: { ...(category.card || {}), visible } } : {}),
     updatedAt: new Date().toISOString(),
     draftStatus: 'draft',
     approvalStatus: 'draft'
@@ -5345,9 +5331,10 @@ function previewCategoryEdit(form) {
   const category = categoryFromEditForm(form);
   const preview = form.querySelector('[data-category-edit-preview]');
   if (!preview) return;
-  const display = effectiveCategoryDisplaySettings(category);
-  const imagePresentation = adminImageReferencePresentation(category.card?.image);
-  const backgroundPresentation = adminImageReferencePresentation(effectiveCategoryBackground(category), { background: true });
+  const presentation = effectiveAdminCategoryPresentation(category);
+  const display = presentation.display;
+  const imagePresentation = adminImageReferencePresentation(presentation.image);
+  const backgroundPresentation = adminImageReferencePresentation(presentation.background, { background: true });
   const left = Math.max(10, Math.min(90, 50 + display.standeeLeftPercent));
   const bottom = Math.max(0, Math.min(75, 2 - display.standeeVerticalPercent));
   const titleStyle = `transform:translate(${display.titleLeftPercent}%,${display.titleVerticalPercent}px);text-align:${display.titleAlign}`;
@@ -5358,8 +5345,8 @@ function previewCategoryEdit(form) {
       <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(display.backgroundPosition)};transform:scale(${display.backgroundSizePercent / 100})" aria-hidden="true"></span>
       ${imagePresentation.preview ? `<img class="product-cutout" src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}
     </div>
-    <h3 data-admin-category-field="title" style="${titleStyle}"><span class="product-title-link" style="text-align:inherit;font-size:${19 * display.titleSizePercent / 100}px">${escapeAdminHtml(category.title)}</span></h3>
-    <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeAdminHtml(category.description)}</p>
+    <h3 data-admin-category-field="title" style="${titleStyle}"><span class="product-title-link" style="text-align:inherit;font-size:${19 * display.titleSizePercent / 100}px">${escapeAdminHtml(presentation.title)}</span></h3>
+    <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeAdminHtml(presentation.description)}</p>
     <span class="admin-category-preview-status">${category.visible === false ? 'Category hidden from customers' : (category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage')}</span>
   </article>`;
 }
@@ -5637,7 +5624,9 @@ function setupCategoryManagerEvents() {
     }
     const publishButton = event.target.closest('[data-publish-category-key]');
     if (publishButton) {
-      const form = publishButton.closest('[data-category-edit]');
+      const form = publishButton.closest('[data-category-edit]')
+        || card?.querySelector('[data-category-edit]')
+        || null;
       await publishCategoryByKey(publishButton.dataset.publishCategoryKey, form);
     }
     const deleteButton = event.target.closest('[data-delete-category]');
