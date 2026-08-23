@@ -3270,7 +3270,7 @@ async function saveStorefrontProductPatch(slug, patch, baseRecord, force = false
 
 async function saveStorefrontCategoryPatch(categoryKey, section, patch, baseCategory, force = false) {
   if (!categoryKey || !Object.keys(patch || {}).length) return false;
-  updateInlineAdminToolbarState('Saving…');
+  updateInlineAdminToolbarState('Saving Category…');
   try {
     const latest = await fetchAuthoritativeStorefrontAdminGlobal();
     const latestCategory = latest.edits.categories?.[categoryKey] || {};
@@ -3284,6 +3284,7 @@ async function saveStorefrontCategoryPatch(categoryKey, section, patch, baseCate
     storefrontAdminPotentiallyStale = false;
     if (!force && !analysis.canRebase) {
       showStorefrontAdminConflict(analysis, () => saveStorefrontCategoryPatch(categoryKey, section, patch, latestCategory, true));
+      refreshStorefrontCategoryFromNormalized(categoryKey);
       return false;
     }
     const approvalStatus = patch.approvalStatus || 'draft';
@@ -3301,14 +3302,16 @@ async function saveStorefrontCategoryPatch(categoryKey, section, patch, baseCate
     window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, categories };
     window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
     announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`categories:${categoryKey}:${section || 'root'}`]);
+    refreshStorefrontCategoryFromNormalized(categoryKey);
     updateInlineAdminToolbarState('Saved Privately');
     return true;
   } catch (error) {
     if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
       showStorefrontAdminConflict({ conflictingFields: [`categories:${categoryKey}:${section || 'root'}`] }, null);
     } else {
-      updateInlineAdminToolbarState(`Error — not saved: ${error?.message || error}`);
+      updateInlineAdminToolbarState(`Category save failed — change was not saved. ${error?.message || error}`);
     }
+    refreshStorefrontCategoryFromNormalized(categoryKey);
     return false;
   }
 }
@@ -4042,7 +4045,7 @@ function renderNormalizedHomepageCategoryCards() {
         || `${category.key}-category-card`;
       const page = presentation.page || `category.html?category=${encodeURIComponent(category.key)}`;
       grid.insertAdjacentHTML('beforeend', `
-        <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
+        <article class="product-card admin-master-category-card" data-category-key="${escapeHtml(category.key)}" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
           <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(presentation.background)}');background-position:${escapeHtml(layout.backgroundPosition)};transform:scale(${layout.backgroundScale})" aria-hidden="true"></span>${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : ''}</div></a>
           <h3 data-admin-category-field="title" style="transform:${layout.titleTransform};text-align:${layout.titleAlign}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${layout.titleFontSizePx}px">${escapeHtml(presentation.title)}</a></h3>
           <p class="product-description" data-admin-category-field="description" style="transform:${layout.descriptionTransform};text-align:${layout.descriptionAlign};font-size:${layout.descriptionFontSizePx}px">${escapeHtml(presentation.description)}</p>
@@ -4059,6 +4062,144 @@ function renderNormalizedHomepageCategoryCards() {
     console.error('Normalized homepage Category rendering failed; showing the emergency fallback.', error);
     return false;
   }
+}
+
+function initializeInlineCategoryImageControls(image) {
+  if (!image || !document.body.classList.contains('admin-anywhere-on')) return;
+  inlineAdminKey(image);
+  ensureInlineAdminImageBaseTransform(image);
+  image.classList.add('admin-editable-image', 'admin-transformable-image');
+  if (image.dataset.adminCategoryImageReady === 'true') return;
+  image.dataset.adminCategoryImageReady = 'true';
+  image.addEventListener('pointerdown', (event) => {
+    if (image._adminImageState?.locked || event.altKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectInlineAdminImage(image);
+    const before = getInlineAdminSnapshot(image);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const baseX = Number(image._adminImageState?.x || 0);
+    const baseY = Number(image._adminImageState?.y || 0);
+    const move = (moveEvent) => {
+      const state = image._adminImageState || { x: 0, y: 0, scale: 1, rotate: 0 };
+      image._adminImageState = {
+        ...state,
+        x: safeAdminImageNumber(baseX + moveEvent.clientX - startX, 0, -140, 140),
+        y: safeAdminImageNumber(baseY + moveEvent.clientY - startY, 0, -140, 140)
+      };
+      renderInlineAdminImageState(image);
+      saveInlineAdminEdit(image, { src: image.getAttribute('src') || '', ...image._adminImageState });
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      pushInlineAdminHistory(before, getInlineAdminSnapshot(image));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop, { once: true });
+  });
+  image.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    replaceInlineAdminImage(image);
+  });
+}
+
+function renderExistingCategoryCardFromNormalized(card, categoryKey) {
+  if (!card || !categoryKey) return null;
+  const category = getAdminCategories()[categoryKey];
+  if (!category || category.visible === false || category.homepageVisible === false || category.parentKey) {
+    card.remove();
+    return null;
+  }
+  const presentation = getEffectiveCategoryPresentation(categoryKey, 'draft');
+  const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
+  card.dataset.categoryKey = categoryKey;
+  card.dataset.adminCategoryKey = categoryKey;
+  if (!card.matches('.admin-master-category-card')) {
+    const pageTitle = card.querySelector('[data-admin-category-field="title"]');
+    const pageDescription = card.querySelector('[data-admin-category-field="description"]');
+    if (pageTitle) pageTitle.textContent = presentation.title;
+    if (pageDescription) pageDescription.textContent = presentation.description;
+    return card;
+  }
+  card.dataset.name = `${presentation.title} ${presentation.description}`;
+  card.querySelectorAll(':scope > .product-image-link, :scope > h3 .product-title-link, :scope > .button-link').forEach((link) => {
+    link.href = presentation.page || `category.html?category=${encodeURIComponent(categoryKey)}`;
+  });
+  const background = card.querySelector('.category-background-layer');
+  if (background) {
+    background.style.backgroundImage = presentation.background ? `url("${presentation.background.replaceAll('"', '\\"')}")` : '';
+    background.style.backgroundPosition = layout.backgroundPosition;
+    background.style.transform = `scale(${layout.backgroundScale})`;
+  }
+  const stage = card.querySelector('.admin-category-storefront-stage');
+  let image = card.querySelector('.product-cutout');
+  if (presentation.image && !image && stage) {
+    image = document.createElement('img');
+    image.className = 'product-cutout';
+    stage.append(image);
+  }
+  if (image) {
+    if (!presentation.image) image.remove();
+    else {
+      image.src = presentation.image;
+      image.alt = presentation.title;
+      image.style.height = `${layout.imageSizePercent}%`;
+      image.style.left = `${layout.imageLeftPercent}%`;
+      image.style.bottom = `${layout.imageBottomPercent}%`;
+      image.style.setProperty('--admin-base-transform', 'translateX(-50%)');
+      image._adminCategoryDisplayBase = {
+        standeeSizePercent: presentation.display.standeeSizePercent,
+        standeeLeftPercent: presentation.display.standeeLeftPercent,
+        standeeVerticalPercent: presentation.display.standeeVerticalPercent
+      };
+      image._adminImageState = { x: 0, y: 0, scale: 1, rotate: 0, locked: Boolean(image._adminImageState?.locked) };
+      renderInlineAdminImageState(image);
+      initializeInlineCategoryImageControls(image);
+    }
+  }
+  const heading = card.querySelector('[data-admin-category-field="title"]');
+  const title = card.querySelector('.product-title-link') || heading;
+  const description = card.querySelector('[data-admin-category-field="description"]');
+  if (heading) {
+    heading.style.transform = layout.titleTransform;
+    heading.style.textAlign = layout.titleAlign;
+  }
+  if (title) {
+    title.textContent = presentation.title;
+    title.style.textAlign = 'inherit';
+    title.style.fontSize = `${layout.titleFontSizePx}px`;
+  }
+  if (description) {
+    description.textContent = presentation.description;
+    description.style.transform = layout.descriptionTransform;
+    description.style.textAlign = layout.descriptionAlign;
+    description.style.fontSize = `${layout.descriptionFontSizePx}px`;
+  }
+  return card;
+}
+
+function refreshStorefrontCategoryFromNormalized(categoryKey) {
+  const escapedKey = globalThis.CSS?.escape
+    ? globalThis.CSS.escape(categoryKey)
+    : String(categoryKey).replace(/[^A-Za-z0-9_-]/g, '\\$&');
+  const selector = `[data-admin-category-key="${escapedKey}"]`;
+  const cards = [...document.querySelectorAll(selector)];
+  cards.forEach((card) => renderExistingCategoryCardFromNormalized(card, categoryKey));
+  const grid = document.getElementById('homepageCategoryGrid');
+  if (grid) {
+    [...grid.querySelectorAll(':scope > [data-admin-category-key]')]
+      .sort((left, right) => {
+        const leftCategory = getAdminCategories()[left.dataset.adminCategoryKey] || {};
+        const rightCategory = getAdminCategories()[right.dataset.adminCategoryKey] || {};
+        return Number(leftCategory.order || 0) - Number(rightCategory.order || 0);
+      })
+      .forEach((card) => grid.append(card));
+  }
+  if (document.body.classList.contains('admin-anywhere-on')) ensureInlineAdminCardControls();
+  return document.querySelector(selector);
 }
 
 function managedCategoryCardMarkup(product) {
@@ -5402,17 +5543,30 @@ function inlineAdminProductSlugForElement(element) {
   return '';
 }
 
+function resolveInlineAdminCategoryKey(element) {
+  if (!element) return '';
+  const explicit = String(element.dataset?.categoryKey || element.dataset?.adminCategoryKey || '').trim();
+  if (explicit) return explicit;
+  const keyedOwner = element.closest?.('[data-category-key]') || element.closest?.('[data-admin-category-key]');
+  return String(keyedOwner?.dataset?.categoryKey || keyedOwner?.dataset?.adminCategoryKey || '').trim();
+}
+
 function inlineAdminOwnedField(element) {
   if (!newStorefrontAdminArchitectureEnabled() || !element) return null;
-  const categoryHost = element.closest?.('[data-admin-category-key]');
+  const categoryKey = resolveInlineAdminCategoryKey(element);
   const explicitCategoryField = element.dataset?.adminCategoryField
     || element.closest?.('[data-admin-category-field]')?.dataset.adminCategoryField;
-  if (categoryHost?.dataset.adminCategoryKey && ['title', 'description'].includes(explicitCategoryField)) {
-    return { type: 'category-card', categoryKey: categoryHost.dataset.adminCategoryKey, field: explicitCategoryField, section: '' };
+  if (categoryKey) {
+    if (['title', 'description', 'funFact'].includes(explicitCategoryField)) {
+      return { type: 'category-card', categoryKey, field: explicitCategoryField, section: '' };
+    }
+    if (element.matches?.('.product-cutout, .standee-main-cutout, .generic-main-image')) {
+      return { type: 'category-card', categoryKey, field: 'image', section: 'card' };
+    }
   }
   const slug = inlineAdminProductSlugForElement(element);
   if (!slug) return null;
-  const categoryKey = element.closest?.('[data-admin-category-key]')?.dataset.adminCategoryKey || STOREFRONT_CATEGORY_CARD_MAP[slug];
+  const mappedCategoryKey = categoryKey || STOREFRONT_CATEGORY_CARD_MAP[slug];
   let field = '';
   if (element.matches?.('.product-title-link') || (element.matches?.('h3') && element.querySelector?.('.product-title-link'))) field = 'title';
   else if (element.matches?.('.product-description')) field = 'description';
@@ -5420,8 +5574,8 @@ function inlineAdminOwnedField(element) {
   else if (element.matches?.('.product-cutout, .standee-main-cutout, .generic-main-image, #sportsMainImage')) field = 'cutoutImage';
   else if (element.matches?.('.product-stage-bg')) field = 'backgroundImage';
   if (!field) return null;
-  return categoryKey
-    ? { type: 'category-card', categoryKey, slug, field: field === 'cutoutImage' ? 'image' : field, section: ['title', 'description'].includes(field) ? '' : 'card' }
+  return mappedCategoryKey
+    ? { type: 'category-card', categoryKey: mappedCategoryKey, slug, field: field === 'cutoutImage' ? 'image' : field, section: ['title', 'description', 'funFact'].includes(field) ? '' : 'card' }
     : { type: 'product', slug, field };
 }
 
@@ -5504,23 +5658,6 @@ function inlineCategoryDisplayPatch(image, state, owned = inlineAdminOwnedField(
   };
 }
 
-function applySavedInlineCategoryDisplay(image, patch) {
-  if (!image || !patch) return;
-  image._adminCategoryDisplayBase = { ...patch };
-  image.style.height = `${patch.standeeSizePercent}%`;
-  image.style.left = `${Math.max(10, Math.min(90, 50 + patch.standeeLeftPercent))}%`;
-  image.style.bottom = `${Math.max(0, Math.min(75, 2 - patch.standeeVerticalPercent))}%`;
-  image.style.setProperty('--admin-base-transform', 'translateX(-50%)');
-  image._adminImageState = {
-    x: 0,
-    y: 0,
-    scale: 1,
-    rotate: 0,
-    locked: Boolean(image._adminImageState?.locked)
-  };
-  renderInlineAdminImageState(image);
-}
-
 async function persistInlineOwnedDisplay(image, state, owned = inlineAdminOwnedField(image)) {
   if (owned?.type === 'category-card') {
     const patch = inlineCategoryDisplayPatch(image, state, owned);
@@ -5529,7 +5666,6 @@ async function persistInlineOwnedDisplay(image, state, owned = inlineAdminOwnedF
       || {};
     const saved = await saveStorefrontCategoryPatch(owned.categoryKey, 'displaySettings', patch, base);
     if (saved) {
-      applySavedInlineCategoryDisplay(image, patch);
       updateInlineAdminToolbarState('Saved Privately — publish in Dashboard to update customers');
     }
     return saved;
@@ -6105,6 +6241,14 @@ function selectInlineAdminImage(image) {
   inlineAdminSelectedImage = image;
   inlineAdminSelectedRecordElement = image;
   image?.classList.add('admin-image-selected');
+  const categoryOwned = inlineAdminOwnedField(image)?.type === 'category-card';
+  document.querySelectorAll('[data-admin-toolbar-action="rotate-left"], [data-admin-toolbar-action="rotate-right"]').forEach((button) => {
+    button.disabled = categoryOwned;
+    button.classList.toggle('disabled', categoryOwned);
+    button.title = categoryOwned
+      ? 'Category rotation is not supported by the shared Category model'
+      : button.dataset.adminToolbarAction === 'rotate-left' ? 'Rotate left' : 'Rotate right';
+  });
   const label = isInlineAdminBackgroundImage(image)
     ? 'Background selected'
     : image?._adminImageState?.locked
@@ -6337,6 +6481,22 @@ function centerSelectedInlineAdminImage() {
     return;
   }
 
+  const owned = inlineAdminOwnedField(image);
+  if (owned?.type === 'category-card') {
+    const base = image._adminCategoryDisplayBase || inlineCategoryDisplayPatch(image, image._adminImageState || {}, owned);
+    const frameRect = frame.getBoundingClientRect?.() || {};
+    const width = Math.max(1, Number(frameRect.width) || 400);
+    const height = Math.max(1, Number(frameRect.height) || 300);
+    changeSelectedInlineAdminImage({
+      x: -(Number(base.standeeLeftPercent) || 0) * width / 100,
+      y: -(Number(base.standeeVerticalPercent) || 0) * height / 100,
+      scale: 1,
+      rotate: 0
+    });
+    updateInlineAdminToolbarState('Centering Category image…');
+    return;
+  }
+
   const before = getInlineAdminSnapshot(image);
   const imageRect = image.getBoundingClientRect();
   const frameRect = frame.getBoundingClientRect();
@@ -6560,6 +6720,34 @@ function storefrontCategoryDeletionCollections(latestEdits, categoryKey, affecte
   return { categories, deletedCategories, products };
 }
 
+async function saveStorefrontWorkingCollections(latest, collections, changeIds = []) {
+  const client = getSupabaseClient();
+  const projectUrl = window.MVPLUX_SUPABASE?.url;
+  const { data: sessionData } = await client.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!projectUrl || !token) throw new Error('Sign in as Admin before saving Category changes.');
+  const response = await fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      apikey: window.MVPLUX_SUPABASE?.publishableKey || ''
+    },
+    body: JSON.stringify({
+      action: 'save-working-state',
+      edits: collections,
+      expectedRevision: latest.revision
+    })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || result.message || `Private Category save failed (HTTP ${response.status}).`);
+  window.mvpluxLiveAdminSettings = { ...latest.edits, ...collections };
+  window.mvpluxLiveAdminRevision = Number(result.revision) || latest.revision + 1;
+  window.mvpluxLiveAdminStateLoaded = true;
+  announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, changeIds);
+  return result;
+}
+
 async function deleteInlineAdminCard(card) {
   if (!card) return;
   const categoryKey = String(card.dataset.adminCategoryKey || '').trim();
@@ -6591,33 +6779,10 @@ async function deleteInlineAdminCard(card) {
     );
 
     try {
-      const client = getSupabaseClient();
-      const projectUrl = window.MVPLUX_SUPABASE?.url;
-      const { data: sessionData } = await client.auth.getSession();
-      const token = sessionData?.session?.access_token;
-      if (!projectUrl || !token) throw new Error('Sign in as Admin before deleting a Category.');
-      const response = await fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          apikey: window.MVPLUX_SUPABASE?.publishableKey || ''
-        },
-        body: JSON.stringify({
-          action: 'save-working-state',
-          edits: { categories, deletedCategories, products },
-          expectedRevision: latest.revision
-        })
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || result.message || `Private Category deletion failed (HTTP ${response.status}).`);
-      window.mvpluxLiveAdminSettings = { ...latest.edits, categories, deletedCategories, products };
-      window.mvpluxLiveAdminRevision = Number(result.revision) || latest.revision + 1;
-      window.mvpluxLiveAdminStateLoaded = true;
+      await saveStorefrontWorkingCollections(latest, { categories, deletedCategories, products }, [`category-delete:${categoryKey}`]);
       localStorage.setItem('mvpluxDeletedCategories', JSON.stringify(deletedCategories));
       localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
       card.remove();
-      announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`category-delete:${categoryKey}`]);
       updateInlineAdminToolbarState('Category deletion saved privately — publish in Dashboard to update customers');
       return true;
     } catch (error) {
@@ -7098,6 +7263,50 @@ async function deleteManagedProduct(card) {
   updateInlineAdminToolbarState('Product deleted; image file retained');
 }
 
+async function saveInlineCategoryVisibility(card, field, value) {
+  const categoryKey = resolveInlineAdminCategoryKey(card);
+  if (!categoryKey || !['visible', 'homepageVisible'].includes(field)) return false;
+  const category = getAdminCategories()[categoryKey];
+  if (!category) return false;
+  updateInlineAdminToolbarState('Saving Category…');
+  const saved = await saveStorefrontCategoryPatch(categoryKey, '', { [field]: value }, category);
+  if (!saved) {
+    refreshStorefrontCategoryFromNormalized(categoryKey);
+    updateInlineAdminToolbarState('Category save failed — change was not saved.');
+    return false;
+  }
+  updateInlineAdminToolbarState('Saved Privately — publish in Dashboard to update customers');
+  return true;
+}
+
+async function moveNormalizedHomepageCategory(card, direction) {
+  const categoryKey = resolveInlineAdminCategoryKey(card);
+  const categories = homepageCategoryRecords(getAdminCategories());
+  const currentIndex = categories.findIndex((category) => category.key === categoryKey);
+  const offset = ['left', 'up'].includes(direction) ? -1 : ['right', 'down'].includes(direction) ? 1 : 0;
+  const target = categories[currentIndex + offset];
+  const current = categories[currentIndex];
+  if (!current || !target || !offset) return false;
+  updateInlineAdminToolbarState('Saving Category order…');
+  try {
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const normalized = structuredClone(latest.edits.categories || {});
+    const currentOrder = Number(current.order || currentIndex);
+    const targetOrder = Number(target.order || currentIndex + offset);
+    normalized[current.key] = { ...(current || {}), ...(normalized[current.key] || {}), order: targetOrder, updatedAt: new Date().toISOString(), draftStatus: 'draft', approvalStatus: 'draft' };
+    normalized[target.key] = { ...(target || {}), ...(normalized[target.key] || {}), order: currentOrder, updatedAt: new Date().toISOString(), draftStatus: 'draft', approvalStatus: 'draft' };
+    await saveStorefrontWorkingCollections(latest, { categories: normalized }, [`categories:${current.key}:order`, `categories:${target.key}:order`]);
+    refreshStorefrontCategoryFromNormalized(current.key);
+    refreshStorefrontCategoryFromNormalized(target.key);
+    updateInlineAdminToolbarState('Saved Privately — Category order updated');
+    return true;
+  } catch (error) {
+    refreshStorefrontCategoryFromNormalized(categoryKey);
+    updateInlineAdminToolbarState(`Category save failed — change was not saved. ${error?.message || error}`);
+    return false;
+  }
+}
+
 function ensureInlineAdminCardControls() {
   if (!document.body.classList.contains('admin-anywhere-on')) return;
   document.querySelectorAll('#shop .product-card, .category-page .category-card').forEach((card) => {
@@ -7109,8 +7318,10 @@ function ensureInlineAdminCardControls() {
     const controls = document.createElement('div');
     controls.className = 'admin-card-controls';
     const managedProductSlug = card.matches('.category-page .category-card[data-product-id]') ? card.dataset.productId : '';
-    const homepageDisplayCard = Boolean(card.closest('#shop .featured-category-row'));
-    const categoryKey = String(card.dataset.adminCategoryKey || '').trim();
+    const homepageDisplayCard = Boolean(card.closest('#homepageCategoryGrid, #shop .featured-category-row'));
+    const categoryKey = resolveInlineAdminCategoryKey(card);
+    if (categoryKey) controls.dataset.categoryKey = categoryKey;
+    const categoryActionKey = categoryKey ? ` data-category-key="${escapeHtml(categoryKey)}"` : '';
     controls.innerHTML = `
       ${managedProductSlug ? `
         <button type="button" data-admin-card-action="remove-section" title="Remove from this category">Remove</button>
@@ -7122,18 +7333,21 @@ function ensureInlineAdminCardControls() {
           <a href="admin.html#product-${managedProductSlug}">Edit Product</a>
           <button type="button" data-admin-card-action="delete-product">Delete Product</button>
         </div></details>
+      ` : categoryKey ? `
+        <button type="button" data-admin-card-action="hide-category"${categoryActionKey}>Hide Category</button>
+        <button type="button" data-admin-card-action="hide-homepage"${categoryActionKey}>Hide from Homepage</button>
       ` : `
         <button type="button" data-admin-card-action="hide-toggle">Hide</button>
         ${homepageDisplayCard ? '<button type="button" data-admin-card-action="remove-display" title="Remove from homepage display">Remove</button>' : ''}
       `}
       ${homepageDisplayCard ? `
-        <button type="button" data-admin-card-action="move-left" title="Move left">←</button>
-        <button type="button" data-admin-card-action="move-right" title="Move right">→</button>
-        <button type="button" data-admin-card-action="move-up" title="Move up">↑</button>
-        <button type="button" data-admin-card-action="move-down" title="Move down">↓</button>
+        <button type="button" data-admin-card-action="move-left"${categoryActionKey} title="Move left">←</button>
+        <button type="button" data-admin-card-action="move-right"${categoryActionKey} title="Move right">→</button>
+        <button type="button" data-admin-card-action="move-up"${categoryActionKey} title="Move up">↑</button>
+        <button type="button" data-admin-card-action="move-down"${categoryActionKey} title="Move down">↓</button>
         <details class="admin-card-more"><summary>More</summary><div>
           <a href="${categoryKey ? 'admin.html#categories' : `admin.html#product-${getCardAdminKey(card)}`}">${categoryKey ? 'Edit Category in Dashboard' : 'Edit Card'}</a>
-          <button type="button" data-admin-card-action="delete-card">${categoryKey ? 'Delete Category' : 'Delete Record'}</button>
+          <button type="button" data-admin-card-action="delete-card"${categoryActionKey}>${categoryKey ? 'Delete Category' : 'Delete Record'}</button>
         </div></details>
       ` : ''}
     `;
@@ -7143,8 +7357,22 @@ function ensureInlineAdminCardControls() {
       if (!actionControl) return;
       event.preventDefault();
       const action = actionControl.dataset.adminCardAction;
+      if (categoryKey && resolveInlineAdminCategoryKey(actionControl) !== categoryKey) {
+        updateInlineAdminToolbarState('Category action stopped — the selected Category key did not match.');
+        return;
+      }
+      if (action === 'hide-category') {
+        if (window.confirm('Hide this Category from customers? The Category, products, assignments, and physical images will be preserved as a private draft.')) {
+          await saveInlineCategoryVisibility(card, 'visible', false);
+        }
+      }
+      if (action === 'hide-homepage') {
+        if (window.confirm('Hide this Category from the Homepage? Its Category page, products, assignments, and physical images will be preserved.')) {
+          await saveInlineCategoryVisibility(card, 'homepageVisible', false);
+        }
+      }
       if (action === 'hide-toggle') {
-        setInlineAdminCardHidden(card, !isCardHiddenByAdmin(card));
+        await setInlineAdminCardHidden(card, !isCardHiddenByAdmin(card));
         ensureInlineAdminCardControls();
       }
       if (action === 'delete-card') {
@@ -7153,7 +7381,7 @@ function ensureInlineAdminCardControls() {
       }
       if (action === 'remove-display') {
         if (window.confirm('Remove this card from the homepage display? The record and physical image file will be preserved.')) {
-          setInlineAdminCardHidden(card, true);
+          await setInlineAdminCardHidden(card, true);
           ensureInlineAdminCardControls();
         }
       }
@@ -7167,7 +7395,8 @@ function ensureInlineAdminCardControls() {
                 : columnCount;
           await moveManagedProductInCurrentSection(card, offset);
         } else {
-          moveHomepageCategoryCard(card, action.slice(5));
+          if (categoryKey) await moveNormalizedHomepageCategory(card, action.slice(5));
+          else moveHomepageCategoryCard(card, action.slice(5));
         }
       }
       if (action === 'remove-section') removeManagedProductFromCurrentSection(card);
@@ -7182,11 +7411,13 @@ function ensureInlineAdminCardControls() {
 function inlineRecordContext(element = inlineAdminSelectedRecordElement || inlineAdminSelectedImage) {
   const owned = inlineAdminOwnedField(element);
   if (owned) return owned;
+  const explicitCategoryKey = resolveInlineAdminCategoryKey(element);
+  if (explicitCategoryKey) return { type: 'category-card', categoryKey: explicitCategoryKey };
   const card = element?.closest?.('.product-card, .category-card');
   const builder = card?.querySelector?.('.size-builder');
   const slug = builder?.dataset.adminSlug || card?.dataset.productId || '';
   if (!slug) return null;
-  const categoryKey = card?.dataset.adminCategoryKey || STOREFRONT_CATEGORY_CARD_MAP[slug];
+  const categoryKey = resolveInlineAdminCategoryKey(card) || STOREFRONT_CATEGORY_CARD_MAP[slug];
   return categoryKey ? { type: 'category-card', categoryKey, slug } : { type: 'product', slug };
 }
 
@@ -7233,8 +7464,15 @@ function ensureInlineRecordEditor() {
     const clearCategoryOverrides = event.target.closest('[data-inline-clear-category-overrides]');
     const resetSelectedOverrides = event.target.closest('[data-inline-reset-selected-overrides]');
     const resetCategory = event.target.closest('[data-inline-reset-category]');
-    if (!reset && !archive && !previewCategory && !applyCategory && !clearCategoryOverrides && !resetSelectedOverrides && !resetCategory) return;
+    const sharedCategoryBackground = event.target.closest('[data-inline-use-shared-category-background]');
+    if (!reset && !archive && !previewCategory && !applyCategory && !clearCategoryOverrides && !resetSelectedOverrides && !resetCategory && !sharedCategoryBackground) return;
     event.preventDefault();
+    if (sharedCategoryBackground) {
+      const background = panel.querySelector('[name="cardBackgroundImage"]');
+      if (background) background.value = '';
+      panel.querySelector('[data-inline-record-status]').textContent = 'Shared background selected — Save Category Privately to keep this change.';
+      return;
+    }
     if (previewCategory) {
       const status = panel.querySelector('[data-inline-record-status]');
       status.textContent = 'Preview uses these values in this panel. Save privately to apply them across this Admin preview.';
@@ -7242,13 +7480,13 @@ function ensureInlineRecordEditor() {
     }
     if (applyCategory || clearCategoryOverrides || resetSelectedOverrides || resetCategory) {
       const status = panel.querySelector('[data-inline-record-status]');
-      status.textContent = 'Saving…';
+      status.textContent = 'Saving Category…';
       const saved = await saveInlineCategoryDisplayAction(panel, {
         clearAll: Boolean(clearCategoryOverrides),
         resetSelected: Boolean(resetSelectedOverrides),
         resetCategory: Boolean(resetCategory)
       });
-      status.textContent = saved ? 'Saved privately — customers cannot see this yet.' : 'Not saved.';
+      status.textContent = saved ? 'Saved Privately — customers cannot see this yet.' : 'Category save failed — change was not saved.';
       if (saved) openInlineRecordEditor(inlineAdminSelectedRecordElement || inlineAdminSelectedImage);
       return;
     }
@@ -7313,6 +7551,9 @@ function inlineCategoryEditorMarkup(category = {}) {
   const card = category.card || {};
   const presentation = getEffectiveCategoryPresentation(category.key);
   const display = presentation.display;
+  const backgroundPosition = String(display.backgroundPosition || '50% 100%').match(/^\s*(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%\s*$/);
+  const backgroundX = backgroundPosition ? Number(backgroundPosition[1]) : 50;
+  const backgroundY = backgroundPosition ? Number(backgroundPosition[2]) : 100;
   const products = Object.values(getAdminProducts()).filter((product) => (product.categories || []).includes(category.key));
   const overrideProducts = products.filter((product) => Object.keys(product.displayOverrides || {}).length);
   return `
@@ -7327,12 +7568,14 @@ function inlineCategoryEditorMarkup(category = {}) {
     </details>
     <details open><summary>Category card</summary>
       <p class="admin-note">The homepage card uses the authoritative Category title and description above.</p>
-      <label>Card image<input name="cardImage" value="${escapeHtml(card.image || '')}"></label>
-      <label>Card background<input name="cardBackgroundImage" value="${escapeHtml(card.backgroundImage || '')}"></label>
+      <label>Change Category Image <small>Choose an existing repository path beginning with images/</small><input name="cardImage" value="${escapeHtml(card.image || '')}"></label>
+      <label>Change Category Background <small>Leave blank to use the shared storefront background</small><input name="cardBackgroundImage" value="${escapeHtml(card.backgroundImage || '')}"></label>
+      <button type="button" data-inline-use-shared-category-background>Use Shared Category Background</button>
     </details>
     <details open><summary>Category-wide display settings</summary>
       <p class="admin-note">These are the same normalized Category display settings used by Dashboard preview and the published storefront.</p>
-      <label>Background position<input name="displayBackgroundPosition" value="${escapeHtml(display.backgroundPosition || 'center bottom')}"></label>
+      <label>Background left / right %<input name="displayBackgroundPositionX" type="number" min="0" max="100" value="${escapeHtml(String(backgroundX))}"></label>
+      <label>Background up / down %<input name="displayBackgroundPositionY" type="number" min="0" max="100" value="${escapeHtml(String(backgroundY))}"></label>
       <label>Background zoom %<input name="displayBackgroundSizePercent" type="number" min="50" max="300" value="${escapeHtml(String(display.backgroundSizePercent ?? 100))}"></label>
       <label>Category image size %<input name="displayStandeeSizePercent" type="number" min="10" max="250" value="${escapeHtml(String(display.standeeSizePercent))}"></label>
       <label>Image left / right %<input name="displayStandeeLeftPercent" type="number" min="-50" max="50" value="${escapeHtml(String(display.standeeLeftPercent))}"></label>
@@ -7359,8 +7602,10 @@ function inlineCategoryEditorMarkup(category = {}) {
 
 function categoryDisplaySettingsFromForm(form) {
   const data = new FormData(form);
+  const backgroundX = Math.max(0, Math.min(100, Number(data.get('displayBackgroundPositionX')) || 0));
+  const backgroundY = Math.max(0, Math.min(100, Number(data.get('displayBackgroundPositionY')) || 0));
   const settings = {
-    backgroundPosition: String(data.get('displayBackgroundPosition') || 'center bottom').trim() || 'center bottom'
+    backgroundPosition: `${backgroundX}% ${backgroundY}%`
   };
   const fields = ['backgroundSizePercent', 'standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent', 'titleSizePercent', 'titleLeftPercent', 'titleVerticalPercent', 'descriptionSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent'];
   fields.forEach((field) => {
@@ -7408,7 +7653,7 @@ async function saveInlineRecordEditor(event) {
   const status = panel.querySelector('[data-inline-record-status]');
   const data = new FormData(form);
   const base = panel._baseRecord || {};
-  status.textContent = 'Saving…';
+  status.textContent = panel.dataset.recordType === 'category-card' ? 'Saving Category…' : 'Saving…';
   if (panel.dataset.recordType === 'category-card') {
     const candidate = {
       title: String(data.get('title') || '').trim(),
@@ -7437,7 +7682,7 @@ async function saveInlineRecordEditor(event) {
       const refreshed = window.mvpluxLiveAdminSettings?.categories?.[panel.dataset.recordKey] || base;
       saved = await saveStorefrontCategoryPatch(panel.dataset.recordKey, 'displaySettings', displayPatch, refreshed);
     }
-    status.textContent = saved ? 'Saved privately — customers cannot see this yet.' : 'Save failed — your changes remain in this panel.';
+    status.textContent = saved ? 'Saved Privately — customers cannot see this yet.' : 'Category save failed — change was not saved.';
     if (saved) panel._baseRecord = structuredClone(window.mvpluxLiveAdminSettings?.categories?.[panel.dataset.recordKey] || { ...base, ...rootPatch, card: { ...(base.card || {}), ...cardPatch } });
     return;
   }
@@ -7571,6 +7816,7 @@ var runInlineAdminToolbarAction = function (action) {
   if (action === 'reset-image') resetSelectedInlineAdminImage();
   if (action === 'lock-image') toggleSelectedInlineAdminImageLock();
   if (action === 'unlock-all-images') unlockAllInlineAdminImages();
+  if (action === 'replace-image') replaceSelectedInlineAdminImage();
   if (action === 'edit-selected-record') openInlineRecordEditor();
   if (action === 'mark-selected-ready') void markSelectedInlineAdminReady();
   if (action === 'center') {
@@ -7792,6 +8038,7 @@ function installInlineAdminMode() {
         <button type="button" class="admin-tool-control" data-admin-toolbar-action="unlock-all-images" id="adminInlineUnlockAll" title="Unlock all locked images" onpointerdown="runInlineAdminToolbarAction('unlock-all-images'); return false;" onclick="runInlineAdminToolbarAction('unlock-all-images'); return false;">Unlock</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller" onpointerdown="runInlineAdminToolbarAction('size-down'); return false;" onclick="runInlineAdminToolbarAction('size-down'); return false;">Size -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger" onpointerdown="runInlineAdminToolbarAction('size-up'); return false;" onclick="runInlineAdminToolbarAction('size-up'); return false;">Size +</button>
+        <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="replace-image" id="adminInlineReplaceImage" title="Choose an existing repository image for the selected item">Change Image</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left" onpointerdown="runInlineAdminToolbarAction('rotate-left'); return false;" onclick="runInlineAdminToolbarAction('rotate-left'); return false;">Rotate -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onpointerdown="runInlineAdminToolbarAction('rotate-right'); return false;" onclick="runInlineAdminToolbarAction('rotate-right'); return false;">Rotate +</button>
       </div>
@@ -7799,7 +8046,7 @@ function installInlineAdminMode() {
         ${newStorefrontAdminArchitectureEnabled() ? '<button type="button" class="admin-tool-control" data-admin-toolbar-action="edit-selected-record" title="Edit the selected product or category">Edit Selected</button>' : ''}
         <a href="admin.html#products" title="Open Products to preview, save a draft, or publish">Products</a>
         <a href="admin.html#create-card">Add Card</a>
-        <a href="admin.html#categories" title="Publish saved Category drafts from the Dashboard">Open Dashboard to Publish</a>
+        <a href="admin.html#categories" title="Open Categories to review drafts and publish explicitly">Open Admin Dashboard</a>
         <details class="admin-toolbar-more"><summary>More</summary><div>
           <button type="button" class="admin-tool-control" data-admin-toolbar-action="copy-code" id="adminInlineCopyCode" title="Copy CSS code for selected image" onpointerdown="runInlineAdminToolbarAction('copy-code'); return false;" onclick="runInlineAdminToolbarAction('copy-code'); return false;">Copy CSS</button>
         </div></details>
@@ -7939,6 +8186,7 @@ function installInlineAdminMode() {
       image.classList.add('admin-editable-image');
       if (!isInlineAdminBackgroundImage(image)) image.classList.add('admin-transformable-image');
       const owned = inlineAdminOwnedField(image);
+      if (owned?.type === 'category-card') image.dataset.adminCategoryImageReady = 'true';
       const productDisplay = owned?.type === 'product'
         ? getManagedProductBySlug(owned.slug)?.displayOverrides?.imageTransform
         : null;

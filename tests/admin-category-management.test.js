@@ -427,7 +427,7 @@ Deno.test('full and inline Category editors share the normalized title authority
 Deno.test('homepage and Category-page inline titles are Category-owned, not page overrides', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const ownership = source.slice(source.indexOf('function inlineAdminOwnedField'), source.indexOf('const inlineOwnedFieldTimers'));
-  assert(ownership.includes("section: ''") && ownership.includes("['title', 'description'].includes(explicitCategoryField)"), 'Category title and description must map to the normalized root section');
+  assert(ownership.includes("section: ''") && ownership.includes("['title', 'description', 'funFact'].includes(explicitCategoryField)"), 'Category title, description, and fun fact must map to the normalized root section');
   const dynamicPage = source.slice(source.indexOf('function setupDynamicCategoryPage'), source.indexOf('function renderNormalizedHomepageCategoryCards'));
   assert(dynamicPage.includes("page.dataset.adminCategoryKey = category.key") && dynamicPage.includes("heading.dataset.adminCategoryField = 'title'"), 'Category-page heading must declare normalized Category ownership');
   const homepage = source.slice(source.indexOf('function renderNormalizedHomepageCategoryCards'), source.indexOf('function managedCategoryCardMarkup'));

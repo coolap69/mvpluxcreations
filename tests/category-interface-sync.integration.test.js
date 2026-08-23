@@ -86,7 +86,7 @@ Deno.test('interface switching is navigation-only and preserves private drafts a
     Deno.readTextFile(new URL('../admin.html', import.meta.url))
   ]);
   const turnOff = source.slice(source.indexOf('function turnOffInlineAdminMode'), source.indexOf('function installInlineAdminMode'));
-  assert(source.includes('Open Dashboard to Publish') && source.includes('href="admin.html#categories"'), 'Admin Mode must link clearly to the Dashboard publishing workflow');
+  assert(source.includes('Open Admin Dashboard') && source.includes('href="admin.html#categories"'), 'Admin Mode must link clearly to the Dashboard publishing workflow');
   assert(adminHtml.includes('View/Edit on Website') && adminHtml.includes('index.html?adminView=edit#home'), 'Dashboard must link clearly to storefront editing');
   assert(!turnOff.includes('signOut') && !turnOff.includes('mvpluxLiveAdminSettings') && !turnOff.includes('categories'), 'turning off Admin Mode must not sign out or discard Category drafts');
   assert((source.match(/\.auth\.signOut\(/g) || []).length === 1, 'only explicit Log Out may call Supabase signOut');
@@ -95,7 +95,7 @@ Deno.test('interface switching is navigation-only and preserves private drafts a
 Deno.test('Storefront Category movement controls save the same normalized display fields as Dashboard', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const start = source.indexOf('function inlineCategoryDisplayPatch');
-  const end = source.indexOf('\n\nfunction applySavedInlineCategoryDisplay', start);
+  const end = source.indexOf('\n\nasync function persistInlineOwnedDisplay', start);
   const inlineCategoryDisplayPatch = new Function('dependencies', `
     const { inlineAdminOwnedField, getEffectiveCategoryPresentation, getInlineAdminImageFrame } = dependencies;
     ${source.slice(start, end)}
@@ -139,8 +139,9 @@ Deno.test('Storefront Delete Category creates the same tombstone and assignment 
   assert(result.products.messi.categories.length === 0, 'affected Products must remain while their deleted Category assignment is cleared');
 
   const deletion = source.slice(source.indexOf('async function deleteInlineAdminCard'), source.indexOf('function getInlineAdminSelectedCard'));
+  const workingSave = source.slice(source.indexOf('async function saveStorefrontWorkingCollections'), source.indexOf('async function deleteInlineAdminCard'));
   assert(deletion.indexOf('card.dataset.adminCategoryKey') < deletion.indexOf('getAdminDeletedProducts()'), 'normalized Category deletion must be handled before the legacy Product deletion path');
-  assert(deletion.includes("action: 'save-working-state'") && deletion.includes('edits: { categories, deletedCategories, products }'), 'Admin Mode deletion must use the revision-safe working-state endpoint with normalized collections');
+  assert(workingSave.includes("action: 'save-working-state'") && deletion.includes('saveStorefrontWorkingCollections(latest, { categories, deletedCategories, products }'), 'Admin Mode deletion must use the revision-safe working-state endpoint with normalized collections');
   assert(deletion.includes('Products will NOT be deleted.') && deletion.includes('Physical image files will NOT be deleted.'), 'Category deletion must retain the Dashboard safety explanation');
 });
 

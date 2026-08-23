@@ -439,6 +439,8 @@ Deno.test('normalized Category fields reject every competing inline page overrid
     }
   };
   helpers.__setQueryElement('[data-admin-edit="sports-category-image"]', image);
+  const ownedImage = helpers.inlineAdminOwnedField(image);
+  assert(ownedImage?.type === 'category-card' && ownedImage.categoryKey === 'sports' && ownedImage.section === 'card' && ownedImage.field === 'image', 'a normalized Category image must resolve by its explicit Category key without requiring a Product slug');
   const filtered = helpers.withoutProductOwnedPageValues({
     'sports-category-image': { src: 'images/stale.png', x: 20, y: -8, scale: 1.5, rotate: 4, locked: true },
     'page-heading': { text: 'Page-owned heading' }
