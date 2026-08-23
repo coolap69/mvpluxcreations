@@ -6540,8 +6540,91 @@ async function setInlineAdminCardHidden(card, hiddenValue) {
   return true;
 }
 
+function storefrontCategoryDeletionCollections(latestEdits, categoryKey, affectedProducts, now = new Date().toISOString()) {
+  const categories = structuredClone(latestEdits?.categories || {});
+  delete categories[categoryKey];
+  const deletedCategories = [...new Set([...(latestEdits?.deletedCategories || []), categoryKey])];
+  const products = structuredClone(latestEdits?.products || {});
+  (affectedProducts || []).forEach((product) => {
+    const categoryOrder = { ...(product.categoryOrder || {}) };
+    delete categoryOrder[categoryKey];
+    products[product.slug] = {
+      ...(products[product.slug] || {}),
+      categories: (product.categories || []).filter((key) => key !== categoryKey),
+      categoryOrder,
+      updatedAt: now,
+      draftStatus: 'draft',
+      approvalStatus: 'draft'
+    };
+  });
+  return { categories, deletedCategories, products };
+}
+
 async function deleteInlineAdminCard(card) {
   if (!card) return;
+  const categoryKey = String(card.dataset.adminCategoryKey || '').trim();
+  if (categoryKey) {
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const utils = await adminStateUtilsPromise;
+    const effectiveCategories = { ...getAdminCategories(), ...(latest.edits.categories || {}) };
+    const category = effectiveCategories[categoryKey];
+    if (!category) {
+      updateInlineAdminToolbarState('Category no longer exists in the private Admin state');
+      return false;
+    }
+    const blockers = utils.categoryDeletionBlockers?.(effectiveCategories, [categoryKey]) || [];
+    if (blockers.length) {
+      updateInlineAdminToolbarState(`Delete blocked — resolve Child Groups first: ${blockers.map((item) => item.childTitle).join(', ')}`);
+      return false;
+    }
+    const affectedProducts = getManagedProductCatalog().filter((product) => (product.categories || []).includes(categoryKey));
+    const assignmentSummary = affectedProducts.length
+      ? affectedProducts.map((product) => `  • ${product.title || product.slug} (${product.slug})`).join('\n')
+      : '  • No product assignments';
+    if (!window.confirm(`Delete Category ${category.title || categoryKey}?\n\n${assignmentSummary}\n\nProducts will NOT be deleted.\nPhysical image files will NOT be deleted.\nOnly this Category and its product assignments will be removed.\n\nThis saves a private deletion draft. Publish it from the Dashboard when ready.`)) return false;
+
+    updateInlineAdminToolbarState('Deleting Category privately…');
+    const { categories, deletedCategories, products } = storefrontCategoryDeletionCollections(
+      latest.edits,
+      categoryKey,
+      affectedProducts
+    );
+
+    try {
+      const client = getSupabaseClient();
+      const projectUrl = window.MVPLUX_SUPABASE?.url;
+      const { data: sessionData } = await client.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!projectUrl || !token) throw new Error('Sign in as Admin before deleting a Category.');
+      const response = await fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: window.MVPLUX_SUPABASE?.publishableKey || ''
+        },
+        body: JSON.stringify({
+          action: 'save-working-state',
+          edits: { categories, deletedCategories, products },
+          expectedRevision: latest.revision
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || result.message || `Private Category deletion failed (HTTP ${response.status}).`);
+      window.mvpluxLiveAdminSettings = { ...latest.edits, categories, deletedCategories, products };
+      window.mvpluxLiveAdminRevision = Number(result.revision) || latest.revision + 1;
+      window.mvpluxLiveAdminStateLoaded = true;
+      localStorage.setItem('mvpluxDeletedCategories', JSON.stringify(deletedCategories));
+      localStorage.setItem('mvpluxAdminProducts', JSON.stringify(products));
+      card.remove();
+      announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`category-delete:${categoryKey}`]);
+      updateInlineAdminToolbarState('Category deletion saved privately — publish in Dashboard to update customers');
+      return true;
+    } catch (error) {
+      updateInlineAdminToolbarState(`Error — Category was not deleted: ${error?.message || error}`);
+      return false;
+    }
+  }
   const customSlug = card.querySelector?.('.size-builder')?.dataset.adminSlug;
   const customProducts = getAdminCustomProducts();
   const customIndex = customProducts.findIndex((product) => product.slug === customSlug);
@@ -7027,6 +7110,7 @@ function ensureInlineAdminCardControls() {
     controls.className = 'admin-card-controls';
     const managedProductSlug = card.matches('.category-page .category-card[data-product-id]') ? card.dataset.productId : '';
     const homepageDisplayCard = Boolean(card.closest('#shop .featured-category-row'));
+    const categoryKey = String(card.dataset.adminCategoryKey || '').trim();
     controls.innerHTML = `
       ${managedProductSlug ? `
         <button type="button" data-admin-card-action="remove-section" title="Remove from this category">Remove</button>
@@ -7048,8 +7132,8 @@ function ensureInlineAdminCardControls() {
         <button type="button" data-admin-card-action="move-up" title="Move up">↑</button>
         <button type="button" data-admin-card-action="move-down" title="Move down">↓</button>
         <details class="admin-card-more"><summary>More</summary><div>
-          <a href="admin.html#product-${getCardAdminKey(card)}">Edit Card</a>
-          <button type="button" data-admin-card-action="delete-card">Delete Record</button>
+          <a href="${categoryKey ? 'admin.html#categories' : `admin.html#product-${getCardAdminKey(card)}`}">${categoryKey ? 'Edit Category in Dashboard' : 'Edit Card'}</a>
+          <button type="button" data-admin-card-action="delete-card">${categoryKey ? 'Delete Category' : 'Delete Record'}</button>
         </div></details>
       ` : ''}
     `;
@@ -7064,7 +7148,7 @@ function ensureInlineAdminCardControls() {
         ensureInlineAdminCardControls();
       }
       if (action === 'delete-card') {
-        deleteInlineAdminCard(card);
+        await deleteInlineAdminCard(card);
         ensureInlineAdminCardControls();
       }
       if (action === 'remove-display') {

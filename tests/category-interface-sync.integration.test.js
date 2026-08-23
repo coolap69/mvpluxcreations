@@ -119,6 +119,31 @@ Deno.test('Storefront Category movement controls save the same normalized displa
   assert(movement.includes("owned?.type === 'category-card'") && movement.includes('Category rotation is not a shared Dashboard setting'), 'unsupported Category rotation must not pretend to save a visual-only override');
 });
 
+Deno.test('Storefront Delete Category creates the same tombstone and assignment cleanup as Dashboard', async () => {
+  const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
+  const start = source.indexOf('function storefrontCategoryDeletionCollections');
+  const end = source.indexOf('\n\nasync function deleteInlineAdminCard', start);
+  const buildDeletion = new Function(`${source.slice(start, end)}\nreturn storefrontCategoryDeletionCollections;`)();
+  const result = buildDeletion({
+    categories: { sports: { key: 'sports' }, music: { key: 'music' } },
+    deletedCategories: ['old-category'],
+    products: { kobe: { title: 'Private title retained' } }
+  }, 'sports', [
+    { slug: 'kobe', categories: ['sports', 'basketball'], categoryOrder: { sports: 1, basketball: 2 } },
+    { slug: 'messi', categories: ['sports'], categoryOrder: { sports: 3 } }
+  ], '2026-08-23T00:00:00.000Z');
+  assert(!result.categories.sports && result.categories.music, 'only the selected normalized Category record must be removed');
+  assert(result.deletedCategories.includes('sports') && result.deletedCategories.includes('old-category'), 'the selected Category must receive a persistent tombstone');
+  assert(result.products.kobe.title === 'Private title retained', 'existing private Product fields must be preserved');
+  assert(result.products.kobe.categories.join(',') === 'basketball' && !('sports' in result.products.kobe.categoryOrder), 'only the deleted Category assignment and order must be removed');
+  assert(result.products.messi.categories.length === 0, 'affected Products must remain while their deleted Category assignment is cleared');
+
+  const deletion = source.slice(source.indexOf('async function deleteInlineAdminCard'), source.indexOf('function getInlineAdminSelectedCard'));
+  assert(deletion.indexOf('card.dataset.adminCategoryKey') < deletion.indexOf('getAdminDeletedProducts()'), 'normalized Category deletion must be handled before the legacy Product deletion path');
+  assert(deletion.includes("action: 'save-working-state'") && deletion.includes('edits: { categories, deletedCategories, products }'), 'Admin Mode deletion must use the revision-safe working-state endpoint with normalized collections');
+  assert(deletion.includes('Products will NOT be deleted.') && deletion.includes('Physical image files will NOT be deleted.'), 'Category deletion must retain the Dashboard safety explanation');
+});
+
 Deno.test('switching modes waits for in-flight normalized saves before reloading', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const fieldFlush = source.slice(source.indexOf('async function flushInlineOwnedFieldSaves'), source.indexOf('function inlineCategoryDisplayPatch'));
