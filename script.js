@@ -4026,33 +4026,39 @@ function renderNormalizedHomepageCategoryCards() {
   if (inlineAdminPageKey() !== 'index.html') return;
   const grid = document.getElementById('homepageCategoryGrid');
   if (!grid) return;
+  const fallback = document.querySelector('[data-homepage-category-fallback]');
   const categories = homepageCategoryRecords();
-  grid.innerHTML = '';
+  grid.replaceChildren();
   if (!categories.length) {
     grid.hidden = true;
-    return;
+    if (fallback) fallback.hidden = false;
+    return false;
   }
-  categories.forEach((category) => {
-    const presentation = getEffectiveCategoryPresentation(category.key);
-    const slug = Object.entries(STOREFRONT_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
-      || `${category.key}-category-card`;
-    const page = presentation.page || `category.html?category=${encodeURIComponent(category.key)}`;
-    const display = presentation.display;
-    const left = Math.max(10, Math.min(90, 50 + display.standeeLeftPercent));
-    const bottom = Math.max(0, Math.min(75, 2 - display.standeeVerticalPercent));
-    const titleStyle = `transform:translate(${display.titleLeftPercent}%,${display.titleVerticalPercent}px);text-align:${display.titleAlign}`;
-    const descriptionStyle = `transform:translate(${display.descriptionLeftPercent}%,${display.descriptionVerticalPercent}px);text-align:${display.descriptionAlign};font-size:${14 * display.descriptionSizePercent / 100}px`;
-    grid.insertAdjacentHTML('beforeend', `
-      <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
-        <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(presentation.background)}');background-position:${escapeHtml(display.backgroundPosition)};transform:scale(${display.backgroundSizePercent / 100})" aria-hidden="true"></span>${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%">` : ''}</div></a>
-        <h3 data-admin-category-field="title" style="${titleStyle}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${19 * display.titleSizePercent / 100}px">${escapeHtml(presentation.title)}</a></h3>
-        <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeHtml(presentation.description)}</p>
-        <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
-      </article>`);
-  });
-  grid.hidden = false;
-  const fallback = document.querySelector('[data-homepage-category-fallback]');
-  if (fallback) fallback.hidden = true;
+  try {
+    categories.forEach((category) => {
+      const presentation = getEffectiveCategoryPresentation(category.key);
+      const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
+      const slug = Object.entries(STOREFRONT_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
+        || `${category.key}-category-card`;
+      const page = presentation.page || `category.html?category=${encodeURIComponent(category.key)}`;
+      grid.insertAdjacentHTML('beforeend', `
+        <article class="product-card admin-master-category-card" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
+          <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(presentation.background)}');background-position:${escapeHtml(layout.backgroundPosition)};transform:scale(${layout.backgroundScale})" aria-hidden="true"></span>${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : ''}</div></a>
+          <h3 data-admin-category-field="title" style="transform:${layout.titleTransform};text-align:${layout.titleAlign}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${layout.titleFontSizePx}px">${escapeHtml(presentation.title)}</a></h3>
+          <p class="product-description" data-admin-category-field="description" style="transform:${layout.descriptionTransform};text-align:${layout.descriptionAlign};font-size:${layout.descriptionFontSizePx}px">${escapeHtml(presentation.description)}</p>
+          <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
+        </article>`);
+    });
+    grid.hidden = false;
+    if (fallback) fallback.hidden = true;
+    return true;
+  } catch (error) {
+    grid.replaceChildren();
+    grid.hidden = true;
+    if (fallback) fallback.hidden = false;
+    console.error('Normalized homepage Category rendering failed; showing the emergency fallback.', error);
+    return false;
+  }
 }
 
 function managedCategoryCardMarkup(product) {

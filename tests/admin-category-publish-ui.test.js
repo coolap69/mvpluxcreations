@@ -68,7 +68,8 @@ Deno.test('top and editor Publish buttons share one Category publisher and state
   const events = extractedFunction('function setupCategoryManagerEvents()', 'function renderAdminProducts()');
   assert(markup.includes('data-publish-category-key') && markup.includes("operation?.state === 'publishing'"), 'all Category Publish buttons must bind to shared state');
   assert(events.includes("event.target.closest('[data-publish-category-key]')") && events.includes('publishCategoryByKey('), 'one delegated handler must own both Publish locations');
-  assert(events.includes("card?.querySelector('[data-category-edit]')"), 'top Category Publish must submit the mounted sibling editor instead of publishing stale saved values');
+  assert(events.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)'), 'top Category Publish must submit only the mounted sibling editor for its exact Category key');
+  assert(!events.includes("card?.querySelector('[data-category-edit]')"), 'top Category Publish must never select an unrelated nested Main/Child editor');
 });
 
 Deno.test('scoped publishing reports real stages and refreshes only the visible Admin area', () => {

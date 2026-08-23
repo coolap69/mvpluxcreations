@@ -133,9 +133,9 @@ Deno.test('Category editor uses a wide preview-first workspace with compact visi
 Deno.test('Category image and background controls update the existing preview immediately', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const preview = source.slice(source.indexOf('function previewCategoryEdit'), source.indexOf('function renderCategoryImagePickerGallery'));
-  assert(preview.includes('effectiveAdminCategoryPresentation(category)') && preview.includes('presentation.background') && preview.includes('display.backgroundPosition'), 'preview must use the shared effective Category presentation');
+  assert(preview.includes('effectiveAdminCategoryPresentation(category)') && preview.includes('presentation.background') && preview.includes('resolveCategoryCardLayout(presentation)') && preview.includes('layout.backgroundPosition'), 'preview must use the shared effective Category presentation and layout');
   assert(preview.includes('product-card admin-master-category-card admin-category-placement-preview') && preview.includes('product-stage-preview admin-category-storefront-stage'), 'Admin preview must reuse the storefront Category card presentation classes');
-  for (const field of ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent']) assert(preview.includes(field), `preview must use ${field}`);
+  for (const field of ['imageSizePercent', 'imageLeftPercent', 'imageBottomPercent']) assert(preview.includes(field), `preview must use shared layout ${field}`);
   const events = source.slice(source.indexOf('function setupCategoryManagerEvents()'), source.indexOf('function renderAdminProducts()'));
   assert(events.includes('syncCategoryDisplayControl(form, event.target)') && events.includes('previewCategoryEdit(form)'), 'slider and numeric inputs must synchronize and rerender immediately');
   assert(events.includes('data-reset-category-background') && events.includes("backgroundPosition').value = 'center bottom'"), 'background positioning must reset through the existing field');
@@ -227,8 +227,8 @@ Deno.test('Category background zoom is independent and uses the published 50–3
   const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   assert(adminSource.includes('CATEGORY_BACKGROUND_SIZE_MIN = 50') && adminSource.includes('CATEGORY_BACKGROUND_SIZE_MAX = 300'), 'Admin must expose safe 50–300% background zoom');
-  assert(adminSource.includes("categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom'") && adminSource.includes('transform:scale(${display.backgroundSizePercent / 100})'), 'Admin zoom must update the existing live preview');
-  assert(storefrontSource.includes('display.backgroundSizePercent') && storefrontSource.includes('class="category-background-layer"'), 'storefront must use the same published background zoom field');
+  assert(adminSource.includes("categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom'") && adminSource.includes('transform:scale(${layout.backgroundScale})'), 'Admin zoom must update the existing live preview through the shared layout');
+  assert(storefrontSource.includes('resolveCategoryCardLayout(presentation)') && storefrontSource.includes('class="category-background-layer"'), 'storefront must use the same published background zoom layout');
 });
 
 Deno.test('Category image and background sliders stay synchronized with numeric inputs', async () => {
@@ -375,8 +375,35 @@ Deno.test('Category text placement is independent, live, and published through d
     assert(storefrontSource.includes(field), `storefront Category card must apply ${field}`);
   }
   const preview = adminSource.slice(adminSource.indexOf('function previewCategoryEdit'), adminSource.indexOf('function renderCategoryImagePickerGallery'));
-  assert(preview.includes('titleStyle') && preview.includes('descriptionStyle') && preview.includes('standeeLeftPercent'), 'one live preview must render independent image, title, and description placement');
+  assert(preview.includes('resolveCategoryCardLayout(presentation)') && preview.includes('layout.imageLeftPercent') && preview.includes('layout.titleTransform') && preview.includes('layout.descriptionTransform'), 'Admin preview must use the shared storefront Category layout for independent image, title, and description placement');
   assert(adminSource.includes('data-reset-category-text'), 'text placement must have its own reset action');
+});
+
+Deno.test('Category actions resolve their explicit Main or Child Group key instead of a stale outer card', async () => {
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const start = source.indexOf('function categoryKeyForActionTarget');
+  const end = source.indexOf('\n\nfunction setupCategoryManagerEvents', start);
+  const categoryKeyForActionTarget = new Function(`${source.slice(start, end)}\nreturn categoryKeyForActionTarget;`)();
+  const master = { dataset: { categoryCard: 'sports' } };
+  const child = { dataset: { childGroupCard: 'basketball' } };
+  const explicit = { dataset: { categoryKey: 'basketball' } };
+  const childButton = {
+    closest(selector) {
+      if (selector === '[data-category-key]') return explicit;
+      if (selector === '[data-child-group-card]') return child;
+      if (selector === '[data-category-card]') return master;
+      return null;
+    }
+  };
+  assert(categoryKeyForActionTarget(childButton) === 'basketball', 'an explicit Child Group action key must win over its outer Main Category card');
+
+  const handler = source.slice(source.indexOf("section.addEventListener('click'"), source.indexOf('\n}\n\nfunction renderAdminProducts', source.indexOf("section.addEventListener('click'")));
+  assert(handler.includes('actionCategoryKey = categoryKeyForActionTarget(event.target)'), 'Edit, Open Products, visibility, and ordering must share one action-key resolver');
+  assert(handler.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)'), 'row Publish must find only the sibling editor for the exact published Category key');
+  assert(!handler.includes("card?.querySelector('[data-category-edit]')"), 'Publish must not use the first unrelated Main/Child editor nested in a card');
+  for (const action of ['data-edit-category data-category-key', 'data-open-category-products data-category-key', 'data-move-category-homepage="-1" data-category-key', 'data-toggle-category-visibility="${category.visible', 'data-toggle-category-homepage="${category.homepageVisible']) {
+    assert(source.includes(action), `${action} must carry an explicit normalized Category key`);
+  }
 });
 
 Deno.test('Background movement reuses the authoritative backgroundPosition field', async () => {

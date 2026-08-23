@@ -43,5 +43,22 @@
     };
   }
 
-  root.MVPLUX_CATEGORY_PRESENTATION = Object.freeze({ resolveCategoryPresentation });
+  function resolveCategoryCardLayout(presentation = {}) {
+    const display = presentation.display || {};
+    return {
+      imageLeftPercent: Math.max(10, Math.min(90, 50 + clampNumber(display.standeeLeftPercent, 0, -50, 50))),
+      imageBottomPercent: Math.max(0, Math.min(75, 2 - clampNumber(display.standeeVerticalPercent, 0, -50, 50))),
+      imageSizePercent: clampNumber(display.standeeSizePercent, 63, 10, 250),
+      backgroundPosition: String(display.backgroundPosition || 'center bottom'),
+      backgroundScale: clampNumber(display.backgroundSizePercent, 100, 50, 300) / 100,
+      titleTransform: `translate(${clampNumber(display.titleLeftPercent, 0, -50, 50)}%,${clampNumber(display.titleVerticalPercent, 0, -50, 50)}px)`,
+      titleAlign: alignment(display.titleAlign),
+      titleFontSizePx: 19 * clampNumber(display.titleSizePercent, 100, 70, 180) / 100,
+      descriptionTransform: `translate(${clampNumber(display.descriptionLeftPercent, 0, -50, 50)}%,${clampNumber(display.descriptionVerticalPercent, 0, -50, 50)}px)`,
+      descriptionAlign: alignment(display.descriptionAlign),
+      descriptionFontSizePx: 14 * clampNumber(display.descriptionSizePercent, 100, 70, 180) / 100
+    };
+  }
+
+  root.MVPLUX_CATEGORY_PRESENTATION = Object.freeze({ resolveCategoryPresentation, resolveCategoryCardLayout });
 })(window);

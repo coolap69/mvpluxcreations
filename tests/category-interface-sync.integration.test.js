@@ -110,10 +110,10 @@ Deno.test('every Category-capable interface loads the shared resolver before its
   ];
   for (const page of pages) {
     const html = await Deno.readTextFile(new URL(`../${page}`, import.meta.url));
-    const resolver = html.indexOf('category-presentation.js?v=20260823-category-sync');
-    const storefront = html.indexOf('script.js?v=20260823-category-sync');
+    const resolver = html.indexOf('category-presentation.js?v=');
+    const storefront = html.indexOf('script.js?v=');
     assert(resolver >= 0 && storefront > resolver, `${page} must load the shared Category resolver before storefront code`);
   }
   const admin = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
-  assert(admin.indexOf('category-presentation.js?v=20260823-category-sync') < admin.indexOf('admin.js?v=20260823-category-sync'), 'Dashboard must load the same resolver before admin.js');
+  assert(admin.indexOf('category-presentation.js?v=') < admin.indexOf('admin.js?v='), 'Dashboard must load the same resolver before admin.js');
 });

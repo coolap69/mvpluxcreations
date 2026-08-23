@@ -4677,10 +4677,10 @@ function childGroupMarkup(masterCategory, categories) {
           <span>${child.visible === false ? 'Hidden' : 'Visible'}</span>
           <span>Order ${Number(child.order || 0)}</span>
           <div class="admin-card-actions">
-            <button type="button" data-open-child-products>Open Products</button>
-            <button type="button" data-edit-child-group>Edit</button>
+            <button type="button" data-open-child-products data-category-key="${escapeAdminHtml(child.key)}">Open Products</button>
+            <button type="button" data-edit-child-group data-category-key="${escapeAdminHtml(child.key)}">Edit</button>
             ${categoryPublishButtonMarkup(child.key)}
-            <button type="button" data-toggle-child-group="${child.visible === false ? 'show' : 'hide'}">${child.visible === false ? 'Unhide Child Group' : 'Hide Child Group'}</button>
+            <button type="button" data-toggle-child-group="${child.visible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(child.key)}">${child.visible === false ? 'Unhide Child Group' : 'Hide Child Group'}</button>
           </div>
           ${warnings.length ? `<p class="admin-warning-message">Assignment warning: ${warnings.map((warning) => warning.productSlug ? `${warning.productSlug} is assigned to ${child.title || child.key} without ${masterCategory.title || masterCategory.key}` : warning.type).join('; ')}. Nothing was repaired automatically.</p>` : ''}
           <details data-child-products-panel ${openedCategoryProductLists.has(child.key) ? 'open' : ''}><summary>Products (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(child.key) ? categoryProductsMarkup(child) : ''}</div></details>
@@ -4835,7 +4835,7 @@ function categoryPublishButtonMarkup(categoryKey, { editor = false } = {}) {
   const operation = categoryPublishOperations.get(categoryKey);
   const publishing = operation?.state === 'publishing';
   const label = publishing ? 'Publishing…' : 'Publish to Website';
-  return `<button class="admin-button admin-button-primary" type="button" ${editor ? 'data-publish-category-edit' : `data-publish-category="${escapeAdminHtml(categoryKey)}"`} data-publish-category-key="${escapeAdminHtml(categoryKey)}" ${publishing ? 'disabled aria-busy="true"' : ''}>${label}</button>`;
+  return `<button class="admin-button admin-button-primary" type="button" ${editor ? 'data-publish-category-edit' : `data-publish-category="${escapeAdminHtml(categoryKey)}"`} data-publish-category-key="${escapeAdminHtml(categoryKey)}" data-category-key="${escapeAdminHtml(categoryKey)}" ${publishing ? 'disabled aria-busy="true"' : ''}>${label}</button>`;
 }
 
 function categoryDisplayRangeMarkup(name, label, value, minimum, maximum, suffix = '') {
@@ -5005,13 +5005,13 @@ function renderCategoryManager() {
           <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Category: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span></div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom category — review assignments before changing it.</p>' : ''}</div>
           <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
-            <button type="button" data-edit-category>Edit</button>
+            <button type="button" data-edit-category data-category-key="${escapeAdminHtml(category.key)}">Edit</button>
             ${categoryPublishButtonMarkup(category.key)}
-            <button type="button" data-move-category-homepage="-1" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) > 0 ? '' : 'disabled'}>Move Up</button>
-            <button type="button" data-move-category-homepage="1" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) < homepageOrder.length - 1 ? '' : 'disabled'}>Move Down</button>
-            <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}">${category.visible === false ? 'UNHIDE CATEGORY' : 'Hide Category'}</button>
-            <button type="button" class="${category.visible === false ? 'admin-button-secondary' : ''}" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}" ${category.visible === false ? 'disabled title="Unhide the Category before changing its homepage availability."' : ''}>${category.homepageVisible === false ? 'SHOW ON HOMEPAGE' : 'Hide from Homepage'}</button>
-            <button type="button" data-open-category-products>Open Products</button>
+            <button type="button" data-move-category-homepage="-1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) > 0 ? '' : 'disabled'}>Move Up</button>
+            <button type="button" data-move-category-homepage="1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) < homepageOrder.length - 1 ? '' : 'disabled'}>Move Down</button>
+            <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}">${category.visible === false ? 'UNHIDE CATEGORY' : 'Hide Category'}</button>
+            <button type="button" class="${category.visible === false ? 'admin-button-secondary' : ''}" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}" ${category.visible === false ? 'disabled title="Unhide the Category before changing its homepage availability."' : ''}>${category.homepageVisible === false ? 'SHOW ON HOMEPAGE' : 'Hide from Homepage'}</button>
+            <button type="button" data-open-category-products data-category-key="${escapeAdminHtml(category.key)}">Open Products</button>
             <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Category</button>
           </div>
           <p class="admin-status admin-category-card-publish-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '')}</p>
@@ -5333,20 +5333,17 @@ function previewCategoryEdit(form) {
   if (!preview) return;
   const presentation = effectiveAdminCategoryPresentation(category);
   const display = presentation.display;
+  const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
   const imagePresentation = adminImageReferencePresentation(presentation.image);
   const backgroundPresentation = adminImageReferencePresentation(presentation.background, { background: true });
-  const left = Math.max(10, Math.min(90, 50 + display.standeeLeftPercent));
-  const bottom = Math.max(0, Math.min(75, 2 - display.standeeVerticalPercent));
-  const titleStyle = `transform:translate(${display.titleLeftPercent}%,${display.titleVerticalPercent}px);text-align:${display.titleAlign}`;
-  const descriptionStyle = `transform:translate(${display.descriptionLeftPercent}%,${display.descriptionVerticalPercent}px);text-align:${display.descriptionAlign};font-size:${14 * display.descriptionSizePercent / 100}px`;
   preview.hidden = false;
   preview.innerHTML = `<article class="product-card admin-master-category-card admin-category-placement-preview">
     <div class="product-stage-preview admin-category-storefront-stage admin-category-preview-stage">
-      <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(display.backgroundPosition)};transform:scale(${display.backgroundSizePercent / 100})" aria-hidden="true"></span>
-      ${imagePresentation.preview ? `<img class="product-cutout" src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${display.standeeSizePercent}%;left:${left}%;bottom:${bottom}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}
+      <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(layout.backgroundPosition)};transform:scale(${layout.backgroundScale})" aria-hidden="true"></span>
+      ${imagePresentation.preview ? `<img class="product-cutout" src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}
     </div>
-    <h3 data-admin-category-field="title" style="${titleStyle}"><span class="product-title-link" style="text-align:inherit;font-size:${19 * display.titleSizePercent / 100}px">${escapeAdminHtml(presentation.title)}</span></h3>
-    <p class="product-description" data-admin-category-field="description" style="${descriptionStyle}">${escapeAdminHtml(presentation.description)}</p>
+    <h3 data-admin-category-field="title" style="transform:${layout.titleTransform};text-align:${layout.titleAlign}"><span class="product-title-link" style="text-align:inherit;font-size:${layout.titleFontSizePx}px">${escapeAdminHtml(presentation.title)}</span></h3>
+    <p class="product-description" data-admin-category-field="description" style="transform:${layout.descriptionTransform};text-align:${layout.descriptionAlign};font-size:${layout.descriptionFontSizePx}px">${escapeAdminHtml(presentation.description)}</p>
     <span class="admin-category-preview-status">${category.visible === false ? 'Category hidden from customers' : (category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage')}</span>
   </article>`;
 }
@@ -5431,6 +5428,14 @@ function syncCategoryVisibilityControls(form) {
   homepageVisible.closest('label')?.classList.toggle('admin-control-secondary', !categoryVisible.checked);
 }
 
+function categoryKeyForActionTarget(target) {
+  return target?.closest?.('[data-category-key]')?.dataset.categoryKey
+    || target?.closest?.('[data-category-edit]')?.dataset.categoryEdit
+    || target?.closest?.('[data-child-group-card]')?.dataset.childGroupCard
+    || target?.closest?.('[data-category-card]')?.dataset.categoryCard
+    || '';
+}
+
 function setupCategoryManagerEvents() {
   const section = document.getElementById('categories');
   if (!section || section.dataset.categoryManagerBound) return;
@@ -5488,8 +5493,9 @@ function setupCategoryManagerEvents() {
   });
   section.addEventListener('click', async (event) => {
     const card = event.target.closest('[data-category-card]');
+    const actionCategoryKey = categoryKeyForActionTarget(event.target);
     if (event.target.closest('[data-open-category-products]')) {
-      const key = card?.dataset.categoryCard;
+      const key = actionCategoryKey;
       const category = readAdminCategories()[key];
       const panel = card?.querySelector('[data-category-products-panel]');
       const mount = panel?.querySelector('[data-category-products-mount]');
@@ -5500,7 +5506,7 @@ function setupCategoryManagerEvents() {
       panel?.setAttribute('open', '');
     }
     if (event.target.closest('[data-edit-category]')) {
-      const key = card?.dataset.categoryCard;
+      const key = actionCategoryKey;
       const category = readAdminCategories()[key];
       const panel = card?.querySelector('[data-category-edit-panel]');
       const mount = panel?.querySelector('[data-category-editor-mount]');
@@ -5514,7 +5520,7 @@ function setupCategoryManagerEvents() {
     }
     const childCard = event.target.closest('[data-child-group-card]');
     if (event.target.closest('[data-open-child-products]')) {
-      const key = childCard?.dataset.childGroupCard;
+      const key = actionCategoryKey;
       const category = readAdminCategories()[key];
       const panel = childCard?.querySelector('[data-child-products-panel]');
       const mount = panel?.querySelector('[data-category-products-mount]');
@@ -5525,7 +5531,7 @@ function setupCategoryManagerEvents() {
       panel?.setAttribute('open', '');
     }
     if (event.target.closest('[data-edit-child-group]')) {
-      const key = childCard?.dataset.childGroupCard;
+      const key = actionCategoryKey;
       const category = readAdminCategories()[key];
       const panel = childCard?.querySelector('[data-child-edit-panel]');
       const mount = panel?.querySelector('[data-category-editor-mount]');
@@ -5538,7 +5544,7 @@ function setupCategoryManagerEvents() {
       if (form) previewCategoryEdit(form);
     }
     const childVisibility = event.target.closest('[data-toggle-child-group]');
-    if (childVisibility) await saveCategoryVisibility(childCard?.dataset.childGroupCard, 'visible', childVisibility.dataset.toggleChildGroup === 'show');
+    if (childVisibility) await saveCategoryVisibility(actionCategoryKey, 'visible', childVisibility.dataset.toggleChildGroup === 'show');
     const addChildGroup = event.target.closest('[data-add-child-group]');
     if (addChildGroup) {
       const creator = section.querySelector(`[data-child-group-creator="${CSS.escape(addChildGroup.dataset.addChildGroup)}"]`);
@@ -5576,11 +5582,11 @@ function setupCategoryManagerEvents() {
     const removeImage = event.target.closest('[data-remove-category-image]');
     if (removeImage) updateCategoryPickerValue(removeImage.closest('[data-category-image-picker]'), '');
     const visibilityButton = event.target.closest('[data-toggle-category-visibility]');
-    if (visibilityButton) await saveCategoryVisibility(card?.dataset.categoryCard, 'visible', visibilityButton.dataset.toggleCategoryVisibility === 'show');
+    if (visibilityButton) await saveCategoryVisibility(actionCategoryKey, 'visible', visibilityButton.dataset.toggleCategoryVisibility === 'show');
     const homepageButton = event.target.closest('[data-toggle-category-homepage]');
-    if (homepageButton) await saveCategoryVisibility(card?.dataset.categoryCard, 'homepageVisible', homepageButton.dataset.toggleCategoryHomepage === 'show');
+    if (homepageButton) await saveCategoryVisibility(actionCategoryKey, 'homepageVisible', homepageButton.dataset.toggleCategoryHomepage === 'show');
     const moveHomepage = event.target.closest('[data-move-category-homepage]');
-    if (moveHomepage) await moveCategoryHomepageOrder(card?.dataset.categoryCard, Number(moveHomepage.dataset.moveCategoryHomepage));
+    if (moveHomepage) await moveCategoryHomepageOrder(actionCategoryKey, Number(moveHomepage.dataset.moveCategoryHomepage));
     const imageChoice = event.target.closest('[data-category-image-choice]');
     if (imageChoice) updateCategoryPickerValue(imageChoice.closest('[data-category-image-picker]'), imageChoice.dataset.categoryImageChoice);
     const sharedBackground = event.target.closest('[data-use-shared-category-background]');
@@ -5624,10 +5630,11 @@ function setupCategoryManagerEvents() {
     }
     const publishButton = event.target.closest('[data-publish-category-key]');
     if (publishButton) {
+      const publishKey = publishButton.dataset.publishCategoryKey;
       const form = publishButton.closest('[data-category-edit]')
-        || card?.querySelector('[data-category-edit]')
+        || card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)
         || null;
-      await publishCategoryByKey(publishButton.dataset.publishCategoryKey, form);
+      await publishCategoryByKey(publishKey, form);
     }
     const deleteButton = event.target.closest('[data-delete-category]');
     if (deleteButton) await deleteAdminCategories([deleteButton.dataset.deleteCategory]);
