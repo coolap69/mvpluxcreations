@@ -7674,6 +7674,21 @@ button[aria-label="Add to cart"]::before {
   color: #8ff0ae;
 }
 
+[data-image-draft-status][data-state="unsaved"] {
+  color: #ffd56a;
+  font-weight: 900;
+}
+
+[data-image-draft-status][data-state="publishing"],
+[data-image-draft-status][data-state="preview"] {
+  color: #9ed8ff;
+}
+
+[data-image-draft-status][data-state="published"] {
+  color: #8ff0ae;
+  font-weight: 900;
+}
+
 @media (max-width: 720px) {
   .admin-image-pending-item {
     grid-template-columns: auto 52px minmax(0, 1fr);

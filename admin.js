@@ -2190,18 +2190,22 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null, { o
   }
 }
 
+async function publishSavedProductBySlug(slug, label, statusTarget = null, form = null) {
+  const base = effectiveAdminProduct(slug) || form?._adminBaseRecord || {};
+  const approved = await saveAdminProductFieldPatch(slug, {
+    approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString()
+  }, base, form);
+  if (!approved.ok) return false;
+  return publishScopedChangeIds([`product:${slug}`], label || base.title || slug, statusTarget);
+}
+
 async function publishExistingProductForm(form) {
   const button = form.querySelector('[data-publish-product]');
   if (button) button.disabled = true;
   try {
     if (!await saveProductForm(form, 'Draft saved privately.')) return false;
     const slug = form.dataset.slug;
-    const base = effectiveAdminProduct(slug) || form._adminBaseRecord || {};
-    const approved = await saveAdminProductFieldPatch(slug, {
-      approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString()
-    }, base, form);
-    if (!approved.ok) return false;
-    return publishScopedChangeIds([`product:${slug}`], base.title || slug, form.querySelector('[data-product-save-state]'));
+    return publishSavedProductBySlug(slug, effectiveAdminProduct(slug)?.title || slug, form.querySelector('[data-product-save-state]'), form);
   } finally {
     if (button) button.disabled = false;
   }
@@ -2214,8 +2218,8 @@ async function publishNewProductFromForm(form) {
   const button = form.querySelector('[data-publish-new-product]');
   if (button) button.disabled = true;
   try {
-    if (!await saveNewProductFromForm(form, 'approved')) return false;
-    return publishScopedChangeIds([`product:${slug}`], title, form.querySelector('[data-create-product-status]'));
+    if (!await saveNewProductFromForm(form, 'draft')) return false;
+    return publishSavedProductBySlug(slug, title, form.querySelector('[data-create-product-status]'));
   } finally {
     if (button) button.disabled = false;
   }
@@ -6295,7 +6299,7 @@ function collectImageDraftForm(form) {
     imageRole: String(formData.get('imageRole') || 'main'),
     subjectIdentity: String(formData.get('subjectIdentity') || '').trim(),
     title: String(formData.get('title') || '').trim(),
-    slug: requestedSlug ? makeSlug(requestedSlug) : '',
+    slug: String(form.dataset.productSlug || (requestedSlug ? makeSlug(requestedSlug) : '')),
     description: String(formData.get('description') || '').trim(),
     funFact: String(formData.get('funFact') || '').trim(),
     originalHeight: String(formData.get('originalHeight') || '').trim(),
@@ -6318,6 +6322,113 @@ function setImageDraftActionStatus(form, message, state = '') {
   if (!status) return;
   status.textContent = message || '';
   status.dataset.state = state;
+}
+
+const imageBoxHistoryByPath = new Map();
+
+function imageBoxFormSnapshot(form) {
+  const values = {};
+  [...(form?.elements || [])].forEach((field) => {
+    if (!field.name || field.matches('button, [type="file"]')) return;
+    if (field.type === 'checkbox') {
+      values[field.name] ||= [];
+      if (field.checked) values[field.name].push(field.value);
+      return;
+    }
+    if (field.type === 'radio') {
+      if (field.checked) values[field.name] = field.value;
+      else if (!(field.name in values)) values[field.name] = '';
+      return;
+    }
+    values[field.name] = field.value;
+  });
+  return values;
+}
+
+function imageBoxSnapshotsEqual(left, right) {
+  return JSON.stringify(left || {}) === JSON.stringify(right || {});
+}
+
+function applyImageBoxFormSnapshot(form, snapshot) {
+  if (!form || !snapshot) return;
+  form.dataset.applyingHistory = 'true';
+  [...form.elements].forEach((field) => {
+    if (!field.name || !(field.name in snapshot) || field.matches('button, [type="file"]')) return;
+    if (field.type === 'checkbox') field.checked = snapshot[field.name].includes(field.value);
+    else if (field.type === 'radio') field.checked = snapshot[field.name] === field.value;
+    else field.value = snapshot[field.name];
+  });
+  updateImageDraftDestination(form);
+  updateImageImportPreview(form);
+  delete form.dataset.applyingHistory;
+}
+
+function updateImageBoxHistoryButtons(form) {
+  const history = imageBoxHistoryByPath.get(form?.dataset.imagePath);
+  const undo = form?.querySelector('[data-image-box-undo]');
+  const redo = form?.querySelector('[data-image-box-redo]');
+  if (undo) undo.disabled = !history?.undo.length;
+  if (redo) redo.disabled = !history?.redo.length;
+}
+
+function setImageBoxDirtyState(form, dirty) {
+  if (!form) return;
+  form.dataset.imageBoxDirty = String(Boolean(dirty));
+  if (dirty) setImageDraftActionStatus(form, 'UNSAVED CHANGES', 'unsaved');
+  updateImageBoxHistoryButtons(form);
+}
+
+function initializeImageBoxHistory(form, saved = false) {
+  const current = imageBoxFormSnapshot(form);
+  imageBoxHistoryByPath.set(form.dataset.imagePath, {
+    saved: saved ? structuredClone(current) : null,
+    current: structuredClone(current),
+    undo: [],
+    redo: []
+  });
+  setImageBoxDirtyState(form, !saved);
+}
+
+function recordImageBoxChange(form) {
+  if (!form || form.dataset.applyingHistory === 'true') return;
+  const history = imageBoxHistoryByPath.get(form.dataset.imagePath);
+  if (!history) return initializeImageBoxHistory(form, false);
+  const next = imageBoxFormSnapshot(form);
+  if (imageBoxSnapshotsEqual(history.current, next)) return;
+  history.undo.push(structuredClone(history.current));
+  history.current = structuredClone(next);
+  history.redo = [];
+  setImageBoxDirtyState(form, !history.saved || !imageBoxSnapshotsEqual(history.saved, next));
+}
+
+function undoImageBoxChange(form) {
+  const history = imageBoxHistoryByPath.get(form?.dataset.imagePath);
+  if (!history?.undo.length) return false;
+  history.redo.push(structuredClone(history.current));
+  history.current = history.undo.pop();
+  applyImageBoxFormSnapshot(form, history.current);
+  setImageBoxDirtyState(form, !history.saved || !imageBoxSnapshotsEqual(history.saved, history.current));
+  return true;
+}
+
+function redoImageBoxChange(form) {
+  const history = imageBoxHistoryByPath.get(form?.dataset.imagePath);
+  if (!history?.redo.length) return false;
+  history.undo.push(structuredClone(history.current));
+  history.current = history.redo.pop();
+  applyImageBoxFormSnapshot(form, history.current);
+  setImageBoxDirtyState(form, !history.saved || !imageBoxSnapshotsEqual(history.saved, history.current));
+  return true;
+}
+
+function markImageBoxSaved(form) {
+  const snapshot = imageBoxFormSnapshot(form);
+  imageBoxHistoryByPath.set(form.dataset.imagePath, {
+    saved: structuredClone(snapshot), current: structuredClone(snapshot), undo: [], redo: []
+  });
+  form.dataset.imageBoxDirty = 'false';
+  setImageDraftActionStatus(form, 'DRAFT SAVED — PRIVATE', 'success');
+  updateImageBoxHistoryButtons(form);
 }
 
 function setImageDraftActionsBusy(form, busy) {
@@ -6386,7 +6497,34 @@ function importedImageChoice(draft, parent) {
   };
 }
 
-async function configureImageDraft(form, approvalStatus = 'approved') {
+function buildImageBoxNormalizedProduct(draft, existingProduct = null, approvalStatus = 'draft') {
+  if (!existingProduct) {
+    return buildNewProductRecord({
+      slug: draft.slug, title: draft.title, description: draft.description, funFact: draft.funFact,
+      cutoutImage: draft.path, backgroundImage: draft.backgroundImage, originalHeight: draft.originalHeight,
+      priceOverride: draft.priceOverride, categories: draft.categories, visible: draft.categories.length > 0,
+      displayOverrides: {}, approvalStatus
+    });
+  }
+  const price = draft.priceOverride === '' ? null : Number(draft.priceOverride);
+  return {
+    title: draft.title,
+    description: draft.description,
+    funFact: draft.funFact,
+    cutoutImage: draft.path,
+    backgroundImage: draft.backgroundImage,
+    originalHeight: String(parseAdminHeight(draft.originalHeight) || adminDefaultMerchandiseHeight()),
+    priceOverride: Number.isFinite(price) && price >= 0 ? price : null,
+    categories: [...new Set(draft.categories)],
+    categoryOrder: Object.fromEntries(draft.categories.map((category) => [category, Number(existingProduct.categoryOrder?.[category] ?? 999)])),
+    visible: draft.categories.length > 0,
+    updatedAt: new Date().toISOString(),
+    draftStatus: approvalStatus === 'approved' ? 'ready' : 'draft',
+    approvalStatus
+  };
+}
+
+async function configureImageDraft(form, approvalStatus = 'draft') {
   if (!ensureImageImportReady(form)) return false;
   const draft = collectImageDraftForm(form);
   if (draft.destination === 'save-later') return saveImageDraftForm(form, { savedForLater: true });
@@ -6433,8 +6571,9 @@ async function configureImageDraft(form, approvalStatus = 'approved') {
         }
         updated.backgroundImage = draft.path;
       } else {
-        if (owner?.slug === parent.slug) throw new Error('That image is already assigned to this product.');
-        updated.imageChoices = [...imageChoices, importedImageChoice(draft, parent)];
+        if (!imageChoices.some((choice) => choice.image === draft.path)) {
+          updated.imageChoices = [...imageChoices, importedImageChoice(draft, parent)];
+        }
       }
       for (const field of ['title', 'description', 'funFact']) {
         if (draft[field] !== '' && draft[field] !== parent[field]) updated[field] = draft[field];
@@ -6448,16 +6587,17 @@ async function configureImageDraft(form, approvalStatus = 'approved') {
       draft.slug = draft.slug || makeSlug(draft.title);
       if (!draft.title || !draft.slug) throw new Error('Add a title first. The product ID will be generated automatically.');
       draft.originalHeight = String(parseAdminHeight(draft.originalHeight) || adminDefaultMerchandiseHeight());
-      if (allAdminProducts().some((product) => product.slug === draft.slug)) throw new Error('That slug already belongs to another product or card.');
+      const previousSlug = String(baseDraft?.resultType === 'create-product' ? baseDraft.resultSlug || '' : '');
+      const existingDraftProduct = previousSlug && previousSlug === draft.slug ? effectiveAdminProduct(previousSlug) : null;
+      if (!existingDraftProduct && allAdminProducts().some((product) => product.slug === draft.slug)) throw new Error('That slug already belongs to another product or card.');
       const owner = findProductImageOwner(draft.path);
-      if (owner) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
-      const product = buildNewProductRecord({
-        slug: draft.slug, title: draft.title, description: draft.description, funFact: draft.funFact,
-        cutoutImage: draft.path, backgroundImage: draft.backgroundImage, originalHeight: draft.originalHeight,
-        priceOverride: draft.priceOverride, categories: draft.categories, visible: draft.categories.length > 0,
-        displayOverrides: {}, approvalStatus
-      });
-      operations.push(newProductRecordOperation(product));
+      if (owner && owner.slug !== existingDraftProduct?.slug) throw new Error(`That image is already assigned to ${owner.title} (${owner.slug}).`);
+      if (existingDraftProduct) {
+        operations.push(imageImportProductOperation(existingDraftProduct, buildImageBoxNormalizedProduct(draft, existingDraftProduct, approvalStatus)));
+      } else {
+        const product = buildImageBoxNormalizedProduct(draft, null, approvalStatus);
+        operations.push(newProductRecordOperation(product));
+      }
       resultSlug = draft.slug;
     } else if (draft.destination === 'create-category') {
       if (!draft.title || !draft.slug) throw new Error('Add a category title and unique key first.');
@@ -6523,63 +6663,93 @@ async function configureImageDraft(form, approvalStatus = 'approved') {
     });
     const result = await saveAdminCollectionOperations(operations);
     if (!result.ok) throw new Error(adminLastSaveError || 'Supabase did not save the assignment.');
-    renderAdminProducts();
-    renderImageDrafts();
-    setStatus(approvalStatus === 'draft' ? 'Image assignment saved as a private draft.' : 'Image assignment saved privately. Confirm publication to make it live.');
-  } catch (error) {
-    await saveAdminImageDraftPatch(draft.path, {
-      ...draft,
-      status: 'error',
-      savedForLater: false,
-      lastError: error.message || 'Could not apply this image assignment.',
-      updatedAt: new Date().toISOString()
-    }, baseDraft).catch(() => null);
+    form.dataset.productSlug = resultSlug;
+    form.dataset.draftStatus = 'completed';
+    form.dataset.savedForLater = 'false';
     setImageDraftActionsBusy(form, false);
-    setImageDraftActionStatus(form, error.message || 'Could not apply this image assignment.', 'error');
+    renderAdminProducts();
+    setImageDraftActionStatus(form, 'DRAFT SAVED — PRIVATE', 'success');
+    setStatus('Product draft saved privately. Customers cannot see it until Publish to Website succeeds.');
+  } catch (error) {
+    setImageDraftActionsBusy(form, false);
+    setImageDraftActionStatus(form, `SAVE FAILED — ${error.message || 'Could not apply this image assignment.'}`, 'error');
     setStatus(error.message || 'Could not apply this image assignment.');
-    renderImageImportPending();
     return false;
   }
   return true;
 }
 
-function openProductEditorFromImageInbox(form) {
-  const draft = collectImageDraftForm(form);
-  const editor = document.getElementById('createProductForm');
-  if (!editor) return false;
-  const values = {
-    cutoutImage: draft.path,
-    subjectIdentity: draft.subjectIdentity,
-    title: draft.title,
-    description: draft.description,
-    funFact: draft.funFact,
-    originalHeight: draft.originalHeight,
-    priceOverride: draft.priceOverride,
-    backgroundImage: draft.backgroundImage,
-    slug: draft.slug
-  };
-  Object.entries(values).forEach(([name, value]) => {
-    const field = editor.elements.namedItem(name);
-    if (field && 'value' in field) field.value = value || '';
-  });
-  const selectedCategories = new Set(draft.categories || []);
-  editor.querySelectorAll('[name="categories"]').forEach((input) => { input.checked = selectedCategories.has(input.value); });
-  renderNewProductPreview(editor);
+async function saveImageBoxProductDraft(form) {
+  if (form._imageBoxSavePromise) return form._imageBoxSavePromise;
+  form._imageBoxSavePromise = (async () => {
+    const saved = await configureImageDraft(form, 'draft');
+    if (!saved) return false;
+    const product = effectiveAdminProduct(form.dataset.productSlug);
+    if (product && collectImageDraftForm(form).destination === 'create-product') {
+      for (const fieldName of ['title', 'description', 'funFact', 'originalHeight', 'backgroundImage', 'priceOverride']) {
+        const field = form.elements.namedItem(fieldName);
+        if (field && 'value' in field) field.value = product[fieldName] ?? '';
+      }
+      const categories = new Set(product.categories || []);
+      form.querySelectorAll('[name="categories"]').forEach((input) => { input.checked = categories.has(input.value); });
+      updateImageImportPreview(form);
+    }
+    markImageBoxSaved(form);
+    renderImageImportPending();
+    return true;
+  })();
+  try {
+    return await form._imageBoxSavePromise;
+  } finally {
+    form._imageBoxSavePromise = null;
+  }
+}
+
+async function openProductEditorFromImageInbox(form) {
+  if (!await saveImageBoxProductDraft(form)) return false;
+  const slug = form.dataset.productSlug || collectImageDraftForm(form).parentProductSlug;
+  if (!slug || !effectiveAdminProduct(slug)) {
+    setImageDraftActionStatus(form, 'Could not open Product Editor because the saved product was not found.', 'error');
+    return false;
+  }
+  openedProductEditors.add(slug);
   window.location.hash = 'products';
-  editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  setCreationStatus(editor, 'Image added to the shared product editor. Preview, Save Draft, or Publish to Website.', 'draft');
+  renderAdminProducts();
+  document.querySelector(`[data-product-summary="${CSS.escape(slug)}"] .admin-product-card`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  setStatus('Draft Saved. Opened the same normalized product in Product Editor.');
   return true;
 }
 
 async function handleImageInboxAction(form, action) {
+  if (action === 'save') return saveImageBoxProductDraft(form);
+  if (action === 'continue') return openProductEditorFromImageInbox(form);
+  if (action !== 'publish') return false;
+  if (!await saveImageBoxProductDraft(form)) {
+    setImageDraftActionStatus(form, 'Publish stopped — latest changes could not be saved.', 'error');
+    return false;
+  }
   const draft = collectImageDraftForm(form);
-  if (draft.destination === 'create-product') return openProductEditorFromImageInbox(form);
-  const saved = await configureImageDraft(form, action === 'draft' ? 'draft' : 'approved');
-  if (!saved || action === 'draft') return saved;
   const latestDraft = normalizeImageImportDraft(readImageDraftEdits()[draft.path] || draft);
-  const slug = latestDraft.resultSlug || draft.parentProductSlug;
+  const slug = form.dataset.productSlug || latestDraft.resultSlug || draft.parentProductSlug;
   const product = effectiveAdminProduct(slug);
-  return publishScopedChangeIds([`product:${slug}`], product?.title || slug, form.querySelector('[data-image-draft-status]'));
+  if (!product) {
+    setImageDraftActionStatus(form, 'Publish stopped — the saved normalized product was not found.', 'error');
+    return false;
+  }
+  const status = form.querySelector('[data-image-draft-status]');
+  setImageDraftActionsBusy(form, true);
+  setImageDraftActionStatus(form, 'PUBLISHING…', 'publishing');
+  try {
+    const published = await publishSavedProductBySlug(slug, product.title || slug, status);
+    if (published && status?.dataset.state === 'published') {
+      markImageBoxSaved(form);
+      setImageDraftActionStatus(form, 'PUBLISHED TO WEBSITE', 'published');
+    }
+    return published;
+  } finally {
+    setImageDraftActionsBusy(form, false);
+    updateImageBoxHistoryButtons(form);
+  }
 }
 
 async function ignoreImageDraft(path, form) {
@@ -6657,15 +6827,6 @@ function updateImageDraftDestination(form) {
   form.querySelectorAll('[data-import-roles]').forEach((section) => {
     section.hidden = !section.dataset.importRoles.split(' ').includes(role);
   });
-  const action = form.querySelector('[data-apply-image-import]');
-  const draftAction = form.querySelector('[data-apply-image-import-draft]');
-  if (draftAction) draftAction.hidden = false;
-  if (action) {
-    action.textContent = destination === 'existing-product' ? 'Publish to Website' : 'Continue in Product Editor';
-  }
-  if (draftAction) {
-    draftAction.textContent = destination === 'existing-product' ? 'Save Draft' : 'Continue in Product Editor';
-  }
   updateImageImportPreview(form);
 }
 
@@ -6708,12 +6869,33 @@ function updateImageImportPreview(form) {
     </button>
   `).join('');
   gallery.querySelectorAll('[data-import-preview-image]').forEach((button) => {
-    button.addEventListener('click', async () => {
+    button.addEventListener('click', () => {
       selectedInput.value = button.dataset.importPreviewImage;
       updateImageImportPreview(form);
-      await saveImageDraftForm(form, { quiet: true, status: form.dataset.draftStatus || 'draft' });
+      recordImageBoxChange(form);
     });
   });
+}
+
+function imageBoxShortcutUsesNativeEditing(event) {
+  return Boolean(event.target?.matches?.('input:not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"]'));
+}
+
+function bindImageBoxGlobalSafeguards() {
+  if (document.documentElement.dataset.imageBoxSafeguardsBound === 'true') return;
+  document.documentElement.dataset.imageBoxSafeguardsBound = 'true';
+  window.addEventListener('beforeunload', (event) => {
+    if (!document.querySelector('.admin-image-draft[data-image-box-dirty="true"]')) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('a[href^="#"]');
+    const dirty = document.querySelector('.admin-image-draft[data-image-box-dirty="true"]');
+    if (!link || !dirty || link.closest('.admin-image-draft')) return;
+    if (window.confirm('You have unsaved Image Box changes. Leave without saving?')) return;
+    event.preventDefault();
+  }, true);
 }
 
 function renderImageDrafts() {
@@ -6737,7 +6919,9 @@ function renderImageDrafts() {
     [category?.card?.image, category?.card?.backgroundImage, category?.displaySettings?.backgroundImage].filter(Boolean).forEach((path) => hiddenPaths.add(path));
   });
   Object.values(readExtraImages()).filter(Boolean).forEach((path) => hiddenPaths.add(path));
-  const drafts = imageDraftInventory.filter((draft) => draft?.path && !hiddenPaths.has(draft.path));
+  const drafts = imageDraftInventory.filter((draft) => draft?.path && (
+    !hiddenPaths.has(draft.path) || openedImageInboxItems.has(draft.path)
+  ));
 
   if (!drafts.length) {
     container.innerHTML = '<p class="admin-note">No new unassociated images are waiting for setup.</p>';
@@ -6745,7 +6929,20 @@ function renderImageDrafts() {
   }
 
   container.innerHTML = drafts.map((inventoryDraft) => {
-    const storedDraft = normalizeImageImportDraft({ ...inventoryDraft, ...(edits[inventoryDraft.path] || {}) });
+    const workflowDraft = normalizeImageImportDraft({ ...inventoryDraft, ...(edits[inventoryDraft.path] || {}) });
+    const normalizedProduct = workflowDraft.resultSlug ? effectiveAdminProduct(workflowDraft.resultSlug) : null;
+    const storedDraft = normalizeImageImportDraft(normalizedProduct ? {
+      ...workflowDraft,
+      title: normalizedProduct.title || '',
+      description: normalizedProduct.description || '',
+      funFact: normalizedProduct.funFact || '',
+      originalHeight: normalizedProduct.originalHeight || '',
+      priceOverride: normalizedProduct.priceOverride ?? '',
+      backgroundImage: normalizedProduct.backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND,
+      categories: [...(normalizedProduct.categories || [])],
+      parentProductSlug: workflowDraft.destination === 'existing-product' ? normalizedProduct.slug : workflowDraft.parentProductSlug,
+      slug: workflowDraft.destination === 'create-product' ? normalizedProduct.slug : workflowDraft.slug
+    } : workflowDraft);
     const selectedPreview = adminImageReferencePresentation(storedDraft.selectedPreviewImage);
     const background = adminImageReferencePresentation(storedDraft.backgroundImage, { background: true });
     const draft = {
@@ -6753,6 +6950,8 @@ function renderImageDrafts() {
       selectedPreviewImage: selectedPreview.valid ? storedDraft.selectedPreviewImage : storedDraft.path,
       backgroundImage: background.valid ? storedDraft.backgroundImage : IMAGE_IMPORT_DEFAULT_BACKGROUND
     };
+    const normalizedProductSaved = Boolean(draft.resultSlug && effectiveAdminProduct(draft.resultSlug));
+    const normalizedProductPublished = normalizedProductSaved && imageImportPublished(draft);
     if (!openedImageInboxItems.has(draft.path)) return `
       <article class="admin-image-inbox-summary" data-image-inbox-summary="${escapeAdminHtml(draft.path)}">
         <img src="${escapeAdminHtml(draft.path)}" alt="" loading="lazy">
@@ -6760,13 +6959,16 @@ function renderImageDrafts() {
         <button type="button" data-configure-image-inbox="${escapeAdminHtml(draft.path)}">Configure Image</button>
       </article>`;
     return `
-      <form class="admin-product-card admin-image-draft" data-image-path="${escapeAdminHtml(draft.path)}" data-draft-status="${escapeAdminHtml(draft.status)}" data-saved-for-later="${draft.savedForLater === true}">
+      <form class="admin-product-card admin-image-draft" data-image-path="${escapeAdminHtml(draft.path)}" data-product-slug="${escapeAdminHtml(draft.resultSlug || '')}" data-draft-status="${escapeAdminHtml(draft.status)}" data-saved-for-later="${draft.savedForLater === true}" data-image-box-dirty="${normalizedProductSaved ? 'false' : 'true'}">
         <div class="admin-product-heading">
-          <div><h3>${escapeAdminHtml(draft.title || 'Unpublished image draft')}</h3><p class="admin-note" data-image-draft-status>${imageImportReady ? 'Draft — saved privately only after you choose Save Draft.' : 'Loading authenticated Admin state…'}</p></div>
+          <div><h3>Create Product From Image</h3><p class="admin-note" data-image-draft-status data-state="${normalizedProductPublished ? 'published' : normalizedProductSaved ? 'success' : 'unsaved'}">${imageImportReady ? (normalizedProductPublished ? 'PUBLISHED TO WEBSITE' : normalizedProductSaved ? 'DRAFT SAVED — PRIVATE' : 'UNSAVED CHANGES') : 'Loading authenticated Admin state…'}</p></div>
           <div class="admin-card-actions">
+            <button type="button" data-image-import-action data-image-box-undo disabled>Undo</button>
+            <button type="button" data-image-import-action data-image-box-redo disabled>Redo</button>
+            <button type="button" data-image-import-action data-save-image-box ${imageImportReady ? '' : 'disabled'}>Save</button>
             <button type="button" data-image-import-action data-preview-image-import>Preview</button>
-            <button type="button" data-image-import-action data-apply-image-import-draft ${imageImportReady ? '' : 'disabled'}>Save Draft</button>
-            <button class="admin-button admin-button-primary" type="button" data-image-import-action data-apply-image-import ${imageImportReady ? '' : 'disabled'}>Publish to Website</button>
+            <button class="admin-button admin-button-primary" type="button" data-image-import-action data-publish-image-box ${imageImportReady ? '' : 'disabled'}>Publish to Website</button>
+            <button type="button" data-image-import-action data-continue-product-editor ${imageImportReady ? '' : 'disabled'}>Continue in Product Editor</button>
             <details class="admin-card-more-actions"><summary>More</summary><button type="button" data-image-import-action data-ignore-image ${imageImportReady ? '' : 'disabled'}>Ignore Image</button></details>
           </div>
         </div>
@@ -6795,7 +6997,7 @@ function renderImageDrafts() {
                 <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
               </div>
               <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
-              <p class="admin-note">AI suggestions fill these fields for your review. They never save or publish automatically.</p>
+              <p class="admin-note">AI can help fill these fields. Review or edit the suggestions, then click Save. When you're ready for customers to see the product, click Publish to Website.</p>
               <label data-import-destinations="create-product">Original height<input name="originalHeight" type="text" value="${escapeAdminHtml(draft.originalHeight || '')}" placeholder="6'6 or 78"></label>
               <label>Background
                 <select name="backgroundImage">
@@ -6836,6 +7038,31 @@ function renderImageDrafts() {
     bindParentCategoryPicker(form);
     updateImageDraftDestination(form);
     updateImageImportPreview(form);
+    initializeImageBoxHistory(form, Boolean(form.dataset.productSlug && effectiveAdminProduct(form.dataset.productSlug)));
+    bindImageBoxGlobalSafeguards();
+    form.addEventListener('input', () => recordImageBoxChange(form));
+    form.addEventListener('change', () => recordImageBoxChange(form));
+    form.addEventListener('keydown', (event) => {
+      const command = event.metaKey || event.ctrlKey;
+      if (!command) return;
+      const key = event.key.toLowerCase();
+      if (key === 's') {
+        event.preventDefault();
+        handleImageInboxAction(form, 'save');
+        return;
+      }
+      if (imageBoxShortcutUsesNativeEditing(event)) return;
+      if (key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        redoImageBoxChange(form);
+      } else if (key === 'z') {
+        event.preventDefault();
+        undoImageBoxChange(form);
+      } else if (key === 'y') {
+        event.preventDefault();
+        redoImageBoxChange(form);
+      }
+    });
     form.querySelectorAll('[name="imageDestination"]').forEach((input) => input.addEventListener('change', () => updateImageDraftDestination(form)));
     form.querySelector('[name="parentProductSlug"]')?.addEventListener('change', () => updateImageImportPreview(form));
     form.querySelectorAll('[name="imageRole"]').forEach((input) => input.addEventListener('change', () => {
@@ -6849,9 +7076,15 @@ function renderImageDrafts() {
       if (slug && (!slug.value || slug.value === slug.dataset.generatedValue)) slug.value = generated;
       if (slug) slug.dataset.generatedValue = slug.value;
     });
-    form.querySelector('[data-preview-image-import]')?.addEventListener('click', () => updateImageImportPreview(form));
-    form.querySelector('[data-apply-image-import-draft]')?.addEventListener('click', () => handleImageInboxAction(form, 'draft'));
-    form.querySelector('[data-apply-image-import]')?.addEventListener('click', () => handleImageInboxAction(form, 'publish'));
+    form.querySelector('[data-image-box-undo]')?.addEventListener('click', () => undoImageBoxChange(form));
+    form.querySelector('[data-image-box-redo]')?.addEventListener('click', () => redoImageBoxChange(form));
+    form.querySelector('[data-preview-image-import]')?.addEventListener('click', () => {
+      updateImageImportPreview(form);
+      setImageDraftActionStatus(form, form.dataset.imageBoxDirty === 'true' ? 'PREVIEW — UNSAVED CHANGES' : 'PREVIEW — DRAFT SAVED', 'preview');
+    });
+    form.querySelector('[data-save-image-box]')?.addEventListener('click', () => handleImageInboxAction(form, 'save'));
+    form.querySelector('[data-publish-image-box]')?.addEventListener('click', () => handleImageInboxAction(form, 'publish'));
+    form.querySelector('[data-continue-product-editor]')?.addEventListener('click', () => handleImageInboxAction(form, 'continue'));
     form.querySelector('[data-ignore-image]')?.addEventListener('click', () => ignoreImageDraft(form.dataset.imagePath, form));
   });
   renderImageImportPending();
@@ -6932,6 +7165,10 @@ async function saveSelectedImageImportsForLater() {
 function openSelectedImageDraft() {
   const selected = document.querySelector('[data-image-pending-select]:checked');
   const path = selected?.closest('[data-pending-image-path]')?.dataset.pendingImagePath;
+  if (path) {
+    openedImageInboxItems.add(path);
+    renderImageDrafts();
+  }
   const form = path ? [...document.querySelectorAll('.admin-image-draft')].find((item) => item.dataset.imagePath === path) : null;
   if (!form) {
     setStatus('That saved draft is already assigned. Open its product from Products to continue.');
@@ -6943,17 +7180,17 @@ function openSelectedImageDraft() {
 async function publishImageImports(mode) {
   const drafts = Object.values(readImageDraftEdits()).map(normalizeImageImportDraft);
   const requestedPaths = mode === 'all'
-    ? drafts.filter((draft) => !draft.savedForLater && imageImportStatus(draft) === 'Ready to Publish').map((draft) => draft.path)
+    ? drafts.filter((draft) => !draft.savedForLater && imageImportStatus(draft) === 'Unpublished Changes').map((draft) => draft.path)
     : [...document.querySelectorAll('[data-image-pending-select]:checked')]
       .map((input) => input.closest('[data-pending-image-path]')?.dataset.pendingImagePath)
-      .filter((path) => drafts.some((draft) => draft.path === path && imageImportStatus(draft) === 'Ready to Publish'));
+      .filter((path) => drafts.some((draft) => draft.path === path && imageImportStatus(draft) === 'Unpublished Changes'));
   const selectedProductSlugs = new Set(drafts.filter((draft) => requestedPaths.includes(draft.path)).map((draft) => draft.resultSlug).filter(Boolean));
   const selectedPaths = drafts
-    .filter((draft) => !draft.savedForLater && imageImportStatus(draft) === 'Ready to Publish')
+    .filter((draft) => !draft.savedForLater && imageImportStatus(draft) === 'Unpublished Changes')
     .filter((draft) => requestedPaths.includes(draft.path) || selectedProductSlugs.has(draft.resultSlug))
     .map((draft) => draft.path);
   if (!selectedPaths.length) {
-    setStatus('No Ready to Publish image imports are selected.');
+    setStatus('No unpublished image imports are selected.');
     return;
   }
   const selectedDrafts = drafts.filter((draft) => selectedPaths.includes(draft.path));

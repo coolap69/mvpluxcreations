@@ -144,11 +144,10 @@ Deno.test('Image Imports and manual Create share one authoritative product creat
   const importStart = adminSource.indexOf('async function configureImageDraft');
   const importEnd = adminSource.indexOf('function imageDraftMarkup', importStart);
   const imageImport = adminSource.slice(importStart, importEnd);
-  for (const source of [manual, imageImport]) {
-    assert(source.includes('buildNewProductRecord('), 'both workflows must use the shared product builder');
-    assert(source.includes('newProductRecordOperation('), 'both workflows must use the same authoritative products operation');
-  }
-  assert(imageImport.includes('cutoutImage: draft.path'), 'the imported image must automatically become the main image');
+  const imageBoxBuilder = adminSource.slice(adminSource.indexOf('function buildImageBoxNormalizedProduct'), importStart);
+  assert(manual.includes('buildNewProductRecord(') && imageBoxBuilder.includes('buildNewProductRecord('), 'both workflows must use the shared product builder');
+  assert(manual.includes('newProductRecordOperation(') && imageImport.includes('newProductRecordOperation('), 'both workflows must use the same authoritative products operation');
+  assert(imageBoxBuilder.includes('cutoutImage: draft.path'), 'the imported image must automatically become the main image');
   assert(!imageImport.includes("collectionKey: 'customProducts'"), 'Image Imports must not create a competing customProducts record');
 });
 
