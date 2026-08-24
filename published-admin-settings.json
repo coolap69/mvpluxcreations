@@ -1,7 +1,7 @@
 {
-  "publishedAt": "2026-08-22T08:11:42.632Z",
-  "title": "Publish Movie Characters",
-  "changeSummary": "- Changed title from Movie Character Standees to Movie Characters\n- Changed description for Movie Characters\n- Changed Movie Characters original height from 74\" to not set\n- Created category: Movie Characters",
+  "publishedAt": "2026-08-24T07:09:55.036Z",
+  "title": "Publish Captain America Action Standee",
+  "changeSummary": "- Created product/card: Captain America Action Standee\n- Added cutout image for Captain America Action Standee: images/MovieCharacterStandees/Captain America/CAPTAINAnobackgroundpng.png\n- Added background image for Captain America Action Standee: images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg\n- Assigned Captain America Action Standee to Movie Characters",
   "snapshot": {
     "version": 1,
     "schemaVersion": 2,
@@ -9,6 +9,7 @@
       "twoFootPrice": 35,
       "threeFootPrice": 50,
       "fullHeight": 78,
+      "defaultMerchandiseHeight": 78,
       "fullPrice": 129.99,
       "extraInchPrice": 2
     },
@@ -929,6 +930,32 @@
         "categoryOrder": {
           "faith-celebration": 999
         }
+      },
+      "captain-america-action-standee": {
+        "slug": "captain-america-action-standee",
+        "custom": true,
+        "title": "Captain America Action Standee",
+        "description": "Bring the legendary Captain America into your space with this life-sized standee. Featuring the iconic hero in a dynamic running pose, he is outfitted in his signature dark tactical suit and classic vibranium shield, ready to leap into action for your next event or display.",
+        "funFact": "Captain America's shield is made of a unique vibranium-steel alloy that is virtually indestructible and absorbs kinetic energy.",
+        "cutoutImage": "images/MovieCharacterStandees/Captain America/CAPTAINAnobackgroundpng.png",
+        "backgroundImage": "images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg",
+        "imageChoices": [],
+        "originalHeight": "74",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
+        "categories": [
+          "movie-characters"
+        ],
+        "visible": true,
+        "categoryOrder": {
+          "movie-characters": 999
+        },
+        "productOrder": 999,
+        "displayOverrides": {}
       }
     },
     "categoryDisplayCards": {
@@ -971,8 +998,8 @@
         "categories": [],
         "visible": true,
         "categoryOrder": {},
-        "productOrder": 0,
-        "displayOverrides": {}
+        "displayOverrides": {},
+        "productOrder": 0
       },
       "people-public-figure-standee": {
         "slug": "people-public-figure-standee",
