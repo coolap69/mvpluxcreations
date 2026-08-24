@@ -1,7 +1,7 @@
 {
-  "publishedAt": "2026-08-24T07:09:55.036Z",
-  "title": "Publish Captain America Action Standee",
-  "changeSummary": "- Created product/card: Captain America Action Standee\n- Added cutout image for Captain America Action Standee: images/MovieCharacterStandees/Captain America/CAPTAINAnobackgroundpng.png\n- Added background image for Captain America Action Standee: images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg\n- Assigned Captain America Action Standee to Movie Characters",
+  "publishedAt": "2026-08-24T07:27:47.211Z",
+  "title": "Publish Michael Jackson Smooth Criminal Standee",
+  "changeSummary": "- Created product/card: Michael Jackson Smooth Criminal Standee\n- Added cutout image for Michael Jackson Smooth Criminal Standee: images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png\n- Added background image for Michael Jackson Smooth Criminal Standee: images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg\n- Assigned Michael Jackson Smooth Criminal Standee to Music Artists",
   "snapshot": {
     "version": 1,
     "schemaVersion": 2,
@@ -953,6 +953,32 @@
         "visible": true,
         "categoryOrder": {
           "movie-characters": 999
+        },
+        "productOrder": 999,
+        "displayOverrides": {}
+      },
+      "michael-jackson-smooth-criminal-standee": {
+        "slug": "michael-jackson-smooth-criminal-standee",
+        "custom": true,
+        "title": "Michael Jackson Smooth Criminal Standee",
+        "description": "Bring the King of Pop to life with this life-sized standee featuring Michael Jackson in his iconic white pinstripe suit, black shirt, and fedora. This design captures his legendary lean from the Smooth Criminal music video.",
+        "funFact": "To achieve the anti-gravity lean, Michael Jackson and his team used special shoes that locked onto a peg that rose from the stage floor.",
+        "cutoutImage": "images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png",
+        "backgroundImage": "images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg",
+        "imageChoices": [],
+        "originalHeight": "70",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
+        "categories": [
+          "music-artists"
+        ],
+        "visible": true,
+        "categoryOrder": {
+          "music-artists": 999
         },
         "productOrder": 999,
         "displayOverrides": {}
