@@ -1,7 +1,7 @@
 {
-  "publishedAt": "2026-08-24T07:27:47.211Z",
-  "title": "Publish Michael Jackson Smooth Criminal Standee",
-  "changeSummary": "- Created product/card: Michael Jackson Smooth Criminal Standee\n- Added cutout image for Michael Jackson Smooth Criminal Standee: images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png\n- Added background image for Michael Jackson Smooth Criminal Standee: images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg\n- Assigned Michael Jackson Smooth Criminal Standee to Music Artists",
+  "publishedAt": "2026-08-24T07:32:47.154Z",
+  "title": "Publish Kobe Bryant Slam Dunk Cardboard Standee",
+  "changeSummary": "- Created product/card: Kobe Bryant Slam Dunk Cardboard Standee\n- Added cutout image for Kobe Bryant Slam Dunk Cardboard Standee: images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png\n- Added background image for Kobe Bryant Slam Dunk Cardboard Standee: images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg\n- Assigned Kobe Bryant Slam Dunk Cardboard Standee to Sports",
   "snapshot": {
     "version": 1,
     "schemaVersion": 2,
@@ -979,6 +979,32 @@
         "visible": true,
         "categoryOrder": {
           "music-artists": 999
+        },
+        "productOrder": 999,
+        "displayOverrides": {}
+      },
+      "sports": {
+        "slug": "sports",
+        "custom": true,
+        "title": "Kobe Bryant Slam Dunk Cardboard Standee",
+        "description": "This life-sized cardboard standee features basketball legend Kobe Bryant in an iconic back slam dunk pose, wearing his classic gold and purple Lakers uniform with the number 8. He is captured mid-air, displaying high-energy athletic focus and determination.",
+        "funFact": "Kobe Bryant famously wore the number 8 jersey during the first half of his legendary 20-year career with the Los Angeles Lakers before switching to number 24.",
+        "cutoutImage": "images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png",
+        "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
+        "imageChoices": [],
+        "originalHeight": "78",
+        "cutoutHeight": "",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
+        "categories": [
+          "sports"
+        ],
+        "visible": true,
+        "categoryOrder": {
+          "sports": 999
         },
         "productOrder": 999,
         "displayOverrides": {}
