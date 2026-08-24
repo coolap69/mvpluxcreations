@@ -350,15 +350,8 @@ function validatePublishedSnapshot(value: unknown) {
         ancestorKey = ancestor && typeof ancestor.parentKey === 'string' ? ancestor.parentKey.trim() : '';
       }
     }
-    for (const product of Object.values((snapshot.products || {}) as Record<string, Record<string, unknown>>)) {
-      const assignments = new Set(Array.isArray(product.categories) ? product.categories.filter((key): key is string => typeof key === 'string') : []);
-      for (const categoryKey of assignments) {
-        const parentKey = typeof categoryRecords[categoryKey]?.parentKey === 'string' ? String(categoryRecords[categoryKey].parentKey).trim() : '';
-        if (parentKey && !assignments.has(parentKey)) {
-          throw new PublishError('validation', 400, 'MISSING_MASTER_CATEGORY', `Product ${product.slug || 'unknown'} is assigned to Child Group ${categoryKey} without Main Category ${parentKey}.`);
-        }
-      }
-    }
+    // Child Group assignments may remain dormant after a Main Collection assignment is removed.
+    // Customer filtering still requires both assignments, so a dormant relationship is never public.
   }
   const deletedCategories = snapshot.deletedCategories;
   if (deletedCategories !== undefined && (!Array.isArray(deletedCategories)

@@ -97,6 +97,6 @@ Deno.test('homepage renderer clears stale cards when no Categories remain eligib
   const start = source.indexOf('function renderNormalizedHomepageCategoryCards');
   const end = source.indexOf('\n\nfunction managedCategoryCardMarkup', start);
   const renderer = source.slice(start, end);
-  assert(renderer.indexOf("grid.innerHTML = ''") < renderer.indexOf('if (!categories.length)'), 'renderer must clear the authoritative mount before returning for an empty eligible set');
+  assert(renderer.indexOf('grid.replaceChildren()') < renderer.indexOf('if (!categories.length)'), 'renderer must clear the authoritative mount before returning for an empty eligible set');
   assert(renderer.includes('grid.hidden = true'), 'an empty Category mount must not retain a stale visible card');
 });

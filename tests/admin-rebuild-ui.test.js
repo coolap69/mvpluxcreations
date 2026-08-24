@@ -12,7 +12,7 @@ Deno.test('Admin workspace exposes the simplified everyday areas and keeps techn
     assert(adminHtml.includes(`id="${id}"`), `missing ${id} Admin area`);
   }
   const navigation = adminHtml.slice(adminHtml.indexOf('id="adminWorkspaceNav"'), adminHtml.indexOf('</nav>', adminHtml.indexOf('id="adminWorkspaceNav"')));
-  for (const label of ['Dashboard', 'Products', 'Image Inbox', 'Categories', 'Orders &amp; Offers', 'Settings', 'Advanced']) assert(navigation.includes(`>${label}<`), `navigation is missing ${label}`);
+  for (const label of ['Dashboard', 'Products', 'Image Inbox', 'Collections', 'Orders &amp; Offers', 'Settings', 'Advanced']) assert(navigation.includes(`>${label}<`), `navigation is missing ${label}`);
   assert(!navigation.includes('Review Changes') && !navigation.includes('>Publish<'), 'review and publish must not be everyday destinations');
   assert(adminHtml.includes('id="publish-changes" data-admin-area="advanced"'), 'technical publisher must remain available in Advanced');
   assert(adminHtml.includes('Legacy Recovery Editor'), 'legacy editor must remain available only as recovery');

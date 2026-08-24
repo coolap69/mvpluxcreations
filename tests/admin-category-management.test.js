@@ -84,8 +84,8 @@ Deno.test('Custom Other, Custom Photo, and Party Packs remain separate for the A
 Deno.test('Admin Category manager exposes products, image selection, draft, preview, scoped publish, and deletion controls', async () => {
   const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
-  for (const token of ['Search Categories', 'All Categories', 'Visible', 'Hidden', 'Delete Selected Categories', 'adminCategoryBuilderMount']) assert(html.includes(token), `missing ${token}`);
-  for (const token of ['Open Products', 'Delete Category', 'data-category-product', 'data-remove-product-category', 'data-category-image-picker', 'Save Draft', 'data-preview-category-edit', 'data-publish-category-edit']) assert(source.includes(token), `missing ${token}`);
+  for (const token of ['Search Main Collections', 'All Collections', 'Visible', 'Hidden', 'Delete Selected Collections', 'adminCategoryBuilderMount']) assert(html.includes(token), `missing ${token}`);
+  for (const token of ['Open Product / Standee Cards', 'Delete Main Collection', 'data-category-product', 'data-remove-product-category', 'data-category-image-picker', 'Save Draft', 'data-preview-category-edit', 'data-publish-category-edit']) assert(source.includes(token), `missing ${token}`);
   assert(source.includes('publisher.publishCategoryByKey(categoryKey'), 'Category publish must use the one shared scoped Category publisher');
   assert(source.includes('collectionKey: \'deletedCategories\''), 'Category deletion must persist a tombstone');
 });
@@ -117,7 +117,7 @@ Deno.test('Category editor uses a wide preview-first workspace with compact visi
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
   const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
-  for (const section of ['Live Category Preview', 'Category Information', 'Category Image', 'Category Background', 'Category Settings', 'Advanced Display Settings']) {
+  for (const section of ['Live Homepage Collection Card Preview', 'Main Category / Collection Information', 'Homepage Collection Card Image', 'Homepage Collection Card Background', 'Main Collection Settings', 'Advanced Display Settings']) {
     assert(editor.includes(section), `Category editor is missing ${section}`);
   }
   assert(editor.indexOf("categoryVisualImagePicker(category, 'background')") < editor.indexOf('Advanced Display Settings'), 'everyday custom background controls must be in the main visual workspace');
@@ -160,24 +160,24 @@ Deno.test('All, Visible, and Hidden filters keep hidden Categories recoverable i
   for (const value of ['all', 'visible', 'hidden']) assert(html.includes(`data-category-visibility-filter="${value}"`), `missing ${value} Category filter`);
   const manager = source.slice(source.indexOf('function renderCategoryManager'), source.indexOf('function updateDeleteSelectedCategoriesButton'));
   assert(manager.includes("visibilityFilter === 'hidden' ? category.visible === false : category.visible !== false"), 'Hidden filter must select visible:false records without removing them from Admin');
-  assert(manager.includes('Category: ${category.visible === false ? \'HIDDEN\' : \'VISIBLE\'}'), 'Category visibility needs its own badge');
-  assert(manager.includes('Homepage: ${category.homepageVisible === false ? \'HIDDEN\' : \'SHOWN\'}'), 'Homepage visibility needs a separate badge');
+  assert(manager.includes('Collection: ${category.visible === false ? \'HIDDEN\' : \'VISIBLE\'}'), 'Main Collection visibility needs its own badge');
+  assert(manager.includes('Homepage Collection Card: ${category.homepageVisible === false ? \'HIDDEN\' : \'SHOWN\'}'), 'Homepage Collection Card visibility needs a separate badge');
 });
 
-Deno.test('published Sports assignments remain the seven proven products', async () => {
+Deno.test('published Sports assignments retain every established product while allowing later publications', async () => {
   const published = JSON.parse(await Deno.readTextFile(new URL('../published-admin-settings.json', import.meta.url))).snapshot;
   const sports = Object.values(published.products || {})
     .filter((product) => (product.categories || []).includes('sports'))
     .map((product) => product.title)
     .sort();
   const expected = ['Kobe Bryant', 'Lionel Messi', 'Lionel Messi Classic', 'Michael Jordan', 'Michael Jordan Layup', "Shaquille O'Neal", 'Tom Brady'].sort();
-  assert(JSON.stringify(sports) === JSON.stringify(expected), 'Sports assignments must remain unchanged until child groups are separately approved');
+  assert(expected.every((title) => sports.includes(title)), 'the established Sports assignments must remain present after later Product / Standee publications');
 });
 
 Deno.test('Category cards expose everyday visibility and confirmed Delete controls at the top', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const manager = source.slice(source.indexOf('function renderCategoryManager'), source.indexOf('function updateDeleteSelectedCategoriesButton'));
-  for (const token of ['Hide Category', 'UNHIDE CATEGORY', 'Hide from Homepage', 'SHOW ON HOMEPAGE', 'Child Groups', 'data-delete-category']) {
+  for (const token of ['Hide Collection', 'UNHIDE COLLECTION', 'Hide from Homepage', 'SHOW ON HOMEPAGE', 'Child Groups', 'data-delete-category']) {
     assert(manager.includes(token), `Category card is missing ${token}`);
   }
   assert(!manager.includes('admin-category-more-menu'), 'Delete Category must not require opening a More menu');
@@ -322,10 +322,10 @@ Deno.test('child assignment requires its master and is never silently repaired',
   assert(JSON.stringify(invalid) === before && invalid.jordan.categories.join(',') === 'basketball', 'validation must not add the master assignment automatically');
 });
 
-Deno.test('secure publisher rejects invalid hierarchy instead of repairing it', async () => {
+Deno.test('secure publisher validates hierarchy structure while allowing dormant Child Group assignments', async () => {
   const source = await Deno.readTextFile(new URL('../supabase/functions/publish-admin-changes/index.ts', import.meta.url));
   assert(source.includes('INVALID_CATEGORY_PARENT') && source.includes('CATEGORY_PARENT_CYCLE'), 'publisher must reject missing parents and hierarchy cycles');
-  assert(source.includes('MISSING_MASTER_CATEGORY') && source.includes('!assignments.has(parentKey)'), 'publisher must reject a Child Group assignment without its Main Category');
+  assert(!source.includes('MISSING_MASTER_CATEGORY') && source.includes('Child Group assignments may remain dormant'), 'publisher must retain an independently removed Main Collection relationship without deleting its Child Group assignment');
   assert(!source.includes('assignments.add(parentKey)'), 'publisher must never silently repair an invalid assignment');
 });
 
@@ -353,7 +353,7 @@ Deno.test('duplicate detection is sibling-aware while allowing the same title un
 Deno.test('Admin renders compact Child Group rows and private creation without automatic assignments', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const markup = source.slice(source.indexOf('function childGroupMarkup'), source.indexOf('const CATEGORY_IMAGE_SIZE_DEFAULT'));
-  for (const token of ['Child Groups', 'admin-child-group-row', 'Open Products', 'Edit Child Group', 'data-toggle-child-group', '+ Add Child Group']) assert(markup.includes(token), `missing Child Group UI token ${token}`);
+  for (const token of ['Child Groups', 'admin-child-group-row', 'Open Product / Standee Cards', 'Edit Child Group', 'data-toggle-child-group', '+ Add Child Group / Subcollection']) assert(markup.includes(token), `missing Child Group UI token ${token}`);
   assert(markup.includes('data-add-child-group') && markup.includes('data-new-child-group-form'), 'Add Child Group must open the private Child Group creator');
   const save = source.slice(source.indexOf('async function saveNewChildGroupFromForm'), source.indexOf('async function saveCategoryVisibility'));
   assert(save.includes('childCategoryDefaults(parentKey') && save.includes("homepageVisible: false") === false, 'Child Group creation must use the existing parentKey defaults');

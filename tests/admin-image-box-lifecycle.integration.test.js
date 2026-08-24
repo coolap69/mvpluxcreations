@@ -131,6 +131,10 @@ Deno.test('Create and Add Existing write only normalized product records plus wo
   assert(configure.includes("const parent = effectiveAdminProduct(draft.parentProductSlug)"), 'Add Existing must require the explicitly selected product key');
   assert(configure.includes("collectionKey: 'imageDrafts'") && configure.includes('resultSlug'), 'Image draft storage must remain workflow metadata pointing to the normalized product');
   assert(!configure.includes("collectionKey: 'customProducts'"), 'the Image Box itself must not create a second customProducts authority');
+  assert(!configure.includes("collectionKey: 'categories'") && !configure.includes("collectionKey: 'categoryDisplayCards'"), 'Image Box must never create a Main Collection or Homepage Collection Card');
+  assert(!configure.includes("destination === 'create-category'") && !configure.includes("destination === 'existing-category'"), 'unreachable legacy Collection destinations must not remain as product-creation paths');
+  const bulkPublish = sourceRange('async function publishImageImports', 'async function loadImageDraftInventory');
+  assert(bulkPublish.includes("changeIds.add(`product:${draft.resultSlug}`)") && !bulkPublish.includes("changeIds.add(`category:${draft.resultSlug}`)"), 'legacy Image Box bulk publication must also remain Product-only');
 });
 
 Deno.test('actual Image Box normalized builder carries every supported product field into one draft', () => {

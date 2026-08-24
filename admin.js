@@ -1702,10 +1702,6 @@ function buildSelectedImageImportSnapshot(paths) {
     const draft = normalizeImageImportDraft(drafts[path] || {});
     if (draft.resultSlug && current.products[draft.resultSlug]) {
       baseline.products[draft.resultSlug] = current.products[draft.resultSlug];
-    } else if (draft.resultSlug && current.categoryDisplayCards[draft.resultSlug]) {
-      baseline.categoryDisplayCards[draft.resultSlug] = current.categoryDisplayCards[draft.resultSlug];
-    } else if (draft.websiteImageKey && current.extraImages[draft.websiteImageKey]) {
-      baseline.extraImages[draft.websiteImageKey] = current.extraImages[draft.websiteImageKey];
     }
   });
   return baseline;
@@ -4646,16 +4642,18 @@ function categoryAssignmentOptions(product) {
 
 function categoryProductsMarkup(category) {
   const products = categoryAssignedProducts(category.key);
-  if (!products.length) return '<p class="admin-note">No products are assigned to this Category.</p>';
+  const relationship = category.parentKey ? 'Child Group' : 'Main Collection';
+  if (!products.length) return `<p class="admin-note">No Product / Standee Cards are assigned to this ${relationship}.</p>`;
   return products.map((product) => `
     <form class="admin-category-product-row" data-category-product="${escapeAdminHtml(product.slug)}" data-category-key="${escapeAdminHtml(category.key)}">
       <img src="${escapeAdminHtml(product.cutoutImage || '')}" alt="">
       <div><strong>${escapeAdminHtml(product.title || product.slug)}</strong><small>${escapeAdminHtml(product.slug)}</small><span>${product.visible === false ? 'Hidden' : 'Visible'}</span></div>
-      <details><summary>Category assignments</summary><div class="admin-category-options">${categoryAssignmentOptions(product)}</div></details>
+      <details><summary>Collection / Child Group assignments</summary><div class="admin-category-options">${categoryAssignmentOptions(product)}</div></details>
       <div class="admin-card-actions">
-        <button type="submit">Save Categories</button>
-        <button type="button" data-remove-product-category>Remove from This Category</button>
-        <a class="admin-button admin-button-secondary" href="#products" data-open-category-product="${escapeAdminHtml(product.slug)}">Open / Edit Product</a>
+        <button type="submit">Save Assignments</button>
+        <button type="button" data-remove-product-category>Remove from ${category.parentKey ? 'Child Group' : 'Collection'}</button>
+        <button type="button" data-publish-category-product>Publish Product / Standee</button>
+        <a class="admin-button admin-button-secondary" href="#products" data-open-category-product="${escapeAdminHtml(product.slug)}">Open / Edit Product / Standee</a>
       </div>
     </form>`).join('');
 }
@@ -4678,21 +4676,21 @@ function childGroupMarkup(masterCategory, categories) {
         const warnings = hierarchyWarnings.filter((warning) => warning.categoryKey === child.key);
         return `<article class="admin-child-group-row" data-child-group-card="${escapeAdminHtml(child.key)}">
           <div class="admin-child-group-summary"><strong>${escapeAdminHtml(child.title || child.key)}</strong><code>${escapeAdminHtml(child.key)}</code></div>
-          <span><strong>${count}</strong> products</span>
+          <span><strong>${count}</strong> Product / Standee Cards</span>
           <span>${child.visible === false ? 'Hidden' : 'Visible'}</span>
           <span>Order ${Number(child.order || 0)}</span>
           <div class="admin-card-actions">
-            <button type="button" data-open-child-products data-category-key="${escapeAdminHtml(child.key)}">Open Products</button>
-            <button type="button" data-edit-child-group data-category-key="${escapeAdminHtml(child.key)}">Edit</button>
+            <button type="button" data-open-child-products data-category-key="${escapeAdminHtml(child.key)}">Open Product / Standee Cards</button>
+            <button type="button" data-edit-child-group data-category-key="${escapeAdminHtml(child.key)}">Edit Child Group</button>
             ${categoryPublishButtonMarkup(child.key)}
             <button type="button" data-toggle-child-group="${child.visible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(child.key)}">${child.visible === false ? 'Unhide Child Group' : 'Hide Child Group'}</button>
           </div>
           ${warnings.length ? `<p class="admin-warning-message">Assignment warning: ${warnings.map((warning) => warning.productSlug ? `${warning.productSlug} is assigned to ${child.title || child.key} without ${masterCategory.title || masterCategory.key}` : warning.type).join('; ')}. Nothing was repaired automatically.</p>` : ''}
-          <details data-child-products-panel ${openedCategoryProductLists.has(child.key) ? 'open' : ''}><summary>Products (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(child.key) ? categoryProductsMarkup(child) : ''}</div></details>
+          <details data-child-products-panel ${openedCategoryProductLists.has(child.key) ? 'open' : ''}><summary>Product / Standee Cards (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(child.key) ? categoryProductsMarkup(child) : ''}</div></details>
           <details data-child-edit-panel ${openedCategoryEditors.has(child.key) ? 'open' : ''}><summary>Edit Child Group</summary><div data-category-editor-mount>${openedCategoryEditors.has(child.key) ? categoryEditMarkup(child) : ''}</div></details>
         </article>`;
-      }).join('') : '<p class="admin-note">No Child Groups have been created for this Main Category.</p>'}
-      <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}">+ Add Child Group</button>
+      }).join('') : '<p class="admin-note">No Child Groups have been created for this Main Category / Collection.</p>'}
+      <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}">+ Add Child Group / Subcollection</button>
       <div class="admin-child-group-creator" data-child-group-creator="${escapeAdminHtml(masterCategory.key)}" hidden>
         <form data-new-child-group-form="${escapeAdminHtml(masterCategory.key)}">
           <h4>Add Child Group under ${escapeAdminHtml(masterCategory.title || masterCategory.key)}</h4>
@@ -4858,17 +4856,17 @@ function categoryEditMarkup(category) {
   return `
     <form class="admin-category-edit-form" data-category-edit="${escapeAdminHtml(category.key)}">
       <header class="admin-category-editor-header">
-        <div><span class="admin-note">Editing Category</span><h3>${escapeAdminHtml(category.title || category.key)}</h3></div>
+        <div><span class="admin-note">${parent ? 'Editing Child Group / Subcollection' : 'Editing Main Category / Collection and its Homepage Collection Card'}</span><h3>${escapeAdminHtml(category.title || category.key)}</h3></div>
         <div class="admin-panel-actions"><button type="submit">Save Draft</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
       </header>
       <div class="admin-category-editor-workspace">
         <aside class="admin-category-preview-column" aria-label="Live Category preview">
-          <strong>Live Category Preview</strong>
+          <strong>${parent ? 'Live Child Group Preview' : 'Live Homepage Collection Card Preview'}</strong>
           <div class="admin-builder-preview-panel" data-category-edit-preview></div>
           <p class="admin-note">Image, background, size, and position changes update here immediately. Nothing is saved until you choose Save Draft or Publish.</p>
         </aside>
         <div class="admin-category-controls-column">
-          <fieldset class="admin-category-editor-section admin-category-information"><legend>Category Information</legend>
+          <fieldset class="admin-category-editor-section admin-category-information"><legend>${parent ? 'Child Group Information' : 'Main Category / Collection Information'}</legend>
             <div class="admin-input-group">
               <label>Title<input name="title" required value="${escapeAdminHtml(category.title || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(category.description || '')}</textarea></label>
@@ -4901,7 +4899,7 @@ function categoryEditMarkup(category) {
               </div>
             </details>
           </fieldset>
-          <fieldset class="admin-category-editor-section admin-category-image-section"><legend>Category Image</legend>
+          <fieldset class="admin-category-editor-section admin-category-image-section"><legend>${parent ? 'Child Group Image' : 'Homepage Collection Card Image'}</legend>
             ${categoryVisualImagePicker(category)}
             <p class="admin-note">${categoryAssignedProducts(category.key).length} associated product images are prioritized before repository-wide search.</p>
             <div class="admin-category-position-controls">
@@ -4911,7 +4909,7 @@ function categoryEditMarkup(category) {
               <div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>
             </div>
           </fieldset>
-          <fieldset class="admin-category-editor-section admin-category-background-section"><legend>Category Background</legend>
+          <fieldset class="admin-category-editor-section admin-category-background-section"><legend>${parent ? 'Child Group Background' : 'Homepage Collection Card Background'}</legend>
             ${categoryVisualImagePicker(category, 'background')}
             <input name="backgroundPosition" type="hidden" value="${escapeAdminHtml(display.backgroundPosition)}">
             <div class="admin-category-position-controls">
@@ -4923,12 +4921,12 @@ function categoryEditMarkup(category) {
             <p class="admin-note">Background Zoom scales the existing cover image without changing the physical file.</p>
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
           </fieldset>
-          <fieldset class="admin-category-editor-section admin-category-settings"><legend>Category Settings</legend>
-            <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Category'}. Child Groups use the same Category records with <code>parentKey</code> and do not automatically appear on the homepage.</p>
+          <fieldset class="admin-category-editor-section admin-category-settings"><legend>${parent ? 'Child Group Settings' : 'Main Collection Settings'}</legend>
+            <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child Group of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Category / Collection'}. Child Groups use the same normalized records with <code>parentKey</code> and do not become Homepage Collection Cards.</p>
             <div class="admin-category-settings-grid">
               <label>Destination page<input name="page" value="${escapeAdminHtml(category.page || '')}"></label>
               <label>Homepage Order<input name="order" type="number" min="0" value="${escapeAdminHtml(String(category.order ?? 0))}"></label>
-              <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> Category visible to customers</label>
+              <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> ${parent ? 'Child Group' : 'Collection'} visible to customers</label>
               <label class="${category.visible === false || parent ? 'admin-control-secondary' : ''}"><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false && !parent ? 'checked' : ''} ${category.visible === false || parent ? 'disabled' : ''}> ${parent ? 'Child Groups do not appear on Homepage' : 'Show on Homepage'}</label>
             </div>
           </fieldset>
@@ -5007,23 +5005,23 @@ function renderCategoryManager() {
         <div class="admin-category-card-summary ${categoryBulkSelectionMode ? 'bulk-select-active' : ''}">
           ${categoryBulkSelectionMode ? `<label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select for bulk deletion</label>` : ''}
           <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
-          <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Category: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span></div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom category — review assignments before changing it.</p>' : ''}</div>
-          <dl><div><dt>Products</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Category</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
+          <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Collection: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage Collection Card: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span></div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom collection — review assignments before changing it.</p>' : ''}</div>
+          <dl><div><dt>Product / Standee Cards</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Main Collection</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage Card</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
-            <button type="button" data-edit-category data-category-key="${escapeAdminHtml(category.key)}">Edit</button>
+            <button type="button" data-edit-category data-category-key="${escapeAdminHtml(category.key)}">Edit Main Collection / Homepage Card</button>
             ${categoryPublishButtonMarkup(category.key)}
             <button type="button" data-move-category-homepage="-1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) > 0 ? '' : 'disabled'}>Move Up</button>
             <button type="button" data-move-category-homepage="1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) < homepageOrder.length - 1 ? '' : 'disabled'}>Move Down</button>
-            <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}">${category.visible === false ? 'UNHIDE CATEGORY' : 'Hide Category'}</button>
+            <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}">${category.visible === false ? 'UNHIDE COLLECTION' : 'Hide Collection'}</button>
             <button type="button" class="${category.visible === false ? 'admin-button-secondary' : ''}" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}" ${category.visible === false ? 'disabled title="Unhide the Category before changing its homepage availability."' : ''}>${category.homepageVisible === false ? 'SHOW ON HOMEPAGE' : 'Hide from Homepage'}</button>
-            <button type="button" data-open-category-products data-category-key="${escapeAdminHtml(category.key)}">Open Products</button>
-            <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Category</button>
+            <button type="button" data-open-category-products data-category-key="${escapeAdminHtml(category.key)}">Open Product / Standee Cards</button>
+            <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Main Collection</button>
           </div>
           <p class="admin-status admin-category-card-publish-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '')}</p>
         </div>
         ${childGroupMarkup(category, categoriesByKey)}
-        <details data-category-products-panel ${openedCategoryProductLists.has(category.key) ? 'open' : ''}><summary>Products (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''}</div></details>
-        <details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Edit Category</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
+        <details data-category-products-panel ${openedCategoryProductLists.has(category.key) ? 'open' : ''}><summary>Product / Standee Cards (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''}</div></details>
+        <details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Edit Main Category / Collection and Homepage Collection Card</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
       </article>`;
   }).join('') || '<div class="admin-empty-state"><strong>No Categories found</strong><span>Create a Category or clear the search.</span></div>';
 
@@ -5221,16 +5219,13 @@ async function saveCategoryProductAssignments(form, removeCurrent = false) {
     ? (product.categories || []).filter((key) => key !== currentCategory)
     : new FormData(form).getAll('categories');
   const updated = adminStateUtils.withProductCategories(product, selected);
-  const hierarchyWarnings = adminStateUtils.categoryHierarchyWarnings(readAdminCategories(), { [slug]: updated })
-    .filter((warning) => warning.type === 'missing-master-assignment');
-  if (hierarchyWarnings.length) {
-    setStatus(`Assignment not saved. ${hierarchyWarnings.map((warning) => `${warning.categoryKey} requires its Main Category ${warning.parentKey}`).join('; ')}. Nothing was changed or repaired automatically.`);
-    return false;
-  }
   const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'products', entryKey: slug, baseRecord: readAdminProducts()[slug], patch: { categories: updated.categories, categoryOrder: updated.categoryOrder, updatedAt: new Date().toISOString(), draftStatus: 'draft', approvalStatus: 'draft' } }]);
   if (!result.ok) return false;
   renderAdminProducts();
-  setStatus(removeCurrent ? 'Product removed from this Category. The product and image files were preserved.' : 'Product Category assignments saved privately.');
+  const relationship = readAdminCategories()[currentCategory]?.parentKey ? 'Child Group' : 'Collection';
+  setStatus(removeCurrent
+    ? `Draft Saved — Product / Standee removed from this ${relationship}. The product, other assignments, and image files were preserved. Publish the Product / Standee when ready.`
+    : 'Product / Standee Collection and Child Group assignments saved privately.');
   return true;
 }
 
@@ -5666,6 +5661,12 @@ function setupCategoryManagerEvents() {
     if (deleteButton) await deleteAdminCategories([deleteButton.dataset.deleteCategory]);
     const removeButton = event.target.closest('[data-remove-product-category]');
     if (removeButton) await saveCategoryProductAssignments(removeButton.closest('[data-category-product]'), true);
+    const publishProductButton = event.target.closest('[data-publish-category-product]');
+    if (publishProductButton) {
+      const productForm = publishProductButton.closest('[data-category-product]');
+      const slug = productForm?.dataset.categoryProduct;
+      if (slug) await publishSavedProductBySlug(slug, effectiveAdminProduct(slug)?.title || slug, null);
+    }
     const openProduct = event.target.closest('[data-open-category-product]');
     if (openProduct) window.setTimeout(() => document.getElementById(`product-${CSS.escape(openProduct.dataset.openCategoryProduct)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
     const publishDeletion = event.target.closest('[data-publish-category-deletion]');
@@ -6307,10 +6308,7 @@ function collectImageDraftForm(form) {
     backgroundImage: String(formData.get('backgroundImage') || IMAGE_IMPORT_DEFAULT_BACKGROUND),
     categories: formData.getAll('categories'),
     parentProductSlug: String(formData.get('parentProductSlug') || ''),
-    parentCategoryKey: String(formData.get('parentCategoryKey') || ''),
-    categoryPage: String(formData.get('categoryPage') || '').trim(),
     imageChoiceLabel: String(formData.get('imageChoiceLabel') || '').trim(),
-    websiteImageKey: String(formData.get('websiteImageKey') || '').trim(),
     selectedPreviewImage: String(formData.get('selectedPreviewImage') || form.dataset.imagePath || ''),
     status: String(form.dataset.draftStatus || 'draft'),
     savedForLater: form.dataset.savedForLater === 'true'
@@ -6540,15 +6538,7 @@ async function configureImageDraft(form, approvalStatus = 'draft') {
   setImageDraftActionsBusy(form, true);
   setImageDraftActionStatus(form, 'Applying assignment privately…');
   try {
-    if (draft.imageRole === 'page-only') {
-      if (!draft.websiteImageKey) throw new Error('Choose the website image slot for this page-only image.');
-      const extraImages = readExtraImages();
-      operations.push({
-        type: 'value', collectionKey: 'extraImages', entryKey: draft.websiteImageKey,
-        baseValue: extraImages[draft.websiteImageKey], value: draft.path
-      });
-      resultType = 'page-only';
-    } else if (draft.destination === 'existing-product') {
+    if (draft.destination === 'existing-product') {
       const parent = effectiveAdminProduct(draft.parentProductSlug);
       if (!parent) throw new Error('Select the existing product this image belongs to.');
       const owner = findProductImageOwner(draft.path);
@@ -6599,50 +6589,8 @@ async function configureImageDraft(form, approvalStatus = 'draft') {
         operations.push(newProductRecordOperation(product));
       }
       resultSlug = draft.slug;
-    } else if (draft.destination === 'create-category') {
-      if (!draft.title || !draft.slug) throw new Error('Add a category title and unique key first.');
-      if (readAdminCategories()[draft.slug]) throw new Error('That category key already exists.');
-      const now = new Date().toISOString();
-      const cardImage = ['main', 'category-card'].includes(draft.imageRole) ? draft.path : '';
-      const categoryBackground = ['background', 'category-background'].includes(draft.imageRole) ? draft.path : draft.backgroundImage;
-      operations.push({
-        type: 'record', collectionKey: 'categories', entryKey: draft.slug, baseRecord: undefined,
-        patch: {
-          key: draft.slug,
-          title: draft.title,
-          description: draft.description,
-          funFact: draft.funFact,
-          page: draft.categoryPage || `category.html?category=${encodeURIComponent(draft.slug)}`,
-          visible: true,
-          order: 999,
-          card: { title: '', description: '', image: cardImage, backgroundImage: categoryBackground, visible: true, order: 999 },
-          displaySettings: { backgroundImage: categoryBackground, backgroundPosition: 'center bottom' },
-          createdAt: now,
-          updatedAt: now,
-          draftStatus: 'ready',
-          approvalStatus: 'approved'
-        }
-      });
-      resultSlug = draft.slug;
-    } else if (draft.destination === 'existing-category') {
-      const category = readAdminCategories()[draft.parentCategoryKey];
-      if (!category) throw new Error('Select the existing category this image belongs to.');
-      const patch = { updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'approved' };
-      if (draft.imageRole === 'category-card' || draft.imageRole === 'main') {
-        if (category.card?.image && category.card.image !== draft.path && !window.confirm(`Replace the category card image for ${category.title}? No image file will be deleted.`)) throw new Error('Category card replacement canceled.');
-        patch.card = { ...(category.card || {}), image: draft.path };
-      } else if (draft.imageRole === 'category-background') {
-        if (category.card?.backgroundImage && category.card.backgroundImage !== draft.path && !window.confirm(`Replace the category card background for ${category.title}? No image file will be deleted.`)) throw new Error('Category background replacement canceled.');
-        patch.card = { ...(category.card || {}), backgroundImage: draft.path };
-      } else if (draft.imageRole === 'background') {
-        patch.displaySettings = { ...(category.displaySettings || {}), backgroundImage: draft.path };
-      } else {
-        throw new Error('Choose Category Card Image, Category Background, or Background for an existing category.');
-      }
-      operations.push({ type: 'record', collectionKey: 'categories', entryKey: category.key, baseRecord: category, patch });
-      resultSlug = category.key;
     } else {
-      throw new Error('Choose where this image belongs.');
+      throw new Error('Image Box can only create a Product / Standee or add an image to an existing Product / Standee.');
     }
 
     operations.push({
@@ -6769,52 +6717,6 @@ async function ignoreImageDraft(path, form) {
   }
   renderImageDrafts();
   setStatus('Image marked as non-product inventory. The image file was not changed.');
-}
-
-function imageImportAssetOptions(selectedKey = '') {
-  return [
-    '<option value="">Select a website image slot</option>',
-    ...extraImageItems.map((item) => `<option value="${escapeAdminHtml(item.key)}" ${item.key === selectedKey ? 'selected' : ''}>${escapeAdminHtml(`${item.group} — ${item.label}`)}</option>`)
-  ].join('');
-}
-
-function parentCategoryPickerMarkup(selectedKey = '') {
-  const categories = Object.values(readAdminCategories())
-    .filter((category) => category?.key)
-    .sort((left, right) => String(left.title || left.key).localeCompare(String(right.title || right.key)));
-  return `
-    <label>Search categories<input type="search" data-category-search placeholder="Search title or key"></label>
-    <label>Existing category
-      <select name="parentCategoryKey">
-        <option value="">Select category</option>
-        ${categories.map((category) => `<option value="${escapeAdminHtml(category.key)}" data-search="${escapeAdminHtml(`${category.title} ${category.key}`.toLowerCase())}" ${category.key === selectedKey ? 'selected' : ''}>${escapeAdminHtml(category.title || category.key)} — ${escapeAdminHtml(category.key)}</option>`).join('')}
-      </select>
-    </label>
-    <div data-category-parent-preview class="admin-parent-product-preview"></div>
-  `;
-}
-
-function bindParentCategoryPicker(scope) {
-  const search = scope.querySelector('[data-category-search]');
-  const select = scope.querySelector('[name="parentCategoryKey"]');
-  const preview = scope.querySelector('[data-category-parent-preview]');
-  if (!select) return;
-  const update = () => {
-    const category = readAdminCategories()[select.value];
-    preview.innerHTML = category ? `
-      ${category.card?.image ? `<img src="${escapeAdminHtml(category.card.image)}" alt="">` : ''}
-      <span><strong>${escapeAdminHtml(category.title || category.key)}</strong><small>${escapeAdminHtml(category.key)} · ${escapeAdminHtml(category.page || 'No page')}</small></span>
-    ` : '<span class="admin-note">Choose a category to see its current card assignment.</span>';
-  };
-  search?.addEventListener('input', () => {
-    const query = search.value.trim().toLowerCase();
-    [...select.options].forEach((option) => {
-      if (!option.value) return;
-      option.hidden = Boolean(query) && !String(option.dataset.search || '').includes(query);
-    });
-  });
-  select.addEventListener('change', update);
-  update();
 }
 
 function updateImageDraftDestination(form) {
@@ -7035,7 +6937,6 @@ function renderImageDrafts() {
 
   container.querySelectorAll('.admin-image-draft').forEach((form) => {
     bindParentProductPicker(form);
-    bindParentCategoryPicker(form);
     updateImageDraftDestination(form);
     updateImageImportPreview(form);
     initializeImageBoxHistory(form, Boolean(form.dataset.productSlug && effectiveAdminProduct(form.dataset.productSlug)));
@@ -7094,7 +6995,7 @@ function imageImportPublished(draft) {
   const snapshot = adminLiveSettings?.lastPublishedSnapshot || adminLastSuccessfulSnapshot;
   if (!snapshot || !['ready', 'completed'].includes(draft.status)) return false;
   if (draft.resultSlug) {
-    const product = snapshot.products?.[draft.resultSlug] || snapshot.categoryDisplayCards?.[draft.resultSlug];
+    const product = snapshot.products?.[draft.resultSlug];
     if (!product) return false;
     return product.cutoutImage === draft.path || normalizeImageChoices(product.imageChoices).some((choice) => choice.image === draft.path || choice.stage === draft.path);
   }
@@ -7199,13 +7100,11 @@ async function publishImageImports(mode) {
   selectedDrafts.forEach((draft) => {
     if (draft.resultSlug) {
       if (readAdminProducts()[draft.resultSlug]) changeIds.add(`product:${draft.resultSlug}`);
-      if (readAdminCategories()[draft.resultSlug]) changeIds.add(`category:${draft.resultSlug}`);
     }
-    if (draft.websiteImageKey) changeIds.add('extraImages:all');
   });
   const selectedChanges = reviewItems.filter((item) => changeIds.has(item.id) && item.approved);
   if (!selectedChanges.length) {
-    setStatus('The selected images are not attached to a Ready product, category, or website-image change. Mark the related item Ready first.');
+    setStatus('The selected images are not attached to a Ready Product / Standee. Mark the related product Ready first.');
     return;
   }
   prepareSelectedPublish(selectedChanges);

@@ -2908,10 +2908,7 @@ async function loadPublishedAdminSettings() {
 }
 
 function getPublishedProducts() {
-  return {
-    ...(window.mvpluxPublishedAdminSettings?.categoryDisplayCards || {}),
-    ...(window.mvpluxPublishedAdminSettings?.products || {})
-  };
+  return { ...(window.mvpluxPublishedAdminSettings?.products || {}) };
 }
 
 function getAdminProducts() {
@@ -2919,20 +2916,6 @@ function getAdminProducts() {
     const publishedProducts = getPublishedProducts();
     if (!shouldUsePrivateAdminState()) return { ...publishedProducts };
     const liveProducts = window.mvpluxLiveAdminSettings?.products || {};
-    const liveCategoryCards = Object.fromEntries(Object.entries(window.mvpluxLiveAdminSettings?.categories || {}).map(([categoryKey, category]) => {
-      const slug = Object.entries(STOREFRONT_CATEGORY_CARD_MAP).find(([, key]) => key === categoryKey)?.[0]
-        || `${categoryKey}-category-card`;
-      return [slug, {
-        slug,
-        title: category.title || category.card?.title,
-        description: category.description || category.card?.description,
-        cutoutImage: category.card?.image || '',
-        backgroundImage: category.card?.backgroundImage || '',
-        visible: category.visible !== false && category.homepageVisible !== false,
-        productOrder: category.order,
-        categoryCard: true
-      }];
-    }));
     const emergencyBackup = window.mvpluxLiveAdminStateLoaded
       ? {}
       : JSON.parse(localStorage.getItem('mvpluxAdminProducts') || '{}');
@@ -2940,20 +2923,18 @@ function getAdminProducts() {
     const productSlugs = new Set([
       ...Object.keys(publishedProducts),
       ...Object.keys(liveProducts),
-      ...Object.keys(liveCategoryCards),
       ...Object.keys(emergencyBackup)
     ]);
 
     return Object.fromEntries(
-      [...productSlugs].map((slug) => [
-        slug,
-        {
+      [...productSlugs].flatMap((slug) => {
+        const product = {
           ...(publishedProducts[slug] || {}),
           ...(liveProducts[slug] || {}),
-          ...(liveCategoryCards[slug] || {}),
           ...(emergencyBackup[slug] || {})
-        }
-      ])
+        };
+        return product.categoryCard === true || STOREFRONT_CATEGORY_CARD_MAP[slug] ? [] : [[slug, product]];
+      })
     );
   } catch (error) {
     return {};
@@ -2979,7 +2960,7 @@ function compatibilityMasterCategories() {
     };
   });
   Object.entries(published.categoryDisplayCards || {}).forEach(([slug, card], index) => {
-    const key = STOREFRONT_CATEGORY_CARD_MAP[slug] || slug.replace(/-category-card$/, '');
+    const key = STOREFRONT_CATEGORY_CARD_MAP[slug];
     if (!key || deleted.has(key)) return;
     const current = categories[key] || { key, title: card.title || key, description: '', page: STOREFRONT_CATEGORY_PAGE_MAP[slug] || '', visible: true, homepageVisible: true, order: index, displaySettings: {} };
     categories[key] = {
@@ -3077,10 +3058,10 @@ function getManagedProductCatalog() {
   const deleted = new Set(getAdminDeletedProducts());
   const bySlug = new Map();
 
-  [...defaults, ...customProducts].forEach((product) => {
+  [...defaults, ...customProducts, ...Object.values(overrides)].forEach((product) => {
     const slug = product?.slug;
     if (!slug || deleted.has(slug)) return;
-    const merged = { ...product, ...(overrides[slug] || {}) };
+    const merged = { ...(bySlug.get(slug) || {}), ...product, ...(overrides[slug] || {}) };
     const deletedCategories = new Set(shouldUsePrivateAdminState()
       ? window.mvpluxLiveAdminSettings?.deletedCategories || []
       : window.mvpluxPublishedAdminSettings?.deletedCategories || []);
@@ -3845,32 +3826,20 @@ function selectSportsStandee(key, shouldScroll = true) {
   const catalogProduct = sportsStandeeCatalog[key];
   const managedChoices = sanitizeProductImageChoices(managed?.imageChoices)
     .filter((choice) => choice.image !== managed?.cutoutImage);
-  const product = catalogProduct ? {
-    ...catalogProduct,
-    name: managed?.title || catalogProduct.name,
-    description: managed?.description || catalogProduct.description,
-    originalHeight: managed?.originalHeight || catalogProduct.originalHeight,
-    backgroundImage: managed?.backgroundImage || catalogProduct.backgroundImage,
-    options: sanitizeProductImageChoices([
-      ...catalogProduct.options.map((option, index) => (
-        index === 0 && managed?.cutoutImage ? { ...option, image: managed.cutoutImage } : option
-      )),
-      ...managedChoices
-    ])
-  } : (managed ? {
+  const product = managed ? {
     name: managed.title,
-    sport: 'Sports Standee',
+    sport: (managed.categories || []).filter((category) => category !== 'sports').join(' / ') || 'Sports Standee',
     description: managed.description,
     originalHeight: managed.originalHeight,
     backgroundImage: managed.backgroundImage,
-    displayFit: {},
+    displayFit: managed.displayFit || {},
     facts: [
       `Original size: ${formatHeight(managed.originalHeight || 78)}`,
       'Sports',
       managedChoices.length ? `Options: ${managedChoices.length + 1} images` : 'Primary image'
     ],
-    options: [{ label: 'Main image', image: managed.cutoutImage }, ...managedChoices]
-  } : null);
+    options: [{ label: 'Main image', image: managed.cutoutImage, stage: managed.backgroundImage }, ...managedChoices]
+  } : (catalogProduct ? { ...catalogProduct } : null);
   const optionStrip = document.getElementById('sportsOptionStrip');
   if (!product || !optionStrip) return;
 
@@ -4324,6 +4293,13 @@ function categoryGroupDiscovery(masterKey, childKey, currentSlug = '', products 
   return { primary, secondary };
 }
 
+function mainCategoryDiscovery(masterKey, currentSlug = '', products = getManagedProductCatalog(), limit = 20, rotation = null) {
+  const candidates = orderedCategoryProducts(productsForCategoryGroup(products, masterKey), masterKey)
+    .filter((product) => product.slug !== currentSlug);
+  const offset = rotation === null ? categoryDiscoveryRotation(masterKey, 'all', candidates.length) : rotation;
+  return rotateCategoryDiscovery(candidates, offset).slice(0, Math.max(0, limit));
+}
+
 function categoryCollectionTitle(value, prefix = 'More') {
   const title = String(value || 'Standees').trim();
   return `${prefix} ${/standees$/i.test(title) ? title : `${title} Standees`}`;
@@ -4342,7 +4318,10 @@ function renderCategoryGroupDiscovery(page, masterKey, state, currentSlug) {
   const panel = masterKey === 'sports' ? page.querySelector('.sports-roster-panel') : page.querySelector('.category-panel');
   const heading = panel?.querySelector('h2');
   if (!state.activeChild) {
-    if (heading?.dataset.defaultCategoryHeading) heading.textContent = heading.dataset.defaultCategoryHeading;
+    if (heading) {
+      heading.textContent = panel?.dataset.mainCollectionDiscoveryTitle
+        || `Other ${getAdminCategories()[masterKey]?.title || 'Standees'}`;
+    }
     return;
   }
   if (heading) {
@@ -4359,8 +4338,7 @@ function renderCategoryGroupDiscovery(page, masterKey, state, currentSlug) {
 
 function updateCategoryGroupCurrentProduct(currentSlug) {
   const masterKey = getCurrentProductCategory();
-  const state = masterKey ? categoryGroupState(masterKey) : null;
-  if (!state?.activeChild) return;
+  if (!masterKey) return;
   const page = document.querySelector('.category-page');
   const grid = masterKey === 'sports' ? page?.querySelector('.sports-player-grid') : page?.querySelector('.category-panel .category-grid');
   grid?.querySelectorAll('[data-product-id]').forEach((card) => {
@@ -4398,6 +4376,9 @@ function renderManagedCategoryPageProducts() {
   const products = orderedCategoryProducts(productsForCategoryGroup(getManagedProductCatalog(), category, groupState.activeChild?.key || ''), orderKey);
   const currentBuilderSlug = page.querySelector('.showroom-size-builder')?.dataset.adminSlug || '';
   const currentSlug = products.some((product) => product.slug === currentBuilderSlug) ? currentBuilderSlug : products[0]?.slug || '';
+  const displayedProducts = groupState.activeChild
+    ? products
+    : mainCategoryDiscovery(category, currentSlug, products, 20);
   if (groupState.unavailable) renderCategoryGroupDiscovery(page, category, { ...groupState, activeChild: null }, '');
 
   if (category === 'sports') {
@@ -4407,7 +4388,7 @@ function renderManagedCategoryPageProducts() {
       grid.innerHTML = '<p class="category-group-unavailable">This Child Group is not available.</p>';
       return;
     }
-    grid.innerHTML = products.map((product) => `
+    grid.innerHTML = displayedProducts.map((product) => `
       <article class="category-card sports-player-card" data-sports-player="${product.slug}" data-product-id="${product.slug}" data-admin-card-key="${product.slug}">
         <img src="${product.cutoutImage}" alt="${product.title} standee">
         <h3>${product.title}</h3>
@@ -4416,7 +4397,7 @@ function renderManagedCategoryPageProducts() {
     `).join('');
     grid.querySelector('.sports-player-card')?.classList.add('active');
     renderCategoryGroupDiscovery(page, category, groupState, currentSlug);
-    if (groupState.activeChild && currentSlug) {
+    if (currentSlug) {
       selectSportsStandee(currentSlug, false);
       updateCategoryGroupCurrentProduct(currentSlug);
     }
@@ -4429,7 +4410,7 @@ function renderManagedCategoryPageProducts() {
     grid.innerHTML = '<p class="category-group-unavailable">This Child Group is not available.</p>';
     return;
   }
-  grid.innerHTML = products.map(managedCategoryCardMarkup).join('');
+  grid.innerHTML = displayedProducts.map(managedCategoryCardMarkup).join('');
   renderCategoryGroupDiscovery(page, category, groupState, currentSlug);
   if (document.querySelector('.generic-showroom')) setupGenericCategoryShowroom({ rebuild: true, selectedSlug: currentSlug });
 }
@@ -7393,12 +7374,17 @@ async function saveManagedProductPatch(slug, patch) {
 
 async function removeManagedProductFromCurrentSection(card) {
   const slug = card?.dataset.productId;
-  const category = getCurrentProductCategory();
+  const mainCollectionKey = getCurrentProductCategory();
+  const groupState = mainCollectionKey ? categoryGroupState(mainCollectionKey) : null;
+  const category = groupState?.activeChild?.key || mainCollectionKey;
   const product = getManagedProductBySlug(slug);
   if (!slug || !category || !product) return;
-  if (!await saveManagedProductPatch(slug, { categories: product.categories.filter((key) => key !== category) })) return;
+  const categories = (product.categories || []).filter((key) => key !== category);
+  const categoryOrder = { ...(product.categoryOrder || {}) };
+  delete categoryOrder[category];
+  if (!await saveManagedProductPatch(slug, { categories, categoryOrder })) return;
   card.remove();
-  updateInlineAdminToolbarState('Removed from this section; product retained');
+  updateInlineAdminToolbarState(`Draft Saved — removed from ${groupState?.activeChild ? 'Child Group' : 'Collection'}; publish this Product / Standee when ready`);
 }
 
 async function moveManagedProductInCurrentSection(card, offset) {
@@ -7511,19 +7497,23 @@ function ensureInlineAdminCardControls() {
     const controls = document.createElement('div');
     controls.className = 'admin-card-controls';
     const managedProductSlug = card.matches('.category-page .category-card[data-product-id]') ? card.dataset.productId : '';
+    const currentMainCollectionKey = managedProductSlug ? getCurrentProductCategory() : '';
+    const currentGroupState = currentMainCollectionKey ? categoryGroupState(currentMainCollectionKey) : null;
+    const removalLabel = currentGroupState?.activeChild ? 'Remove from Child Group' : 'Remove from Collection';
     const homepageDisplayCard = Boolean(card.closest('#homepageCategoryGrid, #shop .featured-category-row'));
     const categoryKey = resolveInlineAdminCategoryKey(card);
     if (categoryKey) controls.dataset.categoryKey = categoryKey;
     const categoryActionKey = categoryKey ? ` data-category-key="${escapeHtml(categoryKey)}"` : '';
     controls.innerHTML = `
       ${managedProductSlug ? `
-        <button type="button" data-admin-card-action="remove-section" title="Remove from this category">Remove</button>
+        <button type="button" data-admin-card-action="remove-section" title="${removalLabel}">${removalLabel}</button>
         <button type="button" data-admin-card-action="move-product-left" title="Move left">←</button>
         <button type="button" data-admin-card-action="move-product-right" title="Move right">→</button>
         <button type="button" data-admin-card-action="move-product-up" title="Move up">↑</button>
         <button type="button" data-admin-card-action="move-product-down" title="Move down">↓</button>
         <details class="admin-card-more"><summary>More</summary><div>
-          <a href="admin.html#product-${managedProductSlug}">Edit Product</a>
+          <a href="admin.html#product-${managedProductSlug}">Edit Product / Standee</a>
+          <a href="admin.html#product-${managedProductSlug}">Open Dashboard to Publish</a>
           <button type="button" data-admin-card-action="delete-product">Delete Product</button>
         </div></details>
       ` : categoryKey ? `
@@ -7539,8 +7529,8 @@ function ensureInlineAdminCardControls() {
         <button type="button" data-admin-card-action="move-up"${categoryActionKey} title="Move up">↑</button>
         <button type="button" data-admin-card-action="move-down"${categoryActionKey} title="Move down">↓</button>
         <details class="admin-card-more"><summary>More</summary><div>
-          <a href="${categoryKey ? 'admin.html#categories' : `admin.html#product-${getCardAdminKey(card)}`}">${categoryKey ? 'Edit Category in Dashboard' : 'Edit Card'}</a>
-          <button type="button" data-admin-card-action="delete-card"${categoryActionKey}>${categoryKey ? 'Delete Category' : 'Delete Record'}</button>
+          <a href="${categoryKey ? 'admin.html#categories' : `admin.html#product-${getCardAdminKey(card)}`}">${categoryKey ? 'Edit Main Collection / Homepage Card' : 'Edit Product / Standee Card'}</a>
+          <button type="button" data-admin-card-action="delete-card"${categoryActionKey}>${categoryKey ? 'Delete Main Collection' : 'Delete Product'}</button>
         </div></details>
       ` : ''}
     `;

@@ -33,7 +33,7 @@
       <a href="#dashboard">Dashboard</a>
       <a href="#products">Products</a>
       <a href="#image-inbox">Image Inbox</a>
-      <a href="#categories">Categories</a>
+      <a href="#categories">Collections</a>
       <a href="#orders">Orders &amp; Offers</a>
       <a href="#settings">Settings</a>
       <a href="#advanced">Advanced</a>
@@ -142,7 +142,7 @@
             <p class="admin-note">AI suggestions fill these fields for your review. They never save or publish automatically.</p>
             <label>Original Height<input name="originalHeight" type="text" placeholder="Known height, or leave blank for the Admin default"></label>
             <label>Choose Background<select name="backgroundImage" data-admin-image-picker="background"><option value="">Use the clean showroom background</option></select></label>
-            <fieldset><legend>Choose Category</legend><div class="admin-category-options" data-create-product-categories></div></fieldset>
+            <fieldset><legend>Collection / Child Group assignments</legend><div class="admin-category-options" data-create-product-categories></div></fieldset>
             <details class="admin-advanced-fields"><summary>Advanced</summary>
               <label>Price Override <span>(optional)</span><input name="priceOverride" type="number" min="0" step="0.01" placeholder="Automatic when blank"></label>
               <label>Add Image Choices <span>(optional)</span><select name="imageChoicePicker" data-admin-image-picker="choices" multiple size="4"></select></label>
@@ -171,16 +171,16 @@
 
         <form id="createCategoryForm" class="admin-create-form admin-visual-builder" data-builder="category">
           <div class="admin-builder-preview-panel">
-            <div><p class="admin-eyebrow">Live preview</p><h3>Create New Category</h3></div>
+            <div><p class="admin-eyebrow">Live preview</p><h3>Create Main Category / Collection</h3></div>
             <div class="admin-create-preview" data-create-category-preview></div>
             <p class="admin-note">This preview uses the same card shape customers see on the storefront.</p>
           </div>
           <div class="admin-builder-form-panel">
-            <h3>Category Details</h3>
+            <h3>Main Category / Collection Details</h3>
             <p class="admin-note" data-builder-availability>This saves privately. Customers cannot see it until it is approved and published.</p>
             <div class="admin-input-group">
               <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
-              <label>Category Title<input name="title" type="text" required placeholder="Example: Sports Legends"></label>
+              <label>Collection Title<input name="title" type="text" required placeholder="Example: Sport Legends"></label>
               <label>Description<textarea name="description" rows="3" placeholder="What customers will find in this collection"></textarea></label>
               <label>Fun Fact <span>(optional)</span><textarea name="funFact" rows="2"></textarea></label>
             </div>
@@ -198,7 +198,7 @@
               <div data-new-category-image-picker="background"></div>
               <label class="admin-visible-toggle"><input name="visible" type="checkbox" checked> Visible after publication</label>
               <label class="admin-visible-toggle"><input name="homepageVisible" type="checkbox" checked> Show on Homepage</label>
-              <fieldset class="admin-display-controls"><legend>Category Display Settings</legend>
+              <fieldset class="admin-display-controls"><legend>Homepage Collection Card Display</legend>
                 <label>Background Position<select name="backgroundPosition"><option value="center center">Center</option><option value="left center">Left</option><option value="right center">Right</option><option value="center top">Top</option><option value="center bottom">Bottom</option></select></label>
                 <label>Category Image Size<input name="standeeSizePercent" type="range" min="20" max="140" step="1" value="63"></label>
                 <label>Left / Right<input name="standeeLeftPercent" type="range" min="-50" max="50" step="1" value="0"></label>
@@ -206,7 +206,7 @@
                 <label>Logo Size<input name="logoSizePercent" type="range" min="20" max="140" step="1" value="82"></label>
                 <label>Logo Up / Down<input name="logoVerticalPercent" type="range" min="-40" max="40" step="1" value="-4"></label>
               </fieldset>
-              <label>Category key<input name="key" type="text" placeholder="Generated from the title"></label>
+              <label>Collection key<input name="key" type="text" placeholder="Generated from the title"></label>
               <label>Page<input name="page" type="text" placeholder="Reusable category page is selected automatically"></label>
             </details>
             <div class="admin-panel-actions">
@@ -274,25 +274,25 @@
     <section class="admin-panel" id="categories" data-admin-area="categories" hidden>
       <div class="admin-panel-header">
         <div>
-          <h2>Categories</h2>
-          <p class="admin-note">Manage the master Category records used by products, homepage cards, and Category pages.</p>
+          <h2>Main Categories / Collections</h2>
+          <p class="admin-note">Manage Main Collections, their Homepage Collection Cards, and the Child Groups and Product / Standee assignments inside them.</p>
         </div>
         <div class="admin-panel-actions">
-          <button class="admin-button admin-button-primary" type="button" data-new-category>+ New Category</button>
+          <button class="admin-button admin-button-primary" type="button" data-new-category>+ New Main Collection</button>
         </div>
       </div>
       <div class="admin-category-toolbar">
-        <label>Search Categories<input id="adminCategorySearch" type="search" placeholder="Search name, key, or page"></label>
+        <label>Search Main Collections<input id="adminCategorySearch" type="search" placeholder="Search name, key, or page"></label>
         <div class="admin-category-visibility-filters" role="group" aria-label="Filter Categories by customer visibility">
-          <button type="button" class="active" data-category-visibility-filter="all" aria-pressed="true">All Categories</button>
+          <button type="button" class="active" data-category-visibility-filter="all" aria-pressed="true">All Collections</button>
           <button type="button" data-category-visibility-filter="visible" aria-pressed="false">Visible</button>
           <button type="button" data-category-visibility-filter="hidden" aria-pressed="false">Hidden</button>
         </div>
         <button id="bulkSelectCategories" class="admin-button admin-button-secondary" type="button" aria-pressed="false">Bulk Select</button>
-        <button id="deleteSelectedCategories" class="admin-button admin-button-warning" type="button" hidden disabled>Delete Selected Categories</button>
+        <button id="deleteSelectedCategories" class="admin-button admin-button-warning" type="button" hidden disabled>Delete Selected Collections</button>
       </div>
       <details id="adminCategoryBuilder" class="admin-category-create-panel">
-        <summary>+ New Category</summary>
+        <summary>+ New Main Category / Collection</summary>
         <div id="adminCategoryBuilderMount"></div>
       </details>
       <div id="adminCategoryDuplicateNotice" class="admin-status-message" hidden></div>
@@ -481,6 +481,6 @@
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
   <script src="category-presentation.js?v=20260823-category-lifecycle"></script>
   <script src="category-publisher.js?v=20260823-category-lifecycle"></script>
-  <script src="admin.js?v=20260824-image-box-workflow"></script>
+  <script src="admin.js?v=20260824-collection-product-ownership"></script>
 </body>
 </html>

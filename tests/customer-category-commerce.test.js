@@ -84,6 +84,25 @@ Deno.test('Child Group discovery is generic, ordered, and excludes current or al
   assert(new Set(allSlugs).size === allSlugs.length, 'discovery groups must never duplicate a slug');
 });
 
+Deno.test('Main Collection discovery shows up to twenty unique other products generically', () => {
+  const framework = between('function productsForCategoryGroup', 'function categoryCollectionTitle');
+  const mainCategoryDiscovery = new Function(`${framework}\nreturn mainCategoryDiscovery;`)();
+  const sportsProducts = Array.from({ length: 25 }, (_, index) => ({
+    slug: `legend-${index}`, title: `Legend ${index}`, visible: true, categories: ['sports'], categoryOrder: { sports: index }
+  }));
+  sportsProducts.push({ ...sportsProducts[2] }, { slug: 'hidden', visible: false, categories: ['sports'] });
+  const sports = mainCategoryDiscovery('sports', 'legend-0', sportsProducts, 20, 0);
+  assert(sports.length === 20 && !sports.some((product) => product.slug === 'legend-0'), 'Other Legends must cap at twenty and exclude the selected product');
+  assert(new Set(sports.map((product) => product.slug)).size === sports.length, 'Other Legends must not contain duplicate slugs');
+  const movies = mainCategoryDiscovery('movies', 'movie-0', [
+    { slug: 'movie-0', visible: true, categories: ['movies'] },
+    { slug: 'movie-1', visible: true, categories: ['movies'] },
+    { slug: 'sports-only', visible: true, categories: ['sports'] }
+  ], 20, 0);
+  assert(movies.map((product) => product.slug).join(',') === 'movie-1', 'the same discovery helper must work for a non-Sports Main Collection');
+  assert(sportsHtml.includes('data-main-collection-discovery-title="Other Legends"'), 'Sport Legends must label its Main Collection discovery section Other Legends');
+});
+
 Deno.test('showroom pricing is correct immediately and updates synchronously when selection changes', async () => {
   const pricingWindow = {};
   new Function('window', await Deno.readTextFile(new URL('../pricing.js', import.meta.url)))(pricingWindow);
