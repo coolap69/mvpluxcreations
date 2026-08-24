@@ -17,11 +17,30 @@ function categoryPublisherHarness({ saveResult = true, publishResult = true, def
   let saveCalls = 0;
   let publishCalls = 0;
   const factory = new Function(
-    'categoryPublishOperations', 'readAdminCategories', 'setStatus', 'setCategoryPublishState',
-    'saveCategoryEditForm', 'saveAdminCollectionOperations', 'adminLastSaveError', 'publishScopedChangeIds',
+    'window', 'categoryPublishOperations', 'readAdminCategories', 'setStatus', 'setCategoryPublishState',
+    'saveCategoryEditForm', 'saveAdminCollectionOperations', 'adminLastSaveError', 'ADMIN_CATEGORY_CARD_MAP',
+    'publishableCategory', 'loadSelectedPublishImages', 'callAdminPublisher', 'saveAdminSettingsLive',
+    'adminPublishedBaseline', 'buildDefaultPublishBaseline', 'normalizePublishedBaseline',
+    'adminLastSuccessfulSnapshot', 'refreshVisibleAdminAreaAfterPublish',
     `${functionSource}; return publishCategoryByKey;`
   );
   const publish = factory(
+    {
+      confirm: () => true,
+      MVPLUX_CATEGORY_PUBLISHER: {
+        publishCategoryByKey: async (key, options) => {
+          options.onProgress('Saving Category…', 'publishing');
+          const saved = await options.saveApprovedDraft(key);
+          if (!saved) {
+            options.onProgress('Publish stopped: Category draft could not be saved.', 'failed');
+            return { ok: false };
+          }
+          publishCalls += 1;
+          options.onProgress(publishResult ? 'Published to Website' : 'Publish Failed — test', publishResult ? 'published' : 'failed');
+          return { ok: publishResult };
+        }
+      }
+    },
     operations,
     () => ({ sports: { key: 'sports', title: 'Sports', card: { image: 'images/sports.png' } } }),
     () => {},
@@ -29,13 +48,9 @@ function categoryPublisherHarness({ saveResult = true, publishResult = true, def
     async () => { saveCalls += 1; if (deferredSave) await deferredSave; return saveResult; },
     async () => { saveCalls += 1; if (deferredSave) await deferredSave; return { ok: saveResult }; },
     'Private save failed.',
-    async (ids, _label, _target, options) => {
-      publishCalls += 1;
-      assert(ids.length === 1 && ids[0] === 'category:sports', 'Category publish must remain scoped to one Category');
-      options.onProgress('Sending the scoped update to GitHub…', 'publishing');
-      options.onProgress(publishResult ? 'Published successfully.' : 'Publish Failed — test', publishResult ? 'published' : 'failed');
-      return publishResult;
-    }
+    {}, (category) => category, async () => [], async () => ({}), async () => true,
+    { version: 1, products: {}, categories: {} }, () => ({ version: 1, products: {}, categories: {} }), (value) => value,
+    null, () => {}
   );
   return { publish, operations, states, counts: () => ({ saveCalls, publishCalls }) };
 }
@@ -70,6 +85,8 @@ Deno.test('top and editor Publish buttons share one Category publisher and state
   assert(events.includes("event.target.closest('[data-publish-category-key]')") && events.includes('publishCategoryByKey('), 'one delegated handler must own both Publish locations');
   assert(events.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)'), 'top Category Publish must submit only the mounted sibling editor for its exact Category key');
   assert(!events.includes("card?.querySelector('[data-category-edit]')"), 'top Category Publish must never select an unrelated nested Main/Child editor');
+  const categoryPublish = extractedFunction('async function publishCategoryByKey', 'async function saveCategoryProductAssignments');
+  assert(categoryPublish.includes('MVPLUX_CATEGORY_PUBLISHER') && categoryPublish.includes('publisher.publishCategoryByKey(categoryKey'), 'Dashboard must invoke the same shared Category publisher as storefront Admin Mode');
 });
 
 Deno.test('scoped publishing reports real stages and refreshes only the visible Admin area', () => {

@@ -184,6 +184,10 @@ Deno.test('every Category-capable interface loads the shared resolver before its
     const storefront = html.indexOf('script.js?v=');
     assert(resolver >= 0 && storefront > resolver, `${page} must load the shared Category resolver before storefront code`);
   }
+  const homepage = await Deno.readTextFile(new URL('../index.html', import.meta.url));
+  assert(homepage.indexOf('category-presentation.js?v=') < homepage.indexOf('category-publisher.js?v=')
+    && homepage.indexOf('category-publisher.js?v=') < homepage.indexOf('script.js?v='), 'Homepage Admin Mode must load the shared Category publisher before storefront controls');
   const admin = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
-  assert(admin.indexOf('category-presentation.js?v=') < admin.indexOf('admin.js?v='), 'Dashboard must load the same resolver before admin.js');
+  assert(admin.indexOf('category-presentation.js?v=') < admin.indexOf('category-publisher.js?v=')
+    && admin.indexOf('category-publisher.js?v=') < admin.indexOf('admin.js?v='), 'Dashboard must load the same resolver and publisher before admin.js');
 });

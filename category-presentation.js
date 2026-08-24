@@ -46,8 +46,8 @@
   function resolveCategoryCardLayout(presentation = {}) {
     const display = presentation.display || {};
     return {
-      imageLeftPercent: Math.max(10, Math.min(90, 50 + clampNumber(display.standeeLeftPercent, 0, -50, 50))),
-      imageBottomPercent: Math.max(0, Math.min(75, 2 - clampNumber(display.standeeVerticalPercent, 0, -50, 50))),
+      imageLeftPercent: 50 + clampNumber(display.standeeLeftPercent, 0, -50, 50),
+      imageBottomPercent: 2 - clampNumber(display.standeeVerticalPercent, 0, -50, 50),
       imageSizePercent: clampNumber(display.standeeSizePercent, 63, 10, 250),
       backgroundPosition: String(display.backgroundPosition || 'center bottom'),
       backgroundScale: clampNumber(display.backgroundSizePercent, 100, 50, 300) / 100,

@@ -70,21 +70,23 @@ Deno.test('actual Category Size and movement control path persists normalized st
   image._adminCategoryDisplayBase = { standeeSizePercent: 80, standeeLeftPercent: 0, standeeVerticalPercent: 0 };
 
   const patchSource = sourceRange(runtime.source, 'function inlineCategoryDisplayPatch', '\n\nasync function persistInlineOwnedDisplay');
-  const persistSource = sourceRange(runtime.source, 'async function persistInlineOwnedDisplay', '\n\nfunction scheduleInlineOwnedDisplaySave');
-  const controlSource = sourceRange(runtime.source, 'function changeSelectedInlineAdminImage', '\n\nfunction getInlineAdminImageFrame');
+  const persistSource = sourceRange(runtime.source, 'async function persistInlineOwnedDisplay', '\n\nasync function persistAndRebuildInlineCategoryGeometry');
+  const controlSource = sourceRange(runtime.source, 'async function changeSelectedInlineAdminImage', '\n\nfunction getInlineAdminImageFrame');
   let savedPatch = null;
   let optimisticState = null;
+  let helpers;
   const factory = new Function('dependencies', `
     const { inlineAdminOwnedField, getEffectiveCategoryPresentation, getInlineAdminImageFrame, window,
       getAdminCategories, saveStorefrontCategoryPatch, updateInlineAdminToolbarState, getManagedProductBySlug,
       saveStorefrontProductPatch, getActiveInlineAdminImage, isInlineAdminBackgroundImage, getInlineAdminSnapshot,
-      safeAdminImageNumber, renderInlineAdminImageState, saveInlineAdminEdit, pushInlineAdminHistory } = dependencies;
+      safeAdminImageNumber, renderInlineAdminImageState, saveInlineAdminEdit, pushInlineAdminHistory,
+      persistAndRebuildInlineCategoryGeometry, inlineOwnedDisplaySaves } = dependencies;
     ${patchSource}
     ${persistSource}
     ${controlSource}
     return { inlineCategoryDisplayPatch, persistInlineOwnedDisplay, changeSelectedInlineAdminImage };
   `);
-  const helpers = factory({
+  helpers = factory({
     inlineAdminOwnedField: () => ({ type: 'category-card', categoryKey: 'sports' }),
     getEffectiveCategoryPresentation: runtime.presentation,
     getInlineAdminImageFrame: () => stage,
@@ -106,17 +108,54 @@ Deno.test('actual Category Size and movement control path persists normalized st
     safeAdminImageNumber: (value, fallback, minimum, maximum) => Number.isFinite(Number(value)) ? Math.max(minimum, Math.min(maximum, Number(value))) : fallback,
     renderInlineAdminImageState: (target) => { target.style.transform = `translate(${target._adminImageState.x}px, ${target._adminImageState.y}px) scale(${target._adminImageState.scale})`; },
     saveInlineAdminEdit: (_target, state) => { optimisticState = structuredClone(state); },
+    persistAndRebuildInlineCategoryGeometry: async (target, state, owned) => {
+      optimisticState = structuredClone(state);
+      return helpers.persistInlineOwnedDisplay(target, state, owned);
+    },
+    inlineOwnedDisplaySaves: new Map(),
     pushInlineAdminHistory: () => {}
   });
 
-  helpers.changeSelectedInlineAdminImage({ x: 96, y: 20, scale: 1.05 });
+  await helpers.changeSelectedInlineAdminImage({ x: 96, y: 20, scale: 1.05 });
   assert(optimisticState?.scale === 1.05 && image.style.transform.includes('scale(1.05)'), 'Size + must optimistically update the selected DOM image');
-  await helpers.persistInlineOwnedDisplay(image, optimisticState, { type: 'category-card', categoryKey: 'sports' });
   assert(savedPatch.standeeSizePercent === 84, 'Size + path must persist its normalized Category size');
   assert(savedPatch.standeeLeftPercent === 24 && savedPatch.standeeVerticalPercent === 10, 'movement must persist normalized Category X/Y fields');
   assert(runtime.presentation('sports').display.standeeSizePercent === 84, 'Admin Mode reload must resolve the saved size');
   assert(card.querySelector('.product-cutout').style.height === '84%', 'DOM must be rendered back from the normalized saved Category');
   assert(runtime.categories.sports.displaySettings.standeeLeftPercent === 24, 'Dashboard must read the same normalized X value');
+
+  card.remove();
+  const rebuiltCard = runtime.makeCard('sports');
+  const rebuiltImage = rebuiltCard.querySelector('.product-cutout');
+  assert(rebuiltImage.style.height === '84%', 'fresh DOM must reconstruct Category size from the saved normalized record');
+  assert(rebuiltImage.style.left === '74%', 'fresh DOM must reconstruct Category X from the saved normalized record');
+  assert(rebuiltImage.style.bottom === '-8%', 'fresh DOM must reconstruct Category Y without clipping the saved movement');
+
+  const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const rangeSource = sourceRange(adminSource, 'function categoryDisplayRangeMarkup', '\n\nfunction categoryEditMarkup');
+  const categoryDisplayRangeMarkup = new Function('escapeAdminHtml', `${rangeSource}\nreturn categoryDisplayRangeMarkup;`)((value) => String(value));
+  const dashboardControls = ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent']
+    .map((name) => categoryDisplayRangeMarkup(name, name, runtime.categories.sports.displaySettings[name], -50, 250, '%'))
+    .join('');
+  assert(dashboardControls.includes('name="standeeSizePercent"') && dashboardControls.includes('value="84"'), 'Dashboard size control must initialize from the saved draft');
+  assert(dashboardControls.includes('name="standeeLeftPercent"') && dashboardControls.includes('value="24"'), 'Dashboard X control must initialize from the saved draft');
+  assert(dashboardControls.includes('name="standeeVerticalPercent"') && dashboardControls.includes('value="10"'), 'Dashboard Y control must initialize from the saved draft');
+});
+
+Deno.test('non-Sports Category geometry survives complete DOM destruction and recreation', async () => {
+  const runtime = await categoryRuntime();
+  runtime.categories.music.displaySettings = {
+    ...runtime.categories.music.displaySettings,
+    standeeSizePercent: 133,
+    standeeLeftPercent: 17,
+    standeeVerticalPercent: -22
+  };
+  const first = runtime.makeCard('music');
+  first.remove();
+  const rebuilt = runtime.makeCard('music').querySelector('.product-cutout');
+  assert(rebuilt.style.height === '133%', 'non-Sports size must come from normalized displaySettings');
+  assert(rebuilt.style.left === '67%', 'non-Sports X must come from normalized displaySettings');
+  assert(rebuilt.style.bottom === '24%', 'non-Sports Y must come from normalized displaySettings');
 });
 
 Deno.test('Category image change persists for non-Sports Categories and failed preview restores saved presentation', async () => {
@@ -176,6 +215,14 @@ Deno.test('normalized Category controls never fall back to page-owned visibility
   const resolverSource = sourceRange(source, 'function resolveInlineAdminCategoryKey', '\n\nfunction inlineAdminOwnedField');
   const resolveKey = new Function(`${resolverSource}\nreturn resolveInlineAdminCategoryKey;`)();
   assert(resolveKey(window.document.querySelector('button')) === 'basketball', 'the explicit Child Group action key must win over its Main Category ancestor');
+
+  const geometryControl = sourceRange(source, 'async function changeSelectedInlineAdminImage', '\n\nfunction getInlineAdminImageFrame');
+  assert(geometryControl.includes("owned?.type === 'category-card'\n    ? await persistAndRebuildInlineCategoryGeometry"), 'Category toolbar geometry must await the normalized save-and-rebuild transaction');
+  assert(geometryControl.includes(': (saveInlineAdminEdit(image, nextSnapshot), true)'), 'legacy inline transform persistence must remain limited to non-Category images');
+  const normalizedTransaction = sourceRange(source, 'async function persistAndRebuildInlineCategoryGeometry', '\n\nfunction scheduleInlineOwnedDisplaySave');
+  assert(normalizedTransaction.includes("persistInlineOwnedDisplay(image, state, owned)") && normalizedTransaction.includes("updateInlineAdminToolbarState('Draft Saved')"), 'Category transaction must await normalized persistence before reporting Draft Saved');
+  assert(normalizedTransaction.includes('inlineOwnedDisplaySaves.set(saveKey, savePromise)') && normalizedTransaction.includes('inlineOwnedDisplaySaves.delete(saveKey)'), 'Admin Off must be able to wait for the exact in-flight normalized Category save');
+  assert(normalizedTransaction.includes('refreshInlineAdminUnsavedState()'), 'successful normalized geometry persistence must clear the browser dirty state when no save remains pending');
 });
 
 Deno.test('Category save failure is visibly reported and restores normalized DOM', async () => {

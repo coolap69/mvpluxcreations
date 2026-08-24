@@ -86,7 +86,7 @@ Deno.test('Admin Category manager exposes products, image selection, draft, prev
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   for (const token of ['Search Categories', 'All Categories', 'Visible', 'Hidden', 'Delete Selected Categories', 'adminCategoryBuilderMount']) assert(html.includes(token), `missing ${token}`);
   for (const token of ['Open Products', 'Delete Category', 'data-category-product', 'data-remove-product-category', 'data-category-image-picker', 'Save Draft', 'data-preview-category-edit', 'data-publish-category-edit']) assert(source.includes(token), `missing ${token}`);
-  assert(source.includes('publishScopedChangeIds([`category:${categoryKey}`]'), 'Category publish must stay scoped');
+  assert(source.includes('publisher.publishCategoryByKey(categoryKey'), 'Category publish must use the one shared scoped Category publisher');
   assert(source.includes('collectionKey: \'deletedCategories\''), 'Category deletion must persist a tombstone');
 });
 

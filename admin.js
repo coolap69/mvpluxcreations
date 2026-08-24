@@ -178,6 +178,7 @@ function receiveAdminSaveNotice(message) {
       if (!settings) return;
       adminArchitectureState = await buildAdminArchitectureState(settings);
       renderAdminProducts();
+      if (adminWorkingCollectionsLoaded.has('categories')) renderCategoryManager();
       renderAdminDashboard();
       renderPublishSummary();
       adminPotentiallyStale = false;
@@ -3101,8 +3102,8 @@ function renderNewCategoryPreview(form) {
   const size = safeCategoryDisplayNumber(form.elements.namedItem('standeeSizePercent')?.value, CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX);
   const horizontal = safeCategoryDisplayNumber(form.elements.namedItem('standeeLeftPercent')?.value, 0, -50, 50);
   const vertical = safeCategoryDisplayNumber(form.elements.namedItem('standeeVerticalPercent')?.value, 0, -50, 50);
-  const left = Math.max(10, Math.min(90, 50 + horizontal));
-  const bottom = Math.max(0, Math.min(75, 2 - vertical));
+  const left = 50 + horizontal;
+  const bottom = 2 - vertical;
   preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview" style="background-image:url('${escapeAdminHtml(background)}');background-position:${escapeAdminHtml(position)}">
     <div class="admin-category-preview-stage"><img src="${escapeAdminHtml(image)}" alt="Category preview" style="height:${size}%;left:${left}%;bottom:${bottom}%"></div>
     <div><h4>${escapeAdminHtml(title)}</h4><p>${escapeAdminHtml(description)}</p><span class="admin-button admin-button-primary">View Collection</span></div>
@@ -5160,26 +5161,47 @@ async function publishCategoryByKey(categoryKey, form = null) {
     setStatus('Activate the normalized private Admin architecture in Advanced before publishing Categories.');
     return false;
   }
-  setCategoryPublishState(categoryKey, 'Saving Category…', 'publishing');
   try {
-    let saved = false;
-    if (form) saved = await saveCategoryEditForm(form, 'approved', { render: false });
-    else {
-      if (!initialCategory.parentKey && !initialCategory.card?.image) {
-        setCategoryPublishState(categoryKey, 'Publish stopped: choose a Category image first.', 'failed');
-        return false;
+    const publisher = window.MVPLUX_CATEGORY_PUBLISHER;
+    if (!publisher?.publishCategoryByKey) throw new Error('Shared Category publisher is unavailable.');
+    const publication = await publisher.publishCategoryByKey(categoryKey, {
+      categoryCardMap: ADMIN_CATEGORY_CARD_MAP,
+      serializeCategory: publishableCategory,
+      onProgress: (message, state) => setCategoryPublishState(categoryKey, message, state),
+      saveApprovedDraft: async () => {
+        let saved = false;
+        if (form) saved = await saveCategoryEditForm(form, 'approved', { render: false });
+        else {
+          if (!initialCategory.parentKey && !initialCategory.card?.image) {
+            setCategoryPublishState(categoryKey, 'Publish stopped: choose a Category image first.', 'failed');
+            return null;
+          }
+          const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: categoryKey, baseRecord: initialCategory, patch: { approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString() } }]);
+          saved = result.ok;
+        }
+        return saved ? readAdminCategories()[categoryKey] || initialCategory : null;
+      },
+      loadPublishedSnapshot: async () => structuredClone(adminPublishedBaseline || buildDefaultPublishBaseline()),
+      confirmPublish: (category) => window.confirm(`Publish “${category.title || categoryKey}” to the website?`),
+      prepareImages: async (previous, current) => {
+        const before = new Set([previous?.card?.image, previous?.card?.backgroundImage].filter(Boolean));
+        return loadSelectedPublishImages([current?.card?.image, current?.card?.backgroundImage]
+          .filter((path) => path && !before.has(path)));
+      },
+      callPublisher: callAdminPublisher,
+      synchronizePublishedState: async (snapshot, result, deployment) => {
+        const publishHistory = (deployment?.publishHistory?.length ? deployment.publishHistory : result?.publishHistory || []).map((entry) => entry.commitHash === result?.commitHash
+          ? { ...entry, deploymentResult: deployment?.status || entry.deploymentResult }
+          : entry);
+        if (!await saveAdminSettingsLive({ lastPublishedSnapshot: snapshot, publishHistory })) {
+          throw new Error('The Category reached GitHub but its published state could not be synchronized.');
+        }
+        adminPublishedBaseline = normalizePublishedBaseline(snapshot);
+        adminLastSuccessfulSnapshot = snapshot;
+        refreshVisibleAdminAreaAfterPublish();
       }
-      const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: categoryKey, baseRecord: initialCategory, patch: { approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString() } }]);
-      saved = result.ok;
-    }
-    if (!saved) {
-      setCategoryPublishState(categoryKey, adminLastSaveError || 'Publish stopped: Category could not be saved.', 'failed');
-      return false;
-    }
-    const category = readAdminCategories()[categoryKey] || initialCategory;
-    return publishScopedChangeIds([`category:${categoryKey}`], category.title || categoryKey, null, {
-      onProgress: (message, state) => setCategoryPublishState(categoryKey, message, state)
     });
+    return publication.ok;
   } catch (error) {
     setCategoryPublishState(categoryKey, `Publish Failed — ${error?.message || error}`, 'failed');
     return false;

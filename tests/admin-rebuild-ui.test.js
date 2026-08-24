@@ -206,7 +206,7 @@ Deno.test('Products starts compact and mounts one full editor only after Edit', 
   assert(adminSource.includes("editorOpen ? productMarkup([product]) : ''"), 'unopened products must not build full forms');
   assert(adminSource.includes('Technical published/private comparison'), 'Advanced must retain the technical comparison');
   assert(adminSource.includes('publishScopedChangeIds([`product:${slug}`]'), 'normal product publishing must scope itself to one product');
-  assert(adminSource.includes('publishScopedChangeIds([`category:${categoryKey}`]'), 'normal category publishing must scope itself to one category');
+  assert(adminSource.includes('publisher.publishCategoryByKey(categoryKey'), 'normal Category publishing must use the shared scoped Category operation');
   assert(adminHtml.includes('data-publish-new-product>Publish to Website</button>'), 'new products need a direct publish action');
   assert(adminHtml.includes('data-publish-new-category>Publish to Website</button>'), 'new categories need a direct publish action');
   assert(!adminHtml.includes('Mark Ready') && !storefrontSource.includes('>Mark Ready</button>'), 'normal Admin surfaces must not expose Ready terminology');
