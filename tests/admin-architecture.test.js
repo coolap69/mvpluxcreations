@@ -7,6 +7,7 @@ import {
   architectureFeature,
   buildVerifiedMigrationBackup,
   buildMigrationBackup,
+  buildMainCollectionMigrationDrafts,
   buildNormalizedAdminCandidate,
   isMigratedProductPageKey,
   mergeProductSources,
@@ -200,6 +201,65 @@ Deno.test('category card slugs do not remain duplicated as products', () => {
   });
   assert(!candidate.products['sports-card'], 'category card must not remain in products');
   assert(candidate.categories.sports.card.title === 'Private card', 'category card override must migrate to category.card');
+});
+
+Deno.test('recognized legacy Homepage Collection Cards become clean private Main Collection drafts', () => {
+  const candidate = normalizeCategories({
+    categoryDefinitions: [
+      { key: 'people-public-figures', label: 'People / Public Figures', page: 'people-public-figures.html' },
+      { key: 'custom-other', label: 'Custom / Other', pages: ['custom-photo-cutouts.html', 'small-cutout-party-packs.html'] }
+    ],
+    categoryCardDefaults: [{
+      slug: 'people-public-figure-standee', title: 'Default People', description: 'Default description',
+      cutoutImage: 'images/default-people.png', backgroundImage: 'images/default-stage.png'
+    }],
+    publishedCategoryCards: {
+      'people-public-figure-standee': {
+        title: 'People & Public Figure Standees', description: 'Published collection description',
+        cutoutImage: 'images/published-people.png', backgroundImage: 'images/published-stage.png', visible: true
+      }
+    },
+    categoryCardMap: { 'people-public-figure-standee': 'people-public-figures' }
+  });
+  const products = { speaker: { slug: 'speaker', categories: ['people-public-figures'], categoryOrder: { 'people-public-figures': 4 } } };
+  const productBefore = structuredClone(products);
+  const drafts = buildMainCollectionMigrationDrafts({
+    candidateCategories: candidate,
+    allowedKeys: ['people-public-figures', 'custom-other'],
+    migratedAt: '2026-08-25T12:00:00.000Z'
+  });
+  assert(Object.keys(drafts).join(',') === 'people-public-figures,custom-other', 'one normalized draft must be created per eligible Main Collection key');
+  assert(drafts['people-public-figures'].title === 'People & Public Figure Standees', 'the current legacy customer title must become the normalized root title');
+  assert(drafts['people-public-figures'].description === 'Published collection description', 'the current legacy customer description must become the normalized root description');
+  assert(drafts['people-public-figures'].card.image === 'images/published-people.png' && drafts['people-public-figures'].card.backgroundImage === 'images/published-stage.png', 'the current legacy Homepage Collection Card visuals must be preserved in normalized card fields');
+  assert(!('visible' in drafts['people-public-figures'].card) && !('order' in drafts['people-public-figures'].card), 'legacy card visibility and order must not remain competing owners');
+  assert(drafts['people-public-figures'].draftStatus === 'draft' && drafts['people-public-figures'].approvalStatus === 'draft', 'migration must create private drafts, never approved/published records');
+  assert(drafts['custom-other'].card.image === '', 'Custom / Other must remain intentionally empty when no legitimate Homepage Collection Card image exists');
+  assert(JSON.stringify(products) === JSON.stringify(productBefore), 'Main Collection migration must not modify Products or their assignments');
+});
+
+Deno.test('Main Collection draft migration is idempotent and skips normalized private or published records', () => {
+  const candidates = {
+    music: { key: 'music', title: 'Music', card: { image: 'images/music.png' }, displaySettings: {} },
+    holiday: { key: 'holiday', title: 'Holiday', card: { image: 'images/holiday.png' }, displaySettings: {} },
+    custom: { key: 'custom', title: 'Custom', card: { image: '' }, displaySettings: {} }
+  };
+  const first = buildMainCollectionMigrationDrafts({
+    candidateCategories: candidates,
+    privateCategories: { holiday: { key: 'holiday' } },
+    publishedCategories: { music: { key: 'music' } },
+    allowedKeys: ['music', 'holiday', 'custom'],
+    migratedAt: 'now'
+  });
+  assert(Object.keys(first).join(',') === 'custom', 'existing normalized private and published Main Collections must never be duplicated');
+  const second = buildMainCollectionMigrationDrafts({
+    candidateCategories: candidates,
+    privateCategories: { holiday: { key: 'holiday' }, ...first },
+    publishedCategories: { music: { key: 'music' } },
+    allowedKeys: ['music', 'holiday', 'custom'],
+    migratedAt: 'later'
+  });
+  assert(Object.keys(second).length === 0, 'running the migration again must create no duplicate records');
 });
 
 Deno.test('unambiguous page product values migrate while geometry stays in page rows', () => {

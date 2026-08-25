@@ -117,7 +117,7 @@ Deno.test('Category editor uses a wide preview-first workspace with compact visi
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
   const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
-  for (const section of ['Live Homepage Collection Card Preview', 'Main Category / Collection Information', 'Homepage Collection Card Image', 'Homepage Collection Card Background', 'Main Collection Settings', 'Advanced Display Settings']) {
+  for (const section of ['Live Homepage Collection Card Preview', 'Main Collection Information', 'Homepage Collection Card — Featured Standee Categories', 'Homepage Collection Card Image', 'Homepage Collection Card Background', 'Main Collection Settings', 'Advanced Display Settings']) {
     assert(editor.includes(section), `Category editor is missing ${section}`);
   }
   assert(editor.indexOf("categoryVisualImagePicker(category, 'background')") < editor.indexOf('Advanced Display Settings'), 'everyday custom background controls must be in the main visual workspace');
@@ -353,7 +353,7 @@ Deno.test('duplicate detection is sibling-aware while allowing the same title un
 Deno.test('Admin renders compact Child Group rows and private creation without automatic assignments', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const markup = source.slice(source.indexOf('function childGroupMarkup'), source.indexOf('const CATEGORY_IMAGE_SIZE_DEFAULT'));
-  for (const token of ['Child Groups', 'admin-child-group-row', 'Open Product / Standee Cards', 'Edit Child Group', 'data-toggle-child-group', '+ Add Child Group / Subcollection']) assert(markup.includes(token), `missing Child Group UI token ${token}`);
+  for (const token of ['Child Groups', 'admin-child-group-row', 'Open Product / Standee Cards', 'Edit Child Group', 'data-toggle-child-group', '+ Add Child Group']) assert(markup.includes(token), `missing Child Group UI token ${token}`);
   assert(markup.includes('data-add-child-group') && markup.includes('data-new-child-group-form'), 'Add Child Group must open the private Child Group creator');
   const save = source.slice(source.indexOf('async function saveNewChildGroupFromForm'), source.indexOf('async function saveCategoryVisibility'));
   assert(save.includes('childCategoryDefaults(parentKey') && save.includes("homepageVisible: false") === false, 'Child Group creation must use the existing parentKey defaults');
@@ -419,9 +419,9 @@ Deno.test('full and inline Category editors share the normalized title authority
   const fullEditorSave = adminSource.slice(adminSource.indexOf('function categoryFromEditForm'), adminSource.indexOf('async function saveCategoryEditForm'));
   assert(fullEditorSave.includes("title: String(data.get('title')") && fullEditorSave.includes("title: current.card?.titleOverride === true"), 'full editor must save the root title and stop duplicating ordinary titles into category.card.title');
   const inlineMarkup = storefrontSource.slice(storefrontSource.indexOf('function inlineCategoryEditorMarkup'), storefrontSource.indexOf('function categoryDisplaySettingsFromForm'));
-  assert(inlineMarkup.includes('The homepage card uses the authoritative Category title') && !inlineMarkup.includes('name="cardTitle"') && !inlineMarkup.includes('name="cardDescription"'), 'quick inline editor must not expose competing card text fields');
+  assert(inlineMarkup.includes('Homepage Collection Card — Featured Standee Categories') && !inlineMarkup.includes('name="cardTitle"') && !inlineMarkup.includes('name="cardDescription"'), 'quick inline editor must not expose competing card text fields');
   const inlineSave = storefrontSource.slice(storefrontSource.indexOf('async function saveInlineRecordEditor'), storefrontSource.indexOf('function openInlineRecordEditor'));
-  assert(inlineSave.includes("changedInlineFields(base, candidate, ['title', 'description', 'funFact', 'page', 'visible', 'homepageVisible', 'order']") && inlineSave.includes("changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage']"), 'inline save must route normalized fields to the Category root while limiting card ownership to image references');
+  assert(inlineSave.includes("changedInlineFields(base, candidate, ['title', 'description', 'funFact', 'page', 'visible', 'homepageVisible', 'order']") && inlineSave.includes("changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage', 'representativeProductSlug']"), 'inline save must route normalized fields to the Main Collection root while limiting card ownership to its image, background, and representative reference');
 });
 
 Deno.test('homepage and Category-page inline titles are Category-owned, not page overrides', async () => {

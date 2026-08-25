@@ -3,7 +3,11 @@ const adminStateUtilsPromise = import('./admin-state-utils.js');
 adminStateUtilsPromise.then((module) => {
   adminStateUtils = module;
 });
+let adminArchitecture = null;
 const adminArchitecturePromise = import('./admin-architecture.js');
+adminArchitecturePromise.then((module) => {
+  adminArchitecture = module;
+});
 const adminTabId = crypto.randomUUID?.()
   || `admin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -1317,7 +1321,8 @@ function publishableCategory(category = {}) {
       title: category.card?.titleOverride === true ? String(category.card.title || '') : '',
       description: category.card?.descriptionOverride === true ? String(category.card.description || '') : '',
       image: publishImageReference(category.card?.image || ''),
-      backgroundImage: publishImageReference(category.card?.backgroundImage || '')
+      backgroundImage: publishImageReference(category.card?.backgroundImage || ''),
+      representativeProductSlug: String(category.card?.representativeProductSlug || '')
     },
     displaySettings: structuredClone(category.displaySettings || { backgroundPosition: 'center center' })
   };
@@ -4664,8 +4669,37 @@ function categoryChildGroups(categoryKey, categories = readAdminCategories()) {
     : Object.values(categories || {}).filter((category) => category?.parentKey === categoryKey);
 }
 
+function legacyChildGroupDraftCandidates(masterCategory) {
+  if (masterCategory?.key !== 'sports' || masterCategory?.page !== 'sports-legends.html') return [];
+  return [
+    { key: 'basketball', title: 'Basketball', description: 'Basketball Products / Standees inside Sport Legends.', order: 0, card: { image: 'images/SportLegendStandees/Kobe/KB1nobackground.png' } },
+    { key: 'soccer', title: 'Soccer', description: 'Soccer Products / Standees inside Sport Legends.', order: 1, card: { image: 'images/SportLegendStandees/Messi/Messi2nobackground.png' } },
+    { key: 'football', title: 'Football', description: 'Football Products / Standees inside Sport Legends.', order: 2, card: { image: 'images/SportLegendStandees/TomBrady/TB12Nobackground.png' } }
+  ].filter((candidate) => !readAdminCategories()[candidate.key]);
+}
+
+async function saveLegacyChildGroupsAsDrafts(masterCategory) {
+  const candidates = legacyChildGroupDraftCandidates(masterCategory);
+  if (!candidates.length) return false;
+  const now = new Date().toISOString();
+  const operations = candidates.map((candidate) => ({
+    type: 'record', collectionKey: 'categories', entryKey: candidate.key, baseRecord: undefined,
+    patch: {
+      ...candidate, parentKey: masterCategory.key, page: masterCategory.page || '', visible: true,
+      homepageVisible: false, card: { ...candidate.card, backgroundImage: '' }, displaySettings: {},
+      createdAt: now, updatedAt: now, draftStatus: 'draft', approvalStatus: 'draft'
+    }
+  }));
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) return false;
+  renderAdminProducts();
+  setStatus('Basketball, Soccer, and Football were saved as normalized private Child Group drafts. No Product / Standee assignments were changed. Assign products deliberately, then publish each Child Group when ready.');
+  return true;
+}
+
 function childGroupMarkup(masterCategory, categories) {
   const children = categoryChildGroups(masterCategory.key, categories);
+  const legacyCandidates = legacyChildGroupDraftCandidates(masterCategory);
   const products = Object.fromEntries(effectiveAdminProducts().map((product) => [product.slug, product]));
   const hierarchyWarnings = adminStateUtils?.categoryHierarchyWarnings?.(categories, products) || [];
   return `<details class="admin-child-groups-panel" data-child-groups-panel>
@@ -4689,8 +4723,10 @@ function childGroupMarkup(masterCategory, categories) {
           <details data-child-products-panel ${openedCategoryProductLists.has(child.key) ? 'open' : ''}><summary>Product / Standee Cards (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(child.key) ? categoryProductsMarkup(child) : ''}</div></details>
           <details data-child-edit-panel ${openedCategoryEditors.has(child.key) ? 'open' : ''}><summary>Edit Child Group</summary><div data-category-editor-mount>${openedCategoryEditors.has(child.key) ? categoryEditMarkup(child) : ''}</div></details>
         </article>`;
-      }).join('') : '<p class="admin-note">No Child Groups have been created for this Main Category / Collection.</p>'}
-      <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}">+ Add Child Group / Subcollection</button>
+      }).join('') : '<p class="admin-note">No normalized Child Groups have been created for this Main Collection. Legacy page buttons are not counted here.</p>'}
+      ${legacyCandidates.length ? `<aside class="admin-warning-message"><strong>Legacy storefront groups detected:</strong> ${legacyCandidates.map((item) => escapeAdminHtml(item.title)).join(', ')}. These static page buttons are not normalized Child Groups yet.<br><button type="button" data-normalize-legacy-child-groups="${escapeAdminHtml(masterCategory.key)}">Create Normalized Child Group Drafts</button><small>This creates Child Group records only. It does not change Product / Standee assignments or publish customer content.</small></aside>` : ''}
+      <p class="admin-note">A Child Group organizes Products / Standees inside this Main Collection. Removing an assignment does not delete the Product / Standee.</p>
+      <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}">+ Add Child Group</button>
       <div class="admin-child-group-creator" data-child-group-creator="${escapeAdminHtml(masterCategory.key)}" hidden>
         <form data-new-child-group-form="${escapeAdminHtml(masterCategory.key)}">
           <h4>Add Child Group under ${escapeAdminHtml(masterCategory.title || masterCategory.key)}</h4>
@@ -4803,22 +4839,23 @@ function adminImageReferencePresentation(value, { background = false } = {}) {
 
 function categoryVisualImagePicker(category, kind = 'category') {
   const isBackground = kind === 'background';
+  const objectName = category.parentKey ? 'Child Group' : 'Homepage Collection Card';
   const selected = String(isBackground ? category.card?.backgroundImage || '' : category.card?.image || '');
   const presentation = adminImageReferencePresentation(selected, { background: isBackground });
   return `<section class="admin-category-image-picker" data-category-image-picker data-category-key="${escapeAdminHtml(category.key)}" data-image-kind="${kind}">
     <div class="admin-category-current-image">
-      <strong>Current ${isBackground ? 'Background' : 'Category Image'}</strong>
-      ${presentation.preview ? `<img src="${escapeAdminHtml(presentation.preview)}" alt="Current ${isBackground ? 'Category background' : 'Category image'}" data-category-current-image>` : '<span class="admin-category-no-image" data-category-current-image>No image</span>'}
+      <strong>Current ${objectName} ${isBackground ? 'Background' : 'Image'}</strong>
+      ${presentation.preview ? `<img src="${escapeAdminHtml(presentation.preview)}" alt="Current ${objectName} ${isBackground ? 'background' : 'image'}" data-category-current-image>` : '<span class="admin-category-no-image" data-category-current-image>No image</span>'}
       <span data-category-current-label data-invalid-image="${presentation.valid ? 'false' : 'true'}">${escapeAdminHtml(presentation.label)}</span>
       <div class="admin-panel-actions">
-        <button type="button" data-change-category-image>${presentation.valid ? `Change ${isBackground ? 'Background' : 'Image'}` : `Replace ${isBackground ? 'Background' : 'Image'}`}</button>
+        <button type="button" data-change-category-image>${presentation.valid ? `Change ${objectName} ${isBackground ? 'Background' : 'Image'}` : `Replace ${objectName} ${isBackground ? 'Background' : 'Image'}`}</button>
         ${isBackground ? '<button type="button" data-use-shared-category-background>Use Shared Default</button><button type="button" data-remove-category-image>Remove Custom Background</button>' : '<button type="button" data-remove-category-image>Remove Image</button>'}
       </div>
       ${presentation.valid && selected ? `<details class="admin-technical-details"><summary>Image reference</summary><code data-category-current-path>${escapeAdminHtml(selected)}</code></details>` : ''}
     </div>
     <input name="${isBackground ? 'cardBackgroundImage' : 'cardImage'}" type="hidden" value="${escapeAdminHtml(presentation.valid ? selected : '')}" data-preserve-invalid-reference="${presentation.valid ? 'false' : 'true'}">
     <details class="admin-category-image-browser">
-      <summary>Choose ${isBackground ? 'Background' : 'Category Image'}</summary>
+      <summary>Choose ${objectName} ${isBackground ? 'Background' : 'Image'}</summary>
       <button type="button" data-search-all-category-images>Search All Repository Images</button>
       <label data-category-image-search-controls hidden>Search repository images<input type="search" data-category-image-search placeholder="Search filename or folder"></label>
       <p class="admin-note">Images associated with products inside this Category appear first.</p>
@@ -4853,20 +4890,23 @@ function categoryEditMarkup(category) {
   const display = effectiveCategoryDisplaySettings(category);
   const backgroundPosition = categoryBackgroundPositionParts(display.backgroundPosition);
   const parent = category.parentKey ? readAdminCategories()[category.parentKey] : null;
+  const representativeProducts = parent ? [] : categoryAssignedProducts(category.key);
+  const representativeSlug = String(category.card?.representativeProductSlug || '');
   return `
     <form class="admin-category-edit-form" data-category-edit="${escapeAdminHtml(category.key)}">
       <header class="admin-category-editor-header">
-        <div><span class="admin-note">${parent ? 'Editing Child Group / Subcollection' : 'Editing Main Category / Collection and its Homepage Collection Card'}</span><h3>${escapeAdminHtml(category.title || category.key)}</h3></div>
+        <div><span class="admin-note">${parent ? 'Editing Child Group' : 'Editing Main Collection'}</span><h3>${escapeAdminHtml(category.title || category.key)}</h3></div>
         <div class="admin-panel-actions"><button type="submit">Save Draft</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
       </header>
       <div class="admin-category-editor-workspace">
-        <aside class="admin-category-preview-column" aria-label="Live Category preview">
+        <aside class="admin-category-preview-column" aria-label="Live collection preview">
           <strong>${parent ? 'Live Child Group Preview' : 'Live Homepage Collection Card Preview'}</strong>
           <div class="admin-builder-preview-panel" data-category-edit-preview></div>
           <p class="admin-note">Image, background, size, and position changes update here immediately. Nothing is saved until you choose Save Draft or Publish.</p>
         </aside>
         <div class="admin-category-controls-column">
-          <fieldset class="admin-category-editor-section admin-category-information"><legend>${parent ? 'Child Group Information' : 'Main Category / Collection Information'}</legend>
+          <fieldset class="admin-category-editor-section admin-category-information"><legend>${parent ? 'Child Group Information' : 'Main Collection Information'}</legend>
+            <p class="admin-note">${parent ? 'A Child Group organizes Products / Standees inside its Main Collection. Removing an assignment does not delete the Product / Standee.' : 'A Main Collection organizes related Products / Standees and controls its customer browsing page. Editing it does not edit the individual Products / Standees inside it.'}</p>
             <div class="admin-input-group">
               <label>Title<input name="title" required value="${escapeAdminHtml(category.title || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(category.description || '')}</textarea></label>
@@ -4899,11 +4939,15 @@ function categoryEditMarkup(category) {
               </div>
             </details>
           </fieldset>
+          ${parent ? '' : `<fieldset class="admin-category-editor-section admin-homepage-collection-card-identity"><legend>Homepage Collection Card — Featured Standee Categories</legend>
+            <p class="admin-note">This is the card customers see for this Main Collection in Featured Standee Categories. Its representative Product / Standee and visual settings do not change that Product / Standee record.</p>
+            <label>Representative Product / Standee<select name="representativeProductSlug"><option value="">No representative selected</option>${representativeProducts.map((product) => `<option value="${escapeAdminHtml(product.slug)}" ${product.slug === representativeSlug ? 'selected' : ''}>${escapeAdminHtml(product.title || product.slug)}</option>`).join('')}</select><small>Choosing a Product / Standee remembers which item should open first on the Main Collection page.</small></label>
+          </fieldset>`}
           <fieldset class="admin-category-editor-section admin-category-image-section"><legend>${parent ? 'Child Group Image' : 'Homepage Collection Card Image'}</legend>
             ${categoryVisualImagePicker(category)}
-            <p class="admin-note">${categoryAssignedProducts(category.key).length} associated product images are prioritized before repository-wide search.</p>
+            <p class="admin-note">${categoryAssignedProducts(category.key).length} assigned Product / Standee images are available as representative choices. Changing this image does not change a Product / Standee image.</p>
             <div class="admin-category-position-controls">
-              ${categoryDisplayRangeMarkup('standeeSizePercent', 'Category Image Size', display.standeeSizePercent, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, '%')}
+              ${categoryDisplayRangeMarkup('standeeSizePercent', `${parent ? 'Child Group' : 'Homepage Collection Card'} Image Size`, display.standeeSizePercent, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, '%')}
               ${categoryDisplayRangeMarkup('standeeLeftPercent', 'Horizontal Position', display.standeeLeftPercent, -50, 50)}
               ${categoryDisplayRangeMarkup('standeeVerticalPercent', 'Vertical Position', display.standeeVerticalPercent, -50, 50)}
               <div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>
@@ -4911,6 +4955,7 @@ function categoryEditMarkup(category) {
           </fieldset>
           <fieldset class="admin-category-editor-section admin-category-background-section"><legend>${parent ? 'Child Group Background' : 'Homepage Collection Card Background'}</legend>
             ${categoryVisualImagePicker(category, 'background')}
+            <p class="admin-note">This background belongs only to the Homepage Collection Card. It does not overwrite any Product Showroom Background.</p>
             <input name="backgroundPosition" type="hidden" value="${escapeAdminHtml(display.backgroundPosition)}">
             <div class="admin-category-position-controls">
               ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background Left / Right', backgroundPosition.x, 0, 100, '%')}
@@ -4922,16 +4967,16 @@ function categoryEditMarkup(category) {
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
           </fieldset>
           <fieldset class="admin-category-editor-section admin-category-settings"><legend>${parent ? 'Child Group Settings' : 'Main Collection Settings'}</legend>
-            <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child Group of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Category / Collection'}. Child Groups use the same normalized records with <code>parentKey</code> and do not become Homepage Collection Cards.</p>
+            <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child Group of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Collection'}. Child Groups use the same normalized records with <code>parentKey</code> and do not become Homepage Collection Cards.</p>
             <div class="admin-category-settings-grid">
               <label>Destination page<input name="page" value="${escapeAdminHtml(category.page || '')}"></label>
               <label>Homepage Order<input name="order" type="number" min="0" value="${escapeAdminHtml(String(category.order ?? 0))}"></label>
-              <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> ${parent ? 'Child Group' : 'Collection'} visible to customers</label>
+              <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> ${parent ? 'Child Group' : 'Main Collection'} visible to customers</label>
               <label class="${category.visible === false || parent ? 'admin-control-secondary' : ''}"><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false && !parent ? 'checked' : ''} ${category.visible === false || parent ? 'disabled' : ''}> ${parent ? 'Child Groups do not appear on Homepage' : 'Show on Homepage'}</label>
             </div>
           </fieldset>
           <details class="admin-advanced-fields"><summary>Advanced Display Settings</summary>
-            <p class="admin-note">Only display settings already supported by the published Category architecture are stored. Physical images are never modified.</p>
+            <p class="admin-note">Only display settings owned by the normalized Main Collection or Child Group are stored. Physical images are never modified.</p>
           </details>
         </div>
       </div>
@@ -4947,6 +4992,61 @@ function categoryEditMarkup(category) {
 function suspiciousCategoryKeys(categories) {
   const keys = new Set(Object.keys(categories || {}));
   return ['custom-other', 'custom-photo', 'small-party-packs'].filter((key) => keys.has(key));
+}
+
+function mainCollectionMigrationDrafts() {
+  if (!adminArchitecture?.buildMainCollectionMigrationDrafts) return {};
+  return adminArchitecture.buildMainCollectionMigrationDrafts({
+    candidateCategories: adminArchitectureState?.candidate?.categories || {},
+    privateCategories: readAdminCategories(),
+    publishedCategories: adminPublishedBaseline?.categories || {},
+    publishedCategorySettings: adminPublishedBaseline?.categorySettings || {},
+    allowedKeys: [...new Set([...Object.values(ADMIN_CATEGORY_CARD_MAP), 'custom-other'])]
+  });
+}
+
+function mainCollectionMigrationMarkup(drafts = mainCollectionMigrationDrafts()) {
+  const entries = Object.values(drafts).sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
+  if (!entries.length) return '';
+  const legacyKeys = new Set(Object.entries(ADMIN_CATEGORY_CARD_MAP)
+    .filter(([slug]) => adminPublishedBaseline?.categoryDisplayCards?.[slug])
+    .map(([, key]) => key));
+  return `<section class="admin-category-migration" data-main-collection-migration>
+    <div>
+      <p class="admin-eyebrow">Needs Main Collection Migration</p>
+      <h3>Legacy Homepage Collection Cards</h3>
+      <p>These Featured Standee Categories cards still use recognized legacy compatibility data. Create normalized private Main Collection drafts to manage their image, background, representative Product / Standee, ordering, and homepage presentation here. This saves drafts only: it creates no Products, changes no assignments, and publishes nothing.</p>
+    </div>
+    <div class="admin-category-migration-list">${entries.map((category) => `<article>
+      <strong>${escapeAdminHtml(category.title || category.key)}</strong>
+      <code>${escapeAdminHtml(category.key)}</code>
+      <span>${legacyKeys.has(category.key) ? 'LEGACY HOMEPAGE CARD' : 'Needs Main Collection Migration'}</span>
+      <small>${category.card?.image ? escapeAdminHtml(category.card.image) : 'No Homepage Collection Card Image Selected'}</small>
+    </article>`).join('')}</div>
+    <button type="button" class="admin-button admin-button-primary" data-migrate-legacy-main-collections>Create Normalized Main Collection Drafts</button>
+    <p class="admin-status" data-main-collection-migration-status aria-live="polite"></p>
+  </section>`;
+}
+
+async function saveLegacyMainCollectionsAsDrafts() {
+  const drafts = mainCollectionMigrationDrafts();
+  const entries = Object.entries(drafts);
+  const status = document.querySelector('[data-main-collection-migration-status]');
+  if (!entries.length) {
+    if (status) status.textContent = 'Every recognized homepage collection already has a normalized private or published Main Collection record.';
+    return true;
+  }
+  if (status) status.textContent = 'Creating normalized private Main Collection drafts…';
+  const result = await saveAdminCollectionOperations(entries.map(([key, category]) => ({
+    type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: undefined, patch: category
+  })));
+  if (!result.ok) {
+    if (status) status.textContent = adminLastSaveError || 'Main Collection migration failed. Nothing was published.';
+    return false;
+  }
+  renderCategoryManager();
+  setStatus(`${entries.length} normalized Main Collection draft${entries.length === 1 ? '' : 's'} created. Draft Saved — Private. Products, assignments, published customer content, and legacy compatibility data were unchanged.`);
+  return true;
 }
 
 function homepageOrderedAdminCategories(categories = readAdminCategories()) {
@@ -4995,7 +5095,8 @@ function renderCategoryManager() {
   const homepageOrder = homepageOrderedAdminCategories(categoriesByKey);
   const homepageOrderIndex = new Map(homepageOrder.map((category, index) => [category.key, index]));
   const suspicious = new Set(suspiciousCategoryKeys(Object.fromEntries(categories.map((category) => [category.key, category]))));
-  container.innerHTML = categories.map((category) => {
+  const migrationMarkup = mainCollectionMigrationMarkup();
+  const categoryMarkup = categories.map((category) => {
     const count = categoryAssignedProducts(category.key).length;
     const childCount = categoryChildGroups(category.key, categoriesByKey).length;
     const status = categoryLifecycleState(category);
@@ -5006,14 +5107,14 @@ function renderCategoryManager() {
           ${categoryBulkSelectionMode ? `<label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select for bulk deletion</label>` : ''}
           <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
           <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Collection: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage Collection Card: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span></div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom collection — review assignments before changing it.</p>' : ''}</div>
-          <dl><div><dt>Product / Standee Cards</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Main Collection</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage Card</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
+          <dl><div><dt>Products / Standees</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Main Collection</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage Collection Card</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
-            <button type="button" data-edit-category data-category-key="${escapeAdminHtml(category.key)}">Edit Main Collection / Homepage Card</button>
+            <button type="button" data-edit-category data-category-key="${escapeAdminHtml(category.key)}">Edit Main Collection</button>
             ${categoryPublishButtonMarkup(category.key)}
             <button type="button" data-move-category-homepage="-1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) > 0 ? '' : 'disabled'}>Move Up</button>
             <button type="button" data-move-category-homepage="1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) < homepageOrder.length - 1 ? '' : 'disabled'}>Move Down</button>
             <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}">${category.visible === false ? 'UNHIDE COLLECTION' : 'Hide Collection'}</button>
-            <button type="button" class="${category.visible === false ? 'admin-button-secondary' : ''}" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}" ${category.visible === false ? 'disabled title="Unhide the Category before changing its homepage availability."' : ''}>${category.homepageVisible === false ? 'SHOW ON HOMEPAGE' : 'Hide from Homepage'}</button>
+            <button type="button" class="${category.visible === false ? 'admin-button-secondary' : ''}" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}" ${category.visible === false ? 'disabled title="Unhide the Main Collection before changing its Homepage Collection Card availability."' : ''}>${category.homepageVisible === false ? 'SHOW ON HOMEPAGE' : 'Hide from Homepage'}</button>
             <button type="button" data-open-category-products data-category-key="${escapeAdminHtml(category.key)}">Open Product / Standee Cards</button>
             <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Main Collection</button>
           </div>
@@ -5021,9 +5122,10 @@ function renderCategoryManager() {
         </div>
         ${childGroupMarkup(category, categoriesByKey)}
         <details data-category-products-panel ${openedCategoryProductLists.has(category.key) ? 'open' : ''}><summary>Product / Standee Cards (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''}</div></details>
-        <details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Edit Main Category / Collection and Homepage Collection Card</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
+        <details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Edit Main Collection</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
       </article>`;
-  }).join('') || '<div class="admin-empty-state"><strong>No Categories found</strong><span>Create a Category or clear the search.</span></div>';
+  }).join('') || '<div class="admin-empty-state"><strong>No Main Collections found</strong><span>Create a Main Collection, migrate a legacy Homepage Collection Card, or clear the search.</span></div>';
+  container.innerHTML = `${migrationMarkup}${categoryMarkup}`;
 
   const deleted = readDeletedCategories();
   if (deleted.length) container.insertAdjacentHTML('beforeend', `<section class="admin-category-deletions"><h3>Deleted Categories</h3>${deleted.map((key) => {
@@ -5078,7 +5180,8 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
       title: current.card?.titleOverride === true ? String(current.card.title || '') : '',
       description: current.card?.descriptionOverride === true ? String(current.card.description || '') : '',
       image: cardImage,
-      backgroundImage: cardBackgroundImage
+      backgroundImage: cardBackgroundImage,
+      representativeProductSlug: current.parentKey ? '' : String(data.get('representativeProductSlug') || '')
     },
     displaySettings: {
       ...(current.displaySettings || {}),
@@ -5119,6 +5222,11 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
     setCategoryPublishState(category.key, 'Choose a Category image before publishing.', 'failed');
     return false;
   }
+  if (category.card?.representativeProductSlug
+    && !categoryAssignedProducts(category.key).some((product) => product.slug === category.card.representativeProductSlug)) {
+    setCategoryPublishState(category.key, 'Choose a representative Product / Standee assigned to this Main Collection.', 'failed');
+    return false;
+  }
   const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), category, category.key);
   if (duplicates.length) {
     setCategoryPublishState(category.key, `A similar Category already exists: ${duplicates.map((item) => item.title).join(', ')}.`, 'failed');
@@ -5136,7 +5244,7 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
     if (summaryTitle) summaryTitle.textContent = category.title || category.key;
     if (editorTitle) editorTitle.textContent = category.title || category.key;
   }
-  const message = approvalStatus === 'approved' ? 'Category saved. Validating latest private save…' : 'Draft saved privately.';
+  const message = approvalStatus === 'approved' ? 'Main Collection saved. Validating latest private save…' : 'Draft Saved — Private';
   setCategoryPublishState(category.key, message, approvalStatus === 'approved' ? 'publishing' : 'draft');
   setStatus(message);
   return true;
@@ -5292,7 +5400,7 @@ async function saveCategoryVisibility(categoryKey, field, visible) {
   }]);
   if (!result.ok) return false;
   renderAdminProducts();
-  setStatus(`${category.title || categoryKey} ${visible ? 'shown' : 'hidden'}${field === 'homepageVisible' ? ' on the homepage' : ''} in the private Category draft. Products, assignments, and image files were preserved. Publish this Category when you want the customer website to change.`);
+  setStatus(`${category.title || categoryKey} ${visible ? 'shown' : 'hidden'}${field === 'homepageVisible' ? ' on the homepage' : ''} in the private Main Collection draft. Products, assignments, and image files were preserved. Publish this Main Collection when you want the customer website to change.`);
   return true;
 }
 
@@ -5309,7 +5417,7 @@ async function deleteAdminCategories(keys) {
     const assignments = products.length ? products.map((product) => `  • ${product.title || product.slug} (${product.slug})`).join('\n') : '  • No product assignments';
     return `${readAdminCategories()[key].title || key} — ${products.length} products\n${assignments}`;
   }).join('\n\n');
-  if (!window.confirm(`Delete ${categoryKeys.length} Categor${categoryKeys.length === 1 ? 'y' : 'ies'}?\n\n${details}\n\nProducts will NOT be deleted.\nPhysical image files will NOT be deleted.\nOnly the Categories and their product assignments will be removed.`)) return false;
+  if (!window.confirm(`Delete ${categoryKeys.length} Main Collection${categoryKeys.length === 1 ? '' : 's'}?\n\n${details}\n\nProducts / Standees will NOT be deleted.\nPhysical image files will NOT be deleted.\nOnly the Main Collection records and their Product assignments will be removed.`)) return false;
   const products = effectiveAdminProducts();
   const operations = [];
   categoryKeys.forEach((key) => {
@@ -5324,7 +5432,7 @@ async function deleteAdminCategories(keys) {
   const result = await saveAdminCollectionOperations(operations);
   if (!result.ok) return false;
   renderAdminProducts();
-  setStatus('Category deletion saved privately. Products and physical images were preserved. Publish the deletion when ready.');
+  setStatus('Main Collection deletion saved privately. Products / Standees and physical images were preserved. Publish the deletion when ready.');
   return true;
 }
 
@@ -5487,6 +5595,12 @@ function setupCategoryManagerEvents() {
   });
   section.addEventListener('change', (event) => {
     if (event.target.matches('[data-select-category]')) updateDeleteSelectedCategoriesButton();
+    if (event.target.matches('select[name="representativeProductSlug"]')) {
+      const form = event.target.closest('[data-category-edit]');
+      const product = effectiveAdminProducts().find((item) => item.slug === event.target.value);
+      const picker = form?.querySelector('[data-category-image-picker][data-image-kind="category"]');
+      if (product?.cutoutImage && picker) updateCategoryPickerValue(picker, product.cutoutImage);
+    }
     if (event.target.closest('[data-category-edit]')) previewCategoryEdit(event.target.closest('[data-category-edit]'));
   });
   section.addEventListener('input', (event) => {
@@ -5580,6 +5694,12 @@ function setupCategoryManagerEvents() {
       creator.querySelector('form')?.reset();
       creator.hidden = true;
     }
+    const normalizeLegacyGroups = event.target.closest('[data-normalize-legacy-child-groups]');
+    if (normalizeLegacyGroups) {
+      const master = readAdminCategories()[normalizeLegacyGroups.dataset.normalizeLegacyChildGroups];
+      if (master) await saveLegacyChildGroupsAsDrafts(master);
+    }
+    if (event.target.closest('[data-migrate-legacy-main-collections]')) await saveLegacyMainCollectionsAsDrafts();
     const previewButton = event.target.closest('[data-preview-category-edit]');
     if (previewButton) previewCategoryEdit(previewButton.closest('[data-category-edit]'));
     const searchAllImages = event.target.closest('[data-search-all-category-images]');
@@ -6863,7 +6983,7 @@ function renderImageDrafts() {
     return `
       <form class="admin-product-card admin-image-draft" data-image-path="${escapeAdminHtml(draft.path)}" data-product-slug="${escapeAdminHtml(draft.resultSlug || '')}" data-draft-status="${escapeAdminHtml(draft.status)}" data-saved-for-later="${draft.savedForLater === true}" data-image-box-dirty="${normalizedProductSaved ? 'false' : 'true'}">
         <div class="admin-product-heading">
-          <div><h3>Create Product From Image</h3><p class="admin-note" data-image-draft-status data-state="${normalizedProductPublished ? 'published' : normalizedProductSaved ? 'success' : 'unsaved'}">${imageImportReady ? (normalizedProductPublished ? 'PUBLISHED TO WEBSITE' : normalizedProductSaved ? 'DRAFT SAVED — PRIVATE' : 'UNSAVED CHANGES') : 'Loading authenticated Admin state…'}</p></div>
+          <div><h3>Image Box — Create Product From Image</h3><p class="admin-note">Image Box creates or edits Product / Standee records and product images. It does not create Main Collections or Homepage Collection Cards.</p><p class="admin-note" data-image-draft-status data-state="${normalizedProductPublished ? 'published' : normalizedProductSaved ? 'success' : 'unsaved'}">${imageImportReady ? (normalizedProductPublished ? 'PUBLISHED TO WEBSITE' : normalizedProductSaved ? 'DRAFT SAVED — PRIVATE' : 'UNSAVED CHANGES') : 'Loading authenticated Admin state…'}</p></div>
           <div class="admin-card-actions">
             <button type="button" data-image-import-action data-image-box-undo disabled>Undo</button>
             <button type="button" data-image-import-action data-image-box-redo disabled>Redo</button>

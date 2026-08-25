@@ -42,6 +42,32 @@ Deno.test('published Product records never become Homepage Collection Cards', ()
   assert(Object.keys(collections).join(',') === 'sports', 'a Product mistakenly present in legacy compatibility data must not create a Homepage Collection Card');
 });
 
+Deno.test('a normalized published Main Collection never inherits missing visual fields from categoryDisplayCards', () => {
+  const compatibility = sourceRange(storefrontSource, 'function compatibilityMasterCategories', 'function getAdminCategories');
+  const resolveCompatibility = new Function('window', 'STOREFRONT_CATEGORY_CARD_MAP', 'STOREFRONT_CATEGORY_PAGE_MAP', `${compatibility}\nreturn compatibilityMasterCategories;`)({
+    MVPLUX_PRODUCT_CATEGORIES: [{ key: 'sports', label: 'Legacy Sport Legends', page: 'legacy-sports.html' }],
+    mvpluxPublishedAdminSettings: {
+      deletedCategories: [],
+      categoryDisplayCards: {
+        'sport-legend-standee': {
+          title: 'Legacy Sport Legends', description: 'Legacy description',
+          cutoutImage: 'images/legacy-player.png', backgroundImage: 'images/legacy-stage.png', visible: true, productOrder: 99
+        }
+      },
+      categories: {
+        sports: {
+          key: 'sports', title: 'Published Sport Legends', description: '', page: 'sports-legends.html',
+          visible: true, homepageVisible: true, order: 2, card: {}, displaySettings: {}
+        }
+      }
+    }
+  }, { 'sport-legend-standee': 'sports' }, { 'sport-legend-standee': 'sports-legends.html' });
+  const sports = resolveCompatibility().sports;
+  assert(sports.title === 'Published Sport Legends' && sports.page === 'sports-legends.html' && sports.order === 2, 'normalized root fields must remain authoritative');
+  assert(sports.card.image === '' && sports.card.backgroundImage === '', 'missing normalized card visuals must stay visibly empty instead of inheriting legacy imagery');
+  assert(sports.card.representativeProductSlug === '' && Object.keys(sports.displaySettings).length === 0, 'legacy data must not invent representative or display settings for a normalized Main Collection');
+});
+
 Deno.test('normalized-only Image Box products enter collection pages and published images override Sports fallback data', () => {
   const catalog = sourceRange(storefrontSource, 'function getManagedProductCatalog', 'function getAdminArchivedProducts');
   assert(catalog.includes('...Object.values(overrides)') && catalog.includes('...(overrides[slug] || {})'), 'normalized products must enter the managed collection catalog and remain authoritative over compatibility products');

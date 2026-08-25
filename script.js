@@ -2978,14 +2978,24 @@ function compatibilityMasterCategories() {
   });
   Object.entries(published.categories || {}).forEach(([key, category]) => {
     if (deleted.has(key)) return;
-    const compatibility = categories[key] || {};
     const normalized = structuredClone(category);
     categories[key] = {
-      ...compatibility,
       ...normalized,
       key,
-      card: { ...(compatibility.card || {}), ...(normalized.card || {}) },
-      displaySettings: { ...(compatibility.displaySettings || {}), ...(normalized.displaySettings || {}) }
+      title: String(normalized.title || ''),
+      description: String(normalized.description || ''),
+      page: String(normalized.page || ''),
+      visible: normalized.visible !== false,
+      homepageVisible: !normalized.parentKey && normalized.homepageVisible !== false,
+      order: Number.isFinite(Number(normalized.order)) ? Number(normalized.order) : 0,
+      card: {
+        title: String(normalized.card?.title || ''),
+        description: String(normalized.card?.description || ''),
+        image: String(normalized.card?.image || ''),
+        backgroundImage: String(normalized.card?.backgroundImage || ''),
+        representativeProductSlug: String(normalized.card?.representativeProductSlug || '')
+      },
+      displaySettings: { ...(normalized.displaySettings || {}) }
     };
   });
   return categories;
@@ -3912,8 +3922,8 @@ function initSportsShowroom() {
   const showroom = document.querySelector('.sports-showroom');
   if (showroom && !showroom.id) showroom.id = 'selected-standee';
   const params = new URLSearchParams(window.location.search);
-  const player = params.get('player');
-  const startingKey = sportsStandeeCatalog[player] ? player : selectedSportsStandeeKey;
+  const player = params.get('product') || params.get('player');
+  const startingKey = (player && (getManagedProductBySlug(player) || sportsStandeeCatalog[player])) ? player : selectedSportsStandeeKey;
   selectSportsStandee(startingKey, false);
 }
 
@@ -3995,6 +4005,14 @@ function homepageCategoryRecords(categories = getAdminCategories()) {
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0) || String(left.title || left.key).localeCompare(String(right.title || right.key)));
 }
 
+function categoryDestinationWithRepresentative(page, representativeProductSlug = '') {
+  const destination = String(page || '');
+  if (!destination || !representativeProductSlug) return destination;
+  const url = new URL(destination, window.location.href);
+  url.searchParams.set('product', representativeProductSlug);
+  return `${url.pathname.split('/').pop() || ''}${url.search}${url.hash}`;
+}
+
 function renderNormalizedHomepageCategoryCards() {
   if (inlineAdminPageKey() !== 'index.html') return;
   const grid = document.getElementById('homepageCategoryGrid');
@@ -4013,7 +4031,8 @@ function renderNormalizedHomepageCategoryCards() {
       const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
       const slug = Object.entries(STOREFRONT_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
         || `${category.key}-category-card`;
-      const page = presentation.page || `category.html?category=${encodeURIComponent(category.key)}`;
+      const basePage = presentation.page || `category.html?category=${encodeURIComponent(category.key)}`;
+      const page = categoryDestinationWithRepresentative(basePage, presentation.representativeProductSlug);
       grid.insertAdjacentHTML('beforeend', `
         <article class="product-card admin-master-category-card" data-category-key="${escapeHtml(category.key)}" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
           <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(presentation.background)}');background-position:${escapeHtml(layout.backgroundPosition)};transform:scale(${layout.backgroundScale})" aria-hidden="true"></span>${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : ''}</div></a>
@@ -4496,7 +4515,8 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
     : storedBackgroundImages.map((src) => ({ getAttribute: (name) => name === 'src' ? src : '' }));
   if (backgroundPanel) backgroundPanel.remove();
 
-  const firstCard = cards.find((card) => card.dataset.productId === selectedSlug) || cards[0];
+  const requestedSlug = selectedSlug || new URLSearchParams(window.location.search).get('product') || '';
+  const firstCard = cards.find((card) => card.dataset.productId === requestedSlug) || cards[0];
   const firstTitle = firstCard.querySelector('h3')?.textContent.trim() || 'Standee';
   const firstImage = firstCard.querySelector('img')?.getAttribute('src') || '';
 
@@ -7653,7 +7673,7 @@ function ensureInlineRecordEditor() {
     if (sharedCategoryBackground) {
       const background = panel.querySelector('[name="cardBackgroundImage"]');
       if (background) background.value = '';
-      panel.querySelector('[data-inline-record-status]').textContent = 'Shared background selected — Save Category Privately to keep this change.';
+      panel.querySelector('[data-inline-record-status]').textContent = 'Shared background selected — choose Save Draft to keep this change.';
       return;
     }
     if (previewCategory) {
@@ -7737,10 +7757,11 @@ function inlineCategoryEditorMarkup(category = {}) {
   const backgroundPosition = String(display.backgroundPosition || '50% 100%').match(/^\s*(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%\s*$/);
   const backgroundX = backgroundPosition ? Number(backgroundPosition[1]) : 50;
   const backgroundY = backgroundPosition ? Number(backgroundPosition[2]) : 100;
-  const products = Object.values(getAdminProducts()).filter((product) => (product.categories || []).includes(category.key));
+  const products = getManagedProductCatalog().filter((product) => (product.categories || []).includes(category.key));
   const overrideProducts = products.filter((product) => Object.keys(product.displayOverrides || {}).length);
   return `
-    <details open><summary>Category information</summary>
+    <p class="admin-note">${category.parentKey ? 'A Child Group organizes Products / Standees inside a Main Collection.' : 'A Main Collection organizes Products / Standees and owns one Homepage Collection Card in Featured Standee Categories.'}</p>
+    <details open><summary>${category.parentKey ? 'Child Group information' : 'Main Collection information'}</summary>
       <label>Title<input name="title" value="${escapeHtml(category.title || '')}"></label>
       <label>Description<textarea name="description">${escapeHtml(category.description || '')}</textarea></label>
       <label>Fun fact<textarea name="funFact">${escapeHtml(category.funFact || '')}</textarea></label>
@@ -7749,11 +7770,12 @@ function inlineCategoryEditorMarkup(category = {}) {
       <label><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false && !category.parentKey ? 'checked' : ''} ${category.parentKey ? 'disabled' : ''}> ${category.parentKey ? 'Child Groups stay off the Homepage' : 'Show on Homepage'}</label>
       <label>Order<input name="order" type="number" value="${escapeHtml(String(category.order ?? 0))}"></label>
     </details>
-    <details open><summary>Category card</summary>
-      <p class="admin-note">The homepage card uses the authoritative Category title and description above.</p>
-      <label>Change Category Image <small>Choose an existing repository path beginning with images/</small><input name="cardImage" value="${escapeHtml(card.image || '')}"></label>
-      <label>Change Category Background <small>Leave blank to use the shared storefront background</small><input name="cardBackgroundImage" value="${escapeHtml(card.backgroundImage || '')}"></label>
-      <button type="button" data-inline-use-shared-category-background>Use Shared Category Background</button>
+    <details open><summary>${category.parentKey ? 'Child Group presentation' : 'Homepage Collection Card — Featured Standee Categories'}</summary>
+      <p class="admin-note">${category.parentKey ? 'These settings belong to this Child Group.' : 'This card represents the Main Collection on the homepage. Its image and background do not change any Product / Standee or Product Showroom Background.'}</p>
+      ${category.parentKey ? '' : `<label>Representative Product / Standee<select name="representativeProductSlug"><option value="">No representative selected</option>${products.map((product) => `<option value="${escapeHtml(product.slug)}" ${card.representativeProductSlug === product.slug ? 'selected' : ''}>${escapeHtml(product.title || product.slug)}</option>`).join('')}</select></label>`}
+      <label>Change ${category.parentKey ? 'Child Group' : 'Homepage Collection Card'} Image <small>Choose an existing repository path beginning with images/</small><input name="cardImage" value="${escapeHtml(card.image || '')}"></label>
+      <label>Change ${category.parentKey ? 'Child Group' : 'Homepage Collection Card'} Background <small>Leave blank to use the shared storefront background</small><input name="cardBackgroundImage" value="${escapeHtml(card.backgroundImage || '')}"></label>
+      <button type="button" data-inline-use-shared-category-background>Use Shared Background</button>
     </details>
     <details open><summary>Category-wide display settings</summary>
       <p class="admin-note">These are the same normalized Category display settings used by Dashboard preview and the published storefront.</p>
@@ -7779,7 +7801,7 @@ function inlineCategoryEditorMarkup(category = {}) {
       <button type="button" data-inline-reset-selected-overrides>Reset Selected Products to Category Settings</button>
       <button type="button" data-inline-reset-category>Reset Category to Global Defaults</button>
     </details>
-    <button type="submit">Save Category Privately</button>
+    <button type="submit">Save Draft</button>
   `;
 }
 
@@ -7849,11 +7871,12 @@ async function saveInlineRecordEditor(event) {
     };
     const cardCandidate = {
       image: String(data.get('cardImage') || '').trim(),
-      backgroundImage: String(data.get('cardBackgroundImage') || '').trim()
+      backgroundImage: String(data.get('cardBackgroundImage') || '').trim(),
+      representativeProductSlug: base.parentKey ? '' : String(data.get('representativeProductSlug') || '')
     };
     const displayCandidate = categoryDisplaySettingsFromForm(form);
     const rootPatch = changedInlineFields(base, candidate, ['title', 'description', 'funFact', 'page', 'visible', 'homepageVisible', 'order']);
-    const cardPatch = changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage']);
+    const cardPatch = changedInlineFields(base.card || {}, cardCandidate, ['image', 'backgroundImage', 'representativeProductSlug']);
     const displayPatch = JSON.stringify(base.displaySettings || {}) === JSON.stringify(displayCandidate) ? {} : displayCandidate;
     let saved = true;
     if (Object.keys(rootPatch).length) saved = await saveStorefrontCategoryPatch(panel.dataset.recordKey, '', rootPatch, base);
@@ -7865,7 +7888,7 @@ async function saveInlineRecordEditor(event) {
       const refreshed = window.mvpluxLiveAdminSettings?.categories?.[panel.dataset.recordKey] || base;
       saved = await saveStorefrontCategoryPatch(panel.dataset.recordKey, 'displaySettings', displayPatch, refreshed);
     }
-    status.textContent = saved ? 'Saved Privately — customers cannot see this yet.' : 'Category save failed — change was not saved.';
+    status.textContent = saved ? 'Draft Saved — Private' : `${base.parentKey ? 'Child Group' : 'Main Collection'} save failed — change was not saved.`;
     if (saved) panel._baseRecord = structuredClone(window.mvpluxLiveAdminSettings?.categories?.[panel.dataset.recordKey] || { ...base, ...rootPatch, card: { ...(base.card || {}), ...cardPatch } });
     return;
   }
@@ -7919,7 +7942,7 @@ function openInlineRecordEditor(element = inlineAdminSelectedRecordElement || in
   if (context.type === 'category-card') {
     const category = structuredClone(getAdminCategories()[context.categoryKey] || {});
     panel._baseRecord = category;
-    panel.querySelector('[data-inline-record-title]').textContent = `Edit category: ${category.title || context.categoryKey}`;
+    panel.querySelector('[data-inline-record-title]').textContent = `Edit ${category.parentKey ? 'Child Group' : 'Main Collection'}: ${category.title || context.categoryKey}`;
     form.innerHTML = inlineCategoryEditorMarkup(category);
   } else {
     const product = structuredClone(getManagedProductBySlug(context.slug) || {});

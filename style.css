@@ -6593,6 +6593,13 @@ button[aria-label="Add to cart"]::before {
 .admin-category-edit-form { margin-top: 12px; padding: 14px; border: 1px solid rgba(212,175,55,.2); border-radius: 10px; }
 .admin-category-deletions { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(255,151,151,.32); border-radius: 12px; }
 .admin-category-deletions article { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+#categories .admin-category-migration { display: grid; gap: 12px; margin-bottom: 16px; padding: 16px; border: 1px solid rgba(232,168,55,.58); border-radius: 12px; background: rgba(38,27,8,.72); }
+#categories .admin-category-migration h3,
+#categories .admin-category-migration p { margin: 0; }
+#categories .admin-category-migration-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 8px; }
+#categories .admin-category-migration-list article { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid rgba(232,168,55,.28); border-radius: 9px; background: rgba(0,0,0,.25); }
+#categories .admin-category-migration-list span { color: #ffd29a; font-size: .75rem; font-weight: 900; }
+#categories .admin-category-migration-list small { color: var(--admin-muted); overflow-wrap: anywhere; }
 .admin-master-category-card .button-link { display: inline-flex; margin-top: auto; }
 #categories .admin-child-groups-panel { grid-column: 1 / -1; padding: 12px; border: 1px solid rgba(212,175,55,.2); border-radius: 10px; }
 #categories .admin-child-groups-panel > summary { cursor: pointer; color: var(--admin-gold-light); font-weight: 850; }

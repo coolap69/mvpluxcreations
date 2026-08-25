@@ -31,19 +31,19 @@ function lifecycleRuntime() {
     categories: {
       sports: {
         key: 'sports', title: 'Sport Legends', description: 'Sports', page: 'sports-legends.html', visible: true, homepageVisible: true, order: 1,
-        card: { image: 'images/sports-a.png', backgroundImage: 'images/stage-a.png' },
+        card: { image: 'images/sports-a.png', backgroundImage: 'images/stage-a.png', representativeProductSlug: 'kobe-bryant' },
         displaySettings: { standeeSizePercent: 80, standeeLeftPercent: 0, standeeVerticalPercent: 0 }
       },
       music: {
         key: 'music', title: 'Music Artists', description: 'Music', page: 'music-artists.html', visible: true, homepageVisible: true, order: 2,
-        card: { image: 'images/music-a.png', backgroundImage: 'images/stage-a.png' },
+        card: { image: 'images/music-a.png', backgroundImage: 'images/stage-a.png', representativeProductSlug: 'performer-a' },
         displaySettings: { standeeSizePercent: 75, standeeLeftPercent: -3, standeeVerticalPercent: 4 }
       }
     }
   };
   const drafts = {
-    sports: { ...structuredClone(published.categories.sports), card: { image: 'images/sports-b.png', backgroundImage: 'images/stage-b.png' }, displaySettings: { standeeSizePercent: 120, standeeLeftPercent: 20, standeeVerticalPercent: -10 } },
-    music: { ...structuredClone(published.categories.music), card: { image: 'images/music-b.png', backgroundImage: 'images/stage-b.png' }, displaySettings: { standeeSizePercent: 132, standeeLeftPercent: 16, standeeVerticalPercent: -12 } }
+    sports: { ...structuredClone(published.categories.sports), card: { image: 'images/sports-b.png', backgroundImage: 'images/stage-b.png', representativeProductSlug: 'michael-jordan' }, displaySettings: { standeeSizePercent: 120, standeeLeftPercent: 20, standeeVerticalPercent: -10 } },
+    music: { ...structuredClone(published.categories.music), card: { image: 'images/music-b.png', backgroundImage: 'images/stage-b.png', representativeProductSlug: 'performer-b' }, displaySettings: { standeeSizePercent: 132, standeeLeftPercent: 16, standeeVerticalPercent: -12 } }
   };
   return { window, published, drafts };
 }
@@ -102,6 +102,7 @@ Deno.test('shared scoped Category publish moves the saved normalized draft into 
     });
     assert(result.ok && publishedRequest, `${categoryKey} shared Category publication must complete`);
     assert(publishedRequest.categories[categoryKey].card.image === runtime.drafts[categoryKey].card.image, `${categoryKey} published snapshot must contain normalized draft image B`);
+    assert(publishedRequest.categories[categoryKey].card.representativeProductSlug === runtime.drafts[categoryKey].card.representativeProductSlug, `${categoryKey} published snapshot must retain the representative Product / Standee reference`);
     assert(JSON.stringify(publishedRequest.categories[categoryKey].displaySettings) === JSON.stringify(runtime.drafts[categoryKey].displaySettings), `${categoryKey} published snapshot must contain the exact normalized draft geometry`);
     const legacySlug = categoryKey === 'sports' ? 'sport-legend-standee' : 'music-artist-standee';
     assert(publishedRequest.categoryDisplayCards[legacySlug].cutoutImage.includes('legacy-'), `${categoryKey} scoped publish must not copy normalized visuals into the legacy compatibility store`);
@@ -109,8 +110,11 @@ Deno.test('shared scoped Category publish moves the saved normalized draft into 
 
     const grid = renderFreshHomepage(runtime.window, structuredClone(publishedAfter));
     const image = grid.querySelector(`[data-admin-category-key="${categoryKey}"] .product-cutout`);
+    const background = grid.querySelector(`[data-admin-category-key="${categoryKey}"] .category-background-layer`);
     const expected = runtime.window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(resolve(runtime.drafts[categoryKey], 'published'));
     assert(image?.getAttribute('src') === runtime.drafts[categoryKey].card.image, `${categoryKey} fresh customer DOM must use published image B`);
+    assert(background?.style.backgroundImage.includes(runtime.drafts[categoryKey].card.backgroundImage), `${categoryKey} fresh customer DOM must use the exact published Homepage Collection Card background`);
+    assert(grid.querySelector(`[data-admin-category-key="${categoryKey}"] .product-image-link`)?.getAttribute('href').includes(`product=${runtime.drafts[categoryKey].card.representativeProductSlug}`), `${categoryKey} customer link must open the Main Collection with its representative Product / Standee selected`);
     assert(image.style.height === `${expected.imageSizePercent}%` && image.style.left === `${expected.imageLeftPercent}%` && image.style.bottom === `${expected.imageBottomPercent}%`, `${categoryKey} fresh customer DOM must reconstruct published size and X/Y`);
   }
 });

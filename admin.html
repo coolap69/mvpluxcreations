@@ -171,12 +171,13 @@
 
         <form id="createCategoryForm" class="admin-create-form admin-visual-builder" data-builder="category">
           <div class="admin-builder-preview-panel">
-            <div><p class="admin-eyebrow">Live preview</p><h3>Create Main Category / Collection</h3></div>
+            <div><p class="admin-eyebrow">Live preview</p><h3>Create Main Collection</h3></div>
             <div class="admin-create-preview" data-create-category-preview></div>
             <p class="admin-note">This preview uses the same card shape customers see on the storefront.</p>
           </div>
           <div class="admin-builder-form-panel">
-            <h3>Main Category / Collection Details</h3>
+            <h3>Main Collection Details</h3>
+            <p class="admin-note">A Main Collection organizes related Products / Standees and controls a customer browsing page. Creating it does not create a Product / Standee.</p>
             <p class="admin-note" data-builder-availability>This saves privately. Customers cannot see it until it is approved and published.</p>
             <div class="admin-input-group">
               <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
@@ -200,7 +201,7 @@
               <label class="admin-visible-toggle"><input name="homepageVisible" type="checkbox" checked> Show on Homepage</label>
               <fieldset class="admin-display-controls"><legend>Homepage Collection Card Display</legend>
                 <label>Background Position<select name="backgroundPosition"><option value="center center">Center</option><option value="left center">Left</option><option value="right center">Right</option><option value="center top">Top</option><option value="center bottom">Bottom</option></select></label>
-                <label>Category Image Size<input name="standeeSizePercent" type="range" min="20" max="140" step="1" value="63"></label>
+                <label>Homepage Collection Card Image Size<input name="standeeSizePercent" type="range" min="10" max="250" step="1" value="63"></label>
                 <label>Left / Right<input name="standeeLeftPercent" type="range" min="-50" max="50" step="1" value="0"></label>
                 <label>Up / Down<input name="standeeVerticalPercent" type="range" min="-50" max="50" step="1" value="0"></label>
                 <label>Logo Size<input name="logoSizePercent" type="range" min="20" max="140" step="1" value="82"></label>
@@ -274,8 +275,8 @@
     <section class="admin-panel" id="categories" data-admin-area="categories" hidden>
       <div class="admin-panel-header">
         <div>
-          <h2>Main Categories / Collections</h2>
-          <p class="admin-note">Manage Main Collections, their Homepage Collection Cards, and the Child Groups and Product / Standee assignments inside them.</p>
+          <h2>Collections</h2>
+          <p class="admin-note"><strong>Manage the collections customers use to browse your standees.</strong> Each Main Collection can have a Homepage Collection Card in Featured Standee Categories, optional Child Groups, and assigned Products / Standees. Editing a Homepage Collection Card changes how that collection is represented on the homepage; it does not edit the individual Products / Standees inside the collection.</p>
         </div>
         <div class="admin-panel-actions">
           <button class="admin-button admin-button-primary" type="button" data-new-category>+ New Main Collection</button>
@@ -283,7 +284,7 @@
       </div>
       <div class="admin-category-toolbar">
         <label>Search Main Collections<input id="adminCategorySearch" type="search" placeholder="Search name, key, or page"></label>
-        <div class="admin-category-visibility-filters" role="group" aria-label="Filter Categories by customer visibility">
+        <div class="admin-category-visibility-filters" role="group" aria-label="Filter Main Collections by customer visibility">
           <button type="button" class="active" data-category-visibility-filter="all" aria-pressed="true">All Collections</button>
           <button type="button" data-category-visibility-filter="visible" aria-pressed="false">Visible</button>
           <button type="button" data-category-visibility-filter="hidden" aria-pressed="false">Hidden</button>
@@ -292,7 +293,7 @@
         <button id="deleteSelectedCategories" class="admin-button admin-button-warning" type="button" hidden disabled>Delete Selected Collections</button>
       </div>
       <details id="adminCategoryBuilder" class="admin-category-create-panel">
-        <summary>+ New Main Category / Collection</summary>
+        <summary>+ New Main Collection</summary>
         <div id="adminCategoryBuilderMount"></div>
       </details>
       <div id="adminCategoryDuplicateNotice" class="admin-status-message" hidden></div>
@@ -479,8 +480,8 @@
   <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
   <script src="pricing.js?v=20260823-merchandise-height"></script>
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
-  <script src="category-presentation.js?v=20260823-category-lifecycle"></script>
-  <script src="category-publisher.js?v=20260823-category-lifecycle"></script>
-  <script src="admin.js?v=20260824-collection-product-ownership"></script>
+  <script src="category-presentation.js?v=20260824-collection-representative"></script>
+  <script src="category-publisher.js?v=20260824-collection-representative"></script>
+  <script src="admin.js?v=20260824-collection-representative"></script>
 </body>
 </html>

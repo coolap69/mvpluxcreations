@@ -34,6 +34,7 @@
       funFact: String(category.funFact || ''),
       image: String(category.card?.image || ''),
       background: String(category.card?.backgroundImage || category.displaySettings?.backgroundImage || options.defaultBackground || ''),
+      representativeProductSlug: String(category.card?.representativeProductSlug || ''),
       page: String(category.page || ''),
       visible: category.visible !== false,
       homepageVisible: !category.parentKey && category.homepageVisible !== false,

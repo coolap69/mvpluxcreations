@@ -274,6 +274,7 @@ function normalizeCategoryCard(value = {}) {
     description: String(source.description || ''),
     image: String(source.image || source.cutoutImage || ''),
     backgroundImage: String(source.backgroundImage || ''),
+    representativeProductSlug: String(source.representativeProductSlug || ''),
     visible: source.visible !== false,
     order: Number.isFinite(Number(source.order)) ? Number(source.order) : 0
   };
@@ -342,6 +343,53 @@ export function normalizeCategories({ categoryDefinitions = [], existingCategori
     };
   });
   return categories;
+}
+
+export function buildMainCollectionMigrationDrafts({
+  candidateCategories = {},
+  privateCategories = {},
+  publishedCategories = {},
+  publishedCategorySettings = {},
+  allowedKeys = [],
+  migratedAt = new Date().toISOString()
+} = {}) {
+  const allowed = new Set(Array.isArray(allowedKeys) ? allowedKeys.filter(Boolean) : []);
+  const privateRecords = asObject(privateCategories);
+  const publishedRecords = asObject(publishedCategories);
+  const categorySettings = asObject(publishedCategorySettings);
+  return Object.fromEntries(Object.entries(asObject(candidateCategories)).flatMap(([key, value]) => {
+    if ((allowed.size && !allowed.has(key)) || privateRecords[key] || publishedRecords[key]) return [];
+    const source = asObject(value);
+    if (!key || source.parentKey) return [];
+    const sourceCard = asObject(source.card);
+    const draft = {
+      key,
+      parentKey: '',
+      title: String(sourceCard.title || source.title || key),
+      description: String(sourceCard.description || source.description || ''),
+      funFact: String(source.funFact || ''),
+      page: String(source.page || ''),
+      visible: source.visible !== false,
+      homepageVisible: source.homepageVisible !== false && sourceCard.visible !== false,
+      order: Number.isFinite(Number(source.order)) ? Number(source.order) : 0,
+      card: {
+        title: '',
+        description: '',
+        image: String(sourceCard.image || ''),
+        backgroundImage: String(sourceCard.backgroundImage || ''),
+        representativeProductSlug: String(sourceCard.representativeProductSlug || '')
+      },
+      displaySettings: normalizeDisplaySettings({
+        ...asObject(source.displaySettings),
+        ...asObject(categorySettings[key])
+      }),
+      createdAt: source.createdAt || migratedAt,
+      updatedAt: migratedAt,
+      draftStatus: 'draft',
+      approvalStatus: 'draft'
+    };
+    return [[key, draft]];
+  }));
 }
 
 export function buildMigrationBackup({ checkpointCommit = ADMIN_ARCHITECTURE_ROLLBACK_COMMIT, capturedAt = new Date().toISOString(), adminGlobal = {}, siteEditRows = [], publishedSettings = {}, fallbackCatalog = [], categoryCardDefaults = [] } = {}) {
