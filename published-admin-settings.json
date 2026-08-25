@@ -1,7 +1,7 @@
 {
-  "publishedAt": "2026-08-24T07:32:47.154Z",
-  "title": "Publish Kobe Bryant Slam Dunk Cardboard Standee",
-  "changeSummary": "- Created product/card: Kobe Bryant Slam Dunk Cardboard Standee\n- Added cutout image for Kobe Bryant Slam Dunk Cardboard Standee: images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png\n- Added background image for Kobe Bryant Slam Dunk Cardboard Standee: images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg\n- Assigned Kobe Bryant Slam Dunk Cardboard Standee to Sports",
+  "publishedAt": "2026-08-25T05:50:07.648Z",
+  "title": "Publish Jesus Welcoming Pose 2",
+  "changeSummary": "- Changed standee size for Jesus Welcoming Pose 2\n- Changed logo size for Jesus Welcoming Pose 2\n- Hid Jesus Welcoming Pose 2",
   "snapshot": {
     "version": 1,
     "schemaVersion": 2,
@@ -916,19 +916,28 @@
       },
       "jesus-welcome-2": {
         "slug": "jesus-welcome-2",
-        "custom": true,
         "title": "Jesus Welcoming Pose 2",
         "description": "shade 2",
+        "funFact": "",
         "cutoutImage": "images/FaithCelebrationStandees/Jesus/J5printD.png",
         "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
         "imageChoices": [],
         "originalHeight": "5'5",
+        "cutoutHeight": "30",
+        "cutoutLeft": "",
+        "cutoutBottom": "",
+        "logoWidth": "64",
+        "logoTop": "",
+        "stageBackgroundPosition": "",
         "categories": [
           "faith-celebration"
         ],
-        "visible": true,
+        "visible": false,
         "categoryOrder": {
           "faith-celebration": 999
+        },
+        "displayOverrides": {
+          "backgroundPosition": "center center"
         }
       },
       "captain-america-action-standee": {
