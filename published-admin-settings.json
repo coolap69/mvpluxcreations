@@ -1,7 +1,7 @@
 {
-  "publishedAt": "2026-08-25T05:50:07.648Z",
-  "title": "Publish Jesus Welcoming Pose 2",
-  "changeSummary": "- Changed standee size for Jesus Welcoming Pose 2\n- Changed logo size for Jesus Welcoming Pose 2\n- Hid Jesus Welcoming Pose 2",
+  "publishedAt": "2026-08-25T06:55:30.862Z",
+  "title": "Publish Faith / Celebration",
+  "changeSummary": "- Updated category: Faith / Celebration",
   "snapshot": {
     "version": 1,
     "schemaVersion": 2,
@@ -1301,6 +1301,38 @@
         },
         "displaySettings": {
           "backgroundPosition": "center center"
+        }
+      },
+      "faith-celebration": {
+        "key": "faith-celebration",
+        "title": "Faith / Celebration",
+        "description": "",
+        "funFact": "",
+        "page": "religious-cutouts.html",
+        "visible": true,
+        "homepageVisible": true,
+        "order": 4,
+        "card": {
+          "title": "",
+          "description": "",
+          "image": "images/FaithCelebrationStandees/Jesus/J5printD.png",
+          "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
+          "representativeProductSlug": ""
+        },
+        "displaySettings": {
+          "titleAlign": "center",
+          "descriptionAlign": "center",
+          "titleLeftPercent": 0,
+          "titleSizePercent": 100,
+          "backgroundPosition": "center center",
+          "standeeLeftPercent": 0,
+          "standeeSizePercent": 63,
+          "titleVerticalPercent": 0,
+          "backgroundSizePercent": 100,
+          "descriptionLeftPercent": 0,
+          "descriptionSizePercent": 100,
+          "standeeVerticalPercent": 0,
+          "descriptionVerticalPercent": 0
         }
       }
     },
