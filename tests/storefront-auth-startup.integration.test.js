@@ -35,8 +35,8 @@ Deno.test('sign-in submits immediately and binds only once before storefront sta
 Deno.test('sign-in requests the homepage Admin cache version while sign-up keeps immediate binding', async () => {
   const signin = await Deno.readTextFile(new URL('../signin.html', import.meta.url));
   const signup = await Deno.readTextFile(new URL('../signup.html', import.meta.url));
-  assert(signin.includes('category-presentation.js?v=20260824-collection-representative') && signin.includes('script.js?v=20260824-collection-representative'), 'signin.html must load the synchronized storefront architecture without stale cache');
-  assert(signup.includes('category-presentation.js?v=20260824-collection-representative') && signup.includes('script.js?v=20260824-collection-representative'), 'signup.html must retain the synchronized storefront architecture');
+  assert(signin.includes('category-presentation.js?v=20260824-collection-representative') && signin.includes('script.js?v=20260825-product-visual-controls'), 'signin.html must load the synchronized storefront architecture without stale cache');
+  assert(signup.includes('category-presentation.js?v=20260824-collection-representative') && signup.includes('script.js?v=20260825-product-visual-controls'), 'signup.html must retain the synchronized storefront architecture');
 });
 
 function memoryStorage(initial = {}) {

@@ -113,7 +113,7 @@ Deno.test('Category visual picker prioritizes assigned product images and search
   assert(!picker.includes('<select'), 'Category image selection must not fall back to a giant native dropdown');
 });
 
-Deno.test('Category editor uses a wide preview-first workspace with compact visible controls', async () => {
+Deno.test('Category editor uses a compact two-column preview and control workspace', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
   const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
@@ -124,8 +124,9 @@ Deno.test('Category editor uses a wide preview-first workspace with compact visi
   assert(editor.includes('admin-category-editor-workspace') && editor.includes('admin-category-preview-column') && editor.includes('admin-category-controls-column'), 'editor must expose the desktop preview/control workspace');
   assert(editor.includes('data-category-edit-preview') && !editor.includes('data-category-edit-preview hidden'), 'live preview must be visible as soon as the lazy editor mounts');
   assert(editor.includes("categoryDisplayRangeMarkup('standeeSizePercent'") && source.includes('data-category-display-number') && source.includes('data-category-display-range'), 'image placement must keep numeric and slider controls together');
-  assert(styles.includes('#categories .admin-category-editor-workspace') && styles.includes('grid-template-columns: minmax(0, 1fr)'), 'desktop editor must put the wide preview above controls');
-  assert(styles.includes('grid-template-columns: repeat(2, minmax(0, 1fr))') && styles.includes('admin-category-information'), 'desktop controls must use horizontal space instead of one tall column');
+  assert(styles.includes('#categories .admin-category-editor-workspace') && styles.includes('grid-template-columns: minmax(380px,.9fr) minmax(0,1.2fr)'), 'desktop editor must keep the large preview beside one compact controls column');
+  assert(styles.includes('#categories .admin-category-preview-column') && styles.includes('position: sticky'), 'desktop preview should remain visible while editing controls');
+  assert(styles.includes('.admin-main-collection-edit .admin-category-current-image > img') && styles.includes('height: 72px'), 'image and background references must remain compact instead of duplicating giant previews');
   assert(editor.includes('admin-category-ai-text-tools') && editor.includes('AI Assistance &amp; Advanced Text Positioning'), 'less-used AI and text positioning must be collapsible');
   assert(!editor.includes('Standee size %'), 'legacy Standee Size wording must be absent from normal Category editing');
 });

@@ -2781,8 +2781,10 @@ function sanitizePublishedProduct(slug, value) {
   if (typeof value.title === 'string' && value.title.trim()) product.title = value.title;
   if (typeof value.description === 'string') product.description = value.description;
   if (typeof value.funFact === 'string') product.funFact = value.funFact;
-  if (typeof value.cutoutImage === 'string' && value.cutoutImage.trim()) product.cutoutImage = value.cutoutImage;
-  if (typeof value.backgroundImage === 'string' && value.backgroundImage.trim()) product.backgroundImage = value.backgroundImage;
+  // An explicit published blank is authoritative: it must replace, not reveal,
+  // an older product-catalog or static HTML image.
+  if (typeof value.cutoutImage === 'string') product.cutoutImage = value.cutoutImage.trim();
+  if (typeof value.backgroundImage === 'string') product.backgroundImage = value.backgroundImage.trim();
   if (Array.isArray(value.imageChoices)) product.imageChoices = sanitizeProductImageChoices(value.imageChoices);
   if ((typeof value.originalHeight === 'string' || typeof value.originalHeight === 'number') && String(value.originalHeight).trim()) {
     product.originalHeight = value.originalHeight;
@@ -3818,7 +3820,13 @@ function selectSportsOption(index) {
 
   mainStage.style.backgroundImage = `url('${option.stage || product.backgroundImage || getShowroomStageBackground()}')`;
   mainStage.style.setProperty('--showroom-image-height', product.displayFit?.imageHeight || '80%');
-  mainImage.src = option.image;
+  if (option.image) {
+    mainImage.src = option.image;
+    mainImage.hidden = false;
+  } else {
+    mainImage.removeAttribute('src');
+    mainImage.hidden = true;
+  }
   mainImage.alt = `${product.name} ${option.label} standee preview`;
   mainImage.onload = () => {
     const isWideImage = mainImage.naturalWidth / Math.max(mainImage.naturalHeight, 1) > 0.62;
@@ -3963,7 +3971,7 @@ function getKnownStandeeForCard(card) {
   return detailed ? {
     ...detailed,
     ...managed,
-    backgrounds: detailed.backgrounds,
+    backgrounds: managed && Object.prototype.hasOwnProperty.call(managed, 'cutoutImage') ? [] : detailed.backgrounds,
     imageChoices: sanitizeProductImageChoices(managed?.imageChoices),
     slug
   } : managed;
@@ -4005,6 +4013,11 @@ function homepageCategoryRecords(categories = getAdminCategories()) {
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0) || String(left.title || left.key).localeCompare(String(right.title || right.key)));
 }
 
+function homepageCategoryEmergencyFallbackAllowed() {
+  const published = window.mvpluxPublishedAdminSettings || {};
+  return !Object.keys(published.categories || {}).length && !(published.deletedCategories || []).length;
+}
+
 function categoryDestinationWithRepresentative(page, representativeProductSlug = '') {
   const destination = String(page || '');
   if (!destination || !representativeProductSlug) return destination;
@@ -4022,7 +4035,7 @@ function renderNormalizedHomepageCategoryCards() {
   grid.replaceChildren();
   if (!categories.length) {
     grid.hidden = true;
-    if (fallback) fallback.hidden = false;
+    if (fallback) fallback.hidden = !homepageCategoryEmergencyFallbackAllowed();
     return false;
   }
   try {
@@ -4047,7 +4060,7 @@ function renderNormalizedHomepageCategoryCards() {
   } catch (error) {
     grid.replaceChildren();
     grid.hidden = true;
-    if (fallback) fallback.hidden = false;
+    if (fallback) fallback.hidden = !homepageCategoryEmergencyFallbackAllowed();
     console.error('Normalized homepage Category rendering failed; showing the emergency fallback.', error);
     return false;
   }
@@ -4437,7 +4450,7 @@ function renderManagedCategoryPageProducts() {
 function renderGenericCategoryOptions(state, options) {
   state.optionStrip.innerHTML = options.map((option, index) => `
     <button type="button" class="${index === 0 ? 'active' : ''}" data-generic-option-index="${index}">
-      <img src="${option.image}" alt="${option.label}">
+      ${option.image ? `<img src="${option.image}" alt="${option.label}">` : '<span class="product-image-choice-empty">No Product Image</span>'}
       <span>${option.label}</span>
     </button>
   `).join('');
@@ -4448,7 +4461,13 @@ function selectGenericCategoryOption(state, options, index) {
   if (!option) return;
 
   state.stage.style.backgroundImage = `url('${option.stage || getGenericCategoryFallbackStage()}')`;
-  state.image.src = option.image;
+  if (option.image) {
+    state.image.src = option.image;
+    state.image.hidden = false;
+  } else {
+    state.image.removeAttribute('src');
+    state.image.hidden = true;
+  }
   state.image.alt = `${state.name.textContent} ${option.label} preview`;
 
   state.optionStrip.querySelectorAll('[data-generic-option-index]').forEach((button) => {
@@ -4460,11 +4479,11 @@ function buildGenericCategoryOptions(card, backgroundImages) {
   const product = getKnownStandeeForCard(card);
   const imageChoices = sanitizeProductImageChoices(product?.imageChoices)
     .filter((choice) => choice.image !== product?.cutoutImage);
-  if (product?.cutoutImage && imageChoices.length) {
+  if (imageChoices.length) {
     const primaryChoice = product.backgrounds?.find((choice) => choice.image === product.cutoutImage);
     const primaryLabel = primaryChoice?.name || 'Main image';
     return [
-      { label: primaryLabel, image: product.cutoutImage, stage: primaryChoice?.stage || product.backgroundImage || getGenericCategoryFallbackStage() },
+      ...(product.cutoutImage ? [{ label: primaryLabel, image: product.cutoutImage, stage: primaryChoice?.stage || product.backgroundImage || getGenericCategoryFallbackStage() }] : []),
       ...imageChoices.map((choice) => ({
         ...choice,
         stage: choice.stage || product.backgroundImage || getGenericCategoryFallbackStage()
@@ -4481,7 +4500,8 @@ function buildGenericCategoryOptions(card, backgroundImages) {
       .sort((a, b) => Number(isNoBackgroundOption(b)) - Number(isNoBackgroundOption(a)));
   }
 
-  const cardImage = card.querySelector('img')?.getAttribute('src') || '';
+  const hasNormalizedImage = Boolean(product && Object.prototype.hasOwnProperty.call(product, 'cutoutImage'));
+  const cardImage = hasNormalizedImage ? String(product.cutoutImage || '') : card.querySelector('img')?.getAttribute('src') || '';
   return [{
     label: 'No Background',
     image: cardImage,
@@ -4643,11 +4663,12 @@ function getStandeeBySlug(slug) {
     product.title = managed?.title || detailed?.title || slug;
     product.description = managed?.description || detailed?.description || '';
     product.originalHeight = managed?.originalHeight || detailed?.originalHeight || 78;
-    product.image = managed?.cutoutImage || detailed?.image;
+    product.image = managed && Object.prototype.hasOwnProperty.call(managed, 'cutoutImage') ? managed.cutoutImage : detailed?.image;
     product.category = (managed?.categories || [])
       .map((key) => (window.MVPLUX_PRODUCT_CATEGORIES || []).find((category) => category.key === key)?.label)
       .filter(Boolean)
       .join(' / ') || detailed?.category || 'MVPLUXCREATIONS Standee';
+    const managedImageIsAuthoritative = Boolean(managed && Object.prototype.hasOwnProperty.call(managed, 'cutoutImage'));
     const managedChoices = sanitizeProductImageChoices(managed?.imageChoices)
       .filter((choice) => choice.image !== product.image);
     product.backgrounds = managedChoices.length
@@ -4659,7 +4680,7 @@ function getStandeeBySlug(slug) {
             stage: choice.stage || managed?.backgroundImage || getShowroomStageBackground()
           }))
         ]
-      : detailed?.backgrounds?.length
+      : !managedImageIsAuthoritative && detailed?.backgrounds?.length
         ? detailed.backgrounds
         : [{ name: 'Selected Background', image: product.image, stage: managed?.backgroundImage || getShowroomStageBackground() }];
     product.facts = detailed?.facts || ['Original size sets the starting price.', 'Custom sizes are available.'];
@@ -4723,6 +4744,7 @@ function setStandeeBackground(index) {
 
   const hero = root.querySelector('.standee-hero-art');
   const image = root.querySelector('.standee-main-cutout');
+  const emptyImage = root.querySelector('.standee-main-cutout-empty');
   if (hero) {
     const stage = selected.stage && selected.stage !== selected.image
       ? selected.stage
@@ -4730,7 +4752,15 @@ function setStandeeBackground(index) {
     hero.style.backgroundImage = `url("${stage}")`;
   }
   if (image) {
-    image.src = selected.image;
+    if (selected.image) {
+      image.src = selected.image;
+      image.hidden = false;
+      if (emptyImage) emptyImage.hidden = true;
+    } else {
+      image.removeAttribute('src');
+      image.hidden = true;
+      if (emptyImage) emptyImage.hidden = false;
+    }
     image.alt = selected.name;
   }
 
@@ -4754,7 +4784,7 @@ function renderStandeeDetailPage() {
 
   const backgroundButtons = product.backgrounds.map((background, index) => `
     <button type="button" class="${index === 0 ? 'active' : ''}" data-standee-bg-index="${index}" onclick="setStandeeBackground(${index})">
-      <img src="${background.image}" alt="">
+      ${background.image ? `<img src="${background.image}" alt="">` : '<span class="product-image-choice-empty">No Product Image</span>'}
       <span>${background.name}</span>
     </button>
   `).join('');
@@ -4769,7 +4799,8 @@ function renderStandeeDetailPage() {
   root.innerHTML = `
     <section class="standee-detail-hero">
       <div class="standee-hero-art" style="background-image: url('${firstStage}');">
-        <img class="standee-main-cutout product-cutout" src="${product.image}" alt="${product.title}">
+        <img class="standee-main-cutout product-cutout" ${product.image ? `src="${product.image}"` : 'hidden'} alt="${product.title}">
+        <span class="standee-main-cutout-empty" ${product.image ? 'hidden' : ''}>No Product Image Selected</span>
       </div>
       <div class="standee-purchase-panel product-card">
         <a class="standee-back-link" href="javascript:history.back()">Back to category</a>
@@ -4849,6 +4880,9 @@ function productCardMarkup(product) {
   const radioName = `${slug.replace(/-/g, '')}SizeMode`;
   const originalHeight = resolveSellableProductHeight(product.originalHeight);
   const originalPrice = calculateCutoutPrice(originalHeight);
+  const productImage = Object.prototype.hasOwnProperty.call(product, 'cutoutImage')
+    ? String(product.cutoutImage || '')
+    : 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png';
 
   return `
     <div class="product-card" data-category="custom" data-name="${product.title || 'Custom card'}" data-admin-card-key="${slug}">
@@ -4856,7 +4890,7 @@ function productCardMarkup(product) {
         <div class="product-stage-preview" style="background-image: url('${product.backgroundImage || 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'}');">
           <img class="product-stage-bg" src="${product.backgroundImage || 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'}" alt="">
           <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
-          <img class="product-cutout" src="${product.cutoutImage || 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png'}" alt="">
+          ${productImage ? `<img class="product-cutout" src="${productImage}" alt="">` : '<span class="product-cutout-empty" aria-label="No Product Image Selected"></span>'}
         </div>
       </a>
       <h3><a href="${product.href || '#shop'}" class="product-title-link">${product.title || 'Custom Standee'}</a></h3>
@@ -4925,11 +4959,19 @@ function applyAdminProductOverrides(builder) {
 
   if (override.title && titleLink) titleLink.textContent = override.title;
   if (override.description && description) description.textContent = override.description;
-  if (override.cutoutImage && cutout) {
-    cutout.src = override.cutoutImage;
-    cutout.dataset.adminFallbackSrc = override.cutoutImage;
+  if (Object.prototype.hasOwnProperty.call(override, 'cutoutImage') && cutout) {
+    if (override.cutoutImage) {
+      cutout.src = override.cutoutImage;
+      cutout.dataset.adminFallbackSrc = override.cutoutImage;
+      cutout.hidden = false;
+    } else {
+      cutout.removeAttribute('src');
+      delete cutout.dataset.adminFallbackSrc;
+      cutout.hidden = true;
+    }
   }
-  const resolvedBackground = override.backgroundImage || display.backgroundImage;
+  const hasProductBackground = Object.prototype.hasOwnProperty.call(override, 'backgroundImage');
+  const resolvedBackground = override.backgroundImage || display.backgroundImage || (hasProductBackground ? getShowroomStageBackground() : '');
   if (resolvedBackground && stage) {
     stage.style.backgroundImage = `url("${resolvedBackground}")`;
     if (stageImage) {

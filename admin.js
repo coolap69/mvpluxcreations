@@ -674,7 +674,7 @@ async function saveAdminProductFieldPatch(slug, patch, baseRecord, form = null, 
     adminLiveRevision = Number(data?.revision) || (latest.revision + 1);
     localStorage.setItem('mvpluxAdminProducts', JSON.stringify(adminLiveSettings.products || products));
     announceAdminSave('admin-global', adminLiveRevision, [`products:${slug}`]);
-    setProductSaveState(form, 'Saved Privately', 'saved');
+    setProductSaveState(form, 'DRAFT SAVED — PRIVATE', 'saved');
     return { ok: true, record: { ...latestRecord, ...patch }, revision: adminLiveRevision };
   } catch (error) {
     adminLastSaveError = error?.message || 'Unknown Supabase error.';
@@ -1460,6 +1460,7 @@ function buildNormalizedPublishSnapshot() {
     if (product.approvalStatus === 'draft') return;
     products[slug] = publishableSnapshotProduct(product, product, archived.has(slug));
   });
+  deleted.forEach((slug) => delete products[slug]);
 
   Object.keys(products).forEach((slug) => {
     const product = products[slug];
@@ -1777,12 +1778,11 @@ async function loadPublishedPublishBaseline() {
 function productLifecycleState(product, saved, archived) {
   const privateRecord = saved[product.slug] || {};
   const current = publishableProduct({ ...product, ...privateRecord }, archived.has(product.slug));
-  const publishedSnapshot = adminLiveSettings?.lastPublishedSnapshot || adminLastSuccessfulSnapshot;
+  const publishedSnapshot = adminLiveSettings?.lastPublishedSnapshot || adminLastSuccessfulSnapshot || adminPublishedBaseline;
   const published = publishedSnapshot?.products?.[product.slug];
-  if (!published) return { key: 'draft', label: 'Draft' };
-  if (semanticProductEqual(current, published)) return { key: 'published', label: 'Published' };
-  if (privateRecord.approvalStatus === 'draft' || privateRecord.draftStatus === 'draft') return { key: 'draft', label: 'Draft' };
-  return { key: 'unpublished', label: 'Unpublished Changes' };
+  if (!published) return { key: 'draft', label: 'DRAFT SAVED — PRIVATE' };
+  if (semanticProductEqual(current, published)) return { key: 'published', label: 'PUBLISHED TO WEBSITE' };
+  return { key: 'unpublished', label: 'PUBLISHED VERSION EXISTS · DRAFT HAS UNPUBLISHED CHANGES' };
 }
 
 function getProductLifecycleCounts() {
@@ -3012,6 +3012,16 @@ function creationImageLibrary(kind = 'product') {
   return [...values].sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
 }
 
+function productVisualOptionsMarkup(kind, selected = '') {
+  const selectedPath = String(selected || '').trim();
+  const paths = creationImageLibrary(kind);
+  if (selectedPath && !paths.includes(selectedPath) && validatePublishImagePath(selectedPath)) paths.unshift(selectedPath);
+  const prompt = kind === 'background'
+    ? '<option value="">Use Default / Clean Showroom Background</option>'
+    : '<option value="">Choose a Product / Standee Image</option>';
+  return prompt + paths.map((path) => `<option value="${escapeAdminHtml(path)}" ${path === selectedPath ? 'selected' : ''}>${escapeAdminHtml(creationImageLabel(path))}</option>`).join('');
+}
+
 function populateCreationImagePickers(form) {
   form?.querySelectorAll('[data-admin-image-picker]').forEach((select) => {
     const multiple = select.multiple;
@@ -3448,10 +3458,10 @@ async function deleteProduct(slug) {
   delete products[slug];
   const patch = { products };
   if (isCustom) patch.customProducts = readCustomProducts().filter((product) => product.slug !== slug);
-  if (!isCustom) patch.deletedProducts = [...new Set([...readDeletedProducts(), slug])];
+  patch.deletedProducts = [...new Set([...readDeletedProducts(), slug])];
   if (!await saveProductWorkflowPatch(patch)) return;
   renderAdminProducts();
-  setStatus('Product record deleted. Its image file was not changed.');
+  setStatus('Product deletion saved privately. Its image file was not changed. Publish the Product deletion when ready.');
 }
 
 async function returnProductToDraft(slug) {
@@ -3509,8 +3519,7 @@ function productPreviewMarkup(value) {
       <p>${description}</p>
       <div class="admin-preview-stage" style="background-image: url('${backgroundImage}'); background-position: ${backgroundPosition};">
         <img class="admin-preview-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="" style="width: ${logoWidth}%; top: ${logoTop}%;">
-        <img class="admin-preview-cutout" src="${cutoutImage}" alt="" style="height: ${cutoutHeight}%; left: ${cutoutLeft}%; bottom: ${cutoutBottom}%;">
-        <button class="admin-resize-handle admin-cutout-resize" type="button" aria-label="Resize standee"></button>
+        ${cutoutImage ? `<img class="admin-preview-cutout" src="${cutoutImage}" alt="" style="height: ${cutoutHeight}%; left: ${cutoutLeft}%; bottom: ${cutoutBottom}%;"><button class="admin-resize-handle admin-cutout-resize" type="button" aria-label="Resize standee"></button>` : '<span class="admin-preview-no-product-image">No Product Image Selected</span>'}
         <button class="admin-resize-handle admin-logo-resize" type="button" aria-label="Resize logo"></button>
         <div class="admin-preview-choice-row">
           <span>Original</span>
@@ -3597,11 +3606,11 @@ function attachPreviewControls(form) {
   const logo = form.querySelector('.admin-preview-logo');
   const cutoutHandle = form.querySelector('.admin-cutout-resize');
   const logoHandle = form.querySelector('.admin-logo-resize');
-  if (!preview || !cutout || cutout.dataset.controlsReady) return;
+  if (!preview || preview.dataset.controlsReady) return;
 
-  cutout.dataset.controlsReady = 'true';
-  cutout.title = 'Drag to move. Drag gold corner to resize.';
-  logo.title = 'Drag logo to move. Drag gold corner to resize.';
+  preview.dataset.controlsReady = 'true';
+  if (cutout) cutout.title = 'Drag to move. Drag gold corner to resize.';
+  if (logo) logo.title = 'Drag logo vertically. Drag gold corner to resize.';
   if (cutoutHandle) cutoutHandle.title = 'Drag to resize standee.';
   if (logoHandle) logoHandle.title = 'Drag to resize logo.';
 
@@ -3631,8 +3640,8 @@ function attachPreviewControls(form) {
     window.addEventListener('pointerup', stop);
   };
 
-  cutout.addEventListener('pointerdown', (event) => dragTarget(event, 'cutout'));
-  logo.addEventListener('pointerdown', (event) => dragTarget(event, 'logo'));
+  cutout?.addEventListener('pointerdown', (event) => dragTarget(event, 'cutout'));
+  logo?.addEventListener('pointerdown', (event) => dragTarget(event, 'logo'));
 
   const resizeTarget = (event, name, min, max, baseValue, direction = 1) => {
     event.preventDefault();
@@ -3657,14 +3666,14 @@ function attachPreviewControls(form) {
   cutoutHandle?.addEventListener('pointerdown', (event) => resizeTarget(event, 'cutoutHeight', 30, 100, 63));
   logoHandle?.addEventListener('pointerdown', (event) => resizeTarget(event, 'logoWidth', 30, 100, 82));
 
-  cutout.addEventListener('wheel', (event) => {
+  cutout?.addEventListener('wheel', (event) => {
     event.preventDefault();
     const field = form.querySelector('[name="cutoutHeight"]');
     const current = parseFloat(field.value || '63');
     updateFieldValue(form, 'cutoutHeight', clamp(current + (event.deltaY < 0 ? 2 : -2), 30, 100));
   });
 
-  logo.addEventListener('wheel', (event) => {
+  logo?.addEventListener('wheel', (event) => {
     event.preventDefault();
     const field = form.querySelector('[name="logoWidth"]');
     const current = parseFloat(field.value || '82');
@@ -3692,10 +3701,10 @@ function collectProductFormData(form, dirtyFields = form?._adminDirtyFields || n
   return patch;
 }
 
-async function saveProductForm(form, message = 'Saved product changes live. Go back to Shop to see them.') {
+async function saveProductForm(form, message = 'DRAFT SAVED — PRIVATE. Publish to Website when customers should see these changes.') {
   const patch = collectProductFormData(form);
   if (!Object.keys(patch).length) {
-    setProductSaveState(form, 'Saved — no unsaved fields', 'saved');
+    setProductSaveState(form, 'DRAFT SAVED — PRIVATE', 'saved');
     setStatus('No product fields have changed.');
     return true;
   }
@@ -3745,7 +3754,7 @@ async function saveProductForm(form, message = 'Saved product changes live. Go b
   form.querySelector('[data-product-save-conflict]')?.remove();
   renderAdminExportPreview();
   if (form._adminDirtyFields?.size) {
-    setProductSaveState(form, `Unsaved changes: ${[...form._adminDirtyFields].join(', ')}`, 'unsaved');
+    setProductSaveState(form, `UNSAVED CHANGES — ${[...form._adminDirtyFields].join(', ')}`, 'unsaved');
     setStatus('Earlier fields saved; newer edits are still unsaved.');
   } else {
     setStatus(message);
@@ -3765,7 +3774,7 @@ function markProductFieldDirty(form, fieldName) {
   form._adminDirtyVersions = form._adminDirtyVersions || new Map();
   form._adminDirtyVersions.set(fieldName, (form._adminDirtyVersions.get(fieldName) || 0) + 1);
   form._adminDirtyFields.add(fieldName);
-  setProductSaveState(form, `Unsaved changes: ${[...form._adminDirtyFields].join(', ')}`, 'unsaved');
+  setProductSaveState(form, `UNSAVED CHANGES — ${[...form._adminDirtyFields].join(', ')}`, 'unsaved');
 }
 
 function schedulePlacementSave(form) {
@@ -4090,34 +4099,86 @@ async function addImageChoiceToProduct(parentSlug, choice, excludedSlug = '') {
   return parent;
 }
 
+function normalizedProductVisualPatch(product, action, value = '') {
+  if (action === 'remove-product-image') return { cutoutImage: '' };
+  if (action === 'remove-background') return { backgroundImage: '' };
+  if (action === 'remove-image-choice') {
+    return { imageChoices: normalizeImageChoices(product?.imageChoices).filter((choice) => choice.image !== String(value || '')) };
+  }
+  if (action === 'replace-image-choice') {
+    const [previousPath, replacementPath] = Array.isArray(value) ? value : [];
+    return {
+      imageChoices: normalizeImageChoices(product?.imageChoices).map((choice) => (
+        choice.image === previousPath ? { ...choice, image: String(replacementPath || '').trim() } : choice
+      ))
+    };
+  }
+  return {};
+}
+
+async function removeProductMainImage(form) {
+  const field = form?.elements.namedItem('cutoutImage');
+  if (!field) return false;
+  const patch = normalizedProductVisualPatch(form._adminBaseRecord || {}, 'remove-product-image');
+  field.value = patch.cutoutImage;
+  markProductFieldDirty(form, 'cutoutImage');
+  updateProductPreview(form);
+  return saveProductForm(form, 'DRAFT SAVED — PRIVATE. Product image removed; the physical image file was not changed.');
+}
+
+async function useDefaultProductShowroomBackground(form) {
+  const field = form?.elements.namedItem('backgroundImage');
+  if (!field) return false;
+  const patch = normalizedProductVisualPatch(form._adminBaseRecord || {}, 'remove-background');
+  field.value = patch.backgroundImage;
+  markProductFieldDirty(form, 'backgroundImage');
+  updateProductPreview(form);
+  return saveProductForm(form, 'DRAFT SAVED — PRIVATE. The Product will use the default clean showroom background after publication.');
+}
+
+function resetProductVisualPlacement(form, layer) {
+  const defaults = layer === 'logo'
+    ? { logoWidth: 82, logoTop: -4 }
+    : layer === 'background'
+    ? { stageBackgroundPosition: 'center center' }
+    : { cutoutHeight: 63, cutoutLeft: 50, cutoutBottom: 21 };
+  Object.entries(defaults).forEach(([name, value]) => {
+    const field = form?.elements.namedItem(name);
+    if (!field) return;
+    field.value = String(value);
+    markProductFieldDirty(form, name);
+  });
+  updateProductPreview(form);
+  return defaults;
+}
+
 async function removeProductImageChoice(parentSlug, imagePath) {
   const parent = effectiveAdminProduct(parentSlug);
   if (!parent) return;
   const choice = normalizeImageChoices(parent.imageChoices).find((item) => item.image === imagePath);
   if (!choice || !window.confirm(`Remove “${choice.label}” from ${parent.title}? The image file will not be deleted.`)) return;
-  const choices = normalizeImageChoices(parent.imageChoices).filter((item) => item.image !== imagePath);
-  const configuredImagePaths = readImageDraftPaths('configuredImagePaths');
-  const operations = [{
-    type: 'membership', collectionKey: 'configuredImagePaths', entryKey: imagePath, present: false, baseValues: configuredImagePaths
-  }];
-  const customProducts = readCustomProducts();
-  const customProduct = customProducts.find((product) => product.slug === parentSlug);
-  if (customProduct) {
-    operations.push({
-      type: 'record', collectionKey: 'customProducts', identityKey: 'slug', entryKey: parentSlug,
-      baseRecord: customProduct, patch: { imageChoices: choices }
-    });
-  } else {
-    operations.push({
-      type: 'record', collectionKey: 'products', entryKey: parentSlug,
-      baseRecord: readAdminProducts()[parentSlug] || {}, patch: { imageChoices: choices }
-    });
-  }
-  const result = await saveAdminCollectionOperations(operations);
-  if (!result.ok) return;
+  const patch = normalizedProductVisualPatch(parent, 'remove-image-choice', imagePath);
+  if (!await writeProductImageChoices(parentSlug, patch.imageChoices)) return;
   renderAdminProducts();
   renderImageDrafts();
-  setStatus('Image choice removed. The physical image file was not changed.');
+  setStatus('DRAFT SAVED — PRIVATE. Image choice removed; the physical image file was not changed.');
+}
+
+async function replaceProductImageChoice(parentSlug, imagePath, replacementPath) {
+  const parent = effectiveAdminProduct(parentSlug);
+  const replacement = String(replacementPath || '').trim();
+  const choice = normalizeImageChoices(parent?.imageChoices).find((item) => item.image === imagePath);
+  if (!parent || !choice || !replacement || replacement === imagePath) return;
+  const owner = findProductImageOwner(replacement, parentSlug);
+  if (owner) {
+    setStatus(`That image is already assigned to ${owner.title} (${owner.slug}).`);
+    return;
+  }
+  const patch = normalizedProductVisualPatch(parent, 'replace-image-choice', [imagePath, replacement]);
+  if (!await writeProductImageChoices(parentSlug, patch.imageChoices)) return;
+  renderAdminProducts();
+  renderImageDrafts();
+  setStatus('DRAFT SAVED — PRIVATE. Alternate image choice changed; no physical image file was changed.');
 }
 
 async function renameProductImageChoice(parentSlug, imagePath, label) {
@@ -4232,14 +4293,19 @@ function productImageChoicesMarkup(value) {
     .filter((product) => product.slug !== value.slug)
     .sort((left, right) => String(left.title || left.slug).localeCompare(String(right.title || right.slug)));
   return `
-    <fieldset class="admin-image-choice-manager">
-      <legend>Image Choices For Selected Standee</legend>
+    <fieldset class="admin-image-choice-manager admin-product-visual-section">
+      <legend>Alternate Image Choices</legend>
+      <p class="admin-note">These are customer-selectable alternate images for this Product / Standee. Changing or removing a choice does not delete the Product or any physical image file.</p>
       ${choices.length ? choices.map((choice) => `
         <div class="admin-image-choice-row">
           <img src="${escapeAdminHtml(choice.image)}" alt="">
           <span><strong>${escapeAdminHtml(choice.label)}</strong><br>${escapeAdminHtml(choice.image)}</span>
           <label>Rename choice<input type="text" value="${escapeAdminHtml(choice.label)}" data-image-choice-label="${escapeAdminHtml(choice.image)}"></label>
           <button type="button" data-rename-image-choice="${escapeAdminHtml(choice.image)}">Save label</button>
+          <label>Change image
+            <select data-replace-image-choice-target="${escapeAdminHtml(choice.image)}">${productVisualOptionsMarkup('product', choice.image)}</select>
+          </label>
+          <button type="button" data-replace-image-choice="${escapeAdminHtml(choice.image)}">Change Image Choice</button>
           <label>Move choice to
             <select data-move-image-choice-target="${escapeAdminHtml(choice.image)}">
               <option value="">Select product</option>
@@ -4247,7 +4313,7 @@ function productImageChoicesMarkup(value) {
             </select>
           </label>
           <button type="button" data-move-image-choice="${escapeAdminHtml(choice.image)}">Move choice</button>
-          <button type="button" data-remove-image-choice="${escapeAdminHtml(choice.image)}">Remove image choice</button>
+          <button type="button" data-remove-image-choice="${escapeAdminHtml(choice.image)}">Remove Image Choice</button>
         </div>
       `).join('') : '<p class="admin-note">No alternate image choices assigned.</p>'}
     </fieldset>
@@ -4270,6 +4336,22 @@ function architectureReviewItems() {
       updatedAt: product.updatedAt || '',
       before, after,
       page: readAdminCategories()[product.categories?.[0]]?.page || 'index.html'
+    });
+  });
+  readDeletedProducts().forEach((slug) => {
+    if ((baseline.deletedProducts || []).includes(slug)) return;
+    const before = baseline.products?.[slug];
+    if (!before) return;
+    items.push({
+      id: `product-delete:${slug}`,
+      type: 'product-delete', key: slug,
+      group: 'Product Deletions',
+      title: before.title || slug,
+      approved: true,
+      updatedAt: '',
+      before,
+      after: null,
+      page: readAdminCategories()[before.categories?.[0]]?.page || 'index.html'
     });
   });
   Object.entries(readAdminCategories()).forEach(([key, category]) => {
@@ -4339,6 +4421,11 @@ function buildSelectedArchitectureSnapshot(items) {
     if (item.type === 'product') {
       if (current.products?.[item.key]) baseline.products[item.key] = structuredClone(current.products[item.key]);
       else delete baseline.products[item.key];
+      return;
+    }
+    if (item.type === 'product-delete') {
+      delete baseline.products[item.key];
+      baseline.deletedProducts = [...new Set([...(baseline.deletedProducts || []), item.key])].sort();
       return;
     }
     if (item.type === 'category') {
@@ -4886,6 +4973,65 @@ function categoryDisplayRangeMarkup(name, label, value, minimum, maximum, suffix
   </label>`;
 }
 
+function publishedCategoryCardForAdmin(categoryKey) {
+  const normalized = adminPublishedBaseline?.categories?.[categoryKey];
+  if (normalized) return { category: normalized, source: 'normalized' };
+  const slug = Object.entries(ADMIN_CATEGORY_CARD_MAP).find(([, key]) => key === categoryKey)?.[0];
+  const legacy = slug ? adminPublishedBaseline?.categoryDisplayCards?.[slug] : null;
+  if (!legacy) return { category: null, source: 'none' };
+  return {
+    source: 'legacy',
+    category: {
+      key: categoryKey,
+      title: String(legacy.title || categoryKey),
+      description: String(legacy.description || ''),
+      card: {
+        image: String(legacy.cutoutImage || ''),
+        backgroundImage: String(legacy.backgroundImage || ''),
+        representativeProductSlug: ''
+      },
+      displaySettings: {},
+      visible: legacy.visible !== false,
+      homepageVisible: legacy.visible !== false,
+      order: Number.isFinite(Number(legacy.productOrder)) ? Number(legacy.productOrder) : 0
+    }
+  };
+}
+
+function categoryCardDraftStatusMarkup(category) {
+  const published = publishedCategoryCardForAdmin(category.key);
+  const publishedImage = adminImageReferencePresentation(published.category?.card?.image || '');
+  const publishedBackground = adminImageReferencePresentation(published.category?.card?.backgroundImage || '', { background: true });
+  const draftImage = adminImageReferencePresentation(category.card?.image || '');
+  const draftBackground = adminImageReferencePresentation(category.card?.backgroundImage || '', { background: true });
+  const unpublished = categoryLifecycleState(category) !== 'Published';
+  const referenceMarkup = (label, presentation, background, emptyLabel) => `<article>
+    ${presentation.preview ? `<img src="${escapeAdminHtml(presentation.preview)}" alt="">` : '<span class="admin-category-reference-empty">No image</span>'}
+    <div><strong>${label}</strong><small data-category-reference-image>Image: ${escapeAdminHtml(presentation.reference || emptyLabel)}</small><small data-category-reference-background>Background: ${escapeAdminHtml(background.reference || background.label)}</small></div>
+  </article>`;
+  return `<section class="admin-category-draft-published-state" data-category-draft-published-state>
+    <strong data-category-draft-preview-state data-state="${unpublished ? 'draft' : 'published'}">${unpublished ? 'DRAFT PREVIEW — NOT LIVE YET' : 'PUBLISHED PREVIEW'}</strong>
+    <div class="admin-category-reference-compare">
+      ${referenceMarkup('Published website currently uses', publishedImage, publishedBackground, published.source === 'legacy' ? 'Legacy Homepage Collection Card has no image' : 'No published image')}
+      ${referenceMarkup('Draft will use', draftImage, draftBackground, 'No Homepage Collection Card image selected')}
+    </div>
+  </section>`;
+}
+
+function categoryDisplayAdjustmentButtons(kind) {
+  const image = kind === 'image';
+  const controls = image ? [
+    ['standeeLeftPercent', -3, '← Left'], ['standeeLeftPercent', 3, 'Right →'],
+    ['standeeVerticalPercent', -3, '↑ Up'], ['standeeVerticalPercent', 3, '↓ Down'],
+    ['standeeSizePercent', -5, 'Smaller'], ['standeeSizePercent', 5, 'Larger']
+  ] : [
+    ['backgroundPositionX', -5, '← Left'], ['backgroundPositionX', 5, 'Right →'],
+    ['backgroundPositionY', -5, '↑ Up'], ['backgroundPositionY', 5, '↓ Down'],
+    ['backgroundSizePercent', -10, 'Zoom Out'], ['backgroundSizePercent', 10, 'Zoom In']
+  ];
+  return `<div class="admin-category-nudge-controls" aria-label="${image ? 'Homepage Collection Card image' : 'Homepage Collection Card background'} movement controls">${controls.map(([field, amount, label]) => `<button type="button" data-adjust-category-display="${field}" data-category-display-adjustment="${amount}">${label}</button>`).join('')}</div>`;
+}
+
 function categoryEditMarkup(category) {
   const display = effectiveCategoryDisplaySettings(category);
   const backgroundPosition = categoryBackgroundPositionParts(display.backgroundPosition);
@@ -4893,18 +5039,19 @@ function categoryEditMarkup(category) {
   const representativeProducts = parent ? [] : categoryAssignedProducts(category.key);
   const representativeSlug = String(category.card?.representativeProductSlug || '');
   return `
-    <form class="admin-category-edit-form" data-category-edit="${escapeAdminHtml(category.key)}">
+    <form class="admin-category-edit-form ${parent ? 'admin-child-group-edit' : 'admin-main-collection-edit'}" data-category-edit="${escapeAdminHtml(category.key)}">
       <header class="admin-category-editor-header">
         <div><span class="admin-note">${parent ? 'Editing Child Group' : 'Editing Main Collection'}</span><h3>${escapeAdminHtml(category.title || category.key)}</h3></div>
-        <div class="admin-panel-actions"><button type="submit">Save Draft</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
       </header>
       <div class="admin-category-editor-workspace">
         <aside class="admin-category-preview-column" aria-label="Live collection preview">
           <strong>${parent ? 'Live Child Group Preview' : 'Live Homepage Collection Card Preview'}</strong>
+          ${parent ? '' : categoryCardDraftStatusMarkup(category)}
           <div class="admin-builder-preview-panel" data-category-edit-preview></div>
-          <p class="admin-note">Image, background, size, and position changes update here immediately. Nothing is saved until you choose Save Draft or Publish.</p>
+          <p class="admin-note">Image, background, size, and position changes update here immediately. Save Draft stores private work; Publish to Website makes that saved card visible to customers.</p>
         </aside>
         <div class="admin-category-controls-column">
+          <div class="admin-panel-actions admin-category-editor-actions"><button type="button" data-back-to-collections>Back to Collections</button><button type="button" data-preview-category-edit>Preview</button><button type="submit">Save Draft</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
           <fieldset class="admin-category-editor-section admin-category-information"><legend>${parent ? 'Child Group Information' : 'Main Collection Information'}</legend>
             <p class="admin-note">${parent ? 'A Child Group organizes Products / Standees inside its Main Collection. Removing an assignment does not delete the Product / Standee.' : 'A Main Collection organizes related Products / Standees and controls its customer browsing page. Editing it does not edit the individual Products / Standees inside it.'}</p>
             <div class="admin-input-group">
@@ -4950,8 +5097,8 @@ function categoryEditMarkup(category) {
               ${categoryDisplayRangeMarkup('standeeSizePercent', `${parent ? 'Child Group' : 'Homepage Collection Card'} Image Size`, display.standeeSizePercent, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, '%')}
               ${categoryDisplayRangeMarkup('standeeLeftPercent', 'Horizontal Position', display.standeeLeftPercent, -50, 50)}
               ${categoryDisplayRangeMarkup('standeeVerticalPercent', 'Vertical Position', display.standeeVerticalPercent, -50, 50)}
-              <div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>
             </div>
+            ${parent ? '<div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>' : categoryDisplayAdjustmentButtons('image')}
           </fieldset>
           <fieldset class="admin-category-editor-section admin-category-background-section"><legend>${parent ? 'Child Group Background' : 'Homepage Collection Card Background'}</legend>
             ${categoryVisualImagePicker(category, 'background')}
@@ -4962,7 +5109,7 @@ function categoryEditMarkup(category) {
               ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Up / Down', backgroundPosition.y, 0, 100, '%')}
               ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom', display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
             </div>
-            <button type="button" data-reset-category-background>Reset Background</button>
+            ${parent ? '<button type="button" data-reset-category-background>Reset Background</button>' : `${categoryDisplayAdjustmentButtons('background')}<button type="button" class="admin-button admin-button-secondary" data-reset-category-card-layout>Reset Card Layout</button>`}
             <p class="admin-note">Background Zoom scales the existing cover image without changing the physical file.</p>
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
           </fieldset>
@@ -4979,11 +5126,6 @@ function categoryEditMarkup(category) {
             <p class="admin-note">Only display settings owned by the normalized Main Collection or Child Group are stored. Physical images are never modified.</p>
           </details>
         </div>
-      </div>
-      <div class="admin-panel-actions admin-category-editor-footer">
-        <button type="button" data-preview-category-edit>Refresh Preview</button>
-        <button type="submit">Save Draft</button>
-        ${categoryPublishButtonMarkup(category.key, { editor: true })}
       </div>
       <p class="admin-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '')}</p>
     </form>`;
@@ -5244,6 +5386,7 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
     if (summaryTitle) summaryTitle.textContent = category.title || category.key;
     if (editorTitle) editorTitle.textContent = category.title || category.key;
   }
+  form.dataset.editorDirty = 'false';
   const message = approvalStatus === 'approved' ? 'Main Collection saved. Validating latest private save…' : 'Draft Saved — Private';
   setCategoryPublishState(category.key, message, approvalStatus === 'approved' ? 'publishing' : 'draft');
   setStatus(message);
@@ -5251,7 +5394,8 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
 }
 
 function setCategoryPublishState(categoryKey, message, state = '') {
-  categoryPublishOperations.set(categoryKey, { message, state, updatedAt: Date.now() });
+  const visibleMessage = state === 'published' && message === 'Published to Website' ? 'PUBLISHED TO WEBSITE' : message;
+  categoryPublishOperations.set(categoryKey, { message: visibleMessage, state, updatedAt: Date.now() });
   document.querySelectorAll(`[data-publish-category-key="${CSS.escape(categoryKey)}"]`).forEach((button) => {
     const publishing = state === 'publishing';
     button.disabled = publishing;
@@ -5259,7 +5403,7 @@ function setCategoryPublishState(categoryKey, message, state = '') {
     button.textContent = publishing ? 'Publishing…' : 'Publish to Website';
   });
   document.querySelectorAll(`[data-category-publish-status="${CSS.escape(categoryKey)}"]`).forEach((status) => {
-    status.textContent = message;
+    status.textContent = visibleMessage;
     status.dataset.state = state;
   });
 }
@@ -5475,6 +5619,7 @@ function previewCategoryEdit(form) {
     <p class="product-description" data-admin-category-field="description" style="transform:${layout.descriptionTransform};text-align:${layout.descriptionAlign};font-size:${layout.descriptionFontSizePx}px">${escapeAdminHtml(presentation.description)}</p>
     <span class="admin-category-preview-status">${category.visible === false ? 'Category hidden from customers' : (category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage')}</span>
   </article>`;
+  updateCategoryDraftPublishedState(form, category);
 }
 
 function renderCategoryImagePickerGallery(picker, query = '', searchAll = false) {
@@ -5511,7 +5656,10 @@ function updateCategoryPickerValue(picker, path) {
   if (currentPath) currentPath.textContent = presentation.valid ? path : '';
   picker.querySelectorAll('[data-category-image-choice]').forEach((choice) => choice.classList.toggle('selected', choice.dataset.categoryImageChoice === path));
   const editForm = picker.closest('[data-category-edit]');
-  if (editForm) previewCategoryEdit(editForm);
+  if (editForm) {
+    markCategoryEditorDirty(editForm);
+    previewCategoryEdit(editForm);
+  }
   else {
     const newCategoryForm = picker.closest('#createCategoryForm');
     if (newCategoryForm) renderNewCategoryPreview(newCategoryForm);
@@ -5529,6 +5677,72 @@ function syncCategoryDisplayControl(form, target) {
   const value = Math.max(minimum, Math.min(maximum, Number(target.value) || 0));
   range.value = String(value);
   number.value = String(value);
+}
+
+function setCategoryDisplayControlValue(form, name, requestedValue) {
+  const range = form?.querySelector(`[data-category-display-range="${CSS.escape(name)}"]`);
+  const number = form?.querySelector(`[data-category-display-number="${CSS.escape(name)}"]`);
+  if (!range || !number) return false;
+  const minimum = Number(range.min);
+  const maximum = Number(range.max);
+  const value = Math.max(minimum, Math.min(maximum, Number(requestedValue) || 0));
+  range.value = String(value);
+  number.value = String(value);
+  return true;
+}
+
+function updateCategoryDraftPublishedState(form, category = categoryFromEditForm(form)) {
+  const container = form?.querySelector('[data-category-draft-published-state]');
+  if (!container || !category) return;
+  const published = publishedCategoryCardForAdmin(category.key);
+  const state = container.querySelector('[data-category-draft-preview-state]');
+  const draftReference = container.querySelector('.admin-category-reference-compare article:last-child');
+  const draftPresentation = adminImageReferencePresentation(category.card?.image || '');
+  const draftBackground = adminImageReferencePresentation(category.card?.backgroundImage || '', { background: true });
+  if (state) {
+    const unpublished = categoryLifecycleState(category) !== 'Published';
+    state.dataset.state = unpublished ? 'draft' : 'published';
+    state.textContent = unpublished ? 'DRAFT PREVIEW — NOT LIVE YET' : 'PUBLISHED PREVIEW';
+  }
+  if (draftReference) {
+    const oldVisual = draftReference.querySelector('img, .admin-category-reference-empty');
+    const visual = draftPresentation.preview
+      ? Object.assign(document.createElement('img'), { src: draftPresentation.preview, alt: '' })
+      : Object.assign(document.createElement('span'), { className: 'admin-category-reference-empty', textContent: 'No image' });
+    oldVisual?.replaceWith(visual);
+    const path = draftReference.querySelector('[data-category-reference-image]');
+    if (path) path.textContent = `Image: ${draftPresentation.reference || 'No Homepage Collection Card image selected'}`;
+    const backgroundPath = draftReference.querySelector('[data-category-reference-background]');
+    if (backgroundPath) backgroundPath.textContent = `Background: ${draftBackground.reference || draftBackground.label}`;
+  }
+  container.dataset.publishedSource = published.source;
+}
+
+function applyCategoryDisplayAdjustment(form, name, amount) {
+  const range = form?.querySelector(`[data-category-display-range="${CSS.escape(name)}"]`);
+  if (!range || !setCategoryDisplayControlValue(form, name, Number(range.value) + Number(amount || 0))) return false;
+  syncCategoryBackgroundPosition(form);
+  syncCategoryDisplayOutputs(form);
+  markCategoryEditorDirty(form);
+  previewCategoryEdit(form);
+  return true;
+}
+
+function resetCategoryCardLayout(form) {
+  const defaults = {
+    standeeSizePercent: CATEGORY_IMAGE_SIZE_DEFAULT,
+    standeeLeftPercent: 0,
+    standeeVerticalPercent: 0,
+    backgroundSizePercent: CATEGORY_BACKGROUND_SIZE_DEFAULT,
+    backgroundPositionX: 50,
+    backgroundPositionY: 100
+  };
+  Object.entries(defaults).forEach(([name, value]) => setCategoryDisplayControlValue(form, name, value));
+  syncCategoryBackgroundPosition(form);
+  syncCategoryDisplayOutputs(form);
+  markCategoryEditorDirty(form);
+  previewCategoryEdit(form);
+  return defaults;
 }
 
 function syncCategoryBackgroundPosition(form) {
@@ -5563,6 +5777,18 @@ function categoryKeyForActionTarget(target) {
     || target?.closest?.('[data-child-group-card]')?.dataset.childGroupCard
     || target?.closest?.('[data-category-card]')?.dataset.categoryCard
     || '';
+}
+
+function markCategoryEditorDirty(form) {
+  if (form) form.dataset.editorDirty = 'true';
+}
+
+function editorHasUnsavedChanges(form) {
+  return Boolean(form && (form.dataset.editorDirty === 'true' || form._adminDirtyFields?.size || form.dataset.imageBoxDirty === 'true'));
+}
+
+function confirmEditorCanClose(form, label) {
+  return !editorHasUnsavedChanges(form) || window.confirm(`You have unsaved ${label} changes. Leave without saving?`);
 }
 
 function setupCategoryManagerEvents() {
@@ -5601,7 +5827,10 @@ function setupCategoryManagerEvents() {
       const picker = form?.querySelector('[data-category-image-picker][data-image-kind="category"]');
       if (product?.cutoutImage && picker) updateCategoryPickerValue(picker, product.cutoutImage);
     }
-    if (event.target.closest('[data-category-edit]')) previewCategoryEdit(event.target.closest('[data-category-edit]'));
+    if (event.target.closest('[data-category-edit]')) {
+      markCategoryEditorDirty(event.target.closest('[data-category-edit]'));
+      previewCategoryEdit(event.target.closest('[data-category-edit]'));
+    }
   });
   section.addEventListener('input', (event) => {
     if (event.target.matches('[data-category-image-search]')) {
@@ -5610,6 +5839,7 @@ function setupCategoryManagerEvents() {
     }
     const form = event.target.closest('[data-category-edit]');
     if (!form) return;
+    markCategoryEditorDirty(form);
     syncCategoryDisplayControl(form, event.target);
     syncCategoryBackgroundPosition(form);
     syncCategoryDisplayOutputs(form);
@@ -5629,6 +5859,16 @@ function setupCategoryManagerEvents() {
   section.addEventListener('click', async (event) => {
     const card = event.target.closest('[data-category-card]');
     const actionCategoryKey = categoryKeyForActionTarget(event.target);
+    const backToCollections = event.target.closest('[data-back-to-collections]');
+    if (backToCollections) {
+      const form = backToCollections.closest('[data-category-edit]');
+      if (!confirmEditorCanClose(form, form?.classList.contains('admin-child-group-edit') ? 'Child Group' : 'Main Collection')) return;
+      const key = form?.dataset.categoryEdit;
+      if (key) openedCategoryEditors.delete(key);
+      renderCategoryManager();
+      document.querySelector(`[data-category-card="${CSS.escape(readAdminCategories()[key]?.parentKey || key || '')}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     if (event.target.closest('[data-open-category-products]')) {
       const key = actionCategoryKey;
       const category = readAdminCategories()[key];
@@ -5732,14 +5972,25 @@ function setupCategoryManagerEvents() {
     if (imageChoice) updateCategoryPickerValue(imageChoice.closest('[data-category-image-picker]'), imageChoice.dataset.categoryImageChoice);
     const sharedBackground = event.target.closest('[data-use-shared-category-background]');
     if (sharedBackground) updateCategoryPickerValue(sharedBackground.closest('[data-category-image-picker]'), '');
+    const displayAdjustment = event.target.closest('[data-adjust-category-display]');
+    if (displayAdjustment) {
+      const form = displayAdjustment.closest('[data-category-edit]');
+      if (form) applyCategoryDisplayAdjustment(form, displayAdjustment.dataset.adjustCategoryDisplay, displayAdjustment.dataset.categoryDisplayAdjustment);
+    }
+    const resetCardLayout = event.target.closest('[data-reset-category-card-layout]');
+    if (resetCardLayout) {
+      const form = resetCardLayout.closest('[data-category-edit]');
+      if (form) resetCategoryCardLayout(form);
+    }
     const resetBackground = event.target.closest('[data-reset-category-background]');
     if (resetBackground) {
       const form = resetBackground.closest('[data-category-edit]');
       form.elements.namedItem('backgroundPosition').value = 'center bottom';
       form.elements.namedItem('backgroundPositionX').value = '50';
-      form.elements.namedItem('backgroundPositionY').value = '50';
+      form.elements.namedItem('backgroundPositionY').value = '100';
       form.elements.namedItem('backgroundSizePercent').value = String(CATEGORY_BACKGROUND_SIZE_DEFAULT);
       syncCategoryDisplayOutputs(form);
+      markCategoryEditorDirty(form);
       previewCategoryEdit(form);
     }
     const centerImage = event.target.closest('[data-center-category-image]');
@@ -5748,6 +5999,7 @@ function setupCategoryManagerEvents() {
       form.elements.namedItem('standeeLeftPercent').value = '0';
       form.elements.namedItem('standeeVerticalPercent').value = '0';
       syncCategoryDisplayOutputs(form);
+      markCategoryEditorDirty(form);
       previewCategoryEdit(form);
     }
     const resetAppearance = event.target.closest('[data-reset-category-appearance]');
@@ -5757,6 +6009,7 @@ function setupCategoryManagerEvents() {
       form.elements.namedItem('standeeVerticalPercent').value = '0';
       form.elements.namedItem('standeeSizePercent').value = String(CATEGORY_IMAGE_SIZE_DEFAULT);
       syncCategoryDisplayOutputs(form);
+      markCategoryEditorDirty(form);
       previewCategoryEdit(form);
     }
     const resetText = event.target.closest('[data-reset-category-text]');
@@ -5767,6 +6020,7 @@ function setupCategoryManagerEvents() {
       form.elements.namedItem('titleAlign').value = 'center';
       form.elements.namedItem('descriptionAlign').value = 'center';
       syncCategoryDisplayOutputs(form);
+      markCategoryEditorDirty(form);
       previewCategoryEdit(form);
     }
     const publishButton = event.target.closest('[data-publish-category-key]');
@@ -5833,12 +6087,15 @@ function renderAdminProducts() {
       backgroundImage: backgroundPresentation.valid ? storedValue.backgroundImage : '',
       imageChoices: normalizeImageChoices(storedValue.imageChoices).filter((choice) => adminStateUtils.validateAdminImageReference(choice.image, { allowBlank: false }).valid)
     };
-    const lifecycle = product.categoryCard ? '' : lifecycleLabel || productLifecycleState(product, saved, archived).label;
+    const lifecycleState = product.categoryCard ? null : productLifecycleState(product, saved, archived);
+    const lifecycle = product.categoryCard ? '' : lifecycleLabel || lifecycleState.label;
+    const editorStatus = lifecycleState?.label || '';
     return `
       <form class="admin-product-card" id="product-${product.slug}" data-slug="${product.slug}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
         <div class="admin-product-heading">
-          <div><h3>${product.title}</h3>${lifecycle ? `<p class="admin-note">${escapeAdminHtml(lifecycle)}</p>` : ''}<p class="admin-note" data-product-save-state data-state="saved">Saved</p></div>
+          <div><h3>${product.title}</h3>${lifecycle ? `<p class="admin-note">${escapeAdminHtml(lifecycle)}</p>` : ''}<p class="admin-note" data-product-save-state data-state="${lifecycleState?.key === 'published' ? 'published' : 'saved'}">${editorStatus}</p></div>
           <div class="admin-card-actions">
+            <button type="button" data-back-to-products>Back to Products</button>
             <button type="button" data-preview-product>Preview</button>
             <button type="submit">Save Draft</button>
             ${product.categoryCard ? '' : '<button class="admin-button admin-button-primary" type="button" data-publish-product>Publish to Website</button>'}
@@ -5877,25 +6134,36 @@ function renderAdminProducts() {
               </label>
             </fieldset>
             ${product.categoryCard ? '' : categoryAssignmentMarkup(value)}
-            <fieldset>
-              <legend>Images</legend>
+            <fieldset class="admin-product-visual-section admin-product-main-image-section">
+              <legend>Product / Standee Image</legend>
+              <p class="admin-note">This is the Product's main cutout image. Replacing or removing its Product reference changes only this private Product draft and never deletes the physical image file.</p>
               ${invalidLegacyImages.length ? '<p class="admin-warning-message">Legacy Base64 image. Replace it through Image Inbox; the embedded value is not displayed and cannot be saved again.</p>' : ''}
-              <label>
-                Standee image path
-                <input name="cutoutImage" class="admin-long-path" type="text" value="${value.cutoutImage || ''}" readonly>
-              </label>
-              <label>
-                Upload standee image
-                <input name="cutoutUpload" type="file" accept="image/*">
-              </label>
-              <label>
-                Background image path
-                <input name="backgroundImage" class="admin-long-path" type="text" value="${value.backgroundImage || ''}" readonly>
-              </label>
-              <label>
-                Upload background image
-                <input name="backgroundUpload" type="file" accept="image/*">
-              </label>
+              <div class="admin-product-current-visual">${cutoutPresentation.preview ? `<img src="${escapeAdminHtml(cutoutPresentation.preview)}" alt="Current Product / Standee Image">` : '<span>No Product Image Selected</span>'}<code>${escapeAdminHtml(value.cutoutImage || 'No Product Image Selected')}</code></div>
+              <label>Change / Replace Product Image<select name="cutoutImage" class="admin-product-visual-picker">${productVisualOptionsMarkup('product', value.cutoutImage)}</select></label>
+              <div class="admin-panel-actions"><button type="button" data-remove-product-image>Remove Product Image</button><button type="button" data-reset-product-visual="image">Reset Image Placement to Normal</button><a class="admin-button admin-button-secondary" href="#image-inbox">Open Image Box to Add a Repository Image</a></div>
+              <div class="admin-form-row admin-placement-row">
+                <label>Image size %<input name="cutoutHeight" type="range" min="30" max="100" step="1" value="${value.cutoutHeight || '63'}"></label>
+                <label>Image left / right %<input name="cutoutLeft" type="range" min="0" max="100" step="1" value="${value.cutoutLeft || '50'}"></label>
+                <label>Image up / down %<input name="cutoutBottom" type="range" min="0" max="60" step="1" value="${value.cutoutBottom || '21'}"></label>
+              </div>
+            </fieldset>
+            <fieldset class="admin-product-visual-section admin-product-background-section">
+              <legend>Product Showroom Background</legend>
+              <p class="admin-note"><strong>Remove Background</strong> clears this Product's normalized background reference. <strong>Use Default / Clean Showroom Background</strong> also clears the Product-specific reference so the shared storefront showroom is used. Neither action changes a Homepage Collection Card background.</p>
+              <div class="admin-product-current-visual">${backgroundPresentation.preview ? `<img src="${escapeAdminHtml(backgroundPresentation.preview)}" alt="Current Product Showroom Background">` : '<span>Using Default / Clean Showroom Background</span>'}<code>${escapeAdminHtml(value.backgroundImage || 'Default / clean showroom background')}</code></div>
+              <label>Change / Replace Background<select name="backgroundImage" class="admin-product-visual-picker">${productVisualOptionsMarkup('background', value.backgroundImage)}</select></label>
+              <label>Background position<input name="stageBackgroundPosition" type="text" value="${value.stageBackgroundPosition || ''}" placeholder="center center"></label>
+              <div class="admin-panel-actions admin-product-background-actions"><button type="button" data-remove-product-background>Remove Background</button><button type="button" data-use-default-product-background>Use Default / Clean Showroom Background</button><button type="button" data-reset-product-visual="background">Reset Background Position to Normal</button><a class="admin-button admin-button-secondary" href="#image-inbox">Add a Repository Background</a></div>
+            </fieldset>
+            <fieldset class="admin-product-visual-section admin-product-logo-section">
+              <legend>Shared Storefront Logo Overlay</legend>
+              <p class="admin-note">This is the website's shared MVPLUX wordmark overlay—not a Product-owned image. This Product stores only its existing logo size and vertical placement. There is no separate Product logo image, horizontal position, or removable Product reference.</p>
+              <div class="admin-product-current-visual"><img src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="Shared storefront logo overlay"><code>Shared storefront asset</code></div>
+              <div class="admin-form-row admin-placement-row">
+                <label>Logo size %<input name="logoWidth" type="range" min="30" max="100" step="1" value="${value.logoWidth || '82'}"></label>
+                <label>Logo up / down %<input name="logoTop" type="range" min="-20" max="40" step="1" value="${value.logoTop || '-4'}"></label>
+              </div>
+              <button type="button" data-reset-product-visual="logo">Reset Logo Overlay to Normal</button>
             </fieldset>
             ${product.categoryCard ? '' : productImageChoicesMarkup(value)}
             ${value.custom === true ? `
@@ -5924,37 +6192,6 @@ function renderAdminProducts() {
                 <label>
                   Price override <span>(optional)</span>
                   <input name="priceOverride" type="number" min="0" step="0.01" value="${escapeAdminHtml(value.priceOverride ?? '')}">
-                </label>
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend>Main Page Placement</legend>
-              <div class="admin-form-row admin-placement-row">
-                <label>
-                  Standee size %
-                  <input name="cutoutHeight" type="range" min="30" max="100" step="1" value="${value.cutoutHeight || '63'}">
-                </label>
-                <label>
-                  Left / right %
-                  <input name="cutoutLeft" type="range" min="0" max="100" step="1" value="${value.cutoutLeft || '50'}">
-                </label>
-                <label>
-                  Up / down %
-                  <input name="cutoutBottom" type="range" min="0" max="60" step="1" value="${value.cutoutBottom || '21'}">
-                </label>
-              </div>
-              <div class="admin-form-row admin-placement-row">
-                <label>
-                  Logo size %
-                  <input name="logoWidth" type="range" min="30" max="100" step="1" value="${value.logoWidth || '82'}">
-                </label>
-                <label>
-                  Logo up / down %
-                  <input name="logoTop" type="range" min="-20" max="40" step="1" value="${value.logoTop || '-4'}">
-                </label>
-                <label>
-                  Background position
-                  <input name="stageBackgroundPosition" type="text" value="${value.stageBackgroundPosition || ''}" placeholder="center center">
                 </label>
               </div>
             </fieldset>
@@ -6021,7 +6258,10 @@ function renderAdminProducts() {
       });
     });
     form.querySelectorAll('select, input[type="checkbox"]').forEach((field) => {
-      field.addEventListener('change', () => markProductFieldDirty(form, productDirtyFieldForControl(field)));
+      field.addEventListener('change', () => {
+        markProductFieldDirty(form, productDirtyFieldForControl(field));
+        if (field.matches('.admin-product-visual-picker')) updateProductPreview(form);
+      });
     });
     attachPreviewControls(form);
 
@@ -6059,6 +6299,21 @@ function renderAdminProducts() {
 
     form.querySelector('[data-publish-product]')?.addEventListener('click', () => publishExistingProductForm(form));
 
+    form.querySelector('[data-back-to-products]')?.addEventListener('click', () => {
+      if (!confirmEditorCanClose(form, 'Product')) return;
+      openedProductEditors.delete(form.dataset.slug);
+      renderAdminProducts();
+      document.querySelector(`[data-product-summary="${CSS.escape(form.dataset.slug)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    form.querySelector('[data-remove-product-image]')?.addEventListener('click', () => removeProductMainImage(form));
+
+    form.querySelector('[data-remove-product-background]')?.addEventListener('click', () => useDefaultProductShowroomBackground(form));
+    form.querySelector('[data-use-default-product-background]')?.addEventListener('click', () => useDefaultProductShowroomBackground(form));
+    form.querySelectorAll('[data-reset-product-visual]').forEach((button) => {
+      button.addEventListener('click', () => resetProductVisualPlacement(form, button.dataset.resetProductVisual));
+    });
+
     form.querySelector('[data-remove-section]')?.addEventListener('click', () => {
       removeProductFromSelectedSection(form);
     });
@@ -6078,6 +6333,14 @@ function renderAdminProducts() {
         const imagePath = button.dataset.renameImageChoice;
         const label = button.closest('.admin-image-choice-row')?.querySelector('[data-image-choice-label]')?.value;
         renameProductImageChoice(form.dataset.slug, imagePath, label);
+      });
+    });
+
+    form.querySelectorAll('[data-replace-image-choice]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const imagePath = button.dataset.replaceImageChoice;
+        const replacement = button.closest('.admin-image-choice-row')?.querySelector('[data-replace-image-choice-target]')?.value || '';
+        replaceProductImageChoice(form.dataset.slug, imagePath, replacement);
       });
     });
 
@@ -6985,6 +7248,7 @@ function renderImageDrafts() {
         <div class="admin-product-heading">
           <div><h3>Image Box — Create Product From Image</h3><p class="admin-note">Image Box creates or edits Product / Standee records and product images. It does not create Main Collections or Homepage Collection Cards.</p><p class="admin-note" data-image-draft-status data-state="${normalizedProductPublished ? 'published' : normalizedProductSaved ? 'success' : 'unsaved'}">${imageImportReady ? (normalizedProductPublished ? 'PUBLISHED TO WEBSITE' : normalizedProductSaved ? 'DRAFT SAVED — PRIVATE' : 'UNSAVED CHANGES') : 'Loading authenticated Admin state…'}</p></div>
           <div class="admin-card-actions">
+            <button type="button" data-image-import-action data-back-to-image-inbox>Back to Image Inbox</button>
             <button type="button" data-image-import-action data-image-box-undo disabled>Undo</button>
             <button type="button" data-image-import-action data-image-box-redo disabled>Redo</button>
             <button type="button" data-image-import-action data-save-image-box ${imageImportReady ? '' : 'disabled'}>Save</button>
@@ -7099,6 +7363,12 @@ function renderImageDrafts() {
     });
     form.querySelector('[data-image-box-undo]')?.addEventListener('click', () => undoImageBoxChange(form));
     form.querySelector('[data-image-box-redo]')?.addEventListener('click', () => redoImageBoxChange(form));
+    form.querySelector('[data-back-to-image-inbox]')?.addEventListener('click', () => {
+      if (!confirmEditorCanClose(form, 'Image Box')) return;
+      openedImageInboxItems.delete(form.dataset.imagePath);
+      renderImageDrafts();
+      document.querySelector(`[data-image-inbox-summary="${CSS.escape(form.dataset.imagePath)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
     form.querySelector('[data-preview-image-import]')?.addEventListener('click', () => {
       updateImageImportPreview(form);
       setImageDraftActionStatus(form, form.dataset.imageBoxDirty === 'true' ? 'PREVIEW — UNSAVED CHANGES' : 'PREVIEW — DRAFT SAVED', 'preview');
@@ -7606,10 +7876,38 @@ function bindAdminWorkspaceNavigation() {
   }
 }
 
+function activeAdminDraftForm(target = document.activeElement) {
+  const focused = target?.closest?.('.admin-product-card, [data-category-edit]');
+  if (focused) return focused;
+  const area = document.querySelector('[data-admin-area]:not([hidden])');
+  return area?.querySelector('.admin-product-card:not(.admin-image-draft), [data-category-edit]') || null;
+}
+
+function bindAdminDraftSaveShortcuts() {
+  if (document.documentElement.dataset.adminDraftShortcutsBound === 'true') return;
+  document.documentElement.dataset.adminDraftShortcutsBound = 'true';
+  document.addEventListener('keydown', (event) => {
+    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 's') return;
+    if (event.target?.closest?.('.admin-image-draft')) return;
+    const form = activeAdminDraftForm(event.target);
+    if (!form) return;
+    event.preventDefault();
+    form.requestSubmit();
+  });
+  window.addEventListener('beforeunload', (event) => {
+    const dirtyEditor = [...document.querySelectorAll('.admin-product-card, [data-category-edit]')]
+      .some((form) => editorHasUnsavedChanges(form));
+    if (!dirtyEditor) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+}
+
 function setupAdminArchitectureWorkspace() {
   const nav = document.querySelector('.admin-workspace-nav');
   if (nav) nav.hidden = false;
   bindAdminWorkspaceNavigation();
+  bindAdminDraftSaveShortcuts();
   setupCommerceTabs();
   showAdminAreaFromHash();
 }
