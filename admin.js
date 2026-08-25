@@ -1699,6 +1699,7 @@ let adminLastSuccessfulSnapshot = null;
 let imageImportPublishSelection = null;
 let selectedPublishChangeIds = new Set();
 let selectedPublishMode = false;
+let publishAllSavedChangesPromise = null;
 
 function buildSelectedImageImportSnapshot(paths) {
   const baseline = structuredClone(adminPublishedBaseline || buildDefaultPublishBaseline());
@@ -1948,79 +1949,7 @@ async function loadSelectedPublishImages(paths) {
 }
 
 async function publishAdminChanges() {
-  setStatus('Confirming all Admin changes are saved to Supabase...');
-  if (!await waitForAdminSaves()) return;
-  const persisted = await loadAdminLiveSettings();
-  if (!persisted) {
-    setStatus(`Publish stopped: ${adminLastSaveError || 'could not reload persisted Admin state from Supabase.'}`);
-    return;
-  }
-  if (newAdminArchitectureEnabled()) {
-    const migration = adminLiveSettings?.adminArchitectureMigrationV2?.productPageOverrides;
-    const unresolved = (migration?.conflicts?.length || 0) + (migration?.unsupported?.length || 0);
-    if (unresolved) {
-      setStatus(`Publish stopped: ${unresolved} migrated page override conflict(s) still require review.`);
-      return;
-    }
-  }
-  renderAdminProducts();
-  const review = renderPublishSummary();
-  if (!review.changes.length || review.invalidImages.length) return;
-  const title = document.getElementById('adminCommitTitle')?.value.trim();
-  const notes = document.getElementById('adminCommitNotes')?.value.trim();
-  if (!title) {
-    setStatus('Add a short commit title before publishing.');
-    return;
-  }
-  const body = `${review.summary}${notes ? `\n\nNotes:\n${notes}` : ''}`;
-  if (!window.confirm(`Publish one GitHub commit titled "${title}"?`)) return;
-
-  setStatus('Loading explicitly selected images...');
-  try {
-    const imageFiles = await loadSelectedPublishImages(review.selectedImages);
-    setStatus('Publishing one GitHub commit...');
-    const result = await callAdminPublisher({
-      action: 'publish',
-      title,
-      body,
-      changeSummary: review.summary,
-      snapshot: review.snapshot,
-      imageFiles
-    });
-    const tracked = await saveAdminSettingsLive({
-      lastPublishedSnapshot: review.snapshot,
-      publishHistory: result.publishHistory || []
-    });
-    if (!tracked) {
-      adminLatestPublishError = `GitHub commit ${result.commitHash || ''} was created, but Supabase could not record the successful published snapshot. Reload before publishing again.`;
-      renderAdminDiagnostics();
-      setStatus(adminLatestPublishError);
-      return;
-    }
-    adminLatestPublishError = '';
-    adminPublishedFileState = {
-      reachable: true,
-      publishedAt: result.publishedAt || new Date().toISOString(),
-      commitHash: result.commitHash || ''
-    };
-    document.getElementById('adminCommitNotes').value = '';
-    document.getElementById('adminPublishImagePaths').value = '';
-    adminPublishedBaseline = normalizePublishedBaseline(review.snapshot);
-    imageImportPublishSelection = null;
-    selectedPublishChangeIds.clear();
-    selectedPublishMode = false;
-    currentPublishReview = null;
-    renderPublishSummary();
-    renderPublishHistory();
-    renderAdminProducts();
-    renderAdminDiagnostics();
-    renderImageImportPending();
-    setStatus(`Published commit ${result.commitHash?.slice(0, 7) || ''} (HTTP ${result.httpStatus}). Deployment: ${result.deploymentResult || 'queued'}.`);
-  } catch (error) {
-    adminLatestPublishError = error.message || 'GitHub publish failed.';
-    renderAdminDiagnostics();
-    setStatus(adminLatestPublishError);
-  }
+  return publishAllSavedChanges('All saved Admin changes');
 }
 
 function refreshVisibleAdminAreaAfterPublish() {
@@ -2197,7 +2126,7 @@ async function publishSavedProductBySlug(slug, label, statusTarget = null, form 
     approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString()
   }, base, form);
   if (!approved.ok) return false;
-  return publishScopedChangeIds([`product:${slug}`], label || base.title || slug, statusTarget);
+  return publishAllSavedChanges(label || base.title || slug, statusTarget);
 }
 
 async function publishExistingProductForm(form) {
@@ -2234,7 +2163,7 @@ async function publishNewCategoryFromForm(form) {
   if (button) button.disabled = true;
   try {
     if (!await saveNewCategoryFromForm(form, 'approved')) return false;
-    return publishScopedChangeIds([`category:${key}`], title, form.querySelector('[data-create-category-status]'));
+    return publishAllSavedChanges(title, form.querySelector('[data-create-category-status]'));
   } finally {
     if (button) button.disabled = false;
   }
@@ -3701,7 +3630,7 @@ function collectProductFormData(form, dirtyFields = form?._adminDirtyFields || n
   return patch;
 }
 
-async function saveProductForm(form, message = 'DRAFT SAVED — PRIVATE. Publish to Website when customers should see these changes.') {
+async function saveProductForm(form, message = 'DRAFT SAVED — PRIVATE. Publish All Saved Changes when customers should see the saved work.') {
   const patch = collectProductFormData(form);
   if (!Object.keys(patch).length) {
     setProductSaveState(form, 'DRAFT SAVED — PRIVATE', 'saved');
@@ -4522,43 +4451,23 @@ function prepareSelectedPublish(items) {
 }
 
 function readyPublishSelectionMarkup(items) {
-  const ready = (items || []).filter((item) => item.approved);
-  if (!ready.length) return '<p class="admin-note">No Ready changes are waiting to publish.</p>';
+  const saved = items || [];
+  if (!saved.length) return '<p class="admin-note">No saved changes are waiting to publish.</p>';
   return `
     <div class="admin-panel-actions">
-      <button type="button" data-select-all-ready-items>Select All Ready Items</button>
-      <button type="button" data-go-live-selected>Publish Selected / Go Live</button>
-      <button type="button" data-go-live-all-ready>Publish All Ready Items</button>
+      <button class="admin-button admin-button-primary" type="button" data-publish-all-saved>Publish All Saved Changes</button>
     </div>
     <div class="admin-publish-ready-list">
-      ${ready.map((item) => `<label class="admin-review-select"><input type="checkbox" data-ready-publish-select value="${escapeAdminHtml(item.id)}" ${selectedPublishChangeIds.has(item.id) ? 'checked' : ''}> ${escapeAdminHtml(item.title)} <small>${escapeAdminHtml(item.group)}</small></label>`).join('')}
+      ${saved.map((item) => `<p>${escapeAdminHtml(item.title)} <small>${escapeAdminHtml(item.group)} · ${item.approved ? 'Ready' : 'Saved draft — will be prepared before publishing'}</small></p>`).join('')}
     </div>`;
 }
 
 function bindReadyPublishSelection(container) {
   if (!container || container.dataset.readyPublishBound) return;
   container.dataset.readyPublishBound = 'true';
-  container.addEventListener('change', (event) => {
-    const input = event.target.closest('[data-ready-publish-select]');
-    if (!input) return;
-    if (input.checked) selectedPublishChangeIds.add(input.value);
-    else selectedPublishChangeIds.delete(input.value);
-  });
-  container.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-select-all-ready-items], [data-go-live-selected], [data-go-live-all-ready]');
-    if (!button) return;
-    const ready = architectureReviewItems().filter((item) => item.approved);
-    if (button.hasAttribute('data-select-all-ready-items')) {
-      const allSelected = ready.length && ready.every((item) => selectedPublishChangeIds.has(item.id));
-      ready.forEach((item) => allSelected ? selectedPublishChangeIds.delete(item.id) : selectedPublishChangeIds.add(item.id));
-      renderReadyPublishSelection();
-      renderAdminProducts();
-      return;
-    }
-    const selected = button.hasAttribute('data-go-live-all-ready')
-      ? ready
-      : ready.filter((item) => selectedPublishChangeIds.has(item.id));
-    prepareSelectedPublish(selected);
+  container.addEventListener('click', async (event) => {
+    if (!event.target.closest('[data-publish-all-saved]')) return;
+    await publishAllSavedChanges('All saved Admin changes');
   });
 }
 
@@ -4598,12 +4507,12 @@ function architectureReviewMarkup(items) {
   const groups = Object.groupBy ? Object.groupBy(items, (item) => item.group) : items.reduce((result, item) => {
     (result[item.group] ||= []).push(item); return result;
   }, {});
-  return `<div class="admin-panel-actions"><button type="button" data-select-all-ready-items>Select All Ready Items</button><button type="button" data-go-live-selected>Publish Selected / Go Live</button><button type="button" data-go-live-all-ready>Publish All Ready Items</button></div>` + Object.entries(groups).map(([group, groupItems]) => `
+  return `<div class="admin-panel-actions"><button class="admin-button admin-button-primary" type="button" data-publish-all-saved>Publish All Saved Changes</button></div>` + Object.entries(groups).map(([group, groupItems]) => `
     <section class="admin-review-group">
-      <div class="admin-panel-header"><h3>${escapeAdminHtml(group)}</h3><button type="button" data-select-ready-group="${escapeAdminHtml(group)}">Select All Ready in This Group</button></div>
+      <div class="admin-panel-header"><h3>${escapeAdminHtml(group)}</h3></div>
       ${groupItems.map((item) => `
         <article class="admin-review-item" data-review-id="${escapeAdminHtml(item.id)}">
-          <label class="admin-review-select"><input type="checkbox" data-ready-publish-select value="${escapeAdminHtml(item.id)}" ${item.approved ? '' : 'disabled'} ${selectedPublishChangeIds.has(item.id) ? 'checked' : ''}> ${item.approved ? 'Select for publishing' : 'Draft'}</label>
+          <p class="admin-review-select">${item.approved ? 'Ready' : 'Saved draft — Publish All will prepare it'}</p>
           <div class="admin-review-image">${architectureReviewImage(item) ? `<img src="${escapeAdminHtml(architectureReviewImage(item))}" alt="">` : '<span>No image</span>'}</div>
           <div class="admin-review-summary"><strong>${escapeAdminHtml(item.title)}</strong><p>${escapeAdminHtml(item.group)}</p><p class="admin-status-message" data-state="${item.approved ? 'approved' : 'waiting'}">${item.approved ? 'Ready to publish' : 'Draft — not included in publishing'}</p><small>Last edited: ${escapeAdminHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Not available')}</small></div>
           <div class="admin-review-values"><p><strong>Published:</strong> ${escapeAdminHtml(architectureReviewSummary(item.before))}</p><p><strong>Private:</strong> ${escapeAdminHtml(architectureReviewSummary(item.after))}</p></div>
@@ -4644,6 +4553,80 @@ async function setArchitectureReviewStatus(item, status) {
   return true;
 }
 
+function savedPublishBlockers(items = architectureReviewItems()) {
+  return items.flatMap((item) => {
+    if (item.type === 'category' && !item.after?.parentKey && !String(item.after?.card?.image || '').trim()) {
+      return [`${item.title || item.key}: choose a Homepage Collection Card image`];
+    }
+    return [];
+  });
+}
+
+async function publishAllSavedChanges(label = 'All saved Admin changes', statusTarget = null, { onProgress = null } = {}) {
+  if (publishAllSavedChangesPromise) return publishAllSavedChangesPromise;
+  publishAllSavedChangesPromise = (async () => {
+    const report = (message, state = '') => {
+      if (statusTarget) {
+        statusTarget.textContent = message;
+        statusTarget.dataset.state = state;
+      }
+      setStatus(message);
+      onProgress?.(message, state);
+    };
+    report('Checking every saved Admin change…', 'publishing');
+    if (!await waitForAdminSaves()) return false;
+    if (!await loadAdminLiveSettings()) {
+      report(`Publish stopped: ${adminLastSaveError || 'saved Admin state could not be reloaded.'}`, 'failed');
+      return false;
+    }
+    let items = architectureReviewItems();
+    if (!items.length) {
+      report('Everything saved is already published.', 'published');
+      return true;
+    }
+    const blockers = savedPublishBlockers(items);
+    if (blockers.length) {
+      report(`Publish stopped — ${blockers.join('; ')}. Nothing was published.`, 'failed');
+      return false;
+    }
+    const failed = [];
+    for (const item of items.filter((entry) => !entry.approved)) {
+      report(`Preparing ${item.title || item.key}…`, 'publishing');
+      try {
+        if (!await setArchitectureReviewStatus(item, 'approved')) failed.push(item.title || item.key);
+      } catch (error) {
+        failed.push(`${item.title || item.key}: ${error?.message || error}`);
+      }
+    }
+    if (failed.length) {
+      report(`Publish stopped — these saved changes could not be prepared: ${failed.join('; ')}. Nothing was published.`, 'failed');
+      return false;
+    }
+    if (!await loadAdminLiveSettings()) {
+      report('Publish stopped — prepared changes could not be reloaded. Nothing was published.', 'failed');
+      return false;
+    }
+    items = architectureReviewItems();
+    const remainingDrafts = items.filter((item) => !item.approved);
+    if (remainingDrafts.length) {
+      report(`Publish stopped — still private: ${remainingDrafts.map((item) => item.title || item.key).join(', ')}. Nothing was published.`, 'failed');
+      return false;
+    }
+    report(`Publishing ${items.length} saved change${items.length === 1 ? '' : 's'} in one website deployment…`, 'publishing');
+    return publishScopedChangeIds(
+      items.map((item) => item.id),
+      `All saved Admin changes (${items.length})`,
+      statusTarget,
+      { onProgress }
+    );
+  })();
+  try {
+    return await publishAllSavedChangesPromise;
+  } finally {
+    publishAllSavedChangesPromise = null;
+  }
+}
+
 async function discardArchitecturePrivateChange(item) {
   if (!item.before || !window.confirm(`Discard the private changes for ${item.title} and restore the published values?`)) return false;
   if (item.type === 'product') return (await saveAdminCollectionOperations([{
@@ -4669,20 +4652,12 @@ function bindArchitectureReview(container) {
     else selectedPublishChangeIds.delete(input.value);
   });
   container.addEventListener('click', async (event) => {
-    const button = event.target.closest('[data-review-approve], [data-review-draft], [data-review-discard], [data-select-ready-group], [data-select-all-ready-items], [data-go-live-selected], [data-go-live-all-ready]');
+    const button = event.target.closest('[data-review-approve], [data-review-draft], [data-review-discard], [data-publish-all-saved]');
     if (!button) return;
     const items = architectureReviewItems();
     const ready = items.filter((item) => item.approved);
-    if (button.hasAttribute('data-select-all-ready-items') || button.dataset.selectReadyGroup) {
-      const targets = button.dataset.selectReadyGroup ? ready.filter((item) => item.group === button.dataset.selectReadyGroup) : ready;
-      const allSelected = targets.length && targets.every((item) => selectedPublishChangeIds.has(item.id));
-      targets.forEach((item) => allSelected ? selectedPublishChangeIds.delete(item.id) : selectedPublishChangeIds.add(item.id));
-      renderAdminProducts();
-      renderReadyPublishSelection();
-      return;
-    }
-    if (button.hasAttribute('data-go-live-selected') || button.hasAttribute('data-go-live-all-ready')) {
-      prepareSelectedPublish(button.hasAttribute('data-go-live-all-ready') ? ready : ready.filter((item) => selectedPublishChangeIds.has(item.id)));
+    if (button.hasAttribute('data-publish-all-saved')) {
+      await publishAllSavedChanges('All saved Admin changes');
       return;
     }
     let targets = [];
@@ -4744,7 +4719,7 @@ function categoryProductsMarkup(category) {
       <div class="admin-card-actions">
         <button type="submit">Save Assignments</button>
         <button type="button" data-remove-product-category>Remove from ${category.parentKey ? 'Child Group' : 'Collection'}</button>
-        <button type="button" data-publish-category-product>Publish Product / Standee</button>
+        <button type="button" data-publish-category-product>Publish All Saved Changes</button>
         <a class="admin-button admin-button-secondary" href="#products" data-open-category-product="${escapeAdminHtml(product.slug)}">Open / Edit Product / Standee</a>
       </div>
     </form>`).join('');
@@ -4961,7 +4936,7 @@ function populateNewCategoryVisualPickers(form) {
 function categoryPublishButtonMarkup(categoryKey, { editor = false } = {}) {
   const operation = categoryPublishOperations.get(categoryKey);
   const publishing = operation?.state === 'publishing';
-  const label = publishing ? 'Publishing…' : 'Publish to Website';
+  const label = publishing ? 'Publishing…' : 'Publish All Saved Changes';
   return `<button class="admin-button admin-button-primary" type="button" ${editor ? 'data-publish-category-edit' : `data-publish-category="${escapeAdminHtml(categoryKey)}"`} data-publish-category-key="${escapeAdminHtml(categoryKey)}" data-category-key="${escapeAdminHtml(categoryKey)}" ${publishing ? 'disabled aria-busy="true"' : ''}>${label}</button>`;
 }
 
@@ -5048,7 +5023,7 @@ function categoryEditMarkup(category) {
           <strong>${parent ? 'Live Child Group Preview' : 'Live Homepage Collection Card Preview'}</strong>
           ${parent ? '' : categoryCardDraftStatusMarkup(category)}
           <div class="admin-builder-preview-panel" data-category-edit-preview></div>
-          <p class="admin-note">Image, background, size, and position changes update here immediately. Save Draft stores private work; Publish to Website makes that saved card visible to customers.</p>
+          <p class="admin-note">Image, background, size, and position changes update here immediately. Save Draft stores private work; Publish All Saved Changes sends every saved Admin change in one website deployment.</p>
         </aside>
         <div class="admin-category-controls-column">
           <div class="admin-panel-actions admin-category-editor-actions"><button type="button" data-back-to-collections>Back to Collections</button><button type="button" data-preview-category-edit>Preview</button><button type="submit">Save Draft</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
@@ -5272,7 +5247,7 @@ function renderCategoryManager() {
   const deleted = readDeletedCategories();
   if (deleted.length) container.insertAdjacentHTML('beforeend', `<section class="admin-category-deletions"><h3>Deleted Categories</h3>${deleted.map((key) => {
     const published = (adminPublishedBaseline?.deletedCategories || []).includes(key);
-    return `<article><strong>${escapeAdminHtml(key)}</strong><span>${published ? 'Published deletion' : 'Unpublished deletion'} · Products and image files are preserved.</span>${published ? '' : `<button type="button" data-publish-category-deletion="${escapeAdminHtml(key)}">Publish Deletion</button>`}<button type="button" data-recreate-category="${escapeAdminHtml(key)}">Recreate Category</button></article>`;
+    return `<article><strong>${escapeAdminHtml(key)}</strong><span>${published ? 'Published deletion' : 'Unpublished deletion'} · Products and image files are preserved.</span>${published ? '' : `<button type="button" data-publish-category-deletion="${escapeAdminHtml(key)}">Publish All Saved Changes</button>`}<button type="button" data-recreate-category="${escapeAdminHtml(key)}">Recreate Category</button></article>`;
   }).join('')}</section>`);
   updateDeleteSelectedCategoriesButton();
 }
@@ -5400,7 +5375,7 @@ function setCategoryPublishState(categoryKey, message, state = '') {
     const publishing = state === 'publishing';
     button.disabled = publishing;
     button.toggleAttribute('aria-busy', publishing);
-    button.textContent = publishing ? 'Publishing…' : 'Publish to Website';
+    button.textContent = publishing ? 'Publishing…' : 'Publish All Saved Changes';
   });
   document.querySelectorAll(`[data-category-publish-status="${CSS.escape(categoryKey)}"]`).forEach((status) => {
     status.textContent = visibleMessage;
@@ -5416,46 +5391,20 @@ async function publishCategoryByKey(categoryKey, form = null) {
     return false;
   }
   try {
-    const publisher = window.MVPLUX_CATEGORY_PUBLISHER;
-    if (!publisher?.publishCategoryByKey) throw new Error('Shared Category publisher is unavailable.');
-    const publication = await publisher.publishCategoryByKey(categoryKey, {
-      categoryCardMap: ADMIN_CATEGORY_CARD_MAP,
-      serializeCategory: publishableCategory,
-      onProgress: (message, state) => setCategoryPublishState(categoryKey, message, state),
-      saveApprovedDraft: async () => {
-        let saved = false;
-        if (form) saved = await saveCategoryEditForm(form, 'approved', { render: false });
-        else {
-          if (!initialCategory.parentKey && !initialCategory.card?.image) {
-            setCategoryPublishState(categoryKey, 'Publish stopped: choose a Category image first.', 'failed');
-            return null;
-          }
-          const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: categoryKey, baseRecord: initialCategory, patch: { approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString() } }]);
-          saved = result.ok;
-        }
-        return saved ? readAdminCategories()[categoryKey] || initialCategory : null;
-      },
-      loadPublishedSnapshot: async () => structuredClone(adminPublishedBaseline || buildDefaultPublishBaseline()),
-      confirmPublish: (category) => window.confirm(`Publish “${category.title || categoryKey}” to the website?`),
-      prepareImages: async (previous, current) => {
-        const before = new Set([previous?.card?.image, previous?.card?.backgroundImage].filter(Boolean));
-        return loadSelectedPublishImages([current?.card?.image, current?.card?.backgroundImage]
-          .filter((path) => path && !before.has(path)));
-      },
-      callPublisher: callAdminPublisher,
-      synchronizePublishedState: async (snapshot, result, deployment) => {
-        const publishHistory = (deployment?.publishHistory?.length ? deployment.publishHistory : result?.publishHistory || []).map((entry) => entry.commitHash === result?.commitHash
-          ? { ...entry, deploymentResult: deployment?.status || entry.deploymentResult }
-          : entry);
-        if (!await saveAdminSettingsLive({ lastPublishedSnapshot: snapshot, publishHistory })) {
-          throw new Error('The Category reached GitHub but its published state could not be synchronized.');
-        }
-        adminPublishedBaseline = normalizePublishedBaseline(snapshot);
-        adminLastSuccessfulSnapshot = snapshot;
-        refreshVisibleAdminAreaAfterPublish();
+    let saved = false;
+    if (form) saved = await saveCategoryEditForm(form, 'approved', { render: false });
+    else {
+      if (!initialCategory.parentKey && !initialCategory.card?.image) {
+        setCategoryPublishState(categoryKey, 'Publish stopped: choose a Homepage Collection Card image first.', 'failed');
+        return false;
       }
+      const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: categoryKey, baseRecord: initialCategory, patch: { approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString() } }]);
+      saved = result.ok;
+    }
+    if (!saved) return false;
+    return publishAllSavedChanges(initialCategory.title || categoryKey, null, {
+      onProgress: (message, state) => setCategoryPublishState(categoryKey, message, state)
     });
-    return publication.ok;
   } catch (error) {
     setCategoryPublishState(categoryKey, `Publish Failed — ${error?.message || error}`, 'failed');
     return false;
@@ -6044,7 +5993,7 @@ function setupCategoryManagerEvents() {
     const openProduct = event.target.closest('[data-open-category-product]');
     if (openProduct) window.setTimeout(() => document.getElementById(`product-${CSS.escape(openProduct.dataset.openCategoryProduct)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
     const publishDeletion = event.target.closest('[data-publish-category-deletion]');
-    if (publishDeletion) await publishScopedChangeIds([`category-delete:${publishDeletion.dataset.publishCategoryDeletion}`], `Delete ${publishDeletion.dataset.publishCategoryDeletion}`);
+    if (publishDeletion) await publishAllSavedChanges(`Delete ${publishDeletion.dataset.publishCategoryDeletion}`);
     const recreate = event.target.closest('[data-recreate-category]');
     if (recreate) await recreateDeletedCategory(recreate.dataset.recreateCategory);
     const openExisting = event.target.closest('[data-open-existing-category]');
@@ -6098,7 +6047,7 @@ function renderAdminProducts() {
             <button type="button" data-back-to-products>Back to Products</button>
             <button type="button" data-preview-product>Preview</button>
             <button type="submit">Save Draft</button>
-            ${product.categoryCard ? '' : '<button class="admin-button admin-button-primary" type="button" data-publish-product>Publish to Website</button>'}
+            ${product.categoryCard ? '' : '<button class="admin-button admin-button-primary" type="button" data-publish-product>Publish All Saved Changes</button>'}
             <details class="admin-card-more-actions"><summary>More</summary>
             <button type="button" data-archive-product="${product.slug}">Archive</button>
             ${product.categoryCard ? '' : `<button type="button" data-visibility-toggle="${value.visible === false ? 'show' : 'hide'}">${value.visible === false ? 'Show' : 'Hide'}</button>`}
@@ -7000,7 +6949,7 @@ async function configureImageDraft(form, approvalStatus = 'draft') {
     setImageDraftActionsBusy(form, false);
     renderAdminProducts();
     setImageDraftActionStatus(form, 'DRAFT SAVED — PRIVATE', 'success');
-    setStatus('Product draft saved privately. Customers cannot see it until Publish to Website succeeds.');
+    setStatus('Product draft saved privately. Customers cannot see it until Publish All Saved Changes succeeds.');
   } catch (error) {
     setImageDraftActionsBusy(form, false);
     setImageDraftActionStatus(form, `SAVE FAILED — ${error.message || 'Could not apply this image assignment.'}`, 'error');
@@ -7253,7 +7202,7 @@ function renderImageDrafts() {
             <button type="button" data-image-import-action data-image-box-redo disabled>Redo</button>
             <button type="button" data-image-import-action data-save-image-box ${imageImportReady ? '' : 'disabled'}>Save</button>
             <button type="button" data-image-import-action data-preview-image-import>Preview</button>
-            <button class="admin-button admin-button-primary" type="button" data-image-import-action data-publish-image-box ${imageImportReady ? '' : 'disabled'}>Publish to Website</button>
+            <button class="admin-button admin-button-primary" type="button" data-image-import-action data-publish-image-box ${imageImportReady ? '' : 'disabled'}>Publish All Saved Changes</button>
             <button type="button" data-image-import-action data-continue-product-editor ${imageImportReady ? '' : 'disabled'}>Continue in Product Editor</button>
             <details class="admin-card-more-actions"><summary>More</summary><button type="button" data-image-import-action data-ignore-image ${imageImportReady ? '' : 'disabled'}>Ignore Image</button></details>
           </div>
@@ -7283,7 +7232,7 @@ function renderImageDrafts() {
                 <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
               </div>
               <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
-              <p class="admin-note">AI can help fill these fields. Review or edit the suggestions, then click Save. When you're ready for customers to see the product, click Publish to Website.</p>
+              <p class="admin-note">AI can help fill these fields. Review or edit the suggestions, then click Save. When you're ready, Publish All Saved Changes sends every saved Admin change in one website deployment.</p>
               <label data-import-destinations="create-product">Original height<input name="originalHeight" type="text" value="${escapeAdminHtml(draft.originalHeight || '')}" placeholder="6'6 or 78"></label>
               <label>Background
                 <select name="backgroundImage">
@@ -7960,7 +7909,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderPublishSummary();
   });
   document.getElementById('publishAdminChanges')?.addEventListener('click', publishAdminChanges);
+  document.getElementById('publishAllCollections')?.addEventListener('click', () => publishAllSavedChanges('All saved Admin changes'));
   document.getElementById('refreshPublishHistory')?.addEventListener('click', refreshPublishHistory);
+  if (new URLSearchParams(window.location.search).get('publishAll') === '1') {
+    history.replaceState(null, '', 'admin.html#advanced');
+    window.setTimeout(() => publishAllSavedChanges('All saved Admin changes'), 0);
+  }
 
   document.getElementById('enableAdminAnywhere')?.addEventListener('click', () => {
     localStorage.setItem('mvpluxAdminAnywhere', 'true');

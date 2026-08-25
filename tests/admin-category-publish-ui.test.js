@@ -18,7 +18,7 @@ function categoryPublisherHarness({ saveResult = true, publishResult = true, def
   let publishCalls = 0;
   const factory = new Function(
     'window', 'categoryPublishOperations', 'readAdminCategories', 'setStatus', 'setCategoryPublishState',
-    'saveCategoryEditForm', 'saveAdminCollectionOperations', 'adminLastSaveError', 'ADMIN_CATEGORY_CARD_MAP',
+    'publishAllSavedChanges', 'saveCategoryEditForm', 'saveAdminCollectionOperations', 'adminLastSaveError', 'ADMIN_CATEGORY_CARD_MAP',
     'publishableCategory', 'loadSelectedPublishImages', 'callAdminPublisher', 'saveAdminSettingsLive',
     'adminPublishedBaseline', 'buildDefaultPublishBaseline', 'normalizePublishedBaseline',
     'adminLastSuccessfulSnapshot', 'refreshVisibleAdminAreaAfterPublish',
@@ -45,7 +45,22 @@ function categoryPublisherHarness({ saveResult = true, publishResult = true, def
     () => ({ sports: { key: 'sports', title: 'Sports', card: { image: 'images/sports.png' } } }),
     () => {},
     (key, message, state) => { operations.set(key, { message, state }); states.push({ key, message, state }); },
-    async () => { saveCalls += 1; if (deferredSave) await deferredSave; return saveResult; },
+    async (_label, _status, options) => {
+      publishCalls += 1;
+      options?.onProgress?.(publishResult ? 'Published to Website' : 'Publish Failed — test', publishResult ? 'published' : 'failed');
+      return publishResult;
+    },
+    async () => {
+      saveCalls += 1;
+      operations.set('sports', { message: 'Saving Category…', state: 'publishing' });
+      states.push({ key: 'sports', message: 'Saving Category…', state: 'publishing' });
+      if (deferredSave) await deferredSave;
+      if (!saveResult) {
+        operations.set('sports', { message: 'Publish stopped: Category draft could not be saved.', state: 'failed' });
+        states.push({ key: 'sports', message: 'Publish stopped: Category draft could not be saved.', state: 'failed' });
+      }
+      return saveResult;
+    },
     async () => { saveCalls += 1; if (deferredSave) await deferredSave; return { ok: saveResult }; },
     'Private save failed.',
     {}, (category) => category, async () => [], async () => ({}), async () => true,
@@ -64,8 +79,8 @@ Deno.test('Category Publish reacts immediately and blocks duplicate clicks', asy
   assert(harness.states[0]?.message === 'Saving Category…' && harness.states[0]?.state === 'publishing', 'first synchronous state must acknowledge the click');
   assert(duplicate === false && harness.counts().saveCalls === 1, 'a second click must not start another save or publish');
   release();
-  assert(await first, 'the real scoped publish result must be returned');
-  assert(harness.counts().publishCalls === 1, 'the existing scoped publisher must be called exactly once');
+  assert(await first, 'the publish-all result must be returned');
+  assert(harness.counts().publishCalls === 1, 'the shared publish-all controller must be called exactly once');
   assert(harness.states.some((entry) => entry.state === 'published'), 'success state must be visible');
 });
 
@@ -86,7 +101,66 @@ Deno.test('top and editor Publish buttons share one Category publisher and state
   assert(events.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)'), 'top Category Publish must submit only the mounted sibling editor for its exact Category key');
   assert(!events.includes("card?.querySelector('[data-category-edit]')"), 'top Category Publish must never select an unrelated nested Main/Child editor');
   const categoryPublish = extractedFunction('async function publishCategoryByKey', 'async function saveCategoryProductAssignments');
-  assert(categoryPublish.includes('MVPLUX_CATEGORY_PUBLISHER') && categoryPublish.includes('publisher.publishCategoryByKey(categoryKey'), 'Dashboard must invoke the same shared Category publisher as storefront Admin Mode');
+  assert(categoryPublish.includes('publishAllSavedChanges('), 'Dashboard Category buttons must use the shared Publish All controller');
+});
+
+Deno.test('Publish All prepares every saved item and sends every change id through one deployment', async () => {
+  const implementation = extractedFunction('function savedPublishBlockers', '\n\nasync function discardArchitecturePrivateChange');
+  const items = [
+    { id: 'product:one', type: 'product', title: 'One', approved: false, after: { cutoutImage: 'images/one.png' } },
+    { id: 'category:sports', type: 'category', title: 'Sport Legends', approved: true, after: { card: { image: 'images/sports.png' } } },
+    { id: 'page:index:title', type: 'page', title: 'Homepage title', approved: false, after: { text: 'New title' } }
+  ];
+  const prepared = [];
+  let publishedIds = [];
+  let publishAllSavedChangesPromise = null;
+  const run = new Function(
+    'architectureReviewItems', 'waitForAdminSaves', 'loadAdminLiveSettings', 'setArchitectureReviewStatus',
+    'publishScopedChangeIds', 'setStatus', 'adminLastSaveError',
+    `let publishAllSavedChangesPromise = null; ${implementation}; return publishAllSavedChanges;`
+  )(
+    () => items.map((item) => ({ ...item, approved: item.approved || prepared.includes(item.id) })),
+    async () => true, async () => true,
+    async (item) => { prepared.push(item.id); return true; },
+    async (ids) => { publishedIds = ids; return true; }, () => {}, ''
+  );
+  assert(await run(), 'Publish All should complete');
+  assert(prepared.join(',') === 'product:one,page:index:title', 'every saved draft must be prepared before publishing');
+  assert(publishedIds.join(',') === items.map((item) => item.id).join(','), 'one deployment must receive every saved change id');
+});
+
+Deno.test('Publish All names blocking Main Collections and publishes nothing incomplete', async () => {
+  const implementation = extractedFunction('function savedPublishBlockers', '\n\nasync function discardArchitecturePrivateChange');
+  const messages = [];
+  let calledPublisher = false;
+  const run = new Function(
+    'architectureReviewItems', 'waitForAdminSaves', 'loadAdminLiveSettings', 'setArchitectureReviewStatus',
+    'publishScopedChangeIds', 'setStatus', 'adminLastSaveError',
+    `let publishAllSavedChangesPromise = null; ${implementation}; return publishAllSavedChanges;`
+  )(
+    () => [{ id: 'category:custom', type: 'category', title: 'Custom / Other', approved: false, after: { card: { image: '' } } }],
+    async () => true, async () => true, async () => true,
+    async () => { calledPublisher = true; return true; }, (message) => messages.push(message), ''
+  );
+  assert(!await run(), 'missing required Collection image must stop Publish All');
+  assert(!calledPublisher && messages.at(-1).includes('Custom / Other') && messages.at(-1).includes('Nothing was published'), 'the exact blocker must be visible and no partial publish may start');
+});
+
+Deno.test('every visible Admin publish entry reaches the same Publish All controller', async () => {
+  const [html, storefront] = await Promise.all([
+    Deno.readTextFile(new URL('../admin.html', import.meta.url)),
+    Deno.readTextFile(new URL('../script.js', import.meta.url))
+  ]);
+  for (const control of [
+    'data-publish-new-product', 'data-publish-new-category', 'id="publishAllCollections"', 'id="publishAdminChanges"',
+    'data-publish-category-product', 'data-publish-category-key', 'data-publish-category-deletion',
+    'data-publish-product', 'data-publish-image-box', 'data-publish-all-saved'
+  ]) assert(html.includes(control) || source.includes(control), `missing Publish All entry ${control}`);
+  assert((source.match(/publishScopedChangeIds\(/g) || []).length === 2, 'only the shared Publish All controller may call the one-deployment scoped engine');
+  assert(source.includes('return publishAllSavedChanges(label || base.title || slug, statusTarget)'), 'Product and Image Box publication must converge on Publish All');
+  assert(source.includes('return publishAllSavedChanges(initialCategory.title || categoryKey'), 'Main Collection publication must converge on Publish All');
+  assert(source.includes("publishAllSavedChanges(`Delete ${publishDeletion.dataset.publishCategoryDeletion}`)"), 'deletion publication must converge on Publish All');
+  assert(storefront.includes("await markSelectedInlineAdminReady()") && storefront.includes("admin.html?publishAll=1#advanced"), 'Storefront Admin Mode must save first and hand off to the Dashboard Publish All authority');
 });
 
 Deno.test('scoped publishing reports real stages and refreshes only the visible Admin area', () => {

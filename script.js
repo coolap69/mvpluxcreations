@@ -6333,9 +6333,9 @@ function updateInlineAdminPublishButton(categoryKey = '') {
   button.classList.toggle('disabled', !categorySelected || publishing);
   button.textContent = categorySelected
     ? publishing
-      ? 'Publishing Category…'
-      : (inlineCategoryHasUnpublishedChanges(selectedKey) ? 'Publish Category — Unpublished Changes' : 'Publish Category — Published')
-    : 'Publish Category';
+      ? 'Opening Publish All…'
+      : (inlineCategoryHasUnpublishedChanges(selectedKey) ? 'Publish All Saved Changes — Unpublished Changes' : 'Publish All Saved Changes')
+    : 'Publish All Saved Changes';
 }
 
 function selectInlineAdminImage(image) {
@@ -6932,8 +6932,7 @@ async function publishSelectedInlineCategory() {
   if (inlineCategoryPublishInFlight) return inlineCategoryPublishInFlight;
   const image = getActiveInlineAdminImage(false);
   const categoryKey = resolveInlineAdminCategoryKey(image || inlineAdminSelectedRecordElement);
-  const publisher = window.MVPLUX_CATEGORY_PUBLISHER;
-  if (!categoryKey || !publisher?.publishCategoryByKey) {
+  if (!categoryKey) {
     updateInlineAdminToolbarState('Select a normalized Category image first.');
     return false;
   }
@@ -6944,33 +6943,11 @@ async function publishSelectedInlineCategory() {
   inlineCategoryPublishInFlight = (async () => {
     updateInlineAdminPublishButton(categoryKey);
     try {
-    const publication = await publisher.publishCategoryByKey(categoryKey, {
-      onProgress: (message) => {
-        updateInlineAdminToolbarState(message);
-        updateInlineAdminPublishButton(categoryKey);
-      },
-      saveApprovedDraft: async () => {
-        const base = window.mvpluxLiveAdminSettings?.categories?.[categoryKey] || getAdminCategories()[categoryKey];
-        if (!base) return null;
-        const saved = await saveStorefrontCategoryPatch(categoryKey, '', {
-          approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString()
-        }, base);
-        return saved ? window.mvpluxLiveAdminSettings?.categories?.[categoryKey] : null;
-      },
-      loadPublishedSnapshot: async () => structuredClone(window.mvpluxPublishedAdminSettings || {}),
-      confirmPublish: (category) => window.confirm(`Publish “${category.title || categoryKey}” to the website?`),
-      prepareImages: prepareStorefrontCategoryPublishImages,
-      callPublisher: callStorefrontCategoryPublisher,
-      synchronizePublishedState: async (snapshot, _result, deployment) => {
-        window.mvpluxPublishedAdminSettings = structuredClone(snapshot);
-        if (deployment?.confirmed) {
-          const refreshed = await loadPublishedAdminSettings();
-          if (!refreshed) window.mvpluxPublishedAdminSettings = structuredClone(snapshot);
-        }
-        renderNormalizedHomepageCategoryCards();
-      }
-    });
-    return publication.ok;
+      const ready = await markSelectedInlineAdminReady();
+      if (!ready) return false;
+      updateInlineAdminToolbarState('Draft saved. Opening one Publish All deployment…');
+      window.location.href = 'admin.html?publishAll=1#advanced';
+      return true;
     } catch (error) {
       updateInlineAdminToolbarState(`Publish failed — ${error?.message || error}`);
       return false;
@@ -8288,7 +8265,7 @@ function installInlineAdminMode() {
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller" onpointerdown="runInlineAdminToolbarAction('size-down'); return false;" onclick="runInlineAdminToolbarAction('size-down'); return false;">Size -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger" onpointerdown="runInlineAdminToolbarAction('size-up'); return false;" onclick="runInlineAdminToolbarAction('size-up'); return false;">Size +</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="replace-image" id="adminInlineReplaceImage" title="Choose an existing repository image for the selected item">Change Image</button>
-        <button type="button" class="admin-tool-control disabled" data-admin-toolbar-action="publish-category" disabled title="Publish the selected normalized Category draft">Publish Category</button>
+        <button type="button" class="admin-tool-control disabled" data-admin-toolbar-action="publish-category" disabled title="Save this Category draft, then publish every saved Admin change in one deployment">Publish All Saved Changes</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left" onpointerdown="runInlineAdminToolbarAction('rotate-left'); return false;" onclick="runInlineAdminToolbarAction('rotate-left'); return false;">Rotate -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onpointerdown="runInlineAdminToolbarAction('rotate-right'); return false;" onclick="runInlineAdminToolbarAction('rotate-right'); return false;">Rotate +</button>
       </div>

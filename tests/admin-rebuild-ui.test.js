@@ -204,10 +204,10 @@ Deno.test('Products starts compact and mounts one full editor only after Edit', 
   assert(adminSource.includes('openedProductEditors.add(button.dataset.editProduct)'), 'Edit must explicitly opt one product into full editor rendering');
   assert(adminSource.includes("editorOpen ? productMarkup([product]) : ''"), 'unopened products must not build full forms');
   assert(adminSource.includes('Technical published/private comparison'), 'Advanced must retain the technical comparison');
-  assert(adminSource.includes('publishScopedChangeIds([`product:${slug}`]'), 'normal product publishing must scope itself to one product');
-  assert(adminSource.includes('publisher.publishCategoryByKey(categoryKey'), 'normal Category publishing must use the shared scoped Category operation');
-  assert(adminHtml.includes('data-publish-new-product>Publish to Website</button>'), 'new products need a direct publish action');
-  assert(adminHtml.includes('data-publish-new-category>Publish to Website</button>'), 'new categories need a direct publish action');
+  assert(adminSource.includes('return publishAllSavedChanges(label || base.title || slug, statusTarget)'), 'normal Product publishing must use the shared Publish All controller');
+  assert(adminSource.includes('return publishAllSavedChanges(initialCategory.title || categoryKey'), 'normal Main Collection publishing must use the shared Publish All controller');
+  assert(adminHtml.includes('data-publish-new-product>Publish All Saved Changes</button>'), 'new Products need the same Publish All action');
+  assert(adminHtml.includes('data-publish-new-category>Publish All Saved Changes</button>'), 'new Main Collections need the same Publish All action');
   assert(!adminHtml.includes('Mark Ready') && !storefrontSource.includes('>Mark Ready</button>'), 'normal Admin surfaces must not expose Ready terminology');
 });
 

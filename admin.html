@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260825-product-visual-controls" />
+  <link rel="stylesheet" href="style.css?v=20260825-publish-all-saved" />
 </head>
 <body class="admin-shell">
   <header class="top-nav">
@@ -161,7 +161,7 @@
             <div class="admin-panel-actions">
               <button class="admin-button admin-button-secondary" type="submit" value="draft">Save Draft</button>
               <button class="admin-button admin-button-secondary" type="button" data-preview-new-product>Preview</button>
-              <button class="admin-button admin-button-primary" type="button" data-publish-new-product>Publish to Website</button>
+              <button class="admin-button admin-button-primary" type="button" data-publish-new-product>Publish All Saved Changes</button>
               <button class="admin-button admin-button-secondary" type="button" data-open-created-product disabled>Open on Website</button>
               <button class="admin-button admin-button-warning" type="reset">Reset</button>
             </div>
@@ -213,7 +213,7 @@
             <div class="admin-panel-actions">
               <button class="admin-button admin-button-secondary" type="submit" value="draft">Save Draft</button>
               <button class="admin-button admin-button-secondary" type="button" data-preview-new-category>Preview</button>
-              <button class="admin-button admin-button-primary" type="button" data-publish-new-category>Publish to Website</button>
+              <button class="admin-button admin-button-primary" type="button" data-publish-new-category>Publish All Saved Changes</button>
               <button class="admin-button admin-button-secondary" type="button" data-open-created-category disabled>Open on Website</button>
               <button class="admin-button admin-button-warning" type="reset">Reset</button>
             </div>
@@ -280,6 +280,7 @@
         </div>
         <div class="admin-panel-actions">
           <button class="admin-button admin-button-primary" type="button" data-new-category>+ New Main Collection</button>
+          <button class="admin-button admin-button-primary" id="publishAllCollections" type="button">Publish All Saved Changes</button>
         </div>
       </div>
       <div class="admin-category-toolbar">
@@ -461,7 +462,7 @@
         <p class="admin-note">Only image paths listed above are sent to the secure publisher and added to this commit. Leave this blank when publishing settings only.</p>
         <div class="admin-panel-actions">
           <button id="refreshPublishSummary" type="button">Refresh Summary</button>
-          <button id="publishAdminChanges" type="button">Publish One GitHub Commit</button>
+          <button id="publishAdminChanges" type="button">Publish All Saved Changes</button>
         </div>
       </div>
 
@@ -482,6 +483,6 @@
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
   <script src="category-presentation.js?v=20260824-collection-representative"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
-  <script src="admin.js?v=20260825-product-visual-controls"></script>
+  <script src="admin.js?v=20260825-publish-all-saved"></script>
 </body>
 </html>

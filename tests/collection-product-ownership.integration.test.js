@@ -142,6 +142,6 @@ Deno.test('storefront Admin Mode saves the exact selected Collection or Child Gr
 Deno.test('Dashboard and storefront use the same normalized Product assignment and separate destructive actions', () => {
   const dashboardSave = sourceRange(adminSource, 'async function saveCategoryProductAssignments', 'async function saveNewChildGroupFromForm');
   assert(dashboardSave.includes("collectionKey: 'products'") && dashboardSave.includes('withProductCategories(product, selected)'), 'Dashboard assignment editing must patch the same normalized products collection');
-  assert(adminSource.includes('Remove from ${category.parentKey ? \'Child Group\' : \'Collection\'}') && adminSource.includes('Publish Product / Standee'), 'Dashboard must expose relationship removal and explicit Product publication separately');
+  assert(adminSource.includes('Remove from ${category.parentKey ? \'Child Group\' : \'Collection\'}') && adminSource.includes('Publish All Saved Changes'), 'Dashboard must expose relationship removal and the explicit Publish All action separately');
   assert(storefrontSource.includes('data-admin-card-action="delete-product">Delete Product</button>') && storefrontSource.includes('removeManagedProductFromCurrentSection'), 'true Product deletion must remain separate from removing a Collection relationship');
 });

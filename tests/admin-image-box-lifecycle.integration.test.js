@@ -15,7 +15,7 @@ function sourceRange(startToken, endToken) {
 
 Deno.test('Image Box exposes one clear lifecycle toolbar and AI remains suggestion-only', () => {
   const markup = sourceRange('function renderImageDrafts()', 'function imageImportPublished');
-  for (const label of ['Undo', 'Redo', 'Save', 'Preview', 'Publish to Website', 'Continue in Product Editor', 'More']) {
+  for (const label of ['Undo', 'Redo', 'Save', 'Preview', 'Publish All Saved Changes', 'Continue in Product Editor', 'More']) {
     assert(markup.includes(`>${label}<`), `Image Box toolbar is missing ${label}`);
   }
   assert((markup.match(/>Continue in Product Editor</g) || []).length === 1, 'Image Box must have exactly one Continue in Product Editor button');

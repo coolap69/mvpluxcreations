@@ -119,10 +119,12 @@ Deno.test('shared scoped Category publish moves the saved normalized draft into 
   }
 });
 
-Deno.test('Admin Mode exposes one shared Category publisher and never publishes when switching view mode', () => {
+Deno.test('Admin Mode saves the selected Category then opens the authoritative Publish All controller', () => {
   const modeSwitch = sourceRange(storefrontSource, 'async function setAdminViewMode', '\n\nfunction renderAdminViewModeLabel');
-  assert(storefrontSource.includes('data-admin-toolbar-action="publish-category"') && storefrontSource.includes('Publish Category'), 'selected normalized Categories must expose an explicit Publish Category action');
-  assert(storefrontSource.includes('MVPLUX_CATEGORY_PUBLISHER.publishCategoryByKey') || storefrontSource.includes('publisher.publishCategoryByKey(categoryKey'), 'Admin Mode must call the shared Category publisher');
+  assert(storefrontSource.includes('data-admin-toolbar-action="publish-category"') && storefrontSource.includes('Publish All Saved Changes'), 'selected normalized Categories must expose the explicit Publish All action');
+  const publish = sourceRange(storefrontSource, 'async function publishSelectedInlineCategory', '\n\nasync function deleteInlineAdminCard');
+  assert(publish.includes('await markSelectedInlineAdminReady()') && publish.includes("admin.html?publishAll=1#advanced"), 'Admin Mode must save its selected normalized draft before opening the Dashboard authority');
+  assert(!publish.includes("action: 'publish'") && !publish.includes('publishCategoryByKey('), 'Admin Mode must not retain a competing scoped publisher');
   assert(!modeSwitch.includes('publishCategory') && !modeSwitch.includes("action: 'publish'"), 'Admin Mode Off must never publish automatically');
   const turnOff = sourceRange(storefrontSource, 'function turnOffInlineAdminMode', '\n\nfunction installInlineAdminMode');
   assert(turnOff.includes("setAdminViewMode('published')"), 'Admin Mode Off must switch from the saved draft preview to the published customer lifecycle state');
