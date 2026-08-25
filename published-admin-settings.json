@@ -1,7 +1,7 @@
 {
-  "publishedAt": "2026-08-25T17:34:56.297Z",
-  "title": "Publish T-800 Endoskeleton Cardboard Standee",
-  "changeSummary": "- Updated category: T-800 Endoskeleton Cardboard Standee",
+  "publishedAt": "2026-08-25T18:07:50.214Z",
+  "title": "Publish Endoskeleton Dark",
+  "changeSummary": "- Assigned Endoskeleton Dark to Video Game / Fantasy",
   "snapshot": {
     "version": 1,
     "schemaVersion": 2,
@@ -238,13 +238,22 @@
         "logoTop": "",
         "stageBackgroundPosition": "",
         "categories": [
-          "movie-characters"
+          "movie-characters",
+          "video-game-fantasy"
         ],
         "visible": true,
         "categoryOrder": {
           "movie-characters": 0
         },
-        "displayOverrides": {}
+        "displayOverrides": {
+          "imageTransform": {
+            "x": 0,
+            "y": 0,
+            "scale": 1,
+            "rotate": 0
+          },
+          "backgroundPosition": "center center"
+        }
       },
       "endoskeleton-white": {
         "slug": "endoskeleton-white",
