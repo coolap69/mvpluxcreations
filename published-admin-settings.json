@@ -1,7 +1,7 @@
 {
-  "publishedAt": "2026-08-25T06:55:30.862Z",
-  "title": "Publish Faith / Celebration",
-  "changeSummary": "- Updated category: Faith / Celebration",
+  "publishedAt": "2026-08-25T16:57:28.664Z",
+  "title": "Publish Movie Characters",
+  "changeSummary": "- Updated category: Movie Characters",
   "snapshot": {
     "version": 1,
     "schemaVersion": 2,
@@ -1296,8 +1296,7 @@
           "description": "",
           "image": "images/MovieCharacterStandees/Endorskeleton/Endornobackground.png",
           "backgroundImage": "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
-          "visible": true,
-          "order": 0
+          "representativeProductSlug": ""
         },
         "displaySettings": {
           "backgroundPosition": "center center"
