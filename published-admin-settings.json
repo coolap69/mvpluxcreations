@@ -1,7 +1,7 @@
 {
-  "publishedAt": "2026-08-25T16:57:28.664Z",
-  "title": "Publish Movie Characters",
-  "changeSummary": "- Updated category: Movie Characters",
+  "publishedAt": "2026-08-25T17:12:13.822Z",
+  "title": "Publish T-800 Endoskeleton Cardboard Standee",
+  "changeSummary": "- Updated category: T-800 Endoskeleton Cardboard Standee",
   "snapshot": {
     "version": 1,
     "schemaVersion": 2,
@@ -1284,9 +1284,9 @@
       },
       "movie-characters": {
         "key": "movie-characters",
-        "title": "Movie Characters",
-        "description": "",
-        "funFact": "",
+        "title": "T-800 Endoskeleton Cardboard Standee",
+        "description": "Bring the terrifying T-800 Endoskeleton into your space with this life-sized cardboard standee. Featuring the iconic metallic skeletal design and glowing red eyes, the figure is shown standing in a combat stance while holding a futuristic heavy blaster rifle.",
+        "funFact": "The T-800 Endoskeleton is a classic cinematic icon of science fiction, recognized for its relentless pursuit and advanced robotic design.",
         "page": "movie-inspired.html",
         "visible": true,
         "homepageVisible": true,
@@ -1299,7 +1299,19 @@
           "representativeProductSlug": ""
         },
         "displaySettings": {
-          "backgroundPosition": "center center"
+          "backgroundPosition": "50% 100%",
+          "backgroundSizePercent": 100,
+          "standeeSizePercent": 83,
+          "standeeLeftPercent": -1,
+          "standeeVerticalPercent": -16,
+          "titleLeftPercent": 0,
+          "titleVerticalPercent": 0,
+          "titleAlign": "center",
+          "titleSizePercent": 100,
+          "descriptionLeftPercent": 0,
+          "descriptionVerticalPercent": 0,
+          "descriptionAlign": "center",
+          "descriptionSizePercent": 100
         }
       },
       "faith-celebration": {
