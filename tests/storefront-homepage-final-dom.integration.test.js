@@ -30,6 +30,7 @@ async function actualFinalHomepageDom() {
   window.mvpluxPublishedAdminSettings = structuredClone(publishedDocument.snapshot);
 
   const code = [
+    sourceFunction(source, 'function escapeHtml', 'function showSiteMessage'),
     sourceFunction(source, 'function compatibilityMasterCategories', 'function getAdminGlobalDisplaySettings'),
     sourceFunction(source, 'function getEffectiveCategoryPresentation', 'function resolveStorefrontProductDisplay'),
     sourceFunction(source, 'function homepageCategoryRecords', 'function managedCategoryCardMarkup'),
@@ -56,7 +57,7 @@ async function actualFinalHomepageDom() {
   };
   const factory = new Function('window', 'document', 'dependencies', `
     const { structuredClone, shouldUsePrivateAdminState, STOREFRONT_CATEGORY_CARD_MAP, STOREFRONT_CATEGORY_PAGE_MAP,
-      inlineAdminPageKey, getAdminGlobalDisplaySettings, getShowroomStageBackground, escapeHtml,
+      inlineAdminPageKey, getAdminGlobalDisplaySettings, getShowroomStageBackground,
       getAdminArchivedProducts, getAdminDeletedProducts, getAdminCustomProducts, productCardMarkup,
       getHomepageCategoryRows, getHomepageCategoryCardOrder, getCardAdminKey, isCardHiddenByAdmin,
       inlineAdminKey, getInlineAdminPageEdits, getProductSlug } = dependencies;
@@ -64,15 +65,13 @@ async function actualFinalHomepageDom() {
     return { getAdminCategories, homepageCategoryRecords, renderNormalizedHomepageCategoryCards,
       renderAdminManagedCards, applyHomepageCategoryCardOrder, applyInlineHiddenCards, applyInlineAdminEdits };
   `);
-  const escapeHtml = (value) => String(value ?? '')
-    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
   let inlineKeyIndex = 0;
   const functions = factory(window, window.document, {
     structuredClone, shouldUsePrivateAdminState: () => false,
     STOREFRONT_CATEGORY_CARD_MAP: cardMap, STOREFRONT_CATEGORY_PAGE_MAP: pageMap,
     inlineAdminPageKey: () => 'index.html',
     getAdminGlobalDisplaySettings: () => window.mvpluxPublishedAdminSettings.globalDisplaySettings || {},
-    getShowroomStageBackground: () => 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg', escapeHtml,
+    getShowroomStageBackground: () => 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg',
     getAdminArchivedProducts: () => [], getAdminDeletedProducts: () => [], getAdminCustomProducts: () => [], productCardMarkup: () => '',
     getHomepageCategoryRows: () => [...window.document.querySelectorAll('#shop .featured-category-row .product-carousel-row')],
     getHomepageCategoryCardOrder: () => [], getCardAdminKey: (card) => card.dataset.adminSlug || '', isCardHiddenByAdmin: () => false,
@@ -110,6 +109,26 @@ Deno.test('actual published and compatibility Main Categories remain visible in 
   assert(window.getComputedStyle(mount).display === 'grid' && window.getComputedStyle(sports).display === 'flex', 'dedicated mount and card must compute to visible layouts');
   assert(fallbackInitiallyHidden, 'hard-coded Category markup must be inert before normalized rendering starts');
   assert(window.document.querySelector('[data-homepage-category-fallback]').hidden, 'legacy fallback must hide only after authoritative rendering succeeds');
+});
+
+Deno.test('current mixed published state renders normalized and recognized legacy-only Main Collections together in a fresh DOM', async () => {
+  const { window, functions } = await actualFinalHomepageDom();
+  const publishedKeys = new Set(Object.keys(window.mvpluxPublishedAdminSettings.categories || {}));
+  const records = functions.homepageCategoryRecords();
+  const renderedKeys = [...window.document.querySelectorAll('#homepageCategoryGrid > .admin-master-category-card')]
+    .map((card) => card.dataset.adminCategoryKey);
+  const expectedKeys = [
+    'sports', 'movie-characters', 'faith-celebration',
+    'people-public-figures', 'music-artists', 'holiday', 'dinosaur-animal',
+    'fan-requests', 'video-game-fantasy', 'custom-other', 'custom-photo', 'small-party-packs'
+  ];
+
+  assert(records.length === expectedKeys.length, `the current mixed snapshot must resolve ${expectedKeys.length} eligible Main Collections`);
+  assert(expectedKeys.every((key) => renderedKeys.includes(key)), 'all normalized, legacy-only, and intentionally empty-image compatibility Collections must render together');
+  assert(publishedKeys.has('sports') && publishedKeys.has('movie-characters') && publishedKeys.has('faith-celebration'), 'the three normalized published Collections must remain present');
+  assert(!publishedKeys.has('people-public-figures') && renderedKeys.includes('people-public-figures'), 'a recognized legacy-only Collection must remain visible until its normalized replacement is published');
+  assert(!publishedKeys.has('custom-other') && renderedKeys.includes('custom-other'), 'the compatibility Main Collection with no image must render as an empty-image card instead of emptying the list');
+  assert(!window.document.querySelector('[data-homepage-category-fallback]:not([hidden])'), 'static fallback markup must remain inert after the mixed normalized renderer succeeds');
 });
 
 Deno.test('normalized Sports and non-Sports presentation changes own the actual final card before and after publication reload', async () => {

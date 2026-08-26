@@ -17,6 +17,15 @@ let checkoutReceiptState = null;
 let storefrontTestMode = { enabled: false, customerType: 'guest' };
 let currentCheckoutIsTest = false;
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function showSiteMessage(message, type = 'info') {
   let messageBox = document.getElementById('siteMessageBox');
   if (!messageBox) {
