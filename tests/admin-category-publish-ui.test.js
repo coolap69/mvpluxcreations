@@ -105,7 +105,7 @@ Deno.test('top and editor Publish buttons share one Category publisher and state
 });
 
 Deno.test('Publish All prepares every saved item and sends every change id through one deployment', async () => {
-  const implementation = extractedFunction('function savedPublishBlockers', '\n\nasync function discardArchitecturePrivateChange');
+  const implementation = extractedFunction('async function publishAllSavedChanges', '\n\nasync function discardArchitecturePrivateChange');
   const items = [
     { id: 'product:one', type: 'product', title: 'One', approved: false, after: { cutoutImage: 'images/one.png' } },
     { id: 'category:sports', type: 'category', title: 'Sport Legends', approved: true, after: { card: { image: 'images/sports.png' } } },
@@ -129,8 +129,8 @@ Deno.test('Publish All prepares every saved item and sends every change id throu
   assert(publishedIds.join(',') === items.map((item) => item.id).join(','), 'one deployment must receive every saved change id');
 });
 
-Deno.test('Publish All names blocking Main Collections and publishes nothing incomplete', async () => {
-  const implementation = extractedFunction('function savedPublishBlockers', '\n\nasync function discardArchitecturePrivateChange');
+Deno.test('an intentionally empty Homepage Collection Card image does not block unrelated saved publication', async () => {
+  const implementation = extractedFunction('async function publishAllSavedChanges', '\n\nasync function discardArchitecturePrivateChange');
   const messages = [];
   let calledPublisher = false;
   const run = new Function(
@@ -138,12 +138,12 @@ Deno.test('Publish All names blocking Main Collections and publishes nothing inc
     'publishScopedChangeIds', 'setStatus', 'adminLastSaveError',
     `let publishAllSavedChangesPromise = null; ${implementation}; return publishAllSavedChanges;`
   )(
-    () => [{ id: 'category:custom', type: 'category', title: 'Custom / Other', approved: false, after: { card: { image: '' } } }],
+    () => [{ id: 'category:custom', type: 'category', title: 'Custom / Other', approved: true, after: { card: { image: '' } } }],
     async () => true, async () => true, async () => true,
     async () => { calledPublisher = true; return true; }, (message) => messages.push(message), ''
   );
-  assert(!await run(), 'missing required Collection image must stop Publish All');
-  assert(!calledPublisher && messages.at(-1).includes('Custom / Other') && messages.at(-1).includes('Nothing was published'), 'the exact blocker must be visible and no partial publish may start');
+  assert(await run(), 'an explicit empty normalized card image is a publishable Main Collection state');
+  assert(calledPublisher, 'one incomplete visual must not block every other saved Admin change');
 });
 
 Deno.test('every visible Admin publish entry reaches the same Publish All controller', async () => {

@@ -99,7 +99,7 @@ Deno.test('Category editor reuses authoritative AI assistance without saving or 
   assert(source.includes("identity: String(formData.get('subjectIdentity') || '')"), 'Category identity must use the existing secure AI request');
   assert(source.includes("existingCategory?.title"), 'current Category context must be sent to the existing assistant');
   assert(editor.includes('never save or publish automatically'), 'AI suggestions must remain review-only');
-  assert(editor.indexOf('name="title"') < editor.indexOf('Generate Title'), 'AI actions should follow the editable Category text fields');
+  assert(editor.includes('<details class="admin-advanced-fields"><summary>Advanced</summary>') && editor.includes('${advancedTextTools}'), 'AI actions must render inside the collapsed Advanced section after everyday controls');
 });
 
 Deno.test('Category visual picker prioritizes assigned product images and searches the repository inventory', async () => {
@@ -117,17 +117,17 @@ Deno.test('Category editor uses a compact two-column preview and control workspa
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
   const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
-  for (const section of ['Live Homepage Collection Card Preview', 'Main Collection Information', 'Homepage Collection Card — Featured Standee Categories', 'Homepage Collection Card Image', 'Homepage Collection Card Background', 'Main Collection Settings', 'Advanced Display Settings']) {
+  for (const section of ['Live Homepage Collection Card Preview', 'Main Collection Information', 'Representative Product / Standee', 'Homepage Collection Card Image', 'Homepage Collection Card Background', 'Visibility & Homepage Order', '<summary>Advanced</summary>']) {
     assert(editor.includes(section), `Category editor is missing ${section}`);
   }
-  assert(editor.indexOf("categoryVisualImagePicker(category, 'background')") < editor.indexOf('Advanced Display Settings'), 'everyday custom background controls must be in the main visual workspace');
+  assert(editor.indexOf("categoryVisualImagePicker(category, 'background')") < editor.indexOf('<summary>Advanced</summary>'), 'everyday custom background controls must be in the main visual workspace before Advanced');
   assert(editor.includes('admin-category-editor-workspace') && editor.includes('admin-category-preview-column') && editor.includes('admin-category-controls-column'), 'editor must expose the desktop preview/control workspace');
   assert(editor.includes('data-category-edit-preview') && !editor.includes('data-category-edit-preview hidden'), 'live preview must be visible as soon as the lazy editor mounts');
   assert(editor.includes("categoryDisplayRangeMarkup('standeeSizePercent'") && source.includes('data-category-display-number') && source.includes('data-category-display-range'), 'image placement must keep numeric and slider controls together');
-  assert(styles.includes('#categories .admin-category-editor-workspace') && styles.includes('grid-template-columns: minmax(380px,.9fr) minmax(0,1.2fr)'), 'desktop editor must keep the large preview beside one compact controls column');
+  assert(styles.includes('#categories .admin-category-editor-workspace') && styles.includes('grid-template-columns: minmax(400px,.84fr) minmax(560px,1.16fr)'), 'desktop editor must keep the large preview beside one compact controls column');
   assert(styles.includes('#categories .admin-category-preview-column') && styles.includes('position: sticky'), 'desktop preview should remain visible while editing controls');
-  assert(styles.includes('.admin-main-collection-edit .admin-category-current-image > img') && styles.includes('height: 72px'), 'image and background references must remain compact instead of duplicating giant previews');
-  assert(editor.includes('admin-category-ai-text-tools') && editor.includes('AI Assistance &amp; Advanced Text Positioning'), 'less-used AI and text positioning must be collapsible');
+  assert(styles.includes('.admin-category-image-section .admin-category-current-image img') && styles.includes('height: 88px'), 'image and background references must remain compact instead of duplicating giant previews');
+  assert(editor.includes('admin-advanced-fields') && editor.includes('admin-category-ai-text-tools') && editor.includes('Generate Title'), 'less-used AI and text positioning must live inside the collapsed Advanced section');
   assert(!editor.includes('Standee size %'), 'legacy Standee Size wording must be absent from normal Category editing');
 });
 
@@ -139,7 +139,7 @@ Deno.test('Category image and background controls update the existing preview im
   for (const field of ['imageSizePercent', 'imageLeftPercent', 'imageBottomPercent']) assert(preview.includes(field), `preview must use shared layout ${field}`);
   const events = source.slice(source.indexOf('function setupCategoryManagerEvents()'), source.indexOf('function renderAdminProducts()'));
   assert(events.includes('syncCategoryDisplayControl(form, event.target)') && events.includes('previewCategoryEdit(form)'), 'slider and numeric inputs must synchronize and rerender immediately');
-  assert(events.includes('data-reset-category-background') && events.includes("backgroundPosition').value = 'center bottom'"), 'background positioning must reset through the existing field');
+  assert(events.includes('data-reset-category-background') && events.includes("setCategoryDisplayControlValue(form, 'backgroundPositionX', 50)") && events.includes("setCategoryDisplayControlValue(form, 'backgroundPositionY', 100)"), 'background positioning must reset through the synchronized existing fields');
 });
 
 Deno.test('Admin preview and storefront use the same background priority and clipped layer order', async () => {
@@ -411,7 +411,7 @@ Deno.test('Background movement reuses the authoritative backgroundPosition field
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   assert(source.includes("name=\"backgroundPosition\" type=\"hidden\"") && source.includes("categoryDisplayRangeMarkup('backgroundPositionX'") && source.includes("categoryDisplayRangeMarkup('backgroundPositionY'"), 'background editor must expose horizontal and vertical controls');
   assert(source.includes("stored.value = `${horizontal.value}% ${vertical.value}%`"), 'visual background controls must save into the existing backgroundPosition field');
-  assert(source.includes("form.elements.namedItem('backgroundPosition').value = 'center bottom'"), 'background reset must restore the existing default');
+  assert(source.includes("setCategoryDisplayControlValue(form, 'backgroundPositionX', 50)") && source.includes("setCategoryDisplayControlValue(form, 'backgroundPositionY', 100)"), 'background reset must restore the existing center-bottom default through synchronized controls');
 });
 
 Deno.test('full and inline Category editors share the normalized title authority', async () => {

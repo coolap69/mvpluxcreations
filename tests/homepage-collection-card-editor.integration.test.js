@@ -2,6 +2,7 @@ import { Window } from 'npm:happy-dom@18.0.1';
 
 const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
 const styleSource = await Deno.readTextFile(new URL('../style.css', import.meta.url));
+const presentationSource = await Deno.readTextFile(new URL('../category-presentation.js', import.meta.url));
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -58,6 +59,64 @@ function editorRuntime() {
   return { window, form, helpers, value, number, previewCount: () => previewCount };
 }
 
+function renderedCollectionEditor(width = 1440) {
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories', width, height: 1100 });
+  window.eval(presentationSource);
+  const category = {
+    key: 'sports', title: 'Sport Legends', description: 'Browse sports standees', page: 'sports-legends.html',
+    visible: true, homepageVisible: true, order: 2,
+    card: { image: 'images/kobe.png', backgroundImage: 'images/gold-stage.png', representativeProductSlug: 'kobe-bryant' },
+    displaySettings: { standeeSizePercent: 90, standeeLeftPercent: 8, standeeVerticalPercent: -4, backgroundSizePercent: 125, backgroundPosition: '40% 85%' }
+  };
+  const display = {
+    standeeSizePercent: 90, standeeLeftPercent: 8, standeeVerticalPercent: -4,
+    backgroundSizePercent: 125, backgroundPosition: '40% 85%',
+    titleSizePercent: 100, titleLeftPercent: 0, titleVerticalPercent: 0, titleAlign: 'center',
+    descriptionSizePercent: 100, descriptionLeftPercent: 0, descriptionVerticalPercent: 0, descriptionAlign: 'center'
+  };
+  const markupSource = sourceRange(adminSource, 'function categoryDisplayAdjustmentButtons', '\n\nfunction suspiciousCategoryKeys');
+  const render = new Function('dependencies', `
+    const { effectiveCategoryDisplaySettings, categoryBackgroundPositionParts, readAdminCategories,
+      categoryAssignedProducts, escapeAdminHtml, categoryPublishOperations, categoryCardDraftStatusMarkup,
+      categoryPublishButtonMarkup, categoryVisualImagePicker, categoryDisplayRangeMarkup,
+      CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, CATEGORY_BACKGROUND_SIZE_MIN,
+      CATEGORY_BACKGROUND_SIZE_MAX } = dependencies;
+    ${markupSource}
+    return categoryEditMarkup;
+  `)({
+    effectiveCategoryDisplaySettings: () => display,
+    categoryBackgroundPositionParts: () => ({ x: 40, y: 85 }),
+    readAdminCategories: () => ({ sports: category }),
+    categoryAssignedProducts: () => [{ slug: 'kobe-bryant', title: 'Kobe Bryant' }],
+    escapeAdminHtml: (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;'),
+    categoryPublishOperations: new Map(),
+    categoryCardDraftStatusMarkup: () => '<section class="admin-category-draft-published-state">DRAFT PREVIEW — NOT LIVE YET</section>',
+    categoryPublishButtonMarkup: () => '<button type="button" data-publish-category-edit>Publish to Website</button>',
+    categoryVisualImagePicker: (_category, kind = 'category') => `<section class="admin-category-image-picker" data-image-kind="${kind}"><img class="admin-category-current-image-reference" src="${kind === 'background' ? category.card.backgroundImage : category.card.image}"><input name="${kind === 'background' ? 'cardBackgroundImage' : 'cardImage'}" value="${kind === 'background' ? category.card.backgroundImage : category.card.image}"></section>`,
+    categoryDisplayRangeMarkup: controlMarkup,
+    CATEGORY_IMAGE_SIZE_MIN: 10, CATEGORY_IMAGE_SIZE_MAX: 250,
+    CATEGORY_BACKGROUND_SIZE_MIN: 50, CATEGORY_BACKGROUND_SIZE_MAX: 300
+  });
+  window.document.write(`<style>${styleSource}</style><section id="categories">${render(category)}</section>`);
+  const previewSource = sourceRange(adminSource, 'function previewCategoryEdit', '\n\nfunction renderCategoryImagePickerGallery');
+  const preview = new Function('window', 'dependencies', `
+    const { categoryFromEditForm, effectiveAdminCategoryPresentation, adminImageReferencePresentation,
+      escapeAdminHtml, IMAGE_IMPORT_DEFAULT_BACKGROUND, updateCategoryDraftPublishedState } = dependencies;
+    ${previewSource}
+    return previewCategoryEdit;
+  `)(window, {
+    categoryFromEditForm: () => category,
+    effectiveAdminCategoryPresentation: () => window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation(category, { mode: 'draft', defaultBackground: 'images/default-stage.png' }),
+    adminImageReferencePresentation: (value) => ({ reference: value, preview: value, label: value || 'No image' }),
+    escapeAdminHtml: (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;'),
+    IMAGE_IMPORT_DEFAULT_BACKGROUND: 'images/default-stage.png',
+    updateCategoryDraftPublishedState: () => {}
+  });
+  const form = window.document.querySelector('[data-category-edit="sports"]');
+  preview(form);
+  return { window, form };
+}
+
 Deno.test('Homepage Collection Card movement buttons update the same image slider and numeric values', () => {
   const runtime = editorRuntime();
   runtime.helpers.applyCategoryDisplayAdjustment(runtime.form, 'standeeLeftPercent', 3);
@@ -104,5 +163,29 @@ Deno.test('compact editor clearly separates draft preview from published website
   for (const label of ['← Left', 'Right →', '↑ Up', '↓ Down', 'Smaller', 'Larger', 'Zoom Out', 'Zoom In', 'Reset Card Layout']) assert(editor.includes(label) || adminSource.includes(label), `missing compact control ${label}`);
   assert(events.includes('applyCategoryDisplayAdjustment') && events.includes('resetCategoryCardLayout'), 'delegated Dashboard buttons must call the shared normalized control helpers');
   assert(adminSource.includes("state === 'published' && message === 'Published to Website' ? 'PUBLISHED TO WEBSITE'"), 'deployment-confirmed publication must have an unmistakable final status');
-  assert(styleSource.includes('grid-template-columns: minmax(380px,.9fr) minmax(0,1.2fr)') && styleSource.includes('position: sticky'), 'desktop must keep one live card preview beside compact controls');
+  assert(styleSource.includes('grid-template-columns: minmax(400px,.84fr) minmax(560px,1.16fr)') && styleSource.includes('position: sticky'), 'desktop must keep one live card preview beside compact controls');
+});
+
+Deno.test('fresh desktop Main Collection DOM uses one sticky combined preview beside compact controls', () => {
+  const desktop = renderedCollectionEditor(1440);
+  const workspace = desktop.form.querySelector('.admin-category-editor-workspace');
+  const previewColumn = workspace.children[0];
+  const controlsColumn = workspace.children[1];
+  const workspaceStyle = desktop.window.getComputedStyle(workspace);
+  assert(previewColumn.matches('.admin-category-preview-column') && controlsColumn.matches('.admin-category-controls-column'), 'the actual editor DOM must place preview left and controls right');
+  assert(workspaceStyle.display === 'grid' && workspaceStyle.gridTemplateColumns.includes('minmax(400px,.84fr)') && workspaceStyle.gridTemplateColumns.includes('minmax(560px,1.16fr)'), '1440px desktop must retain the approximately 42/58 two-column workspace');
+  assert(desktop.window.getComputedStyle(previewColumn).position === 'sticky', 'the large left preview must remain sticky on desktop');
+  assert(desktop.window.getComputedStyle(controlsColumn.querySelector('.admin-category-editor-action-stack')).position === 'sticky', 'Save and Publish must remain sticky at the top of the right controls');
+  assert(controlsColumn.querySelector('[data-back-to-collections]') && controlsColumn.querySelector('[data-preview-category-edit]') && controlsColumn.querySelector('button[type="submit"]') && controlsColumn.querySelector('[data-publish-category-edit]'), 'the right toolbar must contain Back, Preview, Save Draft, and Publish');
+  assert(controlsColumn.querySelector('.admin-category-image-section[open]') && controlsColumn.querySelector('.admin-category-background-section[open]'), 'Image and Background accordions must be open by default');
+  assert(!controlsColumn.querySelector('.admin-category-information[open]') && !controlsColumn.querySelector('.admin-category-settings[open]'), 'Information and Visibility sections must stay compact until opened');
+  const previews = desktop.form.querySelectorAll('.admin-category-placement-preview');
+  assert(previews.length === 1, 'the editor must create exactly one large Homepage Collection Card preview');
+  assert(previews[0].querySelector('.category-background-layer') && previews[0].querySelector('.product-cutout'), 'background and Product/Standee image must render together in that same preview');
+  assert(!controlsColumn.querySelector('.admin-category-placement-preview'), 'the controls must not contain a second large background preview');
+  const compactReferences = controlsColumn.querySelectorAll('.admin-category-current-image-reference');
+  assert(compactReferences.length === 2, 'Image and Background controls may retain only their two compact reference thumbnails');
+
+  const tablet = renderedCollectionEditor(900);
+  assert(tablet.window.getComputedStyle(tablet.form.querySelector('.admin-category-editor-workspace')).gridTemplateColumns === 'minmax(0, 1fr)', 'smaller screens may stack the editor into one column');
 });

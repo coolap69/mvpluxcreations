@@ -4553,15 +4553,6 @@ async function setArchitectureReviewStatus(item, status) {
   return true;
 }
 
-function savedPublishBlockers(items = architectureReviewItems()) {
-  return items.flatMap((item) => {
-    if (item.type === 'category' && !item.after?.parentKey && !String(item.after?.card?.image || '').trim()) {
-      return [`${item.title || item.key}: choose a Homepage Collection Card image`];
-    }
-    return [];
-  });
-}
-
 async function publishAllSavedChanges(label = 'All saved Admin changes', statusTarget = null, { onProgress = null } = {}) {
   if (publishAllSavedChangesPromise) return publishAllSavedChangesPromise;
   publishAllSavedChangesPromise = (async () => {
@@ -4583,11 +4574,6 @@ async function publishAllSavedChanges(label = 'All saved Admin changes', statusT
     if (!items.length) {
       report('Everything saved is already published.', 'published');
       return true;
-    }
-    const blockers = savedPublishBlockers(items);
-    if (blockers.length) {
-      report(`Publish stopped — ${blockers.join('; ')}. Nothing was published.`, 'failed');
-      return false;
     }
     const failed = [];
     for (const item of items.filter((entry) => !entry.approved)) {
@@ -4936,7 +4922,7 @@ function populateNewCategoryVisualPickers(form) {
 function categoryPublishButtonMarkup(categoryKey, { editor = false } = {}) {
   const operation = categoryPublishOperations.get(categoryKey);
   const publishing = operation?.state === 'publishing';
-  const label = publishing ? 'Publishing…' : 'Publish All Saved Changes';
+  const label = publishing ? 'Publishing…' : (editor ? 'Publish to Website' : 'Publish All Saved Changes');
   return `<button class="admin-button admin-button-primary" type="button" ${editor ? 'data-publish-category-edit' : `data-publish-category="${escapeAdminHtml(categoryKey)}"`} data-publish-category-key="${escapeAdminHtml(categoryKey)}" data-category-key="${escapeAdminHtml(categoryKey)}" ${publishing ? 'disabled aria-busy="true"' : ''}>${label}</button>`;
 }
 
@@ -5013,6 +4999,36 @@ function categoryEditMarkup(category) {
   const parent = category.parentKey ? readAdminCategories()[category.parentKey] : null;
   const representativeProducts = parent ? [] : categoryAssignedProducts(category.key);
   const representativeSlug = String(category.card?.representativeProductSlug || '');
+  const sectionStart = (className, title, open = false) => parent
+    ? `<fieldset class="admin-category-editor-section ${className}"><legend>${title}</legend>`
+    : `<details class="admin-category-editor-section ${className}" ${open ? 'open' : ''}><summary>${title}</summary>`;
+  const sectionEnd = parent ? '</fieldset>' : '</details>';
+  const publishStatus = escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '');
+  const advancedTextTools = `<div class="admin-category-ai-text-tools">
+    <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
+    <div class="admin-ai-actions" aria-label="Optional AI assistance">
+      <button type="button" data-ai-suggest="title">Generate Title</button>
+      <button type="button" data-ai-suggest="description">Generate Description</button>
+      <button type="button" data-ai-suggest="funFact">Generate Fun Fact</button>
+      <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
+    </div>
+    <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
+    <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
+    <div class="admin-category-text-controls">
+      <h4>Title and Description Placement</h4>
+      <div class="admin-category-position-controls">
+        ${categoryDisplayRangeMarkup('titleSizePercent', 'Title Size', display.titleSizePercent, 70, 180, '%')}
+        ${categoryDisplayRangeMarkup('titleLeftPercent', 'Title Left / Right', display.titleLeftPercent, -50, 50)}
+        ${categoryDisplayRangeMarkup('titleVerticalPercent', 'Title Up / Down', display.titleVerticalPercent, -50, 50)}
+        <label>Title alignment<select name="titleAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.titleAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
+        ${categoryDisplayRangeMarkup('descriptionSizePercent', 'Description Size', display.descriptionSizePercent, 70, 180, '%')}
+        ${categoryDisplayRangeMarkup('descriptionLeftPercent', 'Description Left / Right', display.descriptionLeftPercent, -50, 50)}
+        ${categoryDisplayRangeMarkup('descriptionVerticalPercent', 'Description Up / Down', display.descriptionVerticalPercent, -50, 50)}
+        <label>Description alignment<select name="descriptionAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.descriptionAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
+      </div>
+      <button type="button" data-reset-category-text>Reset Text Position</button>
+    </div>
+  </div>`;
   return `
     <form class="admin-category-edit-form ${parent ? 'admin-child-group-edit' : 'admin-main-collection-edit'}" data-category-edit="${escapeAdminHtml(category.key)}">
       <header class="admin-category-editor-header">
@@ -5021,51 +5037,30 @@ function categoryEditMarkup(category) {
       <div class="admin-category-editor-workspace">
         <aside class="admin-category-preview-column" aria-label="Live collection preview">
           <strong>${parent ? 'Live Child Group Preview' : 'Live Homepage Collection Card Preview'}</strong>
-          ${parent ? '' : categoryCardDraftStatusMarkup(category)}
           <div class="admin-builder-preview-panel" data-category-edit-preview></div>
           <p class="admin-note">Image, background, size, and position changes update here immediately. Save Draft stores private work; Publish All Saved Changes sends every saved Admin change in one website deployment.</p>
         </aside>
         <div class="admin-category-controls-column">
-          <div class="admin-panel-actions admin-category-editor-actions"><button type="button" data-back-to-collections>Back to Collections</button><button type="button" data-preview-category-edit>Preview</button><button type="submit">Save Draft</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
-          <fieldset class="admin-category-editor-section admin-category-information"><legend>${parent ? 'Child Group Information' : 'Main Collection Information'}</legend>
+          <div class="admin-category-editor-action-stack">
+            <div class="admin-panel-actions admin-category-editor-actions"><button type="button" data-back-to-collections>Back to Collections</button><button type="button" data-preview-category-edit>Preview</button><button type="submit">Save Draft</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
+            ${parent ? '' : categoryCardDraftStatusMarkup(category)}
+            <p class="admin-status admin-category-card-publish-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${publishStatus}</p>
+          </div>
+          ${sectionStart('admin-category-information', parent ? 'Child Group Information' : 'Main Collection Information')}
             <p class="admin-note">${parent ? 'A Child Group organizes Products / Standees inside its Main Collection. Removing an assignment does not delete the Product / Standee.' : 'A Main Collection organizes related Products / Standees and controls its customer browsing page. Editing it does not edit the individual Products / Standees inside it.'}</p>
             <div class="admin-input-group">
               <label>Title<input name="title" required value="${escapeAdminHtml(category.title || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(category.description || '')}</textarea></label>
               <label>Fun Fact<textarea name="funFact" rows="2">${escapeAdminHtml(category.funFact || '')}</textarea></label>
             </div>
-            <details class="admin-category-ai-text-tools">
-              <summary>AI Assistance &amp; Advanced Text Positioning</summary>
-              <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
-              <div class="admin-ai-actions" aria-label="Optional AI assistance">
-                <button type="button" data-ai-suggest="title">Generate Title</button>
-                <button type="button" data-ai-suggest="description">Generate Description</button>
-                <button type="button" data-ai-suggest="funFact">Generate Fun Fact</button>
-                <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
-              </div>
-              <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
-              <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
-              <div class="admin-category-text-controls">
-                <h4>Title and Description Placement</h4>
-                <div class="admin-category-position-controls">
-                  ${categoryDisplayRangeMarkup('titleSizePercent', 'Title Size', display.titleSizePercent, 70, 180, '%')}
-                  ${categoryDisplayRangeMarkup('titleLeftPercent', 'Title Left / Right', display.titleLeftPercent, -50, 50)}
-                  ${categoryDisplayRangeMarkup('titleVerticalPercent', 'Title Up / Down', display.titleVerticalPercent, -50, 50)}
-                  <label>Title alignment<select name="titleAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.titleAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
-                  ${categoryDisplayRangeMarkup('descriptionSizePercent', 'Description Size', display.descriptionSizePercent, 70, 180, '%')}
-                  ${categoryDisplayRangeMarkup('descriptionLeftPercent', 'Description Left / Right', display.descriptionLeftPercent, -50, 50)}
-                  ${categoryDisplayRangeMarkup('descriptionVerticalPercent', 'Description Up / Down', display.descriptionVerticalPercent, -50, 50)}
-                  <label>Description alignment<select name="descriptionAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.descriptionAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
-                </div>
-                <button type="button" data-reset-category-text>Reset Text Position</button>
-              </div>
-            </details>
-          </fieldset>
-          ${parent ? '' : `<fieldset class="admin-category-editor-section admin-homepage-collection-card-identity"><legend>Homepage Collection Card — Featured Standee Categories</legend>
+            <small>Collection key: <code>${escapeAdminHtml(category.key)}</code></small>
+          ${sectionEnd}
+          ${parent ? '' : `<details class="admin-category-editor-section admin-homepage-collection-card-identity" open><summary>Representative Product / Standee</summary>
+            <p class="admin-eyebrow">Homepage Collection Card — Featured Standee Categories</p>
             <p class="admin-note">This is the card customers see for this Main Collection in Featured Standee Categories. Its representative Product / Standee and visual settings do not change that Product / Standee record.</p>
             <label>Representative Product / Standee<select name="representativeProductSlug"><option value="">No representative selected</option>${representativeProducts.map((product) => `<option value="${escapeAdminHtml(product.slug)}" ${product.slug === representativeSlug ? 'selected' : ''}>${escapeAdminHtml(product.title || product.slug)}</option>`).join('')}</select><small>Choosing a Product / Standee remembers which item should open first on the Main Collection page.</small></label>
-          </fieldset>`}
-          <fieldset class="admin-category-editor-section admin-category-image-section"><legend>${parent ? 'Child Group Image' : 'Homepage Collection Card Image'}</legend>
+          </details>`}
+          ${sectionStart('admin-category-image-section', parent ? 'Child Group Image' : 'Homepage Collection Card Image', true)}
             ${categoryVisualImagePicker(category)}
             <p class="admin-note">${categoryAssignedProducts(category.key).length} assigned Product / Standee images are available as representative choices. Changing this image does not change a Product / Standee image.</p>
             <div class="admin-category-position-controls">
@@ -5073,9 +5068,9 @@ function categoryEditMarkup(category) {
               ${categoryDisplayRangeMarkup('standeeLeftPercent', 'Horizontal Position', display.standeeLeftPercent, -50, 50)}
               ${categoryDisplayRangeMarkup('standeeVerticalPercent', 'Vertical Position', display.standeeVerticalPercent, -50, 50)}
             </div>
-            ${parent ? '<div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>' : categoryDisplayAdjustmentButtons('image')}
-          </fieldset>
-          <fieldset class="admin-category-editor-section admin-category-background-section"><legend>${parent ? 'Child Group Background' : 'Homepage Collection Card Background'}</legend>
+            ${parent ? '<div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>' : `${categoryDisplayAdjustmentButtons('image')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Image Position / Size</button></div>`}
+          ${sectionEnd}
+          ${sectionStart('admin-category-background-section', parent ? 'Child Group Background' : 'Homepage Collection Card Background', true)}
             ${categoryVisualImagePicker(category, 'background')}
             <p class="admin-note">This background belongs only to the Homepage Collection Card. It does not overwrite any Product Showroom Background.</p>
             <input name="backgroundPosition" type="hidden" value="${escapeAdminHtml(display.backgroundPosition)}">
@@ -5084,11 +5079,11 @@ function categoryEditMarkup(category) {
               ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Up / Down', backgroundPosition.y, 0, 100, '%')}
               ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom', display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
             </div>
-            ${parent ? '<button type="button" data-reset-category-background>Reset Background</button>' : `${categoryDisplayAdjustmentButtons('background')}<button type="button" class="admin-button admin-button-secondary" data-reset-category-card-layout>Reset Card Layout</button>`}
+            ${parent ? '<button type="button" data-reset-category-background>Reset Background</button>' : `${categoryDisplayAdjustmentButtons('background')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-background>Center Background</button><button type="button" data-reset-category-background>Reset Background</button><button type="button" class="admin-button admin-button-secondary" data-reset-category-card-layout>Reset Card Layout</button></div>`}
             <p class="admin-note">Background Zoom scales the existing cover image without changing the physical file.</p>
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
-          </fieldset>
-          <fieldset class="admin-category-editor-section admin-category-settings"><legend>${parent ? 'Child Group Settings' : 'Main Collection Settings'}</legend>
+          ${sectionEnd}
+          ${sectionStart('admin-category-settings', parent ? 'Child Group Settings' : 'Visibility & Homepage Order')}
             <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child Group of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Collection'}. Child Groups use the same normalized records with <code>parentKey</code> and do not become Homepage Collection Cards.</p>
             <div class="admin-category-settings-grid">
               <label>Destination page<input name="page" value="${escapeAdminHtml(category.page || '')}"></label>
@@ -5096,13 +5091,14 @@ function categoryEditMarkup(category) {
               <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> ${parent ? 'Child Group' : 'Main Collection'} visible to customers</label>
               <label class="${category.visible === false || parent ? 'admin-control-secondary' : ''}"><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false && !parent ? 'checked' : ''} ${category.visible === false || parent ? 'disabled' : ''}> ${parent ? 'Child Groups do not appear on Homepage' : 'Show on Homepage'}</label>
             </div>
-          </fieldset>
-          <details class="admin-advanced-fields"><summary>Advanced Display Settings</summary>
+            ${parent ? '' : `<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-move-category-homepage="-1" data-category-key="${escapeAdminHtml(category.key)}">Move Up</button><button type="button" data-move-category-homepage="1" data-category-key="${escapeAdminHtml(category.key)}">Move Down</button></div>`}
+          ${sectionEnd}
+          <details class="admin-advanced-fields"><summary>Advanced</summary>
             <p class="admin-note">Only display settings owned by the normalized Main Collection or Child Group are stored. Physical images are never modified.</p>
+            ${advancedTextTools}
           </details>
         </div>
       </div>
-      <p class="admin-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '')}</p>
     </form>`;
 }
 
@@ -5394,10 +5390,6 @@ async function publishCategoryByKey(categoryKey, form = null) {
     let saved = false;
     if (form) saved = await saveCategoryEditForm(form, 'approved', { render: false });
     else {
-      if (!initialCategory.parentKey && !initialCategory.card?.image) {
-        setCategoryPublishState(categoryKey, 'Publish stopped: choose a Homepage Collection Card image first.', 'failed');
-        return false;
-      }
       const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: categoryKey, baseRecord: initialCategory, patch: { approvalStatus: 'approved', draftStatus: 'ready', updatedAt: new Date().toISOString() } }]);
       saved = result.ok;
     }
@@ -5934,10 +5926,20 @@ function setupCategoryManagerEvents() {
     const resetBackground = event.target.closest('[data-reset-category-background]');
     if (resetBackground) {
       const form = resetBackground.closest('[data-category-edit]');
-      form.elements.namedItem('backgroundPosition').value = 'center bottom';
-      form.elements.namedItem('backgroundPositionX').value = '50';
-      form.elements.namedItem('backgroundPositionY').value = '100';
-      form.elements.namedItem('backgroundSizePercent').value = String(CATEGORY_BACKGROUND_SIZE_DEFAULT);
+      setCategoryDisplayControlValue(form, 'backgroundPositionX', 50);
+      setCategoryDisplayControlValue(form, 'backgroundPositionY', 100);
+      setCategoryDisplayControlValue(form, 'backgroundSizePercent', CATEGORY_BACKGROUND_SIZE_DEFAULT);
+      syncCategoryBackgroundPosition(form);
+      syncCategoryDisplayOutputs(form);
+      markCategoryEditorDirty(form);
+      previewCategoryEdit(form);
+    }
+    const centerBackground = event.target.closest('[data-center-category-background]');
+    if (centerBackground) {
+      const form = centerBackground.closest('[data-category-edit]');
+      setCategoryDisplayControlValue(form, 'backgroundPositionX', 50);
+      setCategoryDisplayControlValue(form, 'backgroundPositionY', 50);
+      syncCategoryBackgroundPosition(form);
       syncCategoryDisplayOutputs(form);
       markCategoryEditorDirty(form);
       previewCategoryEdit(form);
@@ -5945,8 +5947,8 @@ function setupCategoryManagerEvents() {
     const centerImage = event.target.closest('[data-center-category-image]');
     if (centerImage) {
       const form = centerImage.closest('[data-category-edit]');
-      form.elements.namedItem('standeeLeftPercent').value = '0';
-      form.elements.namedItem('standeeVerticalPercent').value = '0';
+      setCategoryDisplayControlValue(form, 'standeeLeftPercent', 0);
+      setCategoryDisplayControlValue(form, 'standeeVerticalPercent', 0);
       syncCategoryDisplayOutputs(form);
       markCategoryEditorDirty(form);
       previewCategoryEdit(form);
@@ -5954,9 +5956,9 @@ function setupCategoryManagerEvents() {
     const resetAppearance = event.target.closest('[data-reset-category-appearance]');
     if (resetAppearance) {
       const form = resetAppearance.closest('[data-category-edit]');
-      form.elements.namedItem('standeeLeftPercent').value = '0';
-      form.elements.namedItem('standeeVerticalPercent').value = '0';
-      form.elements.namedItem('standeeSizePercent').value = String(CATEGORY_IMAGE_SIZE_DEFAULT);
+      setCategoryDisplayControlValue(form, 'standeeLeftPercent', 0);
+      setCategoryDisplayControlValue(form, 'standeeVerticalPercent', 0);
+      setCategoryDisplayControlValue(form, 'standeeSizePercent', CATEGORY_IMAGE_SIZE_DEFAULT);
       syncCategoryDisplayOutputs(form);
       markCategoryEditorDirty(form);
       previewCategoryEdit(form);
