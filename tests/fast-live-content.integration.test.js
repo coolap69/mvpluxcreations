@@ -86,6 +86,17 @@ Deno.test('Admin exposes individual and batch live saves while retaining static 
   assert(adminSource.includes("action: 'publish'"), 'the existing GitHub/static asset publisher must remain available for rollback and new files');
 });
 
+Deno.test('Admin activation control verifies the deployed static baseline and public read-back', () => {
+  assert(adminHtml.includes('id="activateFastLiveContent"') && adminHtml.includes('Activate Fast Live'), 'Advanced Admin must expose the one-time Fast Live activation control');
+  const activation = sourceRange(adminSource, 'async function activateFastLiveContent', '\n\nasync function loadPublishedPublishBaseline');
+  assert(activation.includes("action: 'verify-live-baseline'") && activation.includes("action: 'activate-live-content'"), 'activation must verify the exact static baseline before using the existing secure activation operation');
+  assert(activation.indexOf("action: 'verify-live-baseline'") < activation.indexOf("action: 'activate-live-content'"), 'baseline verification must happen before activation');
+  assert(activation.includes('loadStaticPublishedSnapshot()') && activation.includes('loadPublicLivePublishBaseline()'), 'activation must compare the deployed static snapshot and verify through the customer public read path');
+  assert(activation.includes('semanticValuesEqual(normalizePublishedBaseline(publicState.snapshot), normalizePublishedBaseline(staticSnapshot))'), 'activation must refuse to report success unless customer read-back exactly matches the static baseline');
+  assert(activation.includes('ACTIVATION FAILED — WEBSITE NOT CHANGED') && activation.includes('FAST LIVE ACTIVATED'), 'activation must display unambiguous failure and success states');
+  assert(adminSource.includes("document.getElementById('activateFastLiveContent')?.addEventListener('click', activateFastLiveContent)"), 'the activation button must call the single guarded controller');
+});
+
 Deno.test('Save Live rejects undeployed physical files but accepts repository image references as data', () => {
   const images = sourceRange(adminSource, 'async function undeployedLiveSnapshotImages', 'async function savePublicLiveSnapshot');
   const save = sourceRange(adminSource, 'async function savePublicLiveSnapshot', 'async function prepareArchitectureItemsForLive');

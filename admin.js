@@ -1773,6 +1773,74 @@ async function loadPublicLivePublishBaseline({ timeoutMs = 3500 } = {}) {
   }
 }
 
+async function loadStaticPublishedSnapshot() {
+  const response = await fetch('published-admin-settings.json', { cache: 'no-store' });
+  if (!response.ok) throw new Error('The deployed static website snapshot is unavailable.');
+  const document = await response.json();
+  if (!document?.snapshot || document.snapshot.version !== 1 || !document.snapshot.products || !document.snapshot.categoryDisplayCards) {
+    throw new Error('The deployed static website snapshot is invalid.');
+  }
+  return document.snapshot;
+}
+
+async function activateFastLiveContent() {
+  const button = document.getElementById('activateFastLiveContent');
+  const status = document.getElementById('fastLiveActivationStatus');
+  const report = (message, state = '') => {
+    if (status) {
+      status.textContent = message;
+      status.dataset.state = state;
+    }
+    setStatus(message);
+  };
+  if (!button || button.disabled) return false;
+  if (!window.confirm('Activate Fast Live only after verifying the saved Supabase snapshot matches the current website? No content will be changed.')) return false;
+
+  button.disabled = true;
+  report('VERIFYING CURRENT WEBSITE SNAPSHOT…', 'saving-live');
+  try {
+    const staticSnapshot = await loadStaticPublishedSnapshot();
+    const verification = await callAdminPublisher({ action: 'verify-live-baseline', snapshot: staticSnapshot });
+    if (!verification.matches) {
+      const keys = Array.isArray(verification.differingTopLevelKeys) && verification.differingTopLevelKeys.length
+        ? ` Differences: ${verification.differingTopLevelKeys.join(', ')}.`
+        : '';
+      throw new Error(`Activation stopped because Supabase does not exactly match the current website.${keys}`);
+    }
+
+    report('ACTIVATING FAST LIVE…', 'saving-live');
+    const result = await callAdminPublisher({ action: 'activate-live-content', snapshot: staticSnapshot });
+    const publicState = await loadPublicLivePublishBaseline();
+    if (!semanticValuesEqual(normalizePublishedBaseline(publicState.snapshot), normalizePublishedBaseline(staticSnapshot))) {
+      throw new Error('Activation completed but the customer read-back did not match the current website.');
+    }
+
+    adminLiveRevision = Number(result.siteRevision) || adminLiveRevision + 1;
+    updateAdminLiveSettings({
+      lastPublishedSnapshot: structuredClone(staticSnapshot),
+      liveContentEnabled: true,
+      liveContentRevision: Number(publicState.liveRevision) || Number(result.liveRevision) || 0,
+      livePublishedAt: String(publicState.publishedAt || result.publishedAt || '')
+    });
+    adminPublishedSettingsDocument = structuredClone(publicState);
+    adminPublishedBaseline = normalizePublishedBaseline(publicState.snapshot);
+    adminLastSuccessfulSnapshot = structuredClone(publicState.snapshot);
+    adminPublishedFileState = {
+      reachable: true,
+      publishedAt: String(publicState.publishedAt || ''),
+      commitHash: '',
+      source: 'supabase-live'
+    };
+    button.textContent = 'Fast Live Activated';
+    report('FAST LIVE ACTIVATED — public customer content matches the current website.', 'published');
+    return true;
+  } catch (error) {
+    button.disabled = false;
+    report(`ACTIVATION FAILED — WEBSITE NOT CHANGED. ${error?.message || error}`, 'failed');
+    return false;
+  }
+}
+
 async function loadPublishedPublishBaseline() {
   try {
     let value;
@@ -8483,6 +8551,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderPublishSummary();
   });
   document.getElementById('publishAdminChanges')?.addEventListener('click', publishAdminChanges);
+  document.getElementById('activateFastLiveContent')?.addEventListener('click', activateFastLiveContent);
   document.getElementById('saveAllOpenCollections')?.addEventListener('click', () => saveAllOpenCollectionChanges());
   document.getElementById('saveAllLiveDashboard')?.addEventListener('click', () => saveAllLiveChanges('All intended Admin changes'));
   document.getElementById('saveAllLiveCollections')?.addEventListener('click', () => saveAllLiveChanges('All intended Admin changes'));

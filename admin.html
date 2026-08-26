@@ -445,6 +445,13 @@
       <textarea id="adminExportPreview" class="admin-export-preview" readonly placeholder="Your exported changes will appear here."></textarea>
 
       <div class="admin-publish-review">
+        <h3>Fast Live Content</h3>
+        <p class="admin-note">Activate once to let approved Admins use Save Live for routine content changes without a GitHub Pages deployment. Activation is allowed only when the stored Supabase snapshot exactly matches the currently deployed static website snapshot.</p>
+        <div class="admin-panel-actions">
+          <button id="activateFastLiveContent" class="admin-button admin-button-primary" type="button">Activate Fast Live</button>
+        </div>
+        <div id="fastLiveActivationStatus" class="admin-status" aria-live="polite"></div>
+
         <h3>Static Backup / New Physical Images</h3>
         <p class="admin-note">Routine text, layout, visibility, ordering, and existing-image references use Save Live. Use this GitHub deployment path only for new physical repository files, code/static assets, or emergency backup and recovery.</p>
         <div id="adminReadyPublishItems" class="admin-ready-publish-items"></div>
@@ -490,6 +497,6 @@
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
   <script src="category-presentation.js?v=20260826-collection-background-layout"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
-  <script src="admin.js?v=20260826-fast-live-content"></script>
+  <script src="admin.js?v=20260826-fast-live-activation"></script>
 </body>
 </html>
