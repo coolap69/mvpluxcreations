@@ -90,7 +90,7 @@ async function actualFinalHomepageDom() {
   functions.applyInlineHiddenCards();
   functions.applyInlineAdminEdits();
   functions.renderNormalizedHomepageCategoryCards();
-  return { window, source, functions, initiallyRendered, fallbackInitiallyHidden };
+  return { window, source, css, functions, initiallyRendered, fallbackInitiallyHidden };
 }
 
 Deno.test('actual published and compatibility Main Categories remain visible in the dedicated final homepage mount', async () => {
@@ -131,6 +131,28 @@ Deno.test('current mixed published state renders normalized and recognized legac
   assert(!window.document.querySelector('[data-homepage-category-fallback]:not([hidden])'), 'static fallback markup must remain inert after the mixed normalized renderer succeeds');
 });
 
+Deno.test('fresh 1440px homepage uses four taller minimum-width Collection tracks with horizontal overflow protection', async () => {
+  const { window, css } = await actualFinalHomepageDom();
+  const mount = window.document.getElementById('homepageCategoryGrid');
+  const cards = [...mount.children].filter((element) => element.matches('.admin-master-category-card'));
+  const computed = window.getComputedStyle(mount);
+  assert(cards.length === 12, 'the current mixed published state must retain all 12 expected Featured Standee Categories');
+  assert(computed.gridTemplateColumns.includes('repeat(4') && computed.gridTemplateColumns.includes('330px'), 'desktop must define exactly four 330px-minimum Collection tracks');
+  assert(computed.overflowX === 'auto', 'desktop must scroll horizontally instead of shrinking cards below the minimum');
+  assert(computed.getPropertyValue('--featured-stage-ratio').replaceAll(' ', '') === '4/4.6', 'the shared storefront stage must be substantially taller than the old 4/3 card stage');
+  assert(css.includes('@media (min-width: 700px) and (max-width: 1099px)') && css.includes('grid-template-columns: repeat(2'), 'tablet layout must remain a readable two-column grid');
+  assert(css.includes('@media (max-width: 699px)') && css.includes('grid-template-columns: minmax(0, 1fr)'), 'mobile layout must remain a single responsive column');
+
+  // At 1440px the #shop border box is 96vw (1382.4px) with 68px horizontal padding.
+  // Four 330px tracks plus three 22px gaps need 1386px, so the minimum is preserved and the row scrolls.
+  const shopContentWidth = 1440 * 0.96 - 68;
+  const minimumTrackSpan = 4 * 330 + 3 * 22;
+  assert(minimumTrackSpan > shopContentWidth, 'the 1440px proof must choose scrolling over miniature Collection cards');
+  const minimumStageWidth = 330 - 28 - 2;
+  const minimumStageHeight = minimumStageWidth * 4.6 / 4;
+  assert(minimumStageWidth === 300 && minimumStageHeight === 345, 'a minimum desktop card must provide an approximately 300×345px stage before title and description');
+});
+
 Deno.test('normalized Sports and non-Sports presentation changes own the actual final card before and after publication reload', async () => {
   const { window, functions } = await actualFinalHomepageDom();
   const snapshot = window.mvpluxPublishedAdminSettings;
@@ -160,7 +182,7 @@ Deno.test('normalized Sports and non-Sports presentation changes own the actual 
     card: { image: 'images/category-image-b.png', backgroundImage: 'images/category-background-b.png' },
     displaySettings: {
       standeeSizePercent: 177, standeeLeftPercent: 18, standeeVerticalPercent: -29,
-      backgroundPosition: '27% 81%', backgroundSizePercent: 142,
+      backgroundPosition: '27% 81%', backgroundSizePercent: 200, backgroundWidthPercent: 150, backgroundHeightPercent: 50,
       titleLeftPercent: 11, titleVerticalPercent: -7, titleSizePercent: 126, titleAlign: 'right',
       descriptionLeftPercent: -9, descriptionVerticalPercent: 13, descriptionSizePercent: 114, descriptionAlign: 'left'
     }
@@ -182,11 +204,11 @@ Deno.test('normalized Sports and non-Sports presentation changes own the actual 
   assert(sportsImage.getAttribute('src') === 'images/category-image-b.png', 'published normalized Sports image B must win over legacy image A');
   assert(sportsImage.style.height === '177%' && sportsImage.style.left === '68%' && sportsImage.style.bottom === '31%', 'published normalized Sports image size and X/Y must reach the visible image');
   assert(sportsBackground.style.backgroundImage.includes('category-background-b.png'), 'published normalized Sports background must win over the legacy background');
-  assert(sportsBackground.style.backgroundPosition === '27% 81%' && sportsBackground.style.transform === 'scale(1.42)', 'published background X/Y and zoom must reach the visible layer');
+  assert(sportsBackground.style.backgroundPosition === '27% 81%' && sportsBackground.style.transform === 'scale(3,1)', 'published background X/Y plus independent width, height, and zoom must reach the visible layer');
   assert(sports.querySelector('.product-title-link').textContent === 'Sports Image B' && sports.querySelector('.product-description').textContent === 'Published Sports B', 'published normalized title and description must render');
   assert(sports.querySelector('.product-image-link').getAttribute('href') === 'sports-legends.html?view=new', 'published normalized destination must render');
   assert(movie.querySelector('.product-cutout').getAttribute('src') === 'images/movie-image-b.png', 'the same normalized image authority must work for a non-Sports Category');
-  assert(movie.querySelector('.category-background-layer').style.transform === 'scale(1.18)', 'non-Sports background zoom must use the same presentation path');
+  assert(movie.querySelector('.category-background-layer').style.transform === 'scale(1.18,1.18)', 'non-Sports background zoom must use the same presentation path');
   const keys = [...window.document.querySelectorAll('#homepageCategoryGrid > .admin-master-category-card')].map((card) => card.dataset.adminCategoryKey);
   assert(keys.indexOf('movie-characters') < keys.indexOf('sports'), 'normalized Category order must determine final DOM order');
   assert(window.document.querySelector('[data-homepage-category-fallback]').hidden, 'hard-coded fallback must remain inert after the published reload');

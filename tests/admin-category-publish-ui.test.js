@@ -116,13 +116,13 @@ Deno.test('Publish All prepares every saved item and sends every change id throu
   let publishAllSavedChangesPromise = null;
   const run = new Function(
     'architectureReviewItems', 'waitForAdminSaves', 'loadAdminLiveSettings', 'setArchitectureReviewStatus',
-    'publishScopedChangeIds', 'setStatus', 'adminLastSaveError',
+    'publishScopedChangeIds', 'setStatus', 'adminLastSaveError', 'saveAllOpenCollectionChanges',
     `let publishAllSavedChangesPromise = null; ${implementation}; return publishAllSavedChanges;`
   )(
     () => items.map((item) => ({ ...item, approved: item.approved || prepared.includes(item.id) })),
     async () => true, async () => true,
     async (item) => { prepared.push(item.id); return true; },
-    async (ids) => { publishedIds = ids; return true; }, () => {}, ''
+    async (ids) => { publishedIds = ids; return true; }, () => {}, '', async () => true
   );
   assert(await run(), 'Publish All should complete');
   assert(prepared.join(',') === 'product:one,page:index:title', 'every saved draft must be prepared before publishing');
@@ -135,12 +135,12 @@ Deno.test('an intentionally empty Homepage Collection Card image does not block 
   let calledPublisher = false;
   const run = new Function(
     'architectureReviewItems', 'waitForAdminSaves', 'loadAdminLiveSettings', 'setArchitectureReviewStatus',
-    'publishScopedChangeIds', 'setStatus', 'adminLastSaveError',
+    'publishScopedChangeIds', 'setStatus', 'adminLastSaveError', 'saveAllOpenCollectionChanges',
     `let publishAllSavedChangesPromise = null; ${implementation}; return publishAllSavedChanges;`
   )(
     () => [{ id: 'category:custom', type: 'category', title: 'Custom / Other', approved: true, after: { card: { image: '' } } }],
     async () => true, async () => true, async () => true,
-    async () => { calledPublisher = true; return true; }, (message) => messages.push(message), ''
+    async () => { calledPublisher = true; return true; }, (message) => messages.push(message), '', async () => true
   );
   assert(await run(), 'an explicit empty normalized card image is a publishable Main Collection state');
   assert(calledPublisher, 'one incomplete visual must not block every other saved Admin change');

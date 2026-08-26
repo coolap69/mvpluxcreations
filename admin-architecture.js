@@ -31,6 +31,8 @@ const DISPLAY_FIELDS = [
   'backgroundImage',
   'backgroundPosition',
   'backgroundSizePercent',
+  'backgroundWidthPercent',
+  'backgroundHeightPercent',
   'standeeSizePercent',
   'standeeLeftPercent',
   'standeeVerticalPercent',

@@ -189,7 +189,7 @@ Deno.test('Category image change persists for non-Sports Categories and failed p
   assert(card.querySelector('.product-cutout').getAttribute('src') === 'images/music-b.png', 'normalized card.image must own the changed image');
   assert(card.querySelector('.category-background-layer').style.backgroundImage.includes('music-bg-b.jpg'), 'normalized card.backgroundImage must own the changed background');
   assert(card.querySelector('.category-background-layer').style.backgroundPosition === '65% 35%', 'background X/Y must render from normalized backgroundPosition');
-  assert(card.querySelector('.category-background-layer').style.transform === 'scale(1.7)', 'background zoom must render from normalized backgroundSizePercent');
+  assert(card.querySelector('.category-background-layer').style.transform === 'scale(1.7,1.7)', 'background zoom must render from normalized backgroundSizePercent');
 
   card.querySelector('.product-cutout').style.height = '240%';
   card.querySelector('.product-cutout').style.left = '5%';

@@ -4057,7 +4057,7 @@ function renderNormalizedHomepageCategoryCards() {
       const page = categoryDestinationWithRepresentative(basePage, presentation.representativeProductSlug);
       grid.insertAdjacentHTML('beforeend', `
         <article class="product-card admin-master-category-card" data-category-key="${escapeHtml(category.key)}" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
-          <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(presentation.background)}');background-position:${escapeHtml(layout.backgroundPosition)};transform:scale(${layout.backgroundScale})" aria-hidden="true"></span>${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : ''}</div></a>
+          <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(presentation.background)}');background-position:${escapeHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}" aria-hidden="true"></span>${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : ''}</div></a>
           <h3 data-admin-category-field="title" style="transform:${layout.titleTransform};text-align:${layout.titleAlign}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${layout.titleFontSizePx}px">${escapeHtml(presentation.title)}</a></h3>
           <p class="product-description" data-admin-category-field="description" style="transform:${layout.descriptionTransform};text-align:${layout.descriptionAlign};font-size:${layout.descriptionFontSizePx}px">${escapeHtml(presentation.description)}</p>
           <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
@@ -4147,7 +4147,7 @@ function renderExistingCategoryCardFromNormalized(card, categoryKey) {
   if (background) {
     background.style.backgroundImage = presentation.background ? `url("${presentation.background.replaceAll('"', '\\"')}")` : '';
     background.style.backgroundPosition = layout.backgroundPosition;
-    background.style.transform = `scale(${layout.backgroundScale})`;
+    background.style.transform = layout.backgroundTransform;
   }
   const stage = card.querySelector('.admin-category-storefront-stage');
   let image = card.querySelector('.product-cutout');

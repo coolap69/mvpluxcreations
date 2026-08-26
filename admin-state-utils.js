@@ -28,7 +28,9 @@ const PRODUCT_DISPLAY_DEFAULTS = Object.freeze({
 
 const CATEGORY_DISPLAY_DEFAULTS = Object.freeze({
   ...PRODUCT_DISPLAY_DEFAULTS,
-  backgroundPosition: 'center bottom'
+  backgroundPosition: 'center bottom',
+  backgroundWidthPercent: 100,
+  backgroundHeightPercent: 100
 });
 
 const ADMIN_ONLY_FIELDS = new Set([

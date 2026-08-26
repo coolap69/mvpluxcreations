@@ -4,6 +4,20 @@
     return Number.isFinite(number) ? Math.max(minimum, Math.min(maximum, number)) : fallback;
   };
   const alignment = (value) => ['left', 'center', 'right'].includes(String(value)) ? String(value) : 'center';
+  const DEFAULT_STANDEE_SIZE_PERCENT = 63;
+
+  function centeredStandeeVerticalPercent(size = DEFAULT_STANDEE_SIZE_PERCENT) {
+    const safeSize = clampNumber(size, DEFAULT_STANDEE_SIZE_PERCENT, 10, 250);
+    return Math.max(-50, Math.min(50, Math.round(safeSize / 2 - 48)));
+  }
+
+  function defaultStandeeDisplay() {
+    return {
+      standeeSizePercent: DEFAULT_STANDEE_SIZE_PERCENT,
+      standeeLeftPercent: 0,
+      standeeVerticalPercent: centeredStandeeVerticalPercent(DEFAULT_STANDEE_SIZE_PERCENT)
+    };
+  }
 
   function resolveCategoryPresentation(category = {}, options = {}) {
     const globalDisplay = options.globalDisplaySettings && typeof options.globalDisplaySettings === 'object'
@@ -14,6 +28,8 @@
       ...display,
       backgroundPosition: String(display.backgroundPosition || 'center bottom'),
       backgroundSizePercent: clampNumber(display.backgroundSizePercent, 100, 50, 300),
+      backgroundWidthPercent: clampNumber(display.backgroundWidthPercent, 100, 50, 300),
+      backgroundHeightPercent: clampNumber(display.backgroundHeightPercent, 100, 50, 300),
       standeeSizePercent: clampNumber(display.standeeSizePercent, inheritedImageSize, 10, 250),
       standeeLeftPercent: clampNumber(display.standeeLeftPercent, 0, -50, 50),
       standeeVerticalPercent: clampNumber(display.standeeVerticalPercent, 0, -50, 50),
@@ -46,12 +62,18 @@
 
   function resolveCategoryCardLayout(presentation = {}) {
     const display = presentation.display || {};
+    const backgroundZoom = clampNumber(display.backgroundSizePercent, 100, 50, 300) / 100;
+    const backgroundScaleX = backgroundZoom * clampNumber(display.backgroundWidthPercent, 100, 50, 300) / 100;
+    const backgroundScaleY = backgroundZoom * clampNumber(display.backgroundHeightPercent, 100, 50, 300) / 100;
     return {
       imageLeftPercent: 50 + clampNumber(display.standeeLeftPercent, 0, -50, 50),
       imageBottomPercent: 2 - clampNumber(display.standeeVerticalPercent, 0, -50, 50),
       imageSizePercent: clampNumber(display.standeeSizePercent, 63, 10, 250),
       backgroundPosition: String(display.backgroundPosition || 'center bottom'),
-      backgroundScale: clampNumber(display.backgroundSizePercent, 100, 50, 300) / 100,
+      backgroundScale: backgroundZoom,
+      backgroundScaleX,
+      backgroundScaleY,
+      backgroundTransform: `scale(${backgroundScaleX},${backgroundScaleY})`,
       titleTransform: `translate(${clampNumber(display.titleLeftPercent, 0, -50, 50)}%,${clampNumber(display.titleVerticalPercent, 0, -50, 50)}px)`,
       titleAlign: alignment(display.titleAlign),
       titleFontSizePx: 19 * clampNumber(display.titleSizePercent, 100, 70, 180) / 100,
@@ -61,5 +83,10 @@
     };
   }
 
-  root.MVPLUX_CATEGORY_PRESENTATION = Object.freeze({ resolveCategoryPresentation, resolveCategoryCardLayout });
+  root.MVPLUX_CATEGORY_PRESENTATION = Object.freeze({
+    resolveCategoryPresentation,
+    resolveCategoryCardLayout,
+    centeredStandeeVerticalPercent,
+    defaultStandeeDisplay
+  });
 })(window);

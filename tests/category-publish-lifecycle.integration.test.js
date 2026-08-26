@@ -119,6 +119,66 @@ Deno.test('shared scoped Category publish moves the saved normalized draft into 
   }
 });
 
+Deno.test('movie-characters Collection title survives save, Publish All snapshot creation, and a fresh customer DOM', async () => {
+  const window = new Window({ url: 'https://mvpluxcreations.com/index.html#home' });
+  new Function('window', presentationSource)(window);
+  new Function('window', publisherSource)(window);
+  const product = {
+    slug: 't-800-endoskeleton',
+    title: 'T-800 Endoskeleton Cardboard Standee',
+    description: 'An individual sellable Product description.',
+    cutoutImage: 'images/t800-product.png',
+    categories: ['movie-characters']
+  };
+  const publishedBefore = {
+    version: 1, schemaVersion: 2,
+    products: { [product.slug]: product },
+    categoryDisplayCards: { 'movie-character-standee': { title: product.title, description: product.description, cutoutImage: 'images/legacy-t800.png', visible: true } },
+    categorySettings: {}, deletedCategories: [],
+    categories: {
+      'movie-characters': {
+        key: 'movie-characters', title: product.title, description: product.description,
+        page: 'movie-characters.html', visible: true, homepageVisible: true, order: 1,
+        card: { image: 'images/movie-collection.png', backgroundImage: 'images/movie-stage.png', representativeProductSlug: product.slug },
+        displaySettings: { standeeSizePercent: 80, standeeLeftPercent: 0, standeeVerticalPercent: 0 }
+      }
+    }
+  };
+  const savedDraft = {
+    ...structuredClone(publishedBefore.categories['movie-characters']),
+    title: 'Movie Stars',
+    description: 'Browse famous movie characters and screen legends.',
+    card: { ...structuredClone(publishedBefore.categories['movie-characters'].card), representativeProductSlug: product.slug },
+    approvalStatus: 'draft', draftStatus: 'draft'
+  };
+  let publishedAfter = null;
+  const result = await window.MVPLUX_CATEGORY_PUBLISHER.publishCategoryByKey('movie-characters', {
+    categoryCardMap: { 'movie-character-standee': 'movie-characters' },
+    saveApprovedDraft: async () => ({ ...structuredClone(savedDraft), approvalStatus: 'approved' }),
+    loadPublishedSnapshot: async () => structuredClone(publishedBefore),
+    confirmPublish: () => true,
+    prepareImages: async () => [],
+    callPublisher: async (payload) => payload.action === 'publish'
+      ? (publishedAfter = structuredClone(payload.snapshot), { commitHash: 'b'.repeat(40), publishHistory: [] })
+      : ({ deploymentResult: 'success', publishHistory: [] }),
+    synchronizePublishedState: async (snapshot) => { publishedAfter = structuredClone(snapshot); },
+    onProgress: () => {},
+    deploymentOptions: { wait: async () => {}, timeoutMs: 10, pollIntervalMs: 1 }
+  });
+  assert(result.ok && publishedAfter, 'Movie Stars publication must complete');
+  const publishedCollection = publishedAfter.categories['movie-characters'];
+  assert(publishedCollection.title === 'Movie Stars', 'the published normalized Main Collection must retain its saved title');
+  assert(publishedCollection.description === savedDraft.description, 'the published normalized Main Collection must retain its saved description');
+  assert(publishedCollection.card.representativeProductSlug === product.slug, 'the representative Product must remain only a slug reference');
+  assert(publishedAfter.products[product.slug].title === product.title && publishedAfter.products[product.slug].description === product.description, 'publishing the Collection must not rewrite the Product');
+
+  const grid = renderFreshHomepage(window, structuredClone(publishedAfter));
+  const card = grid.querySelector('[data-admin-category-key="movie-characters"]');
+  assert(card?.querySelector('.product-title-link')?.textContent.trim() === 'Movie Stars', 'fresh customer DOM must show Movie Stars');
+  assert(card?.querySelector('.product-description')?.textContent.trim() === savedDraft.description, 'fresh customer DOM must show the saved Collection description');
+  assert(!card?.textContent.includes(product.title), 'the representative T-800 Product title must never leak into the Homepage Collection Card');
+});
+
 Deno.test('Admin Mode saves the selected Category then opens the authoritative Publish All controller', () => {
   const modeSwitch = sourceRange(storefrontSource, 'async function setAdminViewMode', '\n\nfunction renderAdminViewModeLabel');
   assert(storefrontSource.includes('data-admin-toolbar-action="publish-category"') && storefrontSource.includes('Publish All Saved Changes'), 'selected normalized Categories must expose the explicit Publish All action');

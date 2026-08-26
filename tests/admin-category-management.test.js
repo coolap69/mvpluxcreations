@@ -228,7 +228,7 @@ Deno.test('Category background zoom is independent and uses the published 50–3
   const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   assert(adminSource.includes('CATEGORY_BACKGROUND_SIZE_MIN = 50') && adminSource.includes('CATEGORY_BACKGROUND_SIZE_MAX = 300'), 'Admin must expose safe 50–300% background zoom');
-  assert(adminSource.includes("categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom'") && adminSource.includes('transform:scale(${layout.backgroundScale})'), 'Admin zoom must update the existing live preview through the shared layout');
+  assert(adminSource.includes("categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom'") && adminSource.includes('transform:${layout.backgroundTransform}'), 'Admin zoom must update the existing live preview through the shared layout');
   assert(storefrontSource.includes('resolveCategoryCardLayout(presentation)') && storefrontSource.includes('class="category-background-layer"'), 'storefront must use the same published background zoom layout');
 });
 

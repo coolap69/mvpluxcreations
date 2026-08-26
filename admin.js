@@ -2899,6 +2899,9 @@ function createFormDisplaySettings(form) {
   return Object.fromEntries(Object.entries({
     backgroundImage: form.elements.namedItem('backgroundImage')?.value.trim() || undefined,
     backgroundPosition: form.elements.namedItem('backgroundPosition')?.value.trim() || 'center center',
+    backgroundSizePercent: number('backgroundSizePercent'),
+    backgroundWidthPercent: number('backgroundWidthPercent'),
+    backgroundHeightPercent: number('backgroundHeightPercent'),
     standeeSizePercent: number('standeeSizePercent'),
     standeeLeftPercent: number('standeeLeftPercent'),
     standeeVerticalPercent: number('standeeVerticalPercent'),
@@ -3042,15 +3045,18 @@ function renderNewCategoryPreview(form) {
   const background = form.elements.namedItem('cardBackgroundImage')?.value.trim() || IMAGE_IMPORT_DEFAULT_BACKGROUND;
   const title = form.elements.namedItem('title')?.value.trim() || 'Example Collection';
   const description = form.elements.namedItem('description')?.value.trim() || 'A short description of this collection appears here.';
-  const position = form.elements.namedItem('backgroundPosition')?.value || 'center bottom';
-  const size = safeCategoryDisplayNumber(form.elements.namedItem('standeeSizePercent')?.value, CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX);
-  const horizontal = safeCategoryDisplayNumber(form.elements.namedItem('standeeLeftPercent')?.value, 0, -50, 50);
-  const vertical = safeCategoryDisplayNumber(form.elements.namedItem('standeeVerticalPercent')?.value, 0, -50, 50);
-  const left = 50 + horizontal;
-  const bottom = 2 - vertical;
-  preview.innerHTML = `<article class="admin-builder-category-card admin-category-placement-preview" style="background-image:url('${escapeAdminHtml(background)}');background-position:${escapeAdminHtml(position)}">
-    <div class="admin-category-preview-stage"><img src="${escapeAdminHtml(image)}" alt="Category preview" style="height:${size}%;left:${left}%;bottom:${bottom}%"></div>
-    <div><h4>${escapeAdminHtml(title)}</h4><p>${escapeAdminHtml(description)}</p><span class="admin-button admin-button-primary">View Collection</span></div>
+  const presentation = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation({
+    key: '__new-category__', title, description,
+    card: { image, backgroundImage: background },
+    displaySettings: createFormDisplaySettings(form)
+  }, { mode: 'draft', defaultBackground: IMAGE_IMPORT_DEFAULT_BACKGROUND, globalDisplaySettings: {} });
+  const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
+  preview.innerHTML = `<article class="product-card admin-master-category-card admin-category-placement-preview">
+    <div class="product-stage-preview admin-category-storefront-stage admin-category-preview-stage">
+      <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(background)}');background-position:${escapeAdminHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}" aria-hidden="true"></span>
+      <img class="product-cutout" src="${escapeAdminHtml(image)}" alt="Category preview" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">
+    </div>
+    <h3><span class="product-title-link">${escapeAdminHtml(title)}</span></h3><p class="product-description">${escapeAdminHtml(description)}</p><span class="admin-button admin-button-primary">View Collection</span>
   </article>`;
 }
 
@@ -4565,6 +4571,10 @@ async function publishAllSavedChanges(label = 'All saved Admin changes', statusT
       onProgress?.(message, state);
     };
     report('Checking every saved Admin change…', 'publishing');
+    if (!await saveAllOpenCollectionChanges({ quiet: true })) {
+      report('Publish stopped — an open Collection editor could not be saved. Review the highlighted Collection and try again.', 'failed');
+      return false;
+    }
     if (!await waitForAdminSaves()) return false;
     if (!await loadAdminLiveSettings()) {
       report(`Publish stopped: ${adminLastSaveError || 'saved Admin state could not be reloaded.'}`, 'failed');
@@ -4897,7 +4907,7 @@ function categoryVisualImagePicker(category, kind = 'category') {
       <span data-category-current-label data-invalid-image="${presentation.valid ? 'false' : 'true'}">${escapeAdminHtml(presentation.label)}</span>
       <div class="admin-panel-actions">
         <button type="button" data-change-category-image>${presentation.valid ? `Change ${objectName} ${isBackground ? 'Background' : 'Image'}` : `Replace ${objectName} ${isBackground ? 'Background' : 'Image'}`}</button>
-        ${isBackground ? '<button type="button" data-use-shared-category-background>Use Shared Default</button><button type="button" data-remove-category-image>Remove Custom Background</button>' : '<button type="button" data-remove-category-image>Remove Image</button>'}
+        ${isBackground ? (category.parentKey || category.key === '__new-category__' ? '<button type="button" data-use-shared-category-background>Use Shared Default</button>' : '<button type="button" data-use-shared-collection-background>Use Shared Background</button>') + '<button type="button" data-remove-category-image>Remove Custom Background</button>' : '<button type="button" data-remove-category-image>Remove Image</button>'}
       </div>
       ${presentation.valid && selected ? `<details class="admin-technical-details"><summary>Image reference</summary><code data-category-current-path>${escapeAdminHtml(selected)}</code></details>` : ''}
     </div>
@@ -4922,7 +4932,7 @@ function populateNewCategoryVisualPickers(form) {
 function categoryPublishButtonMarkup(categoryKey, { editor = false } = {}) {
   const operation = categoryPublishOperations.get(categoryKey);
   const publishing = operation?.state === 'publishing';
-  const label = publishing ? 'Publishing…' : (editor ? 'Publish to Website' : 'Publish All Saved Changes');
+  const label = publishing ? 'Publishing…' : 'Publish All Saved Changes';
   return `<button class="admin-button admin-button-primary" type="button" ${editor ? 'data-publish-category-edit' : `data-publish-category="${escapeAdminHtml(categoryKey)}"`} data-publish-category-key="${escapeAdminHtml(categoryKey)}" data-category-key="${escapeAdminHtml(categoryKey)}" ${publishing ? 'disabled aria-busy="true"' : ''}>${label}</button>`;
 }
 
@@ -4932,6 +4942,152 @@ function categoryDisplayRangeMarkup(name, label, value, minimum, maximum, suffix
     <span class="admin-category-range-value"><input type="number" min="${minimum}" max="${maximum}" step="1" value="${value}" data-category-display-number="${name}" aria-label="${label} numeric value">${suffix}</span></span>
     <small>${minimum}${suffix}–${maximum}${suffix}</small>
   </label>`;
+}
+
+function sharedCollectionBackgroundDefaults() {
+  return {
+    backgroundImage: IMAGE_IMPORT_DEFAULT_BACKGROUND,
+    backgroundPosition: '50% 100%',
+    backgroundPositionX: 50,
+    backgroundPositionY: 100,
+    backgroundSizePercent: 100,
+    backgroundWidthPercent: 100,
+    backgroundHeightPercent: 100
+  };
+}
+
+function categoryBackgroundConfiguration(category = {}) {
+  const defaults = sharedCollectionBackgroundDefaults();
+  const display = category.displaySettings || {};
+  const position = categoryBackgroundPositionParts(display.backgroundPosition || defaults.backgroundPosition);
+  return {
+    backgroundImage: String(category.card?.backgroundImage || defaults.backgroundImage),
+    backgroundPosition: `${position.x}% ${position.y}%`,
+    backgroundPositionX: position.x,
+    backgroundPositionY: position.y,
+    backgroundSizePercent: safeCategoryDisplayNumber(display.backgroundSizePercent, defaults.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
+    backgroundWidthPercent: safeCategoryDisplayNumber(display.backgroundWidthPercent, defaults.backgroundWidthPercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
+    backgroundHeightPercent: safeCategoryDisplayNumber(display.backgroundHeightPercent, defaults.backgroundHeightPercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX)
+  };
+}
+
+function sharedCollectionBackgroundConfiguration() {
+  const categories = normalizedMainCollectionsForBatch();
+  if (!categories.length) return sharedCollectionBackgroundDefaults();
+  const groups = new Map();
+  categories.forEach((category) => {
+    const configuration = categoryBackgroundConfiguration(category);
+    const key = JSON.stringify(configuration);
+    const group = groups.get(key) || { configuration, count: 0 };
+    group.count += 1;
+    groups.set(key, group);
+  });
+  return [...groups.values()].sort((left, right) => right.count - left.count)[0].configuration;
+}
+
+function categoryUsesSharedCollectionBackground(category = {}) {
+  return JSON.stringify(categoryBackgroundConfiguration(category)) === JSON.stringify(sharedCollectionBackgroundConfiguration());
+}
+
+function sharedCollectionBackgroundFromForm(form) {
+  const data = new FormData(form);
+  return {
+    backgroundImage: String(data.get('cardBackgroundImage') || ''),
+    backgroundPosition: `${data.get('backgroundPositionX') || 50}% ${data.get('backgroundPositionY') || 100}%`,
+    backgroundPositionX: safeCategoryDisplayNumber(data.get('backgroundPositionX'), 50, 0, 100),
+    backgroundPositionY: safeCategoryDisplayNumber(data.get('backgroundPositionY'), 100, 0, 100),
+    backgroundSizePercent: safeCategoryDisplayNumber(data.get('backgroundSizePercent'), 100, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
+    backgroundWidthPercent: safeCategoryDisplayNumber(data.get('backgroundWidthPercent'), 100, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
+    backgroundHeightPercent: safeCategoryDisplayNumber(data.get('backgroundHeightPercent'), 100, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX)
+  };
+}
+
+function sharedCollectionBackgroundSource(configuration) {
+  return {
+    key: '__shared-collection-background__',
+    card: { backgroundImage: configuration.backgroundImage },
+    displaySettings: {
+      backgroundPosition: configuration.backgroundPosition,
+      backgroundSizePercent: configuration.backgroundSizePercent,
+      backgroundWidthPercent: configuration.backgroundWidthPercent,
+      backgroundHeightPercent: configuration.backgroundHeightPercent
+    }
+  };
+}
+
+function previewSharedCollectionBackground(form) {
+  const preview = form?.querySelector('[data-shared-collection-background-preview]');
+  if (!preview) return;
+  const configuration = sharedCollectionBackgroundFromForm(form);
+  const sample = normalizedMainCollectionsForBatch().find((category) => category.card?.image) || {};
+  const presentation = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation({
+    key: '__shared-preview__',
+    title: 'Shared Collection Background Preview',
+    description: 'The standee remains independent from the background.',
+    card: { image: sample.card?.image || '', backgroundImage: configuration.backgroundImage },
+    displaySettings: {
+      ...(sample.displaySettings || {}),
+      backgroundPosition: configuration.backgroundPosition,
+      backgroundSizePercent: configuration.backgroundSizePercent,
+      backgroundWidthPercent: configuration.backgroundWidthPercent,
+      backgroundHeightPercent: configuration.backgroundHeightPercent
+    }
+  }, { mode: 'draft', defaultBackground: IMAGE_IMPORT_DEFAULT_BACKGROUND, globalDisplaySettings: {} });
+  const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
+  preview.innerHTML = `<article class="product-card admin-master-category-card admin-category-placement-preview">
+    <div class="product-stage-preview admin-category-storefront-stage admin-category-preview-stage">
+      <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(presentation.background)}');background-position:${escapeAdminHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}" aria-hidden="true"></span>
+      ${presentation.image ? `<img class="product-cutout" src="${escapeAdminHtml(presentation.image)}" alt="Sample standee" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : '<span>No sample standee image available</span>'}
+    </div>
+    <h3><span class="product-title-link">Shared Collection Background</span></h3>
+    <p class="product-description">Background changes never resize or reposition the standee.</p>
+  </article>`;
+  syncCategoryDisplayOutputs(form);
+}
+
+function sharedCollectionBackgroundPicker(configuration) {
+  const presentation = adminImageReferencePresentation(configuration.backgroundImage, { background: true });
+  return `<section class="admin-category-image-picker" data-category-image-picker data-category-key="__shared-collection-background__" data-image-kind="background">
+    <div class="admin-category-current-image">
+      <strong>Shared Collection Card Background Image</strong>
+      <img src="${escapeAdminHtml(presentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}" alt="Current shared Collection background" data-category-current-image>
+      <span data-category-current-label>${escapeAdminHtml(presentation.label)}</span>
+      <div class="admin-panel-actions"><button type="button" data-change-category-image>Change Background Image</button><button type="button" data-reset-shared-collection-background>Use Shared Default Background</button></div>
+    </div>
+    <input name="cardBackgroundImage" type="hidden" value="${escapeAdminHtml(configuration.backgroundImage)}" data-preserve-invalid-reference="false">
+    <details class="admin-category-image-browser"><summary>Browse Repository Backgrounds</summary><button type="button" data-search-all-category-images>Search All Repository Images</button><label data-category-image-search-controls hidden>Search repository backgrounds<input type="search" data-category-image-search placeholder="Search filename or folder"></label><div class="admin-category-image-gallery" data-category-image-gallery><p class="admin-note">Choose Change Background Image to load available backgrounds.</p></div></details>
+  </section>`;
+}
+
+function renderSharedCollectionBackgroundController({ force = false } = {}) {
+  const mount = document.getElementById('sharedCollectionBackgroundController');
+  if (!mount) return;
+  const existing = mount.querySelector('[data-shared-collection-background-form]');
+  if (!force && existing?.dataset.editorDirty === 'true') return;
+  const configuration = sharedCollectionBackgroundConfiguration();
+  const count = normalizedMainCollectionsForBatch().length;
+  mount.innerHTML = `<div class="admin-panel-header"><div><h3>Shared Collection Card Background</h3><p class="admin-note">Choose one background and layout for every normalized Main Collection. This controller never changes standee images, standee placement, text, Products, assignments, order, visibility, or pricing.</p></div></div>
+    <form data-shared-collection-background-form data-editor-dirty="false">
+      <div class="admin-category-editor-workspace admin-shared-background-workspace">
+        <aside class="admin-category-preview-column"><strong>Combined Preview</strong><div data-shared-collection-background-preview></div></aside>
+        <div class="admin-category-controls-column">
+          ${sharedCollectionBackgroundPicker(configuration)}
+          <div class="admin-category-position-controls">
+            ${categoryDisplayRangeMarkup('backgroundWidthPercent', 'Background Width', configuration.backgroundWidthPercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
+            ${categoryDisplayRangeMarkup('backgroundHeightPercent', 'Background Height', configuration.backgroundHeightPercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
+            ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background X Position', configuration.backgroundPositionX, 0, 100, '%')}
+            ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Y Position', configuration.backgroundPositionY, 0, 100, '%')}
+            ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Overall Zoom', configuration.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
+          </div>
+          ${categoryDisplayAdjustmentButtons('background')}
+          <div class="admin-panel-actions"><button type="button" data-center-shared-collection-background>Center Background</button><button type="button" data-reset-shared-collection-background>Reset Background</button></div>
+          <p class="admin-note"><strong>${count}</strong> normalized Main Collection${count === 1 ? '' : 's'} will be affected. This is one revision-protected private batch save.</p>
+          <div class="admin-panel-actions"><button type="submit" class="admin-button admin-button-primary">Apply Background to All Main Collections</button><button type="button" class="admin-button admin-button-warning" data-reset-all-shared-collection-backgrounds>Reset All Collection Backgrounds to Shared Default</button></div>
+          <p class="admin-status" data-shared-collection-background-status aria-live="polite">No unsaved shared-background changes.</p>
+        </div>
+      </div>
+    </form>`;
+  previewSharedCollectionBackground(mount.querySelector('[data-shared-collection-background-form]'));
 }
 
 function publishedCategoryCardForAdmin(categoryKey) {
@@ -4966,12 +5122,16 @@ function categoryCardDraftStatusMarkup(category) {
   const draftImage = adminImageReferencePresentation(category.card?.image || '');
   const draftBackground = adminImageReferencePresentation(category.card?.backgroundImage || '', { background: true });
   const unpublished = categoryLifecycleState(category) !== 'Published';
+  const publishedTitle = String(published.category?.title || 'No published Main Collection title');
+  const lifecycleMessage = unpublished
+    ? `DRAFT PREVIEW — NOT LIVE YET · SAVED PRIVATELY · PUBLISHED VERSION STILL SAYS: “${publishedTitle}” · WILL BECOME LIVE AFTER PUBLISH ALL`
+    : 'PUBLISHED TO WEBSITE';
   const referenceMarkup = (label, presentation, background, emptyLabel) => `<article>
     ${presentation.preview ? `<img src="${escapeAdminHtml(presentation.preview)}" alt="">` : '<span class="admin-category-reference-empty">No image</span>'}
     <div><strong>${label}</strong><small data-category-reference-image>Image: ${escapeAdminHtml(presentation.reference || emptyLabel)}</small><small data-category-reference-background>Background: ${escapeAdminHtml(background.reference || background.label)}</small></div>
   </article>`;
   return `<section class="admin-category-draft-published-state" data-category-draft-published-state>
-    <strong data-category-draft-preview-state data-state="${unpublished ? 'draft' : 'published'}">${unpublished ? 'DRAFT PREVIEW — NOT LIVE YET' : 'PUBLISHED PREVIEW'}</strong>
+    <strong data-category-draft-preview-state data-state="${unpublished ? 'draft' : 'published'}" data-published-category-title="${escapeAdminHtml(publishedTitle)}">${escapeAdminHtml(lifecycleMessage)}</strong>
     <div class="admin-category-reference-compare">
       ${referenceMarkup('Published website currently uses', publishedImage, publishedBackground, published.source === 'legacy' ? 'Legacy Homepage Collection Card has no image' : 'No published image')}
       ${referenceMarkup('Draft will use', draftImage, draftBackground, 'No Homepage Collection Card image selected')}
@@ -4988,6 +5148,8 @@ function categoryDisplayAdjustmentButtons(kind) {
   ] : [
     ['backgroundPositionX', -5, '← Left'], ['backgroundPositionX', 5, 'Right →'],
     ['backgroundPositionY', -5, '↑ Up'], ['backgroundPositionY', 5, '↓ Down'],
+    ['backgroundWidthPercent', -10, 'Narrower'], ['backgroundWidthPercent', 10, 'Wider'],
+    ['backgroundHeightPercent', -10, 'Shorter'], ['backgroundHeightPercent', 10, 'Taller'],
     ['backgroundSizePercent', -10, 'Zoom Out'], ['backgroundSizePercent', 10, 'Zoom In']
   ];
   return `<div class="admin-category-nudge-controls" aria-label="${image ? 'Homepage Collection Card image' : 'Homepage Collection Card background'} movement controls">${controls.map(([field, amount, label]) => `<button type="button" data-adjust-category-display="${field}" data-category-display-adjustment="${amount}">${label}</button>`).join('')}</div>`;
@@ -4999,6 +5161,7 @@ function categoryEditMarkup(category) {
   const parent = category.parentKey ? readAdminCategories()[category.parentKey] : null;
   const representativeProducts = parent ? [] : categoryAssignedProducts(category.key);
   const representativeSlug = String(category.card?.representativeProductSlug || '');
+  const sharedBackgroundState = parent ? '' : (categoryUsesSharedCollectionBackground(category) ? 'Using Shared Background' : 'Custom Background');
   const sectionStart = (className, title, open = false) => parent
     ? `<fieldset class="admin-category-editor-section ${className}"><legend>${title}</legend>`
     : `<details class="admin-category-editor-section ${className}" ${open ? 'open' : ''}><summary>${title}</summary>`;
@@ -5042,7 +5205,7 @@ function categoryEditMarkup(category) {
         </aside>
         <div class="admin-category-controls-column">
           <div class="admin-category-editor-action-stack">
-            <div class="admin-panel-actions admin-category-editor-actions"><button type="button" data-back-to-collections>Back to Collections</button><button type="button" data-preview-category-edit>Preview</button><button type="submit">Save Draft</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
+            <div class="admin-panel-actions admin-category-editor-actions"><button type="button" data-back-to-collections>Back to Collections</button><button type="button" data-preview-category-edit>Preview</button><button type="submit">Save Changes / Save Draft</button><button type="button" data-save-all-open-collections>Save All Open Collection Changes</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
             ${parent ? '' : categoryCardDraftStatusMarkup(category)}
             <p class="admin-status admin-category-card-publish-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${publishStatus}</p>
           </div>
@@ -5068,18 +5231,21 @@ function categoryEditMarkup(category) {
               ${categoryDisplayRangeMarkup('standeeLeftPercent', 'Horizontal Position', display.standeeLeftPercent, -50, 50)}
               ${categoryDisplayRangeMarkup('standeeVerticalPercent', 'Vertical Position', display.standeeVerticalPercent, -50, 50)}
             </div>
-            ${parent ? '<div class="admin-panel-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Appearance</button></div>' : `${categoryDisplayAdjustmentButtons('image')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-image>Center Image</button><button type="button" data-reset-category-appearance>Reset Image Position / Size</button></div>`}
+            ${parent ? '<div class="admin-panel-actions"><button type="button" data-center-category-image>Center Standee</button><button type="button" data-reset-category-appearance>Reset Standee to Default</button></div>' : `${categoryDisplayAdjustmentButtons('image')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-image>Center Standee</button><button type="button" data-reset-category-appearance>Reset Standee to Default</button></div>`}
           ${sectionEnd}
           ${sectionStart('admin-category-background-section', parent ? 'Child Group Background' : 'Homepage Collection Card Background', true)}
+            ${parent ? '' : `<p class="admin-category-background-mode"><strong>${sharedBackgroundState}</strong> · This status compares the Main Collection's normalized background image and layout with the current shared configuration.</p>`}
             ${categoryVisualImagePicker(category, 'background')}
             <p class="admin-note">This background belongs only to the Homepage Collection Card. It does not overwrite any Product Showroom Background.</p>
             <input name="backgroundPosition" type="hidden" value="${escapeAdminHtml(display.backgroundPosition)}">
             <div class="admin-category-position-controls">
               ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background Left / Right', backgroundPosition.x, 0, 100, '%')}
               ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Up / Down', backgroundPosition.y, 0, 100, '%')}
+              ${categoryDisplayRangeMarkup('backgroundWidthPercent', 'Background Width', display.backgroundWidthPercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
+              ${categoryDisplayRangeMarkup('backgroundHeightPercent', 'Background Height', display.backgroundHeightPercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
               ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom', display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
             </div>
-            ${parent ? '<button type="button" data-reset-category-background>Reset Background</button>' : `${categoryDisplayAdjustmentButtons('background')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-background>Center Background</button><button type="button" data-reset-category-background>Reset Background</button><button type="button" class="admin-button admin-button-secondary" data-reset-category-card-layout>Reset Card Layout</button></div>`}
+            ${parent ? '<button type="button" data-reset-category-background>Reset Background</button>' : `${categoryDisplayAdjustmentButtons('background')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-background>Center Background</button><button type="button" data-reset-category-background>Reset Background</button><button type="button" data-apply-category-background-all>Apply Background + Background Layout to All Collection Cards</button><button type="button" class="admin-button admin-button-secondary" data-reset-category-card-layout>Reset Card Layout</button></div><p class="admin-note" data-category-background-batch-note>${normalizedMainCollectionsForBatch().length} normalized Main Collection card${normalizedMainCollectionsForBatch().length === 1 ? '' : 's'} will be affected. Standee placement and every non-background field will be preserved.</p>`}
             <p class="admin-note">Background Zoom scales the existing cover image without changing the physical file.</p>
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
           ${sectionEnd}
@@ -5246,6 +5412,7 @@ function renderCategoryManager() {
     return `<article><strong>${escapeAdminHtml(key)}</strong><span>${published ? 'Published deletion' : 'Unpublished deletion'} · Products and image files are preserved.</span>${published ? '' : `<button type="button" data-publish-category-deletion="${escapeAdminHtml(key)}">Publish All Saved Changes</button>`}<button type="button" data-recreate-category="${escapeAdminHtml(key)}">Recreate Category</button></article>`;
   }).join('')}</section>`);
   updateDeleteSelectedCategoriesButton();
+  renderSharedCollectionBackgroundController();
 }
 
 function updateDeleteSelectedCategoriesButton() {
@@ -5300,6 +5467,8 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
       ...(current.displaySettings || {}),
       backgroundPosition: String(data.get('backgroundPosition') || 'center center'),
       backgroundSizePercent: safeCategoryDisplayNumber(data.get('backgroundSizePercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
+      backgroundWidthPercent: safeCategoryDisplayNumber(data.get('backgroundWidthPercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
+      backgroundHeightPercent: safeCategoryDisplayNumber(data.get('backgroundHeightPercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
       standeeSizePercent: safeCategoryDisplayNumber(data.get('standeeSizePercent'), CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
       standeeLeftPercent: safeCategoryDisplayNumber(data.get('standeeLeftPercent'), 0, -50, 50),
       standeeVerticalPercent: safeCategoryDisplayNumber(data.get('standeeVerticalPercent'), 0, -50, 50),
@@ -5358,6 +5527,7 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
     if (editorTitle) editorTitle.textContent = category.title || category.key;
   }
   form.dataset.editorDirty = 'false';
+  updateCategoryDraftPublishedState(form, category);
   const message = approvalStatus === 'approved' ? 'Main Collection saved. Validating latest private save…' : 'Draft Saved — Private';
   setCategoryPublishState(category.key, message, approvalStatus === 'approved' ? 'publishing' : 'draft');
   setStatus(message);
@@ -5553,7 +5723,7 @@ function previewCategoryEdit(form) {
   preview.hidden = false;
   preview.innerHTML = `<article class="product-card admin-master-category-card admin-category-placement-preview">
     <div class="product-stage-preview admin-category-storefront-stage admin-category-preview-stage">
-      <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(layout.backgroundPosition)};transform:scale(${layout.backgroundScale})" aria-hidden="true"></span>
+      <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}" aria-hidden="true"></span>
       ${imagePresentation.preview ? `<img class="product-cutout" src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}
     </div>
     <h3 data-admin-category-field="title" style="transform:${layout.titleTransform};text-align:${layout.titleAlign}"><span class="product-title-link" style="text-align:inherit;font-size:${layout.titleFontSizePx}px">${escapeAdminHtml(presentation.title)}</span></h3>
@@ -5598,10 +5768,23 @@ function updateCategoryPickerValue(picker, path) {
   picker.querySelectorAll('[data-category-image-choice]').forEach((choice) => choice.classList.toggle('selected', choice.dataset.categoryImageChoice === path));
   const editForm = picker.closest('[data-category-edit]');
   if (editForm) {
+    if (!isBackground && path && path !== input.defaultValue) {
+      const baseCategory = readAdminCategories()[editForm.dataset.categoryEdit] || {};
+      const baseDisplay = baseCategory.displaySettings || {};
+      const hasPlacement = ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent']
+        .some((field) => Object.prototype.hasOwnProperty.call(baseDisplay, field));
+      if (!hasPlacement) setCategoryStandeeCentered(editForm, { resetSize: true, preview: false });
+    }
     markCategoryEditorDirty(editForm);
     previewCategoryEdit(editForm);
   }
   else {
+    const sharedBackgroundForm = picker.closest('[data-shared-collection-background-form]');
+    if (sharedBackgroundForm) {
+      markCategoryEditorDirty(sharedBackgroundForm);
+      previewSharedCollectionBackground(sharedBackgroundForm);
+      return;
+    }
     const newCategoryForm = picker.closest('#createCategoryForm');
     if (newCategoryForm) renderNewCategoryPreview(newCategoryForm);
   }
@@ -5642,8 +5825,13 @@ function updateCategoryDraftPublishedState(form, category = categoryFromEditForm
   const draftBackground = adminImageReferencePresentation(category.card?.backgroundImage || '', { background: true });
   if (state) {
     const unpublished = categoryLifecycleState(category) !== 'Published';
+    const publishedTitle = String(published.category?.title || state.dataset.publishedCategoryTitle || 'No published Main Collection title');
+    const dirty = editorHasUnsavedChanges(form);
     state.dataset.state = unpublished ? 'draft' : 'published';
-    state.textContent = unpublished ? 'DRAFT PREVIEW — NOT LIVE YET' : 'PUBLISHED PREVIEW';
+    state.dataset.publishedCategoryTitle = publishedTitle;
+    state.textContent = unpublished
+      ? `${dirty ? 'UNSAVED CHANGES' : 'SAVED PRIVATELY'} · PUBLISHED VERSION STILL SAYS: “${publishedTitle}” · WILL BECOME LIVE AFTER PUBLISH ALL`
+      : 'PUBLISHED TO WEBSITE';
   }
   if (draftReference) {
     const oldVisual = draftReference.querySelector('img, .admin-category-reference-empty');
@@ -5665,16 +5853,44 @@ function applyCategoryDisplayAdjustment(form, name, amount) {
   syncCategoryBackgroundPosition(form);
   syncCategoryDisplayOutputs(form);
   markCategoryEditorDirty(form);
-  previewCategoryEdit(form);
+  if (form.matches('[data-shared-collection-background-form]')) previewSharedCollectionBackground(form);
+  else previewCategoryEdit(form);
   return true;
 }
 
-function resetCategoryCardLayout(form) {
-  const defaults = {
-    standeeSizePercent: CATEGORY_IMAGE_SIZE_DEFAULT,
+function categoryDefaultStandeeDisplay() {
+  return window.MVPLUX_CATEGORY_PRESENTATION.defaultStandeeDisplay();
+}
+
+function setCategoryStandeeCentered(form, { resetSize = false, preview = true } = {}) {
+  const defaultDisplay = categoryDefaultStandeeDisplay();
+  const requestedSize = resetSize
+    ? defaultDisplay.standeeSizePercent
+    : Number(form?.elements.namedItem('standeeSizePercent')?.value || defaultDisplay.standeeSizePercent);
+  setCategoryDisplayControlValue(form, 'standeeSizePercent', requestedSize);
+  setCategoryDisplayControlValue(form, 'standeeLeftPercent', 0);
+  setCategoryDisplayControlValue(
+    form,
+    'standeeVerticalPercent',
+    window.MVPLUX_CATEGORY_PRESENTATION.centeredStandeeVerticalPercent(requestedSize)
+  );
+  syncCategoryDisplayOutputs(form);
+  markCategoryEditorDirty(form);
+  if (preview) previewCategoryEdit(form);
+  return {
+    standeeSizePercent: requestedSize,
     standeeLeftPercent: 0,
-    standeeVerticalPercent: 0,
+    standeeVerticalPercent: window.MVPLUX_CATEGORY_PRESENTATION.centeredStandeeVerticalPercent(requestedSize)
+  };
+}
+
+function resetCategoryCardLayout(form) {
+  const standee = categoryDefaultStandeeDisplay();
+  const defaults = {
+    ...standee,
     backgroundSizePercent: CATEGORY_BACKGROUND_SIZE_DEFAULT,
+    backgroundWidthPercent: CATEGORY_BACKGROUND_SIZE_DEFAULT,
+    backgroundHeightPercent: CATEGORY_BACKGROUND_SIZE_DEFAULT,
     backgroundPositionX: 50,
     backgroundPositionY: 100
   };
@@ -5694,8 +5910,8 @@ function syncCategoryBackgroundPosition(form) {
 }
 
 function syncCategoryDisplayOutputs(form) {
-  const percentageFields = new Set(['standeeSizePercent', 'titleSizePercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent']);
-  ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent', 'titleLeftPercent', 'titleVerticalPercent', 'titleSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent'].forEach((name) => {
+  const percentageFields = new Set(['standeeSizePercent', 'titleSizePercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent']);
+  ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent', 'titleLeftPercent', 'titleVerticalPercent', 'titleSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent'].forEach((name) => {
     const input = form.elements.namedItem(name);
     const number = form.querySelector(`[data-category-display-number="${CSS.escape(name)}"]`);
     const output = form.querySelector(`[data-category-display-output="${name}"]`);
@@ -5710,6 +5926,115 @@ function syncCategoryVisibilityControls(form) {
   if (!categoryVisible || !homepageVisible || readAdminCategories()[form.dataset.categoryEdit]?.parentKey) return;
   homepageVisible.disabled = !categoryVisible.checked;
   homepageVisible.closest('label')?.classList.toggle('admin-control-secondary', !categoryVisible.checked);
+}
+
+function normalizedMainCollectionsForBatch() {
+  const deleted = new Set(readDeletedCategories());
+  return Object.values(readAdminCategories()).filter((category) => (
+    category?.key && !category.parentKey && !deleted.has(category.key)
+  ));
+}
+
+function categoryBackgroundBatchOperations(source, targets, updatedAt = new Date().toISOString()) {
+  const backgroundFields = ['backgroundPosition', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent'];
+  return targets.map((target) => ({
+    type: 'record',
+    collectionKey: 'categories',
+    entryKey: target.key,
+    baseRecord: target,
+    patch: {
+      card: { ...(target.card || {}), backgroundImage: source.card?.backgroundImage || '' },
+      displaySettings: {
+        ...(target.displaySettings || {}),
+        ...Object.fromEntries(backgroundFields.map((field) => [field, source.displaySettings?.[field]]))
+      },
+      updatedAt,
+      draftStatus: 'draft',
+      approvalStatus: 'draft'
+    }
+  }));
+}
+
+async function saveSharedCollectionBackgroundChanges({ quiet = false } = {}) {
+  const form = document.querySelector('[data-shared-collection-background-form]');
+  if (!form || !editorHasUnsavedChanges(form)) return true;
+  const targets = normalizedMainCollectionsForBatch();
+  const status = form.querySelector('[data-shared-collection-background-status]');
+  if (!targets.length) {
+    if (status) status.textContent = 'No normalized Main Collections are available.';
+    return false;
+  }
+  const configuration = sharedCollectionBackgroundFromForm(form);
+  const validation = adminStateUtils.validateAdminImageReference(configuration.backgroundImage, { allowBlank: false });
+  if (!validation.valid) {
+    const message = `Shared background save failed — ${validation.reason}`;
+    if (status) status.textContent = message;
+    setStatus(message);
+    return false;
+  }
+  if (status) status.textContent = `Saving one background batch for ${targets.length} Main Collections…`;
+  const operations = categoryBackgroundBatchOperations(sharedCollectionBackgroundSource(configuration), targets);
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) {
+    const message = `Shared Collection Background save failed — ${adminLastSaveError || 'the batch was not saved.'}`;
+    if (status) status.textContent = message;
+    setStatus(message);
+    return false;
+  }
+  form.dataset.editorDirty = 'false';
+  if (status) status.textContent = `SAVED PRIVATELY — ${targets.length} Main Collection background${targets.length === 1 ? '' : 's'} updated in one batch. WILL BECOME LIVE AFTER PUBLISH ALL.`;
+  if (!quiet) setStatus(`Shared Collection Background saved privately to ${targets.length} Main Collections in one batch. Nothing was published.`);
+  return true;
+}
+
+async function applyCategoryBackgroundToAll(form) {
+  if (!form) return false;
+  if (!await saveAllOpenCollectionChanges({ quiet: true })) {
+    setStatus('Shared background save stopped — an open Collection editor could not be saved. Nothing was published.');
+    return false;
+  }
+  const source = readAdminCategories()[form.dataset.categoryEdit] || categoryFromEditForm(form, 'draft');
+  const targets = normalizedMainCollectionsForBatch();
+  if (!targets.length) {
+    setStatus('No normalized Main Collection cards are available for the background update.');
+    return false;
+  }
+  if (!window.confirm(`Apply this background and its complete layout to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'}?\n\nStandee images, standee placement, text, representatives, visibility, order, Products, assignments, and pricing will not change.`)) return false;
+  const operations = categoryBackgroundBatchOperations(source, targets);
+  setStatus(`Saving the shared Collection background to ${targets.length} private draft${targets.length === 1 ? '' : 's'}…`);
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) {
+    setStatus(`Shared background save failed — no publication was attempted. ${adminLastSaveError || ''}`.trim());
+    return false;
+  }
+  form.dataset.editorDirty = 'false';
+  renderCategoryManager();
+  setStatus(`Draft Saved — the background and background layout were copied to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'}. Standee placement and all non-background data were preserved. Publish All Saved Changes when ready.`);
+  return true;
+}
+
+async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
+  const forms = [...document.querySelectorAll('.admin-category-edit-form[data-category-edit]')]
+    .filter((form) => editorHasUnsavedChanges(form));
+  const sharedBackgroundForm = document.querySelector('[data-shared-collection-background-form]');
+  const hasSharedBackgroundChanges = editorHasUnsavedChanges(sharedBackgroundForm);
+  if (!forms.length && !hasSharedBackgroundChanges) {
+    if (!quiet) setStatus('No unsaved open Collection changes. Previously saved drafts remain ready for Publish All Saved Changes.');
+    return true;
+  }
+  for (const form of forms) {
+    const category = readAdminCategories()[form.dataset.categoryEdit] || {};
+    if (!await saveCategoryEditForm(form, 'draft', { render: false })) {
+      setStatus(`Save All stopped at ${category.title || form.dataset.categoryEdit}. That editor remains unsaved; nothing was published.`);
+      return false;
+    }
+  }
+  if (!await saveSharedCollectionBackgroundChanges({ quiet: true })) {
+    setStatus('Save All stopped at Shared Collection Card Background. Nothing was published.');
+    return false;
+  }
+  setStatus(`${forms.length} open Collection editor${forms.length === 1 ? '' : 's'}${hasSharedBackgroundChanges ? ' and the Shared Collection Card Background' : ''} ${forms.length === 1 && !hasSharedBackgroundChanges ? 'was' : 'were'} saved privately. Nothing was published.`);
+  return true;
 }
 
 function categoryKeyForActionTarget(target) {
@@ -5762,20 +6087,29 @@ function setupCategoryManagerEvents() {
   });
   section.addEventListener('change', (event) => {
     if (event.target.matches('[data-select-category]')) updateDeleteSelectedCategoriesButton();
-    if (event.target.matches('select[name="representativeProductSlug"]')) {
-      const form = event.target.closest('[data-category-edit]');
-      const product = effectiveAdminProducts().find((item) => item.slug === event.target.value);
-      const picker = form?.querySelector('[data-category-image-picker][data-image-kind="category"]');
-      if (product?.cutoutImage && picker) updateCategoryPickerValue(picker, product.cutoutImage);
-    }
     if (event.target.closest('[data-category-edit]')) {
       markCategoryEditorDirty(event.target.closest('[data-category-edit]'));
       previewCategoryEdit(event.target.closest('[data-category-edit]'));
+    }
+    const sharedBackgroundForm = event.target.closest('[data-shared-collection-background-form]');
+    if (sharedBackgroundForm) {
+      markCategoryEditorDirty(sharedBackgroundForm);
+      previewSharedCollectionBackground(sharedBackgroundForm);
     }
   });
   section.addEventListener('input', (event) => {
     if (event.target.matches('[data-category-image-search]')) {
       renderCategoryImagePickerGallery(event.target.closest('[data-category-image-picker]'), event.target.value);
+      return;
+    }
+    const sharedBackgroundForm = event.target.closest('[data-shared-collection-background-form]');
+    if (sharedBackgroundForm) {
+      markCategoryEditorDirty(sharedBackgroundForm);
+      syncCategoryDisplayControl(sharedBackgroundForm, event.target);
+      syncCategoryDisplayOutputs(sharedBackgroundForm);
+      previewSharedCollectionBackground(sharedBackgroundForm);
+      const status = sharedBackgroundForm.querySelector('[data-shared-collection-background-status]');
+      if (status) status.textContent = 'UNSAVED CHANGES — Save All Open Collection Changes or Publish All Saved Changes to preserve this batch.';
       return;
     }
     const form = event.target.closest('[data-category-edit]');
@@ -5791,9 +6125,16 @@ function setupCategoryManagerEvents() {
     const categoryForm = event.target.closest('[data-category-edit]');
     const productForm = event.target.closest('[data-category-product]');
     const childGroupForm = event.target.closest('[data-new-child-group-form]');
-    if (!categoryForm && !productForm && !childGroupForm) return;
+    const sharedBackgroundForm = event.target.closest('[data-shared-collection-background-form]');
+    if (!categoryForm && !productForm && !childGroupForm && !sharedBackgroundForm) return;
     event.preventDefault();
-    if (categoryForm) await saveCategoryEditForm(categoryForm, 'draft');
+    if (sharedBackgroundForm) {
+      const count = normalizedMainCollectionsForBatch().length;
+      if (window.confirm(`Apply this background and layout to ${count} Main Collection${count === 1 ? '' : 's'} as one private batch save?\n\nStandee images and placement, text, representatives, visibility, order, Products, assignments, and pricing will remain unchanged.`)) {
+        await saveSharedCollectionBackgroundChanges();
+      }
+    }
+    else if (categoryForm) await saveCategoryEditForm(categoryForm, 'draft');
     else if (productForm) await saveCategoryProductAssignments(productForm, false);
     else await saveNewChildGroupFromForm(childGroupForm);
   });
@@ -5883,6 +6224,7 @@ function setupCategoryManagerEvents() {
     if (event.target.closest('[data-migrate-legacy-main-collections]')) await saveLegacyMainCollectionsAsDrafts();
     const previewButton = event.target.closest('[data-preview-category-edit]');
     if (previewButton) previewCategoryEdit(previewButton.closest('[data-category-edit]'));
+    if (event.target.closest('[data-save-all-open-collections]')) await saveAllOpenCollectionChanges();
     const searchAllImages = event.target.closest('[data-search-all-category-images]');
     if (searchAllImages) {
       const picker = searchAllImages.closest('[data-category-image-picker]');
@@ -5913,10 +6255,53 @@ function setupCategoryManagerEvents() {
     if (imageChoice) updateCategoryPickerValue(imageChoice.closest('[data-category-image-picker]'), imageChoice.dataset.categoryImageChoice);
     const sharedBackground = event.target.closest('[data-use-shared-category-background]');
     if (sharedBackground) updateCategoryPickerValue(sharedBackground.closest('[data-category-image-picker]'), '');
+    const useSharedCollectionBackground = event.target.closest('[data-use-shared-collection-background]');
+    if (useSharedCollectionBackground) {
+      const form = useSharedCollectionBackground.closest('[data-category-edit]');
+      const configuration = sharedCollectionBackgroundConfiguration();
+      updateCategoryPickerValue(form.querySelector('[data-category-image-picker][data-image-kind="background"]'), configuration.backgroundImage);
+      ['backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent']
+        .forEach((name) => setCategoryDisplayControlValue(form, name, configuration[name]));
+      syncCategoryBackgroundPosition(form);
+      markCategoryEditorDirty(form);
+      previewCategoryEdit(form);
+    }
     const displayAdjustment = event.target.closest('[data-adjust-category-display]');
     if (displayAdjustment) {
-      const form = displayAdjustment.closest('[data-category-edit]');
+      const form = displayAdjustment.closest('[data-category-edit], [data-shared-collection-background-form]');
       if (form) applyCategoryDisplayAdjustment(form, displayAdjustment.dataset.adjustCategoryDisplay, displayAdjustment.dataset.categoryDisplayAdjustment);
+    }
+    const centerSharedBackground = event.target.closest('[data-center-shared-collection-background]');
+    if (centerSharedBackground) {
+      const form = centerSharedBackground.closest('[data-shared-collection-background-form]');
+      setCategoryDisplayControlValue(form, 'backgroundPositionX', 50);
+      setCategoryDisplayControlValue(form, 'backgroundPositionY', 50);
+      markCategoryEditorDirty(form);
+      previewSharedCollectionBackground(form);
+    }
+    const resetSharedBackground = event.target.closest('[data-reset-shared-collection-background]');
+    if (resetSharedBackground) {
+      const form = resetSharedBackground.closest('[data-shared-collection-background-form]');
+      const defaults = sharedCollectionBackgroundDefaults();
+      updateCategoryPickerValue(form.querySelector('[data-category-image-picker]'), defaults.backgroundImage);
+      ['backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent']
+        .forEach((name) => setCategoryDisplayControlValue(form, name, defaults[name]));
+      markCategoryEditorDirty(form);
+      previewSharedCollectionBackground(form);
+    }
+    const resetAllSharedBackgrounds = event.target.closest('[data-reset-all-shared-collection-backgrounds]');
+    if (resetAllSharedBackgrounds) {
+      const form = resetAllSharedBackgrounds.closest('[data-shared-collection-background-form]');
+      const count = normalizedMainCollectionsForBatch().length;
+      if (window.confirm(`Reset the background image and background layout for ${count} Main Collection${count === 1 ? '' : 's'} to the shared default?\n\nStandee and text settings will remain unchanged. This saves privately and does not publish.`)) {
+        const defaults = sharedCollectionBackgroundDefaults();
+        updateCategoryPickerValue(form.querySelector('[data-category-image-picker]'), defaults.backgroundImage);
+        ['backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent']
+          .forEach((name) => setCategoryDisplayControlValue(form, name, defaults[name]));
+        markCategoryEditorDirty(form);
+        previewSharedCollectionBackground(form);
+        await saveSharedCollectionBackgroundChanges();
+      }
     }
     const resetCardLayout = event.target.closest('[data-reset-category-card-layout]');
     if (resetCardLayout) {
@@ -5929,6 +6314,8 @@ function setupCategoryManagerEvents() {
       setCategoryDisplayControlValue(form, 'backgroundPositionX', 50);
       setCategoryDisplayControlValue(form, 'backgroundPositionY', 100);
       setCategoryDisplayControlValue(form, 'backgroundSizePercent', CATEGORY_BACKGROUND_SIZE_DEFAULT);
+      setCategoryDisplayControlValue(form, 'backgroundWidthPercent', CATEGORY_BACKGROUND_SIZE_DEFAULT);
+      setCategoryDisplayControlValue(form, 'backgroundHeightPercent', CATEGORY_BACKGROUND_SIZE_DEFAULT);
       syncCategoryBackgroundPosition(form);
       syncCategoryDisplayOutputs(form);
       markCategoryEditorDirty(form);
@@ -5947,22 +6334,15 @@ function setupCategoryManagerEvents() {
     const centerImage = event.target.closest('[data-center-category-image]');
     if (centerImage) {
       const form = centerImage.closest('[data-category-edit]');
-      setCategoryDisplayControlValue(form, 'standeeLeftPercent', 0);
-      setCategoryDisplayControlValue(form, 'standeeVerticalPercent', 0);
-      syncCategoryDisplayOutputs(form);
-      markCategoryEditorDirty(form);
-      previewCategoryEdit(form);
+      setCategoryStandeeCentered(form);
     }
     const resetAppearance = event.target.closest('[data-reset-category-appearance]');
     if (resetAppearance) {
       const form = resetAppearance.closest('[data-category-edit]');
-      setCategoryDisplayControlValue(form, 'standeeLeftPercent', 0);
-      setCategoryDisplayControlValue(form, 'standeeVerticalPercent', 0);
-      setCategoryDisplayControlValue(form, 'standeeSizePercent', CATEGORY_IMAGE_SIZE_DEFAULT);
-      syncCategoryDisplayOutputs(form);
-      markCategoryEditorDirty(form);
-      previewCategoryEdit(form);
+      setCategoryStandeeCentered(form, { resetSize: true });
     }
+    const applyBackgroundAll = event.target.closest('[data-apply-category-background-all]');
+    if (applyBackgroundAll) await applyCategoryBackgroundToAll(applyBackgroundAll.closest('[data-category-edit]'));
     const resetText = event.target.closest('[data-reset-category-text]');
     if (resetText) {
       const form = resetText.closest('[data-category-edit]');
@@ -7911,6 +8291,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderPublishSummary();
   });
   document.getElementById('publishAdminChanges')?.addEventListener('click', publishAdminChanges);
+  document.getElementById('saveAllOpenCollections')?.addEventListener('click', () => saveAllOpenCollectionChanges());
   document.getElementById('publishAllCollections')?.addEventListener('click', () => publishAllSavedChanges('All saved Admin changes'));
   document.getElementById('refreshPublishHistory')?.addEventListener('click', refreshPublishHistory);
   if (new URLSearchParams(window.location.search).get('publishAll') === '1') {

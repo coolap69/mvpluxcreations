@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260825-collection-desktop" />
+  <link rel="stylesheet" href="style.css?v=20260826-collection-background-layout" />
 </head>
 <body class="admin-shell">
   <header class="top-nav">
@@ -201,9 +201,12 @@
               <label class="admin-visible-toggle"><input name="homepageVisible" type="checkbox" checked> Show on Homepage</label>
               <fieldset class="admin-display-controls"><legend>Homepage Collection Card Display</legend>
                 <label>Background Position<select name="backgroundPosition"><option value="center center">Center</option><option value="left center">Left</option><option value="right center">Right</option><option value="center top">Top</option><option value="center bottom">Bottom</option></select></label>
+                <label>Background Zoom<input name="backgroundSizePercent" type="range" min="50" max="300" step="1" value="100"></label>
+                <label>Background Width<input name="backgroundWidthPercent" type="range" min="50" max="300" step="1" value="100"></label>
+                <label>Background Height<input name="backgroundHeightPercent" type="range" min="50" max="300" step="1" value="100"></label>
                 <label>Homepage Collection Card Image Size<input name="standeeSizePercent" type="range" min="10" max="250" step="1" value="63"></label>
                 <label>Left / Right<input name="standeeLeftPercent" type="range" min="-50" max="50" step="1" value="0"></label>
-                <label>Up / Down<input name="standeeVerticalPercent" type="range" min="-50" max="50" step="1" value="0"></label>
+                <label>Up / Down<input name="standeeVerticalPercent" type="range" min="-50" max="50" step="1" value="-16"></label>
                 <label>Logo Size<input name="logoSizePercent" type="range" min="20" max="140" step="1" value="82"></label>
                 <label>Logo Up / Down<input name="logoVerticalPercent" type="range" min="-40" max="40" step="1" value="-4"></label>
               </fieldset>
@@ -280,6 +283,7 @@
         </div>
         <div class="admin-panel-actions">
           <button class="admin-button admin-button-primary" type="button" data-new-category>+ New Main Collection</button>
+          <button class="admin-button admin-button-secondary" id="saveAllOpenCollections" type="button">Save All Open Collection Changes</button>
           <button class="admin-button admin-button-primary" id="publishAllCollections" type="button">Publish All Saved Changes</button>
         </div>
       </div>
@@ -299,6 +303,7 @@
       </details>
       <div id="adminCategoryDuplicateNotice" class="admin-status-message" hidden></div>
       <div id="adminProducts" class="admin-product-list"></div>
+      <section id="sharedCollectionBackgroundController" class="admin-shared-collection-background" aria-label="Shared Collection Card Background"></section>
     </section>
 
     <section class="admin-panel" id="advanced" data-admin-area="advanced" hidden>
@@ -481,8 +486,8 @@
   <script src="supabase-config.js?v=20260709-card-admin-sync"></script>
   <script src="pricing.js?v=20260823-merchandise-height"></script>
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
-  <script src="category-presentation.js?v=20260824-collection-representative"></script>
+  <script src="category-presentation.js?v=20260826-collection-background-layout"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
-  <script src="admin.js?v=20260825-collection-desktop"></script>
+  <script src="admin.js?v=20260826-collection-background-layout"></script>
 </body>
 </html>

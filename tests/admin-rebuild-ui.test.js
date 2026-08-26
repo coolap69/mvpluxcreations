@@ -183,7 +183,7 @@ Deno.test('Create Product and Create Category are visual builders with image pic
   assert(adminHtml.includes('class="admin-create-form admin-visual-builder" data-builder="product"'), 'visual product builder is missing');
   assert(adminHtml.includes('data-create-product-preview') && adminSource.includes('admin-builder-product-card'), 'visual product preview is missing');
   assert(adminHtml.includes('class="admin-create-form admin-visual-builder" data-builder="category"'), 'visual category builder is missing');
-  assert(adminHtml.includes('data-create-category-preview') && adminSource.includes('admin-builder-category-card'), 'visual category preview is missing');
+  assert(adminHtml.includes('data-create-category-preview') && adminSource.includes('admin-master-category-card admin-category-placement-preview'), 'visual category preview is missing');
   assert(adminHtml.includes('data-admin-image-picker="product"') && adminHtml.includes('data-admin-image-picker="background"'), 'creation must use image selectors');
   assert(adminSource.includes("syncGeneratedCreationValue(productForm, 'slug')") && adminSource.includes("syncGeneratedCreationValue(categoryForm, 'key')"), 'technical identifiers must be generated from titles');
 });
