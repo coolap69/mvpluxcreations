@@ -45,6 +45,7 @@
       <div class="admin-quick-actions" aria-label="Dashboard quick actions">
         <a class="admin-button admin-button-primary" href="#products" data-new-product>+ New Product</a>
         <a class="admin-button admin-button-primary" href="#image-inbox">Image Inbox</a>
+        <button class="admin-button admin-button-primary" id="saveAllLiveDashboard" type="button">Save All Live Changes</button>
         <a class="admin-button admin-button-secondary" href="index.html?adminView=edit#home">View/Edit on Website</a>
       </div>
     </section>
@@ -112,7 +113,7 @@
       <div class="admin-panel-header">
         <div>
           <h2>Products</h2>
-          <p class="admin-note">Create or edit a product, preview it, then save a private draft or publish only that product.</p>
+          <p class="admin-note">Create or edit a Product / Standee, keep unfinished work private with Save Draft, or use Save Live for customer-visible updates within seconds.</p>
         </div>
       </div>
       <div class="admin-create-workspaces">
@@ -120,7 +121,7 @@
           <div class="admin-builder-preview-panel">
             <div><p class="admin-eyebrow">Live preview</p><h3>Create New Product</h3></div>
             <div class="admin-create-preview" data-create-product-preview></div>
-            <p class="admin-note">Your preview updates as you work. Customers cannot see it until you publish.</p>
+            <p class="admin-note">Your preview updates as you work. Customers see it only after Save Live succeeds.</p>
           </div>
           <div class="admin-builder-form-panel">
             <h3>Product Details</h3>
@@ -161,7 +162,7 @@
             <div class="admin-panel-actions">
               <button class="admin-button admin-button-secondary" type="submit" value="draft">Save Draft</button>
               <button class="admin-button admin-button-secondary" type="button" data-preview-new-product>Preview</button>
-              <button class="admin-button admin-button-primary" type="button" data-publish-new-product>Publish All Saved Changes</button>
+              <button class="admin-button admin-button-primary" type="button" data-publish-new-product>Save Live</button>
               <button class="admin-button admin-button-secondary" type="button" data-open-created-product disabled>Open on Website</button>
               <button class="admin-button admin-button-warning" type="reset">Reset</button>
             </div>
@@ -216,7 +217,7 @@
             <div class="admin-panel-actions">
               <button class="admin-button admin-button-secondary" type="submit" value="draft">Save Draft</button>
               <button class="admin-button admin-button-secondary" type="button" data-preview-new-category>Preview</button>
-              <button class="admin-button admin-button-primary" type="button" data-publish-new-category>Publish All Saved Changes</button>
+              <button class="admin-button admin-button-primary" type="button" data-publish-new-category>Save Live</button>
               <button class="admin-button admin-button-secondary" type="button" data-open-created-category disabled>Open on Website</button>
               <button class="admin-button admin-button-warning" type="reset">Reset</button>
             </div>
@@ -284,7 +285,7 @@
         <div class="admin-panel-actions">
           <button class="admin-button admin-button-primary" type="button" data-new-category>+ New Main Collection</button>
           <button class="admin-button admin-button-secondary" id="saveAllOpenCollections" type="button">Save All Open Collection Changes</button>
-          <button class="admin-button admin-button-primary" id="publishAllCollections" type="button">Publish All Saved Changes</button>
+          <button class="admin-button admin-button-primary" id="saveAllLiveCollections" type="button">Save All Live Changes</button>
         </div>
       </div>
       <div class="admin-category-toolbar">
@@ -432,7 +433,7 @@
 
     <section class="admin-panel" id="publish-changes" data-admin-area="advanced" hidden>
       <div class="admin-panel-header">
-        <h2>Publish Changes</h2>
+        <h2>Static Backup / Asset Deployment</h2>
         <div class="admin-panel-actions">
           <button id="exportAdminChanges" type="button">Export Changes</button>
           <button id="copyAdminChanges" type="button">Copy Changes</button>
@@ -444,8 +445,8 @@
       <textarea id="adminExportPreview" class="admin-export-preview" readonly placeholder="Your exported changes will appear here."></textarea>
 
       <div class="admin-publish-review">
-        <h3>Publish Summary</h3>
-        <p class="admin-note">This compares your private saved changes with the version customers can currently see.</p>
+        <h3>Static Backup / New Physical Images</h3>
+        <p class="admin-note">Routine text, layout, visibility, ordering, and existing-image references use Save Live. Use this GitHub deployment path only for new physical repository files, code/static assets, or emergency backup and recovery.</p>
         <div id="adminReadyPublishItems" class="admin-ready-publish-items"></div>
         <div id="adminPublishDiagnostics" class="admin-publish-diagnostics" aria-live="polite"></div>
         <label>
@@ -467,7 +468,8 @@
         <p class="admin-note">Only image paths listed above are sent to the secure publisher and added to this commit. Leave this blank when publishing settings only.</p>
         <div class="admin-panel-actions">
           <button id="refreshPublishSummary" type="button">Refresh Summary</button>
-          <button id="publishAdminChanges" type="button">Publish All Saved Changes</button>
+          <button id="saveAllLiveAdminChanges" class="admin-button admin-button-primary" type="button">Save All Live Changes</button>
+          <button id="publishAdminChanges" type="button">Publish Static Backup / New Assets</button>
         </div>
       </div>
 
@@ -488,6 +490,6 @@
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
   <script src="category-presentation.js?v=20260826-collection-background-layout"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
-  <script src="admin.js?v=20260826-collection-background-layout"></script>
+  <script src="admin.js?v=20260826-fast-live-content"></script>
 </body>
 </html>

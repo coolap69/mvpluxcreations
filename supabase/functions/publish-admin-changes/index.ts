@@ -86,6 +86,7 @@ const ADMIN_WORKING_STATE_KEYS = new Set([
   'adminArchitectureV2', 'adminArchitectureMigrationV2', 'cardsSavedForLater', 'categories', 'configuredImagePaths',
   'coupons', 'customProducts', 'deletedCategories', 'deletedProducts', 'dismissedImageDrafts',
   'extraImages', 'globalDisplaySettings', 'ignoredImagePaths', 'imageDrafts', 'lastPublishedSnapshot',
+  'liveContentEnabled', 'liveContentRevision', 'livePublishedAt',
   'priceSettings', 'productRelationshipHistory', 'products', 'publishHistory', 'savedForLaterProducts',
   'schemaVersion'
 ]);
@@ -215,10 +216,112 @@ function encodeBase64(value: string) {
   return btoa(binary);
 }
 
+function canonicalJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => [key, canonicalJsonValue(entry)]));
+}
+
 async function snapshotFingerprint(snapshot: unknown) {
-  const bytes = new TextEncoder().encode(JSON.stringify(snapshot));
+  const bytes = new TextEncoder().encode(JSON.stringify(canonicalJsonValue(snapshot)));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function snapshotDifferenceKeys(left: Record<string, unknown>, right: Record<string, unknown>) {
+  return [...new Set([...Object.keys(left || {}), ...Object.keys(right || {})])]
+    .filter((key) => JSON.stringify(canonicalJsonValue(left?.[key])) !== JSON.stringify(canonicalJsonValue(right?.[key])))
+    .sort();
+}
+
+async function verifyLiveBaseline(
+  supabaseUrl: string,
+  anonKey: string,
+  authorization: string,
+  expectedSnapshot: unknown
+) {
+  const expected = validatePublishedSnapshot(expectedSnapshot);
+  const current = await readAdminGlobal(supabaseUrl, anonKey, authorization);
+  const storedValue = current.edits.lastPublishedSnapshot;
+  const stored = storedValue && typeof storedValue === 'object' && !Array.isArray(storedValue)
+    ? storedValue as Record<string, unknown>
+    : null;
+  const expectedFingerprint = await snapshotFingerprint(expected);
+  const storedFingerprint = stored ? await snapshotFingerprint(stored) : '';
+  return {
+    matches: Boolean(stored && storedFingerprint === expectedFingerprint),
+    expectedFingerprint,
+    storedFingerprint,
+    differingTopLevelKeys: stored ? snapshotDifferenceKeys(expected, stored) : ['lastPublishedSnapshot'],
+    siteRevision: current.revision,
+    liveContentEnabled: current.edits.liveContentEnabled === true,
+    liveRevision: Number(current.edits.liveContentRevision) || 0
+  };
+}
+
+async function activateLiveContent(
+  supabaseUrl: string,
+  anonKey: string,
+  authorization: string,
+  payload: Record<string, unknown>
+) {
+  const expected = validatePublishedSnapshot(payload.snapshot);
+  const verification = await verifyLiveBaseline(supabaseUrl, anonKey, authorization, expected);
+  if (!verification.matches) {
+    throw new PublishError(
+      'live-activation',
+      409,
+      'LIVE_BASELINE_MISMATCH',
+      `Stored live snapshot differs from the deployed static snapshot in: ${verification.differingTopLevelKeys.join(', ')}.`
+    );
+  }
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/activate_public_site_snapshot`, {
+    method: 'POST',
+    headers: { Authorization: authorization, apikey: anonKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_expected_snapshot: expected, p_expected_revision: verification.siteRevision })
+  });
+  const result = await readJson(response);
+  if (!response.ok) {
+    throw new PublishError('live-activation', response.status, String(result?.code || 'LIVE_ACTIVATION_FAILED'), String(result?.message || 'Fast live content could not be activated.'));
+  }
+  return { ...result, baselineFingerprint: verification.expectedFingerprint };
+}
+
+async function saveLiveSnapshot(
+  supabaseUrl: string,
+  anonKey: string,
+  authorization: string,
+  payload: Record<string, unknown>
+) {
+  const snapshot = validatePublishedSnapshot(payload.snapshot);
+  const expectedRevision = Number(payload.expectedRevision);
+  const expectedLiveRevision = Number(payload.expectedLiveRevision);
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 0
+    || !Number.isInteger(expectedLiveRevision) || expectedLiveRevision < 0) {
+    throw new PublishError('validation', 400, 'INVALID_LIVE_REVISION', 'Valid Admin and live-content revisions are required.');
+  }
+  const fingerprint = await snapshotFingerprint(snapshot);
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/save_live_site_snapshot`, {
+    method: 'POST',
+    headers: { Authorization: authorization, apikey: anonKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      p_snapshot: snapshot,
+      p_expected_revision: expectedRevision,
+      p_expected_live_revision: expectedLiveRevision
+    })
+  });
+  const result = await readJson(response);
+  if (!response.ok) {
+    throw new PublishError('live-save', response.status, String(result?.code || 'LIVE_SAVE_FAILED'), String(result?.message || 'Live content could not be saved.'));
+  }
+  const publicSnapshot = result?.snapshot;
+  const publicFingerprint = publicSnapshot ? await snapshotFingerprint(publicSnapshot) : '';
+  if (!publicSnapshot || publicFingerprint !== fingerprint) {
+    throw new PublishError('live-verification', 502, 'LIVE_VERIFY_FAILED', 'The saved public snapshot could not be verified.');
+  }
+  return { ...result, snapshotFingerprint: fingerprint };
 }
 
 type PublishImageFile = { path: string; content: string };
@@ -568,6 +671,15 @@ Deno.serve(async (request) => {
     }
     if (payload?.action === 'recovery-state') {
       return jsonResponse(request, await readAdminRecoveryState(supabaseUrl, anonKey, authorization));
+    }
+    if (payload?.action === 'verify-live-baseline') {
+      return jsonResponse(request, await verifyLiveBaseline(supabaseUrl, anonKey, authorization, payload.snapshot));
+    }
+    if (payload?.action === 'activate-live-content') {
+      return jsonResponse(request, await activateLiveContent(supabaseUrl, anonKey, authorization, payload));
+    }
+    if (payload?.action === 'save-live') {
+      return jsonResponse(request, await saveLiveSnapshot(supabaseUrl, anonKey, authorization, payload));
     }
 
     const token = requiredEnvironment('GITHUB_TOKEN');

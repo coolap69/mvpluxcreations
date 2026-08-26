@@ -15,7 +15,7 @@ function sourceRange(startToken, endToken) {
 
 Deno.test('Image Box exposes one clear lifecycle toolbar and AI remains suggestion-only', () => {
   const markup = sourceRange('function renderImageDrafts()', 'function imageImportPublished');
-  for (const label of ['Undo', 'Redo', 'Save', 'Preview', 'Publish All Saved Changes', 'Continue in Product Editor', 'More']) {
+  for (const label of ['Undo', 'Redo', 'Save', 'Preview', 'Save Live', 'Continue in Product Editor', 'More']) {
     assert(markup.includes(`>${label}<`), `Image Box toolbar is missing ${label}`);
   }
   assert((markup.match(/>Continue in Product Editor</g) || []).length === 1, 'Image Box must have exactly one Continue in Product Editor button');
@@ -105,11 +105,11 @@ Deno.test('Publish saves the newest screen state first and save failure stops st
   const success = imageBoxPublishHarness();
   assert(await success.handle(success.form, 'publish'), 'valid Image Box publish should complete');
   assert(success.calls.join('|') === 'save|publish:Michael Jackson:Newest screen value', 'Publish must use the product reconstructed from the newest saved screen state');
-  assert(success.status.textContent === 'PUBLISHED TO WEBSITE', 'success must be reported only after the shared publisher confirms deployment');
+  assert(success.status.textContent === 'LIVE', 'success must be reported only after the shared public-live controller confirms customer read-back');
 
   const failure = imageBoxPublishHarness({ saveSucceeds: false });
   assert(!await failure.handle(failure.form, 'publish'), 'save failure must stop Publish');
-  assert(failure.calls.join('|') === 'save' && failure.status.textContent.includes('Publish stopped'), 'an older saved product must never publish after current-state save failure');
+  assert(failure.calls.join('|') === 'save' && failure.status.textContent.includes('SAVE FAILED — WEBSITE NOT CHANGED'), 'an older saved product must never go live after current-state save failure');
 });
 
 Deno.test('Save, keyboard Save, editor handoff, and Publish reuse one normalized save operation', () => {

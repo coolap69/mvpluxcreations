@@ -86,7 +86,7 @@ Deno.test('Admin Category manager exposes products, image selection, draft, prev
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   for (const token of ['Search Main Collections', 'All Collections', 'Visible', 'Hidden', 'Delete Selected Collections', 'adminCategoryBuilderMount']) assert(html.includes(token), `missing ${token}`);
   for (const token of ['Open Product / Standee Cards', 'Delete Main Collection', 'data-category-product', 'data-remove-product-category', 'data-category-image-picker', 'Save Draft', 'data-preview-category-edit', 'data-publish-category-edit']) assert(source.includes(token), `missing ${token}`);
-  assert(source.includes('publishAllSavedChanges(initialCategory.title || categoryKey'), 'Main Collection publish must use the one shared Publish All controller');
+  assert(source.includes('saveLiveChangeIds([`category:${categoryKey}`]'), 'Main Collection Save Live must use the one normalized public-live controller');
   assert(source.includes('collectionKey: \'deletedCategories\''), 'Category deletion must persist a tombstone');
 });
 

@@ -152,7 +152,7 @@ Deno.test('Product lifecycle labels derive from the published customer snapshot 
     return productLifecycleState(product, saved, new Set());
   `);
   const product = { slug: 'player', title: 'Published title' };
-  assert(stateFor({ products: { player: product } }, product, {}).label === 'PUBLISHED TO WEBSITE', 'matching customer snapshot must be labeled published');
+  assert(stateFor({ products: { player: product } }, product, {}).label === 'LIVE', 'matching customer snapshot must be labeled live');
   assert(stateFor({ products: { player: product } }, product, { player: { title: 'New private title', approvalStatus: 'draft' } }).label === 'PUBLISHED VERSION EXISTS · DRAFT HAS UNPUBLISHED CHANGES', 'older customer version plus private edits must not look absent from the website');
   assert(stateFor({ products: {} }, product, {}).label === 'DRAFT SAVED — PRIVATE', 'saved Product with no customer snapshot must be labeled private');
 

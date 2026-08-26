@@ -22,8 +22,9 @@ Deno.test('live Image Inbox uses the authenticated publisher only for a read-onl
   assert(!inventory.includes("method: 'POST'") && !inventory.includes("method: 'PATCH'"), 'inventory action must not write to GitHub');
 });
 
-Deno.test('Publish All includes local-only images in the same secure commit', () => {
-  assert(adminSource.includes('publishAllSavedChanges(label || base.title || slug, statusTarget)'), 'Product Publish must enter the shared Publish All controller');
+Deno.test('new physical images remain on the static asset publisher while existing references can Save Live', () => {
+  assert(adminSource.includes('saveLiveChangeIds([`product:${slug}`]'), 'normal Product updates must enter the fast live controller');
+  assert(adminSource.includes('New physical image file requires the static asset publisher'), 'Save Live must reject undeployed physical image files');
   assert(adminSource.includes('items.map((item) => item.id)'), 'Publish All must pass every saved change id into one snapshot');
   assert(adminSource.includes('localOnlyImagePaths.has(path)'), 'local-only referenced images must be selected automatically');
   assert(adminSource.includes('const imageFiles = await loadSelectedPublishImages(selectedImages)'), 'selected local images must be sent with the snapshot');

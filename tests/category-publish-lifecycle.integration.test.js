@@ -179,11 +179,11 @@ Deno.test('movie-characters Collection title survives save, Publish All snapshot
   assert(!card?.textContent.includes(product.title), 'the representative T-800 Product title must never leak into the Homepage Collection Card');
 });
 
-Deno.test('Admin Mode saves the selected Category then opens the authoritative Publish All controller', () => {
+Deno.test('Admin Mode saves the selected Category then opens the authoritative Save Live controller', () => {
   const modeSwitch = sourceRange(storefrontSource, 'async function setAdminViewMode', '\n\nfunction renderAdminViewModeLabel');
-  assert(storefrontSource.includes('data-admin-toolbar-action="publish-category"') && storefrontSource.includes('Publish All Saved Changes'), 'selected normalized Categories must expose the explicit Publish All action');
+  assert(storefrontSource.includes('data-admin-toolbar-action="publish-category"') && storefrontSource.includes('Save Live'), 'selected normalized Categories must expose the explicit Save Live action');
   const publish = sourceRange(storefrontSource, 'async function publishSelectedInlineCategory', '\n\nasync function deleteInlineAdminCard');
-  assert(publish.includes('await markSelectedInlineAdminReady()') && publish.includes("admin.html?publishAll=1#advanced"), 'Admin Mode must save its selected normalized draft before opening the Dashboard authority');
+  assert(publish.includes('await markSelectedInlineAdminReady()') && publish.includes("admin.html?saveLiveCategory="), 'Admin Mode must save its selected normalized draft before opening the Dashboard live authority');
   assert(!publish.includes("action: 'publish'") && !publish.includes('publishCategoryByKey('), 'Admin Mode must not retain a competing scoped publisher');
   assert(!modeSwitch.includes('publishCategory') && !modeSwitch.includes("action: 'publish'"), 'Admin Mode Off must never publish automatically');
   const turnOff = sourceRange(storefrontSource, 'function turnOffInlineAdminMode', '\n\nfunction installInlineAdminMode');

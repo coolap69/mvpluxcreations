@@ -18,7 +18,7 @@ function categoryPublisherHarness({ saveResult = true, publishResult = true, def
   let publishCalls = 0;
   const factory = new Function(
     'window', 'categoryPublishOperations', 'readAdminCategories', 'setStatus', 'setCategoryPublishState',
-    'publishAllSavedChanges', 'saveCategoryEditForm', 'saveAdminCollectionOperations', 'adminLastSaveError', 'ADMIN_CATEGORY_CARD_MAP',
+    'saveLiveChangeIds', 'saveCategoryEditForm', 'saveAdminCollectionOperations', 'adminLastSaveError', 'ADMIN_CATEGORY_CARD_MAP',
     'publishableCategory', 'loadSelectedPublishImages', 'callAdminPublisher', 'saveAdminSettingsLive',
     'adminPublishedBaseline', 'buildDefaultPublishBaseline', 'normalizePublishedBaseline',
     'adminLastSuccessfulSnapshot', 'refreshVisibleAdminAreaAfterPublish',
@@ -45,7 +45,7 @@ function categoryPublisherHarness({ saveResult = true, publishResult = true, def
     () => ({ sports: { key: 'sports', title: 'Sports', card: { image: 'images/sports.png' } } }),
     () => {},
     (key, message, state) => { operations.set(key, { message, state }); states.push({ key, message, state }); },
-    async (_label, _status, options) => {
+    async (_ids, _label, _status, options) => {
       publishCalls += 1;
       options?.onProgress?.(publishResult ? 'Published to Website' : 'Publish Failed — test', publishResult ? 'published' : 'failed');
       return publishResult;
@@ -79,8 +79,8 @@ Deno.test('Category Publish reacts immediately and blocks duplicate clicks', asy
   assert(harness.states[0]?.message === 'Saving Category…' && harness.states[0]?.state === 'publishing', 'first synchronous state must acknowledge the click');
   assert(duplicate === false && harness.counts().saveCalls === 1, 'a second click must not start another save or publish');
   release();
-  assert(await first, 'the publish-all result must be returned');
-  assert(harness.counts().publishCalls === 1, 'the shared publish-all controller must be called exactly once');
+  assert(await first, 'the Save Live result must be returned');
+  assert(harness.counts().publishCalls === 1, 'the shared Save Live controller must be called exactly once');
   assert(harness.states.some((entry) => entry.state === 'published'), 'success state must be visible');
 });
 
@@ -93,7 +93,7 @@ Deno.test('Category Publish exposes save and publish failures', async () => {
   assert(publishFailure.states.at(-1)?.state === 'failed', 'publisher failure must be visible');
 });
 
-Deno.test('top and editor Publish buttons share one Category publisher and state', () => {
+Deno.test('top and editor Save Live buttons share one Category controller and state', () => {
   const markup = extractedFunction('function categoryPublishButtonMarkup', 'function categoryDisplayRangeMarkup');
   const events = extractedFunction('function setupCategoryManagerEvents()', 'function renderAdminProducts()');
   assert(markup.includes('data-publish-category-key') && markup.includes("operation?.state === 'publishing'"), 'all Category Publish buttons must bind to shared state');
@@ -101,7 +101,7 @@ Deno.test('top and editor Publish buttons share one Category publisher and state
   assert(events.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)'), 'top Category Publish must submit only the mounted sibling editor for its exact Category key');
   assert(!events.includes("card?.querySelector('[data-category-edit]')"), 'top Category Publish must never select an unrelated nested Main/Child editor');
   const categoryPublish = extractedFunction('async function publishCategoryByKey', 'async function saveCategoryProductAssignments');
-  assert(categoryPublish.includes('publishAllSavedChanges('), 'Dashboard Category buttons must use the shared Publish All controller');
+  assert(categoryPublish.includes('saveLiveChangeIds([`category:${categoryKey}`]'), 'Dashboard Category buttons must use the shared Save Live controller');
 });
 
 Deno.test('Publish All prepares every saved item and sends every change id through one deployment', async () => {
@@ -146,21 +146,21 @@ Deno.test('an intentionally empty Homepage Collection Card image does not block 
   assert(calledPublisher, 'one incomplete visual must not block every other saved Admin change');
 });
 
-Deno.test('every visible Admin publish entry reaches the same Publish All controller', async () => {
+Deno.test('normal Admin entries use Save Live while static asset publishing remains available', async () => {
   const [html, storefront] = await Promise.all([
     Deno.readTextFile(new URL('../admin.html', import.meta.url)),
     Deno.readTextFile(new URL('../script.js', import.meta.url))
   ]);
   for (const control of [
-    'data-publish-new-product', 'data-publish-new-category', 'id="publishAllCollections"', 'id="publishAdminChanges"',
+    'data-publish-new-product', 'data-publish-new-category', 'id="saveAllLiveCollections"', 'id="publishAdminChanges"',
     'data-publish-category-product', 'data-publish-category-key', 'data-publish-category-deletion',
     'data-publish-product', 'data-publish-image-box', 'data-publish-all-saved'
-  ]) assert(html.includes(control) || source.includes(control), `missing Publish All entry ${control}`);
+  ]) assert(html.includes(control) || source.includes(control), `missing Admin live/backup entry ${control}`);
   assert((source.match(/publishScopedChangeIds\(/g) || []).length === 2, 'only the shared Publish All controller may call the one-deployment scoped engine');
-  assert(source.includes('return publishAllSavedChanges(label || base.title || slug, statusTarget)'), 'Product and Image Box publication must converge on Publish All');
-  assert(source.includes('return publishAllSavedChanges(initialCategory.title || categoryKey'), 'Main Collection publication must converge on Publish All');
-  assert(source.includes("publishAllSavedChanges(`Delete ${publishDeletion.dataset.publishCategoryDeletion}`)"), 'deletion publication must converge on Publish All');
-  assert(storefront.includes("await markSelectedInlineAdminReady()") && storefront.includes("admin.html?publishAll=1#advanced"), 'Storefront Admin Mode must save first and hand off to the Dashboard Publish All authority');
+  assert(source.includes('return saveLiveChangeIds([`product:${slug}`]'), 'Product and Image Box Save Live must converge on the normalized live controller');
+  assert(source.includes('saveLiveChangeIds([`category:${categoryKey}`]'), 'Main Collection Save Live must converge on the normalized live controller');
+  assert(source.includes('saveLiveChangeIds([`category-delete:${key}`]'), 'normalized deletion must use the same fast live controller');
+  assert(storefront.includes("await markSelectedInlineAdminReady()") && storefront.includes("admin.html?saveLiveCategory="), 'Storefront Admin Mode must save first and hand off to the Dashboard Save Live authority');
 });
 
 Deno.test('scoped publishing reports real stages and refreshes only the visible Admin area', () => {

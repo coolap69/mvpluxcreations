@@ -2903,19 +2903,67 @@ function validatePublishedAdminSettings(value) {
   };
 }
 
+async function loadPublicLiveAdminSettings({ timeoutMs = 3500 } = {}) {
+  const client = getSupabaseClient();
+  if (!client?.rpc) throw new Error('Supabase public content is unavailable.');
+  let timeoutId = 0;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error('Supabase public content timed out.')), timeoutMs);
+  });
+  try {
+    const { data, error } = await Promise.race([
+      client.rpc('get_public_site_snapshot'),
+      timeout
+    ]);
+    if (error) throw error;
+    const snapshot = validatePublishedAdminSettings(data);
+    if (!snapshot) throw new Error('Supabase returned no activated valid public snapshot.');
+    return {
+      snapshot,
+      liveRevision: Number(data?.liveRevision) || 0,
+      publishedAt: String(data?.publishedAt || ''),
+      source: 'supabase-live'
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 async function loadPublishedAdminSettings() {
   window.mvpluxPublishedAdminSettings = null;
+  window.mvpluxPublishedAdminSettingsSource = '';
+  window.mvpluxPublishedAdminSettingsRevision = 0;
   try {
-    const response = await fetch('published-admin-settings.json', { cache: 'no-store' });
-    if (!response.ok) return null;
-    const snapshot = validatePublishedAdminSettings(await response.json());
-    if (!snapshot) return null;
-    window.mvpluxPublishedAdminSettings = snapshot;
-    return snapshot;
-  } catch (error) {
-    window.mvpluxPublishedAdminSettings = null;
-    return null;
+    const live = await loadPublicLiveAdminSettings();
+    window.mvpluxPublishedAdminSettings = live.snapshot;
+    window.mvpluxPublishedAdminSettingsSource = live.source;
+    window.mvpluxPublishedAdminSettingsRevision = live.liveRevision;
+    return live.snapshot;
+  } catch (_liveError) {
+    try {
+      const response = await fetch('published-admin-settings.json', { cache: 'no-store' });
+      if (!response.ok) return null;
+      const snapshot = validatePublishedAdminSettings(await response.json());
+      if (!snapshot) return null;
+      window.mvpluxPublishedAdminSettings = snapshot;
+      window.mvpluxPublishedAdminSettingsSource = 'static-fallback';
+      return snapshot;
+    } catch (_staticError) {
+      window.mvpluxPublishedAdminSettings = null;
+      return null;
+    }
+  } finally {
+    if (!window.mvpluxPublishedAdminSettings) window.mvpluxPublishedAdminSettingsSource = '';
   }
+}
+
+async function refreshPublishedAdminSettings() {
+  const snapshot = await loadPublishedAdminSettings();
+  if (!snapshot) {
+    window.mvpluxPublishedAdminSettings = null;
+    throw new Error('The customer-facing live content could not be reloaded.');
+  }
+  return snapshot;
 }
 
 function getPublishedProducts() {
@@ -6342,9 +6390,9 @@ function updateInlineAdminPublishButton(categoryKey = '') {
   button.classList.toggle('disabled', !categorySelected || publishing);
   button.textContent = categorySelected
     ? publishing
-      ? 'Opening Publish All…'
-      : (inlineCategoryHasUnpublishedChanges(selectedKey) ? 'Publish All Saved Changes — Unpublished Changes' : 'Publish All Saved Changes')
-    : 'Publish All Saved Changes';
+      ? 'Opening Save Live…'
+      : (inlineCategoryHasUnpublishedChanges(selectedKey) ? 'Save Live — Unpublished Changes' : 'Save Live')
+    : 'Save Live';
 }
 
 function selectInlineAdminImage(image) {
@@ -6954,8 +7002,8 @@ async function publishSelectedInlineCategory() {
     try {
       const ready = await markSelectedInlineAdminReady();
       if (!ready) return false;
-      updateInlineAdminToolbarState('Draft saved. Opening one Publish All deployment…');
-      window.location.href = 'admin.html?publishAll=1#advanced';
+      updateInlineAdminToolbarState('Draft saved. Opening Save Live…');
+      window.location.href = `admin.html?saveLiveCategory=${encodeURIComponent(categoryKey)}#categories`;
       return true;
     } catch (error) {
       updateInlineAdminToolbarState(`Publish failed — ${error?.message || error}`);
@@ -8274,7 +8322,7 @@ function installInlineAdminMode() {
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-down" id="adminInlineSizeDown" title="Smaller" onpointerdown="runInlineAdminToolbarAction('size-down'); return false;" onclick="runInlineAdminToolbarAction('size-down'); return false;">Size -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="size-up" id="adminInlineSizeUp" title="Bigger" onpointerdown="runInlineAdminToolbarAction('size-up'); return false;" onclick="runInlineAdminToolbarAction('size-up'); return false;">Size +</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="replace-image" id="adminInlineReplaceImage" title="Choose an existing repository image for the selected item">Change Image</button>
-        <button type="button" class="admin-tool-control disabled" data-admin-toolbar-action="publish-category" disabled title="Save this Category draft, then publish every saved Admin change in one deployment">Publish All Saved Changes</button>
+        <button type="button" class="admin-tool-control disabled" data-admin-toolbar-action="publish-category" disabled title="Save this Main Collection draft, then make this saved change live within seconds">Save Live</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-left" id="adminInlineRotateLeft" title="Rotate left" onpointerdown="runInlineAdminToolbarAction('rotate-left'); return false;" onclick="runInlineAdminToolbarAction('rotate-left'); return false;">Rotate -</button>
         <button type="button" class="admin-tool-control" data-admin-image-control data-admin-toolbar-action="rotate-right" id="adminInlineRotateRight" title="Rotate right" onpointerdown="runInlineAdminToolbarAction('rotate-right'); return false;" onclick="runInlineAdminToolbarAction('rotate-right'); return false;">Rotate +</button>
       </div>
