@@ -5328,7 +5328,7 @@ function renderSharedCollectionBackgroundController({ force = false } = {}) {
   const existing = mount.querySelector('[data-shared-collection-background-form]');
   if (!force && existing?.dataset.editorDirty === 'true') return;
   const configuration = sharedCollectionBackgroundConfiguration();
-  const count = normalizedMainCollectionsForBatch().length;
+  const count = mainCollectionsForBackgroundBatch().length;
   mount.innerHTML = `<div class="admin-panel-header"><div><h3>Shared Collection Card Background</h3><p class="admin-note">Choose one background and layout for every normalized Main Collection. This controller never changes standee images, standee placement, text, Products, assignments, order, visibility, or pricing.</p></div></div>
     <form data-shared-collection-background-form data-editor-dirty="false">
       <div class="admin-category-editor-workspace admin-shared-background-workspace">
@@ -5345,8 +5345,8 @@ function renderSharedCollectionBackgroundController({ force = false } = {}) {
           ${categoryDisplayAdjustmentButtons('background')}
           <div class="admin-panel-actions"><button type="button" data-center-shared-collection-background>Center Background</button><button type="button" data-reset-shared-collection-background>Reset Background</button></div>
           <p class="admin-note"><strong>${count}</strong> normalized Main Collection${count === 1 ? '' : 's'} will be affected. This is one revision-protected private batch save.</p>
-          <div class="admin-panel-actions"><button type="submit" class="admin-button admin-button-primary">Apply Background to All Main Collections</button><button type="button" class="admin-button admin-button-warning" data-reset-all-shared-collection-backgrounds>Reset All Collection Backgrounds to Shared Default</button></div>
-          <p class="admin-status" data-shared-collection-background-status aria-live="polite">No unsaved shared-background changes.</p>
+          <div class="admin-panel-actions"><button type="submit" class="admin-button admin-button-primary">Apply Background to All Main Collections — Save Draft</button><button type="button" class="admin-button admin-button-warning" data-reset-all-shared-collection-backgrounds>Reset All Collection Backgrounds to Shared Default</button></div>
+          <p class="admin-status" data-shared-collection-background-status aria-live="polite">No unsaved shared-background changes. Use the sticky Save All Collection Changes Live button to update the customer website.</p>
         </div>
       </div>
     </form>`;
@@ -5508,7 +5508,7 @@ function categoryEditMarkup(category) {
               ${categoryDisplayRangeMarkup('backgroundHeightPercent', 'Background Height', display.backgroundHeightPercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
               ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom', display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
             </div>
-            ${parent ? '<button type="button" data-reset-category-background>Reset Background</button>' : `${categoryDisplayAdjustmentButtons('background')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-background>Center Background</button><button type="button" data-reset-category-background>Reset Background</button><button type="button" data-apply-category-background-all>Apply Background + Background Layout to All Collection Cards</button><button type="button" class="admin-button admin-button-secondary" data-reset-category-card-layout>Reset Card Layout</button></div><p class="admin-note" data-category-background-batch-note>${normalizedMainCollectionsForBatch().length} normalized Main Collection card${normalizedMainCollectionsForBatch().length === 1 ? '' : 's'} will be affected. Standee placement and every non-background field will be preserved.</p>`}
+            ${parent ? '<button type="button" data-reset-category-background>Reset Background</button>' : `${categoryDisplayAdjustmentButtons('background')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-background>Center Background</button><button type="button" data-reset-category-background>Reset Background</button><button type="button" data-apply-category-background-all>Apply Background + Background Layout to All Collection Cards</button><button type="button" class="admin-button admin-button-secondary" data-reset-category-card-layout>Reset Card Layout</button></div><p class="admin-note" data-category-background-batch-note>${mainCollectionsForBackgroundBatch().length} Main Collection card${mainCollectionsForBackgroundBatch().length === 1 ? '' : 's'} will be affected. Recognized legacy-only homepage cards will first become normalized private drafts. Standee placement and every non-background field will be preserved.</p>`}
             <p class="admin-note">Background Zoom scales the existing cover image without changing the physical file.</p>
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
           ${sectionEnd}
@@ -6192,30 +6192,44 @@ function normalizedMainCollectionsForBatch() {
   ));
 }
 
-function categoryBackgroundBatchOperations(source, targets, updatedAt = new Date().toISOString()) {
+function mainCollectionsForBackgroundBatch() {
+  const deleted = new Set(readDeletedCategories());
+  const normalized = Object.fromEntries(normalizedMainCollectionsForBatch().map((category) => [category.key, category]));
+  const migrationDrafts = mainCollectionMigrationDrafts();
+  return Object.values({ ...migrationDrafts, ...normalized }).filter((category) => (
+    category?.key && !category.parentKey && !deleted.has(category.key)
+  ));
+}
+
+function categoryBackgroundBatchOperations(source, targets, updatedAt = new Date().toISOString(), existingKeys = new Set(targets.map((target) => target.key))) {
   const backgroundFields = ['backgroundPosition', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent'];
-  return targets.map((target) => ({
-    type: 'record',
-    collectionKey: 'categories',
-    entryKey: target.key,
-    baseRecord: target,
-    patch: {
-      card: { ...(target.card || {}), backgroundImage: source.card?.backgroundImage || '' },
-      displaySettings: {
-        ...(target.displaySettings || {}),
-        ...Object.fromEntries(backgroundFields.map((field) => [field, source.displaySettings?.[field]]))
-      },
-      updatedAt,
-      draftStatus: 'draft',
-      approvalStatus: 'draft'
-    }
-  }));
+  return targets.map((target) => {
+    const alreadyNormalized = existingKeys.has(target.key);
+    return ({
+      type: 'record',
+      collectionKey: 'categories',
+      entryKey: target.key,
+      baseRecord: alreadyNormalized ? target : undefined,
+      patch: {
+        ...(alreadyNormalized ? {} : target),
+        card: { ...(target.card || {}), backgroundImage: source.card?.backgroundImage || '' },
+        displaySettings: {
+          ...(target.displaySettings || {}),
+          ...Object.fromEntries(backgroundFields.map((field) => [field, source.displaySettings?.[field]]))
+        },
+        updatedAt,
+        draftStatus: 'draft',
+        approvalStatus: 'draft'
+      }
+    });
+  });
 }
 
 async function saveSharedCollectionBackgroundChanges({ quiet = false } = {}) {
   const form = document.querySelector('[data-shared-collection-background-form]');
   if (!form || !editorHasUnsavedChanges(form)) return true;
-  const targets = normalizedMainCollectionsForBatch();
+  const existingKeys = new Set(normalizedMainCollectionsForBatch().map((category) => category.key));
+  const targets = mainCollectionsForBackgroundBatch();
   const status = form.querySelector('[data-shared-collection-background-status]');
   if (!targets.length) {
     if (status) status.textContent = 'No normalized Main Collections are available.';
@@ -6230,7 +6244,7 @@ async function saveSharedCollectionBackgroundChanges({ quiet = false } = {}) {
     return false;
   }
   if (status) status.textContent = `Saving one background batch for ${targets.length} Main Collections…`;
-  const operations = categoryBackgroundBatchOperations(sharedCollectionBackgroundSource(configuration), targets);
+  const operations = categoryBackgroundBatchOperations(sharedCollectionBackgroundSource(configuration), targets, new Date().toISOString(), existingKeys);
   const result = await saveAdminCollectionOperations(operations);
   if (!result.ok) {
     const message = `Shared Collection Background save failed — ${adminLastSaveError || 'the batch was not saved.'}`;
@@ -6251,13 +6265,14 @@ async function applyCategoryBackgroundToAll(form) {
     return false;
   }
   const source = readAdminCategories()[form.dataset.categoryEdit] || categoryFromEditForm(form, 'draft');
-  const targets = normalizedMainCollectionsForBatch();
+  const existingKeys = new Set(normalizedMainCollectionsForBatch().map((category) => category.key));
+  const targets = mainCollectionsForBackgroundBatch();
   if (!targets.length) {
     setStatus('No normalized Main Collection cards are available for the background update.');
     return false;
   }
   if (!window.confirm(`Apply this background and its complete layout to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'}?\n\nStandee images, standee placement, text, representatives, visibility, order, Products, assignments, and pricing will not change.`)) return false;
-  const operations = categoryBackgroundBatchOperations(source, targets);
+  const operations = categoryBackgroundBatchOperations(source, targets, new Date().toISOString(), existingKeys);
   setStatus(`Saving the shared Collection background to ${targets.length} private draft${targets.length === 1 ? '' : 's'}…`);
   const result = await saveAdminCollectionOperations(operations);
   if (!result.ok) {
@@ -6386,7 +6401,7 @@ function setupCategoryManagerEvents() {
     if (!categoryForm && !productForm && !childGroupForm && !sharedBackgroundForm) return;
     event.preventDefault();
     if (sharedBackgroundForm) {
-      const count = normalizedMainCollectionsForBatch().length;
+      const count = mainCollectionsForBackgroundBatch().length;
       if (window.confirm(`Apply this background and layout to ${count} Main Collection${count === 1 ? '' : 's'} as one private batch save?\n\nStandee images and placement, text, representatives, visibility, order, Products, assignments, and pricing will remain unchanged.`)) {
         await saveSharedCollectionBackgroundChanges();
       }
@@ -6549,7 +6564,7 @@ function setupCategoryManagerEvents() {
     const resetAllSharedBackgrounds = event.target.closest('[data-reset-all-shared-collection-backgrounds]');
     if (resetAllSharedBackgrounds) {
       const form = resetAllSharedBackgrounds.closest('[data-shared-collection-background-form]');
-      const count = normalizedMainCollectionsForBatch().length;
+      const count = mainCollectionsForBackgroundBatch().length;
       if (window.confirm(`Reset the background image and background layout for ${count} Main Collection${count === 1 ? '' : 's'} to the shared default?\n\nStandee and text settings will remain unchanged. This saves privately and does not publish.`)) {
         const defaults = sharedCollectionBackgroundDefaults();
         updateCategoryPickerValue(form.querySelector('[data-category-image-picker]'), defaults.backgroundImage);
@@ -8554,7 +8569,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('activateFastLiveContent')?.addEventListener('click', activateFastLiveContent);
   document.getElementById('saveAllOpenCollections')?.addEventListener('click', () => saveAllOpenCollectionChanges());
   document.getElementById('saveAllLiveDashboard')?.addEventListener('click', () => saveAllLiveChanges('All intended Admin changes'));
-  document.getElementById('saveAllLiveCollections')?.addEventListener('click', () => saveAllLiveChanges('All intended Admin changes'));
+  document.getElementById('saveAllLiveCollections')?.addEventListener('click', () => saveAllLiveChanges(
+    'All saved Collection changes',
+    document.getElementById('collectionLiveStatus')
+  ));
   document.getElementById('saveAllLiveAdminChanges')?.addEventListener('click', () => saveAllLiveChanges('All intended Admin changes'));
   document.getElementById('refreshPublishHistory')?.addEventListener('click', refreshPublishHistory);
   if (new URLSearchParams(window.location.search).get('publishAll') === '1') {

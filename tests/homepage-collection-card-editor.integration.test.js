@@ -1,6 +1,7 @@
 import { Window } from 'npm:happy-dom@18.0.1';
 
 const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+const adminHtml = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
 const styleSource = await Deno.readTextFile(new URL('../style.css', import.meta.url));
 const presentationSource = await Deno.readTextFile(new URL('../category-presentation.js', import.meta.url));
 
@@ -83,7 +84,7 @@ function renderedCollectionEditor(width = 1440) {
     const { effectiveCategoryDisplaySettings, categoryBackgroundPositionParts, readAdminCategories,
       categoryAssignedProducts, escapeAdminHtml, categoryPublishOperations, categoryCardDraftStatusMarkup,
       categoryPublishButtonMarkup, categoryVisualImagePicker, categoryDisplayRangeMarkup,
-      normalizedMainCollectionsForBatch, categoryUsesSharedCollectionBackground,
+      normalizedMainCollectionsForBatch, mainCollectionsForBackgroundBatch, categoryUsesSharedCollectionBackground,
       CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, CATEGORY_BACKGROUND_SIZE_MIN,
       CATEGORY_BACKGROUND_SIZE_MAX } = dependencies;
     ${markupSource}
@@ -96,6 +97,7 @@ function renderedCollectionEditor(width = 1440) {
     escapeAdminHtml: (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;'),
     categoryPublishOperations: new Map(),
     normalizedMainCollectionsForBatch: () => [category],
+    mainCollectionsForBackgroundBatch: () => [category],
     categoryUsesSharedCollectionBackground: () => false,
     categoryCardDraftStatusMarkup: () => '<section class="admin-category-draft-published-state">DRAFT PREVIEW — NOT LIVE YET</section>',
     categoryPublishButtonMarkup: () => '<button type="button" data-publish-category-edit>Publish to Website</button>',
@@ -262,7 +264,7 @@ Deno.test('Shared Collection Card Background saves every Main Collection in one 
   let batchCalls = 0;
   let savedOperations = [];
   const save = new Function('document', 'FormData', 'dependencies', `
-    const { editorHasUnsavedChanges, normalizedMainCollectionsForBatch, sharedCollectionBackgroundFromForm,
+    const { editorHasUnsavedChanges, normalizedMainCollectionsForBatch, mainCollectionsForBackgroundBatch, sharedCollectionBackgroundFromForm,
       sharedCollectionBackgroundSource, adminStateUtils, saveAdminCollectionOperations, setStatus } = dependencies;
     let adminLastSaveError = '';
     ${batchBuilderSource}
@@ -271,6 +273,7 @@ Deno.test('Shared Collection Card Background saves every Main Collection in one 
   `)(window.document, window.FormData, {
     editorHasUnsavedChanges: (form) => form.dataset.editorDirty === 'true',
     normalizedMainCollectionsForBatch: () => targets,
+    mainCollectionsForBackgroundBatch: () => targets,
     sharedCollectionBackgroundFromForm: (form) => ({
       backgroundImage: form.elements.namedItem('cardBackgroundImage').value,
       backgroundPosition: `${form.elements.namedItem('backgroundPositionX').value}% ${form.elements.namedItem('backgroundPositionY').value}%`,
@@ -297,6 +300,29 @@ Deno.test('Shared Collection Card Background saves every Main Collection in one 
   assert(window.document.querySelector('[data-shared-collection-background-form]').dataset.editorDirty === 'false', 'successful batch save must clear the shared controller dirty state');
 });
 
+Deno.test('Shared background group includes recognized legacy-only cards as normalized private drafts', () => {
+  const batchBuilderSource = sourceRange(adminSource, 'function categoryBackgroundBatchOperations', '\n\nasync function saveSharedCollectionBackgroundChanges');
+  const build = new Function(`${batchBuilderSource}; return categoryBackgroundBatchOperations;`)();
+  const normalized = {
+    key: 'sports', title: 'Sport Legends', card: { image: 'images/kobe.png', backgroundImage: 'images/old.png' },
+    displaySettings: { standeeSizePercent: 90, standeeLeftPercent: 8, standeeVerticalPercent: -4 }
+  };
+  const legacyDraft = {
+    key: 'holiday', title: 'Holiday', description: 'Holiday standees', page: 'category.html?category=holiday', visible: true, homepageVisible: true,
+    card: { image: 'images/holiday.png', backgroundImage: 'images/legacy.png' },
+    displaySettings: { standeeSizePercent: 72, standeeLeftPercent: -5, standeeVerticalPercent: 3 },
+    draftStatus: 'draft', approvalStatus: 'draft'
+  };
+  const source = { card: { backgroundImage: 'images/shared.png' }, displaySettings: { backgroundPosition: '40% 60%', backgroundSizePercent: 125, backgroundWidthPercent: 140, backgroundHeightPercent: 170 } };
+  const operations = build(source, [normalized, legacyDraft], '2026-09-09T12:00:00.000Z', new Set(['sports']));
+  assert(operations.length === 2 && operations[0].baseRecord === normalized, 'the existing normalized Collection must stay a narrow update');
+  assert(operations[1].baseRecord === undefined, 'the legacy-only card must be created as a normalized draft rather than treated as an existing record');
+  assert(operations[1].patch.key === 'holiday' && operations[1].patch.title === 'Holiday' && operations[1].patch.page === legacyDraft.page, 'normalization must preserve the recognized legacy Collection identity and navigation');
+  assert(operations[1].patch.card.image === legacyDraft.card.image && operations[1].patch.card.backgroundImage === 'images/shared.png', 'normalization must preserve the standee image while applying the shared background');
+  assert(operations[1].patch.displaySettings.standeeSizePercent === 72 && operations[1].patch.displaySettings.standeeLeftPercent === -5 && operations[1].patch.displaySettings.standeeVerticalPercent === 3, 'group background application must preserve legacy standee geometry');
+  assert(operations[1].patch.displaySettings.backgroundWidthPercent === 140 && operations[1].patch.displaySettings.backgroundHeightPercent === 170, 'the new normalized draft must receive the complete shared background geometry');
+});
+
 Deno.test('Save All saves every dirty open Collection editor privately and Publish All flushes them first', async () => {
   const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories' });
   window.document.body.innerHTML = '<form class="admin-category-edit-form" data-category-edit="sports" data-editor-dirty="true"></form><form class="admin-category-edit-form" data-category-edit="movies" data-editor-dirty="true"></form><form data-shared-collection-background-form data-editor-dirty="true"></form>';
@@ -321,6 +347,19 @@ Deno.test('Save All saves every dirty open Collection editor privately and Publi
   const publishSource = sourceRange(adminSource, 'async function publishAllSavedChanges', '\n\nasync function discardArchitecturePrivateChange');
   assert(publishSource.indexOf('saveAllOpenCollectionChanges({ quiet: true })') < publishSource.indexOf('architectureReviewItems()'), 'Publish All must flush open Collection forms before building one shared deployment');
   assert((publishSource.match(/publishScopedChangeIds\(/g) || []).length === 1, 'Publish All must invoke one existing deployment operation, not one deployment per Collection');
+});
+
+Deno.test('Collections exposes one sticky live action that includes the shared background draft', () => {
+  assert(adminHtml.includes('class="admin-collection-lifecycle-bar"'), 'Collections must expose one persistent lifecycle toolbar');
+  assert((adminHtml.match(/id="saveAllLiveCollections"/g) || []).length === 1, 'Collections must have exactly one authoritative main live button');
+  assert(adminHtml.includes('Save All Collection Changes Live'), 'the main button must clearly say that all Collection changes go live together');
+  assert(adminHtml.includes('id="collectionLiveStatus"'), 'the main live operation must have a visible Collections status target');
+  assert(styleSource.includes('#categories .admin-collection-lifecycle-bar {') && styleSource.includes('position: sticky;'), 'the Collections live toolbar must remain visible while editing the shared controller');
+  assert(adminSource.includes("'All saved Collection changes',\n    document.getElementById('collectionLiveStatus')"), 'the main button must reuse the existing batch Save Live controller and report into Collections');
+  assert(adminSource.includes('Apply Background to All Main Collections — Save Draft'), 'the shared background action must state that Apply is a private draft save');
+  assert(adminSource.includes('Use the sticky Save All Collection Changes Live button to update the customer website.'), 'the shared controller must direct the Admin to the single main live action');
+  const all = sourceRange(adminSource, 'async function saveAllLiveChanges', '\n\nfunction arrayBufferToBase64');
+  assert(all.includes('saveAllOpenAdminChanges') && all.includes('savePublicLiveSnapshot'), 'the main Collections action must still flush the shared background/open editors before one public live write');
 });
 
 Deno.test('Main Collection text remains Category-owned when representative Product changes', () => {
