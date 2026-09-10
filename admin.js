@@ -2095,7 +2095,22 @@ async function savePublicLiveSnapshot(snapshot, label, statusTarget = null, { on
 
 async function prepareArchitectureItemsForLive(items, report) {
   const failed = [];
-  for (const item of items.filter((entry) => !entry.approved)) {
+  const pending = items.filter((entry) => !entry.approved);
+  const recordItems = pending.filter((item) => ['product', 'category'].includes(item.type));
+  if (recordItems.length) {
+    report(`Preparing ${recordItems.length} saved Product/Collection change${recordItems.length === 1 ? '' : 's'} in one batch…`, 'saving-live');
+    const updatedAt = new Date().toISOString();
+    const operations = recordItems.map((item) => ({
+      type: 'record',
+      collectionKey: item.type === 'product' ? 'products' : 'categories',
+      entryKey: item.key,
+      baseRecord: item.type === 'product' ? readAdminProducts()[item.key] || {} : readAdminCategories()[item.key] || {},
+      patch: { approvalStatus: 'approved', draftStatus: 'ready', updatedAt }
+    }));
+    const result = await saveAdminCollectionOperations(operations);
+    if (!result.ok) failed.push(...recordItems.map((item) => item.title || item.key));
+  }
+  for (const item of pending.filter((entry) => !['product', 'category'].includes(entry.type))) {
     report(`Preparing ${item.title || item.key} for live save…`, 'saving-live');
     try {
       if (!await setArchitectureReviewStatus(item, 'approved')) failed.push(item.title || item.key);
@@ -2106,7 +2121,7 @@ async function prepareArchitectureItemsForLive(items, report) {
   return failed;
 }
 
-async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', statusTarget = null, { onProgress = null } = {}) {
+async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', statusTarget = null, { onProgress = null, workingStateCurrent = false } = {}) {
   const report = (message, state = '') => {
     if (statusTarget) {
       statusTarget.textContent = message;
@@ -2115,7 +2130,7 @@ async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', status
     setStatus(message);
     onProgress?.(message, state);
   };
-  if (!await waitForAdminSaves() || !await loadAdminLiveSettings()) {
+  if (!await waitForAdminSaves() || (!workingStateCurrent && !await loadAdminLiveSettings())) {
     report(`SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'Private state could not be reloaded.'}`, 'failed');
     return false;
   }
@@ -2124,16 +2139,18 @@ async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', status
     report('LIVE — no newer saved changes for this item.', 'published');
     return true;
   }
-  const failed = await prepareArchitectureItemsForLive(selected, report);
-  if (failed.length) {
-    report(`SAVE FAILED — WEBSITE NOT CHANGED. Could not prepare: ${failed.join('; ')}.`, 'failed');
-    return false;
+  if (selected.some((item) => !item.approved)) {
+    const failed = await prepareArchitectureItemsForLive(selected, report);
+    if (failed.length) {
+      report(`SAVE FAILED — WEBSITE NOT CHANGED. Could not prepare: ${failed.join('; ')}.`, 'failed');
+      return false;
+    }
+    if (!await loadAdminLiveSettings()) {
+      report('SAVE FAILED — WEBSITE NOT CHANGED. Prepared state could not be reloaded.', 'failed');
+      return false;
+    }
+    selected = architectureReviewItems().filter((item) => changeIds.includes(item.id));
   }
-  if (!await loadAdminLiveSettings()) {
-    report('SAVE FAILED — WEBSITE NOT CHANGED. Prepared state could not be reloaded.', 'failed');
-    return false;
-  }
-  selected = architectureReviewItems().filter((item) => changeIds.includes(item.id));
   if (!selected.length) {
     report('LIVE — no newer saved changes for this item.', 'published');
     return true;
@@ -5800,10 +5817,6 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
     setCategoryPublishState(category.key, `${imageValidations[0].label}: ${imageValidations[0].reason}`, 'failed');
     return false;
   }
-  if (approvalStatus === 'approved' && !category.parentKey && !category.card?.image) {
-    setCategoryPublishState(category.key, 'Choose a Category image before publishing.', 'failed');
-    return false;
-  }
   if (category.card?.representativeProductSlug
     && !categoryAssignedProducts(category.key).some((product) => product.slug === category.card.representativeProductSlug)) {
     setCategoryPublishState(category.key, 'Choose a representative Product / Standee assigned to this Main Collection.', 'failed');
@@ -5857,8 +5870,9 @@ async function publishCategoryByKey(categoryKey, form = null) {
     return false;
   }
   try {
-    if (form && !await saveCategoryEditForm(form, 'draft', { render: false })) return false;
+    if (form && !await saveCategoryEditForm(form, 'approved', { render: false })) return false;
     return saveLiveChangeIds([`category:${categoryKey}`], initialCategory.title || categoryKey, null, {
+      workingStateCurrent: Boolean(form),
       onProgress: (message, state) => setCategoryPublishState(categoryKey, message, state)
     });
   } catch (error) {
@@ -6280,7 +6294,7 @@ function mainCollectionsForBackgroundBatch() {
   ));
 }
 
-function categoryBackgroundBatchOperations(source, targets, updatedAt = new Date().toISOString(), existingKeys = new Set(targets.map((target) => target.key))) {
+function categoryBackgroundBatchOperations(source, targets, updatedAt = new Date().toISOString(), existingKeys = new Set(targets.map((target) => target.key)), approvalStatus = 'draft') {
   const backgroundFields = ['backgroundPosition', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent'];
   return targets.map((target) => {
     const alreadyNormalized = existingKeys.has(target.key);
@@ -6297,14 +6311,14 @@ function categoryBackgroundBatchOperations(source, targets, updatedAt = new Date
           ...Object.fromEntries(backgroundFields.map((field) => [field, source.displaySettings?.[field]]))
         },
         updatedAt,
-        draftStatus: 'draft',
-        approvalStatus: 'draft'
+        draftStatus: approvalStatus === 'approved' ? 'ready' : 'draft',
+        approvalStatus
       }
     });
   });
 }
 
-async function saveSharedCollectionBackgroundChanges({ quiet = false } = {}) {
+async function saveSharedCollectionBackgroundChanges({ quiet = false, approvalStatus = 'draft' } = {}) {
   const form = document.querySelector('[data-shared-collection-background-form]');
   if (!form || !editorHasUnsavedChanges(form)) return true;
   if (!await loadAdminLiveSettings()) {
@@ -6329,7 +6343,7 @@ async function saveSharedCollectionBackgroundChanges({ quiet = false } = {}) {
     return false;
   }
   if (status) status.textContent = `Saving one background batch for ${targets.length} Main Collections…`;
-  const operations = categoryBackgroundBatchOperations(sharedCollectionBackgroundSource(configuration), targets, new Date().toISOString(), existingKeys);
+  const operations = categoryBackgroundBatchOperations(sharedCollectionBackgroundSource(configuration), targets, new Date().toISOString(), existingKeys, approvalStatus);
   const result = await saveAdminCollectionOperations(operations);
   if (!result.ok) {
     const message = `Shared Collection Background save failed — ${adminLastSaveError || 'the batch was not saved.'}`;
@@ -6340,8 +6354,13 @@ async function saveSharedCollectionBackgroundChanges({ quiet = false } = {}) {
   form.dataset.editorDirty = 'false';
   renderCategoryManager();
   const refreshedStatus = document.querySelector('[data-shared-collection-background-status]');
-  if (refreshedStatus) refreshedStatus.textContent = `DRAFT SAVED — PRIVATE. ${targets.length} Main Collection background${targets.length === 1 ? '' : 's'} updated in one batch.`;
-  if (!quiet) setStatus(`Shared Collection Background saved privately to ${targets.length} Main Collections in one batch. Nothing was published.`);
+  const savedMessage = approvalStatus === 'approved'
+    ? `BACKGROUND BATCH SAVED. SAVING LIVE… ${targets.length} Main Collections are ready.`
+    : `DRAFT SAVED — PRIVATE. ${targets.length} Main Collection background${targets.length === 1 ? '' : 's'} updated in one batch.`;
+  if (refreshedStatus) refreshedStatus.textContent = savedMessage;
+  if (!quiet) setStatus(approvalStatus === 'approved'
+    ? savedMessage
+    : `Shared Collection Background saved privately to ${targets.length} Main Collections in one batch. Nothing was published.`);
   return true;
 }
 
@@ -6361,7 +6380,7 @@ async function applyCategoryBackgroundToAll(form) {
   const heldPrivate = document.getElementById('holdCollectionChangesPrivate')?.checked;
   const destination = heldPrivate ? 'save it as a private draft' : 'update the live homepage';
   if (!window.confirm(`Apply this background and its complete layout to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'} and ${destination}?\n\nStandee images, standee placement, text, representatives, visibility, order, Products, assignments, and pricing will not change.`)) return false;
-  const operations = categoryBackgroundBatchOperations(source, targets, new Date().toISOString(), existingKeys);
+  const operations = categoryBackgroundBatchOperations(source, targets, new Date().toISOString(), existingKeys, heldPrivate ? 'draft' : 'approved');
   setStatus(`Saving the shared Collection background to ${targets.length} private draft${targets.length === 1 ? '' : 's'}…`);
   const result = await saveAdminCollectionOperations(operations);
   if (!result.ok) {
@@ -6374,7 +6393,7 @@ async function applyCategoryBackgroundToAll(form) {
     setStatus(`DRAFT SAVED — PRIVATE. The background was applied to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'}. Uncheck Hold Collection changes privately when it should go live.`);
     return true;
   }
-  return saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'));
+  return saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'), { workingStateCurrent: true });
 }
 
 async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
@@ -6402,14 +6421,14 @@ async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
   return true;
 }
 
-async function saveAllCollectionChangesLive(statusTarget = null) {
+async function saveAllCollectionChangesLive(statusTarget = null, { workingStateCurrent = false } = {}) {
   if (!await saveAllOpenCollectionChanges({ quiet: true })) {
     const message = 'SAVE FAILED — WEBSITE NOT CHANGED. An open Collection or shared background could not be saved.';
     if (statusTarget) statusTarget.textContent = message;
     setStatus(message);
     return false;
   }
-  if (!await loadAdminLiveSettings()) {
+  if (!workingStateCurrent && !await loadAdminLiveSettings()) {
     const message = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'Saved Collection state could not be reloaded.'}`;
     if (statusTarget) statusTarget.textContent = message;
     setStatus(message);
@@ -6424,7 +6443,7 @@ async function saveAllCollectionChangesLive(statusTarget = null) {
     setStatus(message);
     return true;
   }
-  return saveLiveChangeIds(changeIds, `All saved Collection changes (${changeIds.length})`, statusTarget);
+  return saveLiveChangeIds(changeIds, `All saved Collection changes (${changeIds.length})`, statusTarget, { workingStateCurrent: true });
 }
 
 function categoryKeyForActionTarget(target) {
@@ -6578,13 +6597,13 @@ function setupCategoryManagerEvents() {
       const heldPrivate = document.getElementById('holdCollectionChangesPrivate')?.checked;
       const destination = heldPrivate ? 'save it as a private draft' : 'update the live homepage';
       if (window.confirm(`Apply this background and layout to ${count} Main Collection${count === 1 ? '' : 's'} and ${destination}?\n\nStandee images and placement, text, representatives, visibility, order, Products, assignments, and pricing will remain unchanged.`)) {
-        if (await saveSharedCollectionBackgroundChanges({ quiet: true })) {
+        if (await saveSharedCollectionBackgroundChanges({ quiet: true, approvalStatus: heldPrivate ? 'draft' : 'approved' })) {
           if (heldPrivate) {
             const status = document.querySelector('[data-shared-collection-background-status]');
             if (status) status.textContent = `DRAFT SAVED — PRIVATE. The background was applied to ${count} Main Collections.`;
             setStatus('DRAFT SAVED — PRIVATE. Uncheck Hold Collection changes privately when this background should go live.');
           } else {
-            await saveAllCollectionChangesLive(document.querySelector('[data-shared-collection-background-status]'));
+            await saveAllCollectionChangesLive(document.querySelector('[data-shared-collection-background-status]'), { workingStateCurrent: true });
           }
         }
       }

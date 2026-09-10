@@ -388,7 +388,7 @@ Deno.test('shared background primary action saves the batch and makes all Collec
   assert(calls[0][0] === 'flush' && calls[1][0] === 'reload', 'dirty Collection and shared-background forms must be saved before live state is built');
   assert(JSON.stringify(calls[2]) === JSON.stringify(['live', ['category:sports', 'category:small-party-packs']]), 'one live operation must include all Collection changes while excluding unrelated Product drafts');
   const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');
-  assert(events.indexOf('saveSharedCollectionBackgroundChanges({ quiet: true })') < events.indexOf("saveAllCollectionChangesLive(document.querySelector('[data-shared-collection-background-status]'))"), 'the primary shared-background button must persist its full batch before making it live');
+  assert(events.indexOf("saveSharedCollectionBackgroundChanges({ quiet: true, approvalStatus: heldPrivate ? 'draft' : 'approved' })") < events.indexOf("saveAllCollectionChangesLive(document.querySelector('[data-shared-collection-background-status]'), { workingStateCurrent: true })"), 'the primary shared-background button must persist one live-ready batch before making it live');
   assert(events.includes("const heldPrivate = document.getElementById('holdCollectionChangesPrivate')?.checked"), 'the one shared-background action must use the single page-level Hold Private choice instead of a duplicate draft button');
 });
 

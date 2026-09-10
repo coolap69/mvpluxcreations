@@ -105,6 +105,26 @@ Deno.test('Save Live rejects undeployed physical files but accepts repository im
   assert(!save.includes("action: 'publish'"), 'ordinary live content saves must never create a GitHub publication');
 });
 
+Deno.test('Fast Live prepares normalized Product and Collection drafts in one protected batch', () => {
+  const prepare = sourceRange(adminSource, 'async function prepareArchitectureItemsForLive', 'async function saveLiveChangeIds');
+  assert(prepare.includes("const recordItems = pending.filter((item) => ['product', 'category'].includes(item.type))"), 'normalized records must be collected before preparation');
+  assert(prepare.includes('saveAdminCollectionOperations(operations)'), 'all normalized records must use one revision-protected batch save');
+  assert(!prepare.includes("for (const item of items.filter((entry) => !entry.approved))"), 'Fast Live must not prepare every normalized record through a separate request');
+  const save = sourceRange(adminSource, 'async function saveLiveChangeIds', 'async function saveAllOpenAdminChanges');
+  assert(save.includes('workingStateCurrent = false'), 'a just-saved authoritative working state must be reusable without another fetch');
+  assert(save.includes('if (selected.some((item) => !item.approved))'), 'already-ready Save Live changes must skip the preparation and second reload stages');
+  const category = sourceRange(adminSource, 'async function publishCategoryByKey', 'async function saveCategoryProductAssignments');
+  assert(category.includes("saveCategoryEditForm(form, 'approved'"), 'an intentional Main Collection Save Live must become ready in its original protected save');
+  assert(category.includes('workingStateCurrent: Boolean(form)'), 'Main Collection Save Live must reuse the authoritative state returned by that save');
+});
+
+Deno.test('new physical images keep the existing static asset publisher after Fast Live optimization', () => {
+  assert(adminHtml.includes('Publish Static Backup / New Assets'), 'Admin must retain the explicit new-asset publishing control');
+  assert(adminSource.includes("action: 'publish'"), 'new physical image files must retain the existing GitHub publisher');
+  assert(adminSource.includes('loadSelectedPublishImages(selectedImages)'), 'the static publisher must still load explicitly selected new image files');
+  assert(adminSource.includes('New physical image file requires the static asset publisher'), 'Fast Live must continue directing undeployed physical images to the correct publisher');
+});
+
 Deno.test('all storefront pages carry the fast-live cache version and rollback checkpoint stays documented', async () => {
   const htmlFiles = [...Deno.readDirSync(new URL('..', import.meta.url))]
     .filter((entry) => entry.isFile && entry.name.endsWith('.html'))
