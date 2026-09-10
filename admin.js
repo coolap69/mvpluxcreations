@@ -1485,6 +1485,10 @@ function buildNormalizedPublishSnapshot() {
   Object.values(categories).forEach((category) => {
     const slug = Object.entries(ADMIN_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
       || `${category.key}-category-card`;
+    if (!category.card?.image) {
+      delete categoryDisplayCards[slug];
+      return;
+    }
     categoryDisplayCards[slug] = publishableProduct({
       slug,
       title: category.title || category.card?.title,

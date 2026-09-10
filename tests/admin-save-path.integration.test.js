@@ -611,6 +611,38 @@ Deno.test('Category publishing mirrors the authoritative root title into compati
   assert(snapshot.categoryDisplayCards['sport-legend-standee'].title === 'Sports Legends', 'legacy compatibility card must mirror the root title during Publish');
 });
 
+Deno.test('normalized empty Collection image removes its obsolete product-shaped compatibility card', async () => {
+  const client = adminGlobalClient([], async () => ({ data: {}, error: null }));
+  const { helpers } = await loadActualAdminHelpers({ client });
+  helpers.__setArchitectureState({
+    categories: {
+      holiday: {
+        key: 'holiday', title: 'Holiday Standees', description: '', page: 'holiday-cutouts.html',
+        visible: true, homepageVisible: true, order: 5,
+        card: { image: '', backgroundImage: 'images/shared-stage.png' },
+        displaySettings: { backgroundWidthPercent: 120, backgroundHeightPercent: 140 },
+        approvalStatus: 'approved', draftStatus: 'ready'
+      }
+    },
+    products: {}, deletedProducts: [], deletedCategories: []
+  }, {
+    version: 1, schemaVersion: 2, products: {},
+    categories: {},
+    categoryDisplayCards: {
+      'holiday-standee': {
+        slug: 'holiday-standee', title: 'Legacy Holiday', description: '', cutoutImage: 'images/legacy-holiday.png',
+        backgroundImage: 'images/legacy-stage.png', categories: [], visible: true
+      }
+    },
+    deletedProducts: [], deletedCategories: [], homepageCategoryOrder: [], categorySettings: {},
+    pageContent: {}, pageVisualStates: {}, extraImages: {}, globalDisplaySettings: {}, priceSettings: {}
+  });
+  const snapshot = helpers.buildNormalizedPublishSnapshot();
+  assert(snapshot.categories.holiday.card.image === '', 'the normalized Main Collection must preserve its intentional empty image');
+  assert(snapshot.categories.holiday.card.backgroundImage === 'images/shared-stage.png', 'the normalized shared background must remain publishable');
+  assert(!snapshot.categoryDisplayCards['holiday-standee'], 'an obsolete product-shaped legacy card must not be emitted with an invalid empty cutout image');
+});
+
 Deno.test('scoped Category publication retains normalized image and Homepage Hidden state', async () => {
   const client = adminGlobalClient([], async () => ({ data: {}, error: null }));
   const { helpers } = await loadActualAdminHelpers({ client });
