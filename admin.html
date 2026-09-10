@@ -288,8 +288,9 @@
           <button class="admin-button admin-button-primary" type="button" data-new-category>+ New Main Collection</button>
           <button class="admin-button admin-button-secondary" id="saveAllOpenCollections" type="button">Save All Collection Drafts</button>
           <button class="admin-button admin-button-primary" id="saveAllLiveCollections" type="button">Save All Collection Changes Live</button>
+          <label><input id="holdCollectionChangesPrivate" type="checkbox"> Hold Collection changes privately</label>
         </div>
-        <p id="collectionLiveStatus" class="admin-status" aria-live="polite">Save Draft keeps Collection work private. Save All Collection Changes Live saves every open Collection editor—including Shared Collection Background—and updates the customer website together.</p>
+        <p id="collectionLiveStatus" class="admin-status" aria-live="polite">Ordinary corrections save live when you finish editing. Check Hold Collection changes privately only when customers should not see unfinished work.</p>
       </div>
       <div class="admin-category-toolbar">
         <label>Search Main Collections<input id="adminCategorySearch" type="search" placeholder="Search name, key, or page"></label>
@@ -500,6 +501,6 @@
   <script src="product-catalog.js?v=20260716-product-publishing"></script>
   <script src="category-presentation.js?v=20260826-collection-background-layout"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
-  <script src="admin.js?v=20260909-collection-live-toolbar"></script>
+  <script src="admin.js?v=20260910-legacy-collection-management"></script>
 </body>
 </html>

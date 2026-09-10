@@ -264,14 +264,15 @@ Deno.test('Shared Collection Card Background saves every Main Collection in one 
   let batchCalls = 0;
   let savedOperations = [];
   const save = new Function('document', 'FormData', 'dependencies', `
-    const { editorHasUnsavedChanges, normalizedMainCollectionsForBatch, mainCollectionsForBackgroundBatch, sharedCollectionBackgroundFromForm,
-      sharedCollectionBackgroundSource, adminStateUtils, saveAdminCollectionOperations, setStatus } = dependencies;
+    const { editorHasUnsavedChanges, loadAdminLiveSettings, normalizedMainCollectionsForBatch, mainCollectionsForBackgroundBatch, sharedCollectionBackgroundFromForm,
+      sharedCollectionBackgroundSource, adminStateUtils, saveAdminCollectionOperations, renderCategoryManager, setStatus } = dependencies;
     let adminLastSaveError = '';
     ${batchBuilderSource}
     ${saveSource}
     return saveSharedCollectionBackgroundChanges;
   `)(window.document, window.FormData, {
     editorHasUnsavedChanges: (form) => form.dataset.editorDirty === 'true',
+    loadAdminLiveSettings: async () => true,
     normalizedMainCollectionsForBatch: () => targets,
     mainCollectionsForBackgroundBatch: () => targets,
     sharedCollectionBackgroundFromForm: (form) => ({
@@ -284,6 +285,7 @@ Deno.test('Shared Collection Card Background saves every Main Collection in one 
     sharedCollectionBackgroundSource: (configuration) => ({ card: { backgroundImage: configuration.backgroundImage }, displaySettings: configuration }),
     adminStateUtils: { validateAdminImageReference: () => ({ valid: true }) },
     saveAdminCollectionOperations: async (operations) => { batchCalls += 1; savedOperations = structuredClone(operations); return { ok: true }; },
+    renderCategoryManager: () => {},
     setStatus: () => {}
   });
   assert(await save(), 'shared background private save must succeed');
@@ -330,11 +332,12 @@ Deno.test('Save All saves every dirty open Collection editor privately and Publi
   const calls = [];
   let status = '';
   const saveAll = new Function('document', 'dependencies', `
-    const { editorHasUnsavedChanges, readAdminCategories, saveCategoryEditForm, saveSharedCollectionBackgroundChanges, setStatus } = dependencies;
+    const { editorHasUnsavedChanges, cancelCategoryLiveAutosave, readAdminCategories, saveCategoryEditForm, saveSharedCollectionBackgroundChanges, setStatus } = dependencies;
     ${saveAllSource}
     return saveAllOpenCollectionChanges;
   `)(window.document, {
     editorHasUnsavedChanges: (form) => form.dataset.editorDirty === 'true',
+    cancelCategoryLiveAutosave: () => {},
     readAdminCategories: () => ({ sports: { title: 'Sport Legends' }, movies: { title: 'Movie Characters' } }),
     saveCategoryEditForm: async (form, state, options) => { calls.push([form.dataset.categoryEdit, state, options.render]); form.dataset.editorDirty = 'false'; return true; },
     saveSharedCollectionBackgroundChanges: async () => { calls.push(['shared-background', 'draft', false]); return true; },
@@ -355,11 +358,106 @@ Deno.test('Collections exposes one sticky live action that includes the shared b
   assert(adminHtml.includes('Save All Collection Changes Live'), 'the main button must clearly say that all Collection changes go live together');
   assert(adminHtml.includes('id="collectionLiveStatus"'), 'the main live operation must have a visible Collections status target');
   assert(styleSource.includes('#categories .admin-collection-lifecycle-bar {') && styleSource.includes('position: sticky;'), 'the Collections live toolbar must remain visible while editing the shared controller');
-  assert(adminSource.includes("'All saved Collection changes',\n    document.getElementById('collectionLiveStatus')"), 'the main button must reuse the existing batch Save Live controller and report into Collections');
-  assert(adminSource.includes('Apply Background to All Main Collections — Save Draft'), 'the shared background action must state that Apply is a private draft save');
-  assert(adminSource.includes('Use the sticky Save All Collection Changes Live button to update the customer website.'), 'the shared controller must direct the Admin to the single main live action');
-  const all = sourceRange(adminSource, 'async function saveAllLiveChanges', '\n\nfunction arrayBufferToBase64');
-  assert(all.includes('saveAllOpenAdminChanges') && all.includes('savePublicLiveSnapshot'), 'the main Collections action must still flush the shared background/open editors before one public live write');
+  assert(adminSource.includes("saveAllCollectionChangesLive(\n    document.getElementById('collectionLiveStatus')"), 'the main button must use the Collection-scoped batch Save Live controller and report into Collections');
+  assert(adminSource.includes('Apply Background to All Main Collections'), 'the shared background must expose one obvious Apply-to-All action');
+  assert(!adminSource.includes('Save Shared Background Draft'), 'the shared controller must not duplicate the background workflow with a second save button');
+  const all = sourceRange(adminSource, 'async function saveAllCollectionChangesLive', '\n\nfunction categoryKeyForActionTarget');
+  assert(all.includes('saveAllOpenCollectionChanges') && all.includes("['category', 'category-delete'].includes(item.type)") && all.includes('saveLiveChangeIds'), 'the main Collections action must flush Collection forms and publish only Collection changes through one existing live controller');
+});
+
+Deno.test('shared background primary action saves the batch and makes all Collection changes live once', async () => {
+  const allSource = sourceRange(adminSource, 'async function saveAllCollectionChangesLive', '\n\nfunction categoryKeyForActionTarget');
+  const calls = [];
+  const saveAllLive = new Function('dependencies', `
+    const { saveAllOpenCollectionChanges, loadAdminLiveSettings, architectureReviewItems, saveLiveChangeIds, setStatus } = dependencies;
+    let adminLastSaveError = '';
+    ${allSource}
+    return saveAllCollectionChangesLive;
+  `)({
+    saveAllOpenCollectionChanges: async (options) => { calls.push(['flush', options]); return true; },
+    loadAdminLiveSettings: async () => { calls.push(['reload']); return true; },
+    architectureReviewItems: () => [
+      { id: 'category:sports', type: 'category' },
+      { id: 'category:small-party-packs', type: 'category' },
+      { id: 'product:kobe', type: 'product' }
+    ],
+    saveLiveChangeIds: async (ids) => { calls.push(['live', ids]); return true; },
+    setStatus: () => {}
+  });
+  assert(await saveAllLive(), 'the Collection-wide live operation must succeed through the existing fast-live controller');
+  assert(calls[0][0] === 'flush' && calls[1][0] === 'reload', 'dirty Collection and shared-background forms must be saved before live state is built');
+  assert(JSON.stringify(calls[2]) === JSON.stringify(['live', ['category:sports', 'category:small-party-packs']]), 'one live operation must include all Collection changes while excluding unrelated Product drafts');
+  const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');
+  assert(events.indexOf('saveSharedCollectionBackgroundChanges({ quiet: true })') < events.indexOf("saveAllCollectionChangesLive(document.querySelector('[data-shared-collection-background-status]'))"), 'the primary shared-background button must persist its full batch before making it live');
+  assert(events.includes("const heldPrivate = document.getElementById('holdCollectionChangesPrivate')?.checked"), 'the one shared-background action must use the single page-level Hold Private choice instead of a duplicate draft button');
+});
+
+Deno.test('per-Collection Apply Background to All saves one batch and then uses the Collection live controller', async () => {
+  const source = sourceRange(adminSource, 'async function applyCategoryBackgroundToAll', '\n\nasync function saveAllOpenCollectionChanges');
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories' });
+  window.document.body.innerHTML = '<input id="holdCollectionChangesPrivate" type="checkbox"><p id="collectionLiveStatus"></p><form data-category-edit="sports" data-editor-dirty="true"></form>';
+  window.confirm = () => true;
+  const calls = [];
+  const sports = { key: 'sports', card: { backgroundImage: 'images/shared.png' }, displaySettings: { backgroundPosition: '40% 60%', backgroundSizePercent: 125, backgroundWidthPercent: 140, backgroundHeightPercent: 170 } };
+  const apply = new Function('window', 'document', 'dependencies', `
+    const { saveAllOpenCollectionChanges, setStatus, readAdminCategories, categoryFromEditForm, normalizedMainCollectionsForBatch,
+      mainCollectionsForBackgroundBatch, categoryBackgroundBatchOperations, saveAdminCollectionOperations, renderCategoryManager,
+      saveAllCollectionChangesLive } = dependencies;
+    let adminLastSaveError = '';
+    ${source}
+    return applyCategoryBackgroundToAll;
+  `)(window, window.document, {
+    saveAllOpenCollectionChanges: async () => { calls.push('flush'); return true; },
+    setStatus: () => {},
+    readAdminCategories: () => ({ sports }),
+    categoryFromEditForm: () => sports,
+    normalizedMainCollectionsForBatch: () => [sports],
+    mainCollectionsForBackgroundBatch: () => [sports],
+    categoryBackgroundBatchOperations: () => [{ type: 'record', collectionKey: 'categories', entryKey: 'sports', patch: {} }],
+    saveAdminCollectionOperations: async () => { calls.push('batch'); return { ok: true }; },
+    renderCategoryManager: () => { calls.push('render'); },
+    saveAllCollectionChangesLive: async (target) => { calls.push(['live', target.id]); return true; }
+  });
+  assert(await apply(window.document.querySelector('form')), 'the one-click background action must succeed');
+  assert(JSON.stringify(calls) === JSON.stringify(['flush', 'batch', 'render', ['live', 'collectionLiveStatus']]), 'the per-Collection action must save its normalized batch and immediately make the Collection changes live');
+
+  calls.length = 0;
+  window.document.getElementById('holdCollectionChangesPrivate').checked = true;
+  assert(await apply(window.document.querySelector('form')), 'the same action must still support an intentional private hold');
+  assert(JSON.stringify(calls) === JSON.stringify(['flush', 'batch', 'render']), 'Hold Private must be the only reason the Apply action stops before live save');
+});
+
+Deno.test('ordinary Collection corrections debounce into the existing Save Live controller', async () => {
+  assert(adminHtml.includes('id="holdCollectionChangesPrivate"') && adminHtml.includes('Hold Collection changes privately'), 'Collections must expose private hold as an unchecked exception to the normal live correction workflow');
+  const source = sourceRange(adminSource, 'function cancelCategoryLiveAutosave', '\n\nfunction editorHasUnsavedChanges');
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories' });
+  window.document.body.innerHTML = '<input id="holdCollectionChangesPrivate" type="checkbox"><form data-category-edit="movie-characters" data-editor-dirty="false"></form>';
+  const form = window.document.querySelector('form');
+  let pending;
+  let published = null;
+  window.setTimeout = (callback) => { pending = callback; return 7; };
+  window.clearTimeout = () => {};
+  const markDirty = new Function('window', 'document', 'dependencies', `
+    const { categoryLiveAutosaveTimers, setCategoryPublishState, editorHasUnsavedChanges, publishCategoryByKey } = dependencies;
+    ${source}
+    return markCategoryEditorDirty;
+  `)(window, window.document, {
+    categoryLiveAutosaveTimers: new Map(),
+    setCategoryPublishState: () => {},
+    editorHasUnsavedChanges: (target) => target.dataset.editorDirty === 'true',
+    publishCategoryByKey: async (key, target) => { published = [key, target]; return true; }
+  });
+  markDirty(form);
+  assert(form.dataset.editorDirty === 'true' && typeof pending === 'function', 'an ordinary edit must become dirty and schedule one debounced live save');
+  await pending();
+  assert(published?.[0] === 'movie-characters' && published?.[1] === form, 'automatic correction must call the same Category Save Live controller with the current normalized form');
+  window.document.getElementById('holdCollectionChangesPrivate').checked = true;
+  pending = null;
+  markDirty(form);
+  assert(pending === null, 'checking Hold Collection changes privately must suppress automatic live saving while retaining the dirty private edit');
+  const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');
+  assert(events.includes("section.addEventListener('focusout'") && events.includes('scheduleCategoryLiveAutosave(form, 0)'), 'leaving a Collection field must immediately schedule its existing Save Live operation');
+  assert(events.includes("editorHasUnsavedChanges(form) && !document.getElementById('holdCollectionChangesPrivate')?.checked") && events.includes('await publishCategoryByKey(key, form)'), 'Back to Collections must finish the live save before closing unless private hold is checked');
 });
 
 Deno.test('Main Collection text remains Category-owned when representative Product changes', () => {

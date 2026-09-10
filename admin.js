@@ -148,6 +148,7 @@ const openedCategoryEditors = new Set();
 const openedCategoryProductLists = new Set();
 const openedImageInboxItems = new Set();
 const categoryPublishOperations = new Map();
+const categoryLiveAutosaveTimers = new Map();
 let categoryBulkSelectionMode = false;
 const adminWorkingCollectionsLoaded = new Set();
 const ADMIN_DASHBOARD_COLLECTIONS = [
@@ -5344,9 +5345,9 @@ function renderSharedCollectionBackgroundController({ force = false } = {}) {
           </div>
           ${categoryDisplayAdjustmentButtons('background')}
           <div class="admin-panel-actions"><button type="button" data-center-shared-collection-background>Center Background</button><button type="button" data-reset-shared-collection-background>Reset Background</button></div>
-          <p class="admin-note"><strong>${count}</strong> normalized Main Collection${count === 1 ? '' : 's'} will be affected. This is one revision-protected private batch save.</p>
-          <div class="admin-panel-actions"><button type="submit" class="admin-button admin-button-primary">Apply Background to All Main Collections — Save Draft</button><button type="button" class="admin-button admin-button-warning" data-reset-all-shared-collection-backgrounds>Reset All Collection Backgrounds to Shared Default</button></div>
-          <p class="admin-status" data-shared-collection-background-status aria-live="polite">No unsaved shared-background changes. Use the sticky Save All Collection Changes Live button to update the customer website.</p>
+          <p class="admin-note"><strong>${count}</strong> Main Collection${count === 1 ? '' : 's'} will be affected. Standee images and placement will not change.</p>
+          <div class="admin-panel-actions"><button type="submit" class="admin-button admin-button-primary">Apply Background to All Main Collections</button><button type="button" class="admin-button admin-button-warning" data-reset-all-shared-collection-backgrounds>Reset All Collection Backgrounds to Shared Default</button></div>
+          <p class="admin-status" data-shared-collection-background-status aria-live="polite">Change the background above, then press Apply once. It saves the complete batch and updates the live homepage. Check Hold Collection changes privately only when the change should remain a draft.</p>
         </div>
       </div>
     </form>`;
@@ -5538,8 +5539,15 @@ function suspiciousCategoryKeys(categories) {
 
 function mainCollectionMigrationDrafts() {
   if (!adminArchitecture?.buildMainCollectionMigrationDrafts) return {};
+  const compatibilityCategories = adminArchitecture.normalizeCategories({
+    categoryDefinitions: window.MVPLUX_PRODUCT_CATEGORIES || [],
+    categoryCardDefaults: adminProducts,
+    publishedCategoryCards: adminPublishedBaseline?.categoryDisplayCards || {},
+    categoryCardMap: ADMIN_CATEGORY_CARD_MAP,
+    deletedCategories: adminPublishedBaseline?.deletedCategories || []
+  });
   return adminArchitecture.buildMainCollectionMigrationDrafts({
-    candidateCategories: adminArchitectureState?.candidate?.categories || {},
+    candidateCategories: compatibilityCategories,
     privateCategories: readAdminCategories(),
     publishedCategories: adminPublishedBaseline?.categories || {},
     publishedCategorySettings: adminPublishedBaseline?.categorySettings || {},
@@ -5591,6 +5599,26 @@ async function saveLegacyMainCollectionsAsDrafts() {
   return true;
 }
 
+async function saveLegacyMainCollectionDraftByKey(key, { openEditor = true, render = true } = {}) {
+  const category = mainCollectionMigrationDrafts()[key];
+  if (!category) {
+    setStatus('That Homepage Collection Card is already editable or is no longer available for migration.');
+    return false;
+  }
+  setStatus(`Creating an editable private Main Collection for ${category.title || key}…`);
+  const result = await saveAdminCollectionOperations([{
+    type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: undefined, patch: category
+  }]);
+  if (!result.ok) {
+    setStatus(`Could not make ${category.title || key} editable. ${adminLastSaveError || 'Nothing was saved.'}`);
+    return false;
+  }
+  if (openEditor) openedCategoryEditors.add(key);
+  if (render) renderCategoryManager();
+  setStatus(`${category.title || key} is now an editable Main Collection draft.${openEditor ? ' Its editor is open.' : ''}`);
+  return true;
+}
+
 function homepageOrderedAdminCategories(categories = readAdminCategories()) {
   const deleted = new Set(readDeletedCategories());
   return Object.values(categories || {})
@@ -5626,7 +5654,10 @@ function renderCategoryManager() {
   if (!container) return;
   const query = document.getElementById('adminCategorySearch')?.value.trim().toLowerCase() || '';
   const visibilityFilter = document.getElementById('categories')?.dataset.categoryVisibilityFilter || 'all';
-  const allCategories = Object.values(newAdminArchitectureEnabled() ? readAdminCategories() : adminArchitectureState?.candidate?.categories || {})
+  const normalizedCategories = newAdminArchitectureEnabled() ? readAdminCategories() : adminArchitectureState?.candidate?.categories || {};
+  const legacyMigrationDrafts = newAdminArchitectureEnabled() ? mainCollectionMigrationDrafts() : {};
+  const legacyOnlyKeys = new Set(Object.keys(legacyMigrationDrafts));
+  const allCategories = Object.values({ ...legacyMigrationDrafts, ...normalizedCategories })
     .filter((category) => category?.key && !readDeletedCategories().includes(category.key))
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0) || String(left.title).localeCompare(String(right.title)));
   const categoriesByKey = Object.fromEntries(allCategories.map((category) => [category.key, category]));
@@ -5639,6 +5670,7 @@ function renderCategoryManager() {
   const suspicious = new Set(suspiciousCategoryKeys(Object.fromEntries(categories.map((category) => [category.key, category]))));
   const migrationMarkup = mainCollectionMigrationMarkup();
   const categoryMarkup = categories.map((category) => {
+    const legacyOnly = legacyOnlyKeys.has(category.key);
     const count = categoryAssignedProducts(category.key).length;
     const childCount = categoryChildGroups(category.key, categoriesByKey).length;
     const status = categoryLifecycleState(category);
@@ -5648,23 +5680,24 @@ function renderCategoryManager() {
         <div class="admin-category-card-summary ${categoryBulkSelectionMode ? 'bulk-select-active' : ''}">
           ${categoryBulkSelectionMode ? `<label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select for bulk deletion</label>` : ''}
           <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
-          <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Collection: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage Collection Card: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span></div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom collection — review assignments before changing it.</p>' : ''}</div>
+          <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Collection: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage Collection Card: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span>${legacyOnly ? '<span data-legacy-collection>LEGACY HOMEPAGE CARD · MAKE EDITABLE FIRST</span>' : ''}</div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom collection — review assignments before changing it.</p>' : ''}</div>
           <dl><div><dt>Products / Standees</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Main Collection</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage Collection Card</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
             <button type="button" data-edit-category data-category-key="${escapeAdminHtml(category.key)}">Edit Main Collection</button>
+            <label class="admin-category-visibility-checkbox"><input type="checkbox" data-category-visible-checkbox data-category-key="${escapeAdminHtml(category.key)}" ${category.visible === false ? '' : 'checked'}> Collection Available</label>
+            <label class="admin-category-homepage-checkbox"><input type="checkbox" data-category-homepage-checkbox data-category-key="${escapeAdminHtml(category.key)}" ${category.homepageVisible === false ? '' : 'checked'}> Show on Homepage</label>
+            ${legacyOnly ? '' : `
             ${categoryPublishButtonMarkup(category.key)}
             <button type="button" data-move-category-homepage="-1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) > 0 ? '' : 'disabled'}>Move Up</button>
             <button type="button" data-move-category-homepage="1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) < homepageOrder.length - 1 ? '' : 'disabled'}>Move Down</button>
-            <button type="button" data-toggle-category-visibility="${category.visible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}">${category.visible === false ? 'UNHIDE COLLECTION' : 'Hide Collection'}</button>
-            <button type="button" class="${category.visible === false ? 'admin-button-secondary' : ''}" data-toggle-category-homepage="${category.homepageVisible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(category.key)}" ${category.visible === false ? 'disabled title="Unhide the Main Collection before changing its Homepage Collection Card availability."' : ''}>${category.homepageVisible === false ? 'SHOW ON HOMEPAGE' : 'Hide from Homepage'}</button>
             <button type="button" data-open-category-products data-category-key="${escapeAdminHtml(category.key)}">Open Product / Standee Cards</button>
-            <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Main Collection</button>
+            <button class="admin-button admin-button-warning" type="button" data-delete-category="${escapeAdminHtml(category.key)}">Delete Main Collection</button>`}
           </div>
           <p class="admin-status admin-category-card-publish-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '')}</p>
         </div>
+        ${legacyOnly ? '<p class="admin-note">This compatibility card can be shown or hidden immediately with the checkbox. Edit Main Collection creates its normalized draft and opens the editor here in one step.</p>' : `<details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Main Collection Editor</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
         ${childGroupMarkup(category, categoriesByKey)}
-        <details data-category-products-panel ${openedCategoryProductLists.has(category.key) ? 'open' : ''}><summary>Product / Standee Cards (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''}</div></details>
-        <details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Edit Main Collection</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
+        <details data-category-products-panel ${openedCategoryProductLists.has(category.key) ? 'open' : ''}><summary>Product / Standee Cards (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''}</div></details>`}
       </article>`;
   }).join('') || '<div class="admin-empty-state"><strong>No Main Collections found</strong><span>Create a Main Collection, migrate a legacy Homepage Collection Card, or clear the search.</span></div>';
   container.innerHTML = `${migrationMarkup}${categoryMarkup}`;
@@ -5897,7 +5930,7 @@ async function saveNewChildGroupFromForm(form) {
   return true;
 }
 
-async function saveCategoryVisibility(categoryKey, field, visible) {
+async function saveCategoryVisibility(categoryKey, field, visible, { render = true } = {}) {
   if (!['visible', 'homepageVisible'].includes(field)) return false;
   const category = readAdminCategories()[categoryKey];
   if (!category) return false;
@@ -5911,9 +5944,51 @@ async function saveCategoryVisibility(categoryKey, field, visible) {
     type: 'record', collectionKey: 'categories', entryKey: categoryKey, baseRecord: category, patch
   }]);
   if (!result.ok) return false;
-  renderAdminProducts();
+  if (render) renderAdminProducts();
   setStatus(`${category.title || categoryKey} ${visible ? 'shown' : 'hidden'}${field === 'homepageVisible' ? ' on the homepage' : ''} in the private Main Collection draft. Products, assignments, and image files were preserved. Publish this Main Collection when you want the customer website to change.`);
   return true;
+}
+
+async function saveCategoryVisibilityLive(categoryKey, field, visible) {
+  if (!['visible', 'homepageVisible'].includes(field)) return false;
+  let category = readAdminCategories()[categoryKey];
+  if (!category) {
+    const legacyDraft = mainCollectionMigrationDrafts()[categoryKey];
+    if (!legacyDraft) {
+      setStatus('SAVE FAILED — the Homepage Collection Card could not be found. Website not changed.');
+      return false;
+    }
+    const normalizedDraft = {
+      ...legacyDraft,
+      [field]: visible,
+      updatedAt: new Date().toISOString(),
+      draftStatus: 'draft',
+      approvalStatus: 'draft'
+    };
+    const result = await saveAdminCollectionOperations([{
+      type: 'record', collectionKey: 'categories', entryKey: categoryKey, baseRecord: undefined, patch: normalizedDraft
+    }]);
+    if (!result.ok) {
+      setStatus(`SAVE FAILED — ${legacyDraft.title || categoryKey} was not changed on the website. ${adminLastSaveError || ''}`.trim());
+      return false;
+    }
+    category = readAdminCategories()[categoryKey];
+  } else if (!await saveCategoryVisibility(categoryKey, field, visible, { render: false })) {
+    return false;
+  }
+  if (!category) return false;
+  const label = field === 'homepageVisible' ? 'homepage visibility' : 'Collection availability';
+  setStatus(`${category.title || categoryKey}: saving ${label} live…`);
+  const savedLive = await publishCategoryByKey(categoryKey);
+  if (savedLive) {
+    renderCategoryManager();
+    setStatus(field === 'homepageVisible'
+      ? `${category.title || categoryKey} is now ${visible ? 'shown on' : 'hidden from'} the live homepage.`
+      : `${category.title || categoryKey} is now ${visible ? 'available to' : 'hidden from'} customers.`);
+  } else {
+    setStatus(`SAVE FAILED — ${category.title || categoryKey} was not changed on the website.`);
+  }
+  return savedLive;
 }
 
 async function deleteAdminCategories(keys) {
@@ -6228,6 +6303,12 @@ function categoryBackgroundBatchOperations(source, targets, updatedAt = new Date
 async function saveSharedCollectionBackgroundChanges({ quiet = false } = {}) {
   const form = document.querySelector('[data-shared-collection-background-form]');
   if (!form || !editorHasUnsavedChanges(form)) return true;
+  if (!await loadAdminLiveSettings()) {
+    const message = `Shared Collection Background save failed — ${adminLastSaveError || 'current Admin state could not be loaded.'}`;
+    form.querySelector('[data-shared-collection-background-status]').textContent = message;
+    setStatus(message);
+    return false;
+  }
   const existingKeys = new Set(normalizedMainCollectionsForBatch().map((category) => category.key));
   const targets = mainCollectionsForBackgroundBatch();
   const status = form.querySelector('[data-shared-collection-background-status]');
@@ -6253,7 +6334,9 @@ async function saveSharedCollectionBackgroundChanges({ quiet = false } = {}) {
     return false;
   }
   form.dataset.editorDirty = 'false';
-  if (status) status.textContent = `DRAFT SAVED — PRIVATE. ${targets.length} Main Collection background${targets.length === 1 ? '' : 's'} updated in one batch. Use Save All Live Changes when ready.`;
+  renderCategoryManager();
+  const refreshedStatus = document.querySelector('[data-shared-collection-background-status]');
+  if (refreshedStatus) refreshedStatus.textContent = `DRAFT SAVED — PRIVATE. ${targets.length} Main Collection background${targets.length === 1 ? '' : 's'} updated in one batch.`;
   if (!quiet) setStatus(`Shared Collection Background saved privately to ${targets.length} Main Collections in one batch. Nothing was published.`);
   return true;
 }
@@ -6268,10 +6351,12 @@ async function applyCategoryBackgroundToAll(form) {
   const existingKeys = new Set(normalizedMainCollectionsForBatch().map((category) => category.key));
   const targets = mainCollectionsForBackgroundBatch();
   if (!targets.length) {
-    setStatus('No normalized Main Collection cards are available for the background update.');
+    setStatus('No Main Collection cards are available for the background update.');
     return false;
   }
-  if (!window.confirm(`Apply this background and its complete layout to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'}?\n\nStandee images, standee placement, text, representatives, visibility, order, Products, assignments, and pricing will not change.`)) return false;
+  const heldPrivate = document.getElementById('holdCollectionChangesPrivate')?.checked;
+  const destination = heldPrivate ? 'save it as a private draft' : 'update the live homepage';
+  if (!window.confirm(`Apply this background and its complete layout to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'} and ${destination}?\n\nStandee images, standee placement, text, representatives, visibility, order, Products, assignments, and pricing will not change.`)) return false;
   const operations = categoryBackgroundBatchOperations(source, targets, new Date().toISOString(), existingKeys);
   setStatus(`Saving the shared Collection background to ${targets.length} private draft${targets.length === 1 ? '' : 's'}…`);
   const result = await saveAdminCollectionOperations(operations);
@@ -6281,8 +6366,11 @@ async function applyCategoryBackgroundToAll(form) {
   }
   form.dataset.editorDirty = 'false';
   renderCategoryManager();
-  setStatus(`DRAFT SAVED — PRIVATE. The background and background layout were copied to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'}. Standee placement and all non-background data were preserved. Use Save All Live Changes when ready.`);
-  return true;
+  if (heldPrivate) {
+    setStatus(`DRAFT SAVED — PRIVATE. The background was applied to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'}. Uncheck Hold Collection changes privately when it should go live.`);
+    return true;
+  }
+  return saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'));
 }
 
 async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
@@ -6295,6 +6383,7 @@ async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
     return true;
   }
   for (const form of forms) {
+    cancelCategoryLiveAutosave(form);
     const category = readAdminCategories()[form.dataset.categoryEdit] || {};
     if (!await saveCategoryEditForm(form, 'draft', { render: false })) {
       setStatus(`Save All stopped at ${category.title || form.dataset.categoryEdit}. That editor remains unsaved; nothing was published.`);
@@ -6309,6 +6398,31 @@ async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
   return true;
 }
 
+async function saveAllCollectionChangesLive(statusTarget = null) {
+  if (!await saveAllOpenCollectionChanges({ quiet: true })) {
+    const message = 'SAVE FAILED — WEBSITE NOT CHANGED. An open Collection or shared background could not be saved.';
+    if (statusTarget) statusTarget.textContent = message;
+    setStatus(message);
+    return false;
+  }
+  if (!await loadAdminLiveSettings()) {
+    const message = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'Saved Collection state could not be reloaded.'}`;
+    if (statusTarget) statusTarget.textContent = message;
+    setStatus(message);
+    return false;
+  }
+  const changeIds = architectureReviewItems()
+    .filter((item) => ['category', 'category-delete'].includes(item.type))
+    .map((item) => item.id);
+  if (!changeIds.length) {
+    const message = 'LIVE — there are no saved Collection changes waiting to go live.';
+    if (statusTarget) statusTarget.textContent = message;
+    setStatus(message);
+    return true;
+  }
+  return saveLiveChangeIds(changeIds, `All saved Collection changes (${changeIds.length})`, statusTarget);
+}
+
 function categoryKeyForActionTarget(target) {
   return target?.closest?.('[data-category-key]')?.dataset.categoryKey
     || target?.closest?.('[data-category-edit]')?.dataset.categoryEdit
@@ -6317,8 +6431,36 @@ function categoryKeyForActionTarget(target) {
     || '';
 }
 
+function cancelCategoryLiveAutosave(formOrKey) {
+  const key = typeof formOrKey === 'string' ? formOrKey : formOrKey?.dataset?.categoryEdit;
+  const timer = key ? categoryLiveAutosaveTimers.get(key) : null;
+  if (timer) window.clearTimeout(timer);
+  if (key) categoryLiveAutosaveTimers.delete(key);
+}
+
+function scheduleCategoryLiveAutosave(form, delay = 1200) {
+  const key = form?.dataset?.categoryEdit;
+  if (!key || document.getElementById('holdCollectionChangesPrivate')?.checked) return;
+  cancelCategoryLiveAutosave(key);
+  setCategoryPublishState(key, 'UNSAVED CHANGES — saving live automatically…', 'dirty');
+  const timer = window.setTimeout(async () => {
+    categoryLiveAutosaveTimers.delete(key);
+    if (!form.isConnected || !editorHasUnsavedChanges(form)) return;
+    const active = document.activeElement;
+    if (active && form.contains(active) && active.matches('input:not([type]), input[type="text"], input[type="search"], textarea')) {
+      scheduleCategoryLiveAutosave(form, delay);
+      return;
+    }
+    const saved = await publishCategoryByKey(key, form);
+    if (!saved && form.isConnected) form.dataset.editorDirty = 'true';
+  }, delay);
+  categoryLiveAutosaveTimers.set(key, timer);
+}
+
 function markCategoryEditorDirty(form) {
-  if (form) form.dataset.editorDirty = 'true';
+  if (!form) return;
+  form.dataset.editorDirty = 'true';
+  if (form.matches('[data-category-edit]')) scheduleCategoryLiveAutosave(form);
 }
 
 function editorHasUnsavedChanges(form) {
@@ -6357,7 +6499,30 @@ function setupCategoryManagerEvents() {
     categoryBulkSelectionMode = !categoryBulkSelectionMode;
     renderCategoryManager();
   });
-  section.addEventListener('change', (event) => {
+  section.addEventListener('change', async (event) => {
+    if (event.target.id === 'holdCollectionChangesPrivate') {
+      if (event.target.checked) {
+        categoryLiveAutosaveTimers.forEach((timer) => window.clearTimeout(timer));
+        categoryLiveAutosaveTimers.clear();
+        setStatus('Hold is on. Collection changes will remain private until you choose Save Live.');
+      } else {
+        section.querySelectorAll('[data-category-edit][data-editor-dirty="true"]').forEach((form) => scheduleCategoryLiveAutosave(form, 0));
+        setStatus('Hold is off. Ordinary Collection corrections will save live when you finish editing.');
+      }
+      return;
+    }
+    if (event.target.matches('[data-category-homepage-checkbox], [data-category-visible-checkbox]')) {
+      const checkbox = event.target;
+      const desired = checkbox.checked;
+      const field = checkbox.matches('[data-category-visible-checkbox]') ? 'visible' : 'homepageVisible';
+      checkbox.disabled = true;
+      const saved = await saveCategoryVisibilityLive(checkbox.dataset.categoryKey, field, desired);
+      if (!saved && checkbox.isConnected) {
+        checkbox.checked = !desired;
+        checkbox.disabled = false;
+      }
+      return;
+    }
     if (event.target.matches('[data-select-category]')) updateDeleteSelectedCategoriesButton();
     if (event.target.closest('[data-category-edit]')) {
       markCategoryEditorDirty(event.target.closest('[data-category-edit]'));
@@ -6368,6 +6533,10 @@ function setupCategoryManagerEvents() {
       markCategoryEditorDirty(sharedBackgroundForm);
       previewSharedCollectionBackground(sharedBackgroundForm);
     }
+  });
+  section.addEventListener('focusout', (event) => {
+    const form = event.target.closest?.('[data-category-edit]');
+    if (form && editorHasUnsavedChanges(form)) scheduleCategoryLiveAutosave(form, 0);
   });
   section.addEventListener('input', (event) => {
     if (event.target.matches('[data-category-image-search]')) {
@@ -6402,22 +6571,43 @@ function setupCategoryManagerEvents() {
     event.preventDefault();
     if (sharedBackgroundForm) {
       const count = mainCollectionsForBackgroundBatch().length;
-      if (window.confirm(`Apply this background and layout to ${count} Main Collection${count === 1 ? '' : 's'} as one private batch save?\n\nStandee images and placement, text, representatives, visibility, order, Products, assignments, and pricing will remain unchanged.`)) {
-        await saveSharedCollectionBackgroundChanges();
+      const heldPrivate = document.getElementById('holdCollectionChangesPrivate')?.checked;
+      const destination = heldPrivate ? 'save it as a private draft' : 'update the live homepage';
+      if (window.confirm(`Apply this background and layout to ${count} Main Collection${count === 1 ? '' : 's'} and ${destination}?\n\nStandee images and placement, text, representatives, visibility, order, Products, assignments, and pricing will remain unchanged.`)) {
+        if (await saveSharedCollectionBackgroundChanges({ quiet: true })) {
+          if (heldPrivate) {
+            const status = document.querySelector('[data-shared-collection-background-status]');
+            if (status) status.textContent = `DRAFT SAVED — PRIVATE. The background was applied to ${count} Main Collections.`;
+            setStatus('DRAFT SAVED — PRIVATE. Uncheck Hold Collection changes privately when this background should go live.');
+          } else {
+            await saveAllCollectionChangesLive(document.querySelector('[data-shared-collection-background-status]'));
+          }
+        }
       }
     }
-    else if (categoryForm) await saveCategoryEditForm(categoryForm, 'draft');
+    else if (categoryForm) {
+      cancelCategoryLiveAutosave(categoryForm);
+      await saveCategoryEditForm(categoryForm, 'draft');
+    }
     else if (productForm) await saveCategoryProductAssignments(productForm, false);
     else await saveNewChildGroupFromForm(childGroupForm);
   });
   section.addEventListener('click', async (event) => {
     const card = event.target.closest('[data-category-card]');
     const actionCategoryKey = categoryKeyForActionTarget(event.target);
+    const normalizeMainCollection = event.target.closest('[data-normalize-main-collection]');
+    if (normalizeMainCollection) {
+      await saveLegacyMainCollectionDraftByKey(normalizeMainCollection.dataset.normalizeMainCollection);
+      return;
+    }
     const backToCollections = event.target.closest('[data-back-to-collections]');
     if (backToCollections) {
       const form = backToCollections.closest('[data-category-edit]');
-      if (!confirmEditorCanClose(form, form?.classList.contains('admin-child-group-edit') ? 'Child Group' : 'Main Collection')) return;
       const key = form?.dataset.categoryEdit;
+      if (editorHasUnsavedChanges(form) && !document.getElementById('holdCollectionChangesPrivate')?.checked) {
+        cancelCategoryLiveAutosave(form);
+        if (!await publishCategoryByKey(key, form)) return;
+      } else if (!confirmEditorCanClose(form, form?.classList.contains('admin-child-group-edit') ? 'Child Group' : 'Main Collection')) return;
       if (key) openedCategoryEditors.delete(key);
       renderCategoryManager();
       document.querySelector(`[data-category-card="${CSS.escape(readAdminCategories()[key]?.parentKey || key || '')}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -6436,16 +6626,26 @@ function setupCategoryManagerEvents() {
     }
     if (event.target.closest('[data-edit-category]')) {
       const key = actionCategoryKey;
-      const category = readAdminCategories()[key];
-      const panel = card?.querySelector('[data-category-edit-panel]');
-      const mount = panel?.querySelector('[data-category-editor-mount]');
+      let category = readAdminCategories()[key];
+      if (!category && mainCollectionMigrationDrafts()[key]) {
+        if (!await saveLegacyMainCollectionDraftByKey(key)) return;
+        category = readAdminCategories()[key];
+      }
+      const currentCard = document.querySelector(`[data-category-card="${CSS.escape(key)}"]`);
+      const currentPanel = currentCard?.querySelector('[data-category-edit-panel]');
+      const currentMount = currentPanel?.querySelector('[data-category-editor-mount]');
+      const panel = currentPanel || card?.querySelector('[data-category-edit-panel]');
+      const mount = currentMount || panel?.querySelector('[data-category-editor-mount]');
       if (key && category && mount && !openedCategoryEditors.has(key)) {
         mount.innerHTML = categoryEditMarkup(category);
         openedCategoryEditors.add(key);
       }
       panel?.setAttribute('open', '');
       const form = mount?.querySelector('[data-category-edit]');
-      if (form) previewCategoryEdit(form);
+      if (form) {
+        previewCategoryEdit(form);
+        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
     const childCard = event.target.closest('[data-child-group-card]');
     if (event.target.closest('[data-open-child-products]')) {
@@ -8569,8 +8769,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('activateFastLiveContent')?.addEventListener('click', activateFastLiveContent);
   document.getElementById('saveAllOpenCollections')?.addEventListener('click', () => saveAllOpenCollectionChanges());
   document.getElementById('saveAllLiveDashboard')?.addEventListener('click', () => saveAllLiveChanges('All intended Admin changes'));
-  document.getElementById('saveAllLiveCollections')?.addEventListener('click', () => saveAllLiveChanges(
-    'All saved Collection changes',
+  document.getElementById('saveAllLiveCollections')?.addEventListener('click', () => saveAllCollectionChangesLive(
     document.getElementById('collectionLiveStatus')
   ));
   document.getElementById('saveAllLiveAdminChanges')?.addEventListener('click', () => saveAllLiveChanges('All intended Admin changes'));

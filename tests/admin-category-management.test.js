@@ -175,12 +175,13 @@ Deno.test('published Sports assignments retain every established product while a
   assert(expected.every((title) => sports.includes(title)), 'the established Sports assignments must remain present after later Product / Standee publications');
 });
 
-Deno.test('Category cards expose everyday visibility and confirmed Delete controls at the top', async () => {
+Deno.test('Category cards expose simple live visibility checkboxes and confirmed Delete controls at the top', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const manager = source.slice(source.indexOf('function renderCategoryManager'), source.indexOf('function updateDeleteSelectedCategoriesButton'));
-  for (const token of ['Hide Collection', 'UNHIDE COLLECTION', 'Hide from Homepage', 'SHOW ON HOMEPAGE', 'Child Groups', 'data-delete-category']) {
+  for (const token of ['Collection Available', 'Show on Homepage', 'data-category-visible-checkbox', 'data-category-homepage-checkbox', 'Child Groups', 'data-delete-category']) {
     assert(manager.includes(token), `Category card is missing ${token}`);
   }
+  assert(!manager.includes('UNHIDE COLLECTION') && !manager.includes('Hide from Homepage</button>'), 'old competing visibility buttons must not remain beside the checkboxes');
   assert(!manager.includes('admin-category-more-menu'), 'Delete Category must not require opening a More menu');
 });
 
@@ -402,7 +403,7 @@ Deno.test('Category actions resolve their explicit Main or Child Group key inste
   assert(handler.includes('actionCategoryKey = categoryKeyForActionTarget(event.target)'), 'Edit, Open Products, visibility, and ordering must share one action-key resolver');
   assert(handler.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)'), 'row Publish must find only the sibling editor for the exact published Category key');
   assert(!handler.includes("card?.querySelector('[data-category-edit]')"), 'Publish must not use the first unrelated Main/Child editor nested in a card');
-  for (const action of ['data-edit-category data-category-key', 'data-open-category-products data-category-key', 'data-move-category-homepage="-1" data-category-key', 'data-toggle-category-visibility="${category.visible', 'data-toggle-category-homepage="${category.homepageVisible']) {
+  for (const action of ['data-edit-category data-category-key', 'data-open-category-products data-category-key', 'data-move-category-homepage="-1" data-category-key', 'data-category-visible-checkbox data-category-key', 'data-category-homepage-checkbox data-category-key']) {
     assert(source.includes(action), `${action} must carry an explicit normalized Category key`);
   }
 });
