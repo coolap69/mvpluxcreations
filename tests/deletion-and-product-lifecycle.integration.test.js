@@ -66,13 +66,14 @@ Deno.test('published Main Collection deletion cannot be resurrected by normalize
   const renderer = sourceRange(storefrontSource, 'function renderNormalizedHomepageCategoryCards', '\n\nfunction initializeInlineCategoryImageControls');
   const render = new Function('window', 'document', 'dependencies', `
     const { inlineAdminPageKey, homepageCategoryRecords, getEffectiveCategoryPresentation, escapeHtml,
-      STOREFRONT_CATEGORY_CARD_MAP, categoryDestinationWithRepresentative } = dependencies;
+      STOREFRONT_CATEGORY_CARD_MAP, categoryDestinationWithRepresentative, applyHomepageCategorySectionLayout } = dependencies;
     ${fallbackHelper}
     ${renderer}
     return renderNormalizedHomepageCategoryCards;
   `)(browser, browser.document, {
     inlineAdminPageKey: () => 'index.html', homepageCategoryRecords: () => [], getEffectiveCategoryPresentation: () => ({}),
-    escapeHtml: String, STOREFRONT_CATEGORY_CARD_MAP: {}, categoryDestinationWithRepresentative: String
+    escapeHtml: String, STOREFRONT_CATEGORY_CARD_MAP: {}, categoryDestinationWithRepresentative: String,
+    applyHomepageCategorySectionLayout: () => {}
   });
   render();
   assert(browser.document.querySelector('[data-homepage-category-fallback]').hidden, 'explicit normalized absence must not reveal hard-coded homepage cards');

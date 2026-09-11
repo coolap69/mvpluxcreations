@@ -3051,6 +3051,7 @@ function compatibilityMasterCategories() {
         title: String(normalized.card?.title || ''),
         description: String(normalized.card?.description || ''),
         image: String(normalized.card?.image || ''),
+        imageVisible: normalized.card?.imageVisible !== false,
         backgroundImage: String(normalized.card?.backgroundImage || ''),
         representativeProductSlug: String(normalized.card?.representativeProductSlug || '')
       },
@@ -3073,13 +3074,50 @@ function getAdminGlobalDisplaySettings() {
   return window.mvpluxPublishedAdminSettings?.globalDisplaySettings || {};
 }
 
+function applyStorefrontSectionLayout(sectionKey, element, globalDisplaySettings = getAdminGlobalDisplaySettings()) {
+  const controller = window.MVPLUX_STOREFRONT_SECTION_LAYOUT;
+  if (!controller || !element) return null;
+  const configuration = controller.fromGlobalDisplaySettings(sectionKey, globalDisplaySettings);
+  controller.apply(sectionKey, element, configuration);
+  return configuration;
+}
+
+function applyHomepageCategorySectionLayout() {
+  return applyStorefrontSectionLayout('featuredCategories', document.getElementById('shop'));
+}
+
+function sharedHomepageCategoryBackground(categories = {}) {
+  const groups = new Map();
+  Object.values(categories).filter((category) => category?.key && !category.parentKey).forEach((category) => {
+    const display = category.displaySettings || {};
+    const configuration = {
+      backgroundImage: String(category.card?.backgroundImage || getShowroomStageBackground() || ''),
+      backgroundPosition: String(display.backgroundPosition || '50% 100%'),
+      backgroundSizePercent: Number(display.backgroundSizePercent) || 100,
+      backgroundWidthPercent: Number(display.backgroundWidthPercent) || 100,
+      backgroundHeightPercent: Number(display.backgroundHeightPercent) || 100
+    };
+    const key = JSON.stringify(configuration);
+    const group = groups.get(key) || { configuration, count: 0 };
+    group.count += 1;
+    groups.set(key, group);
+  });
+  return [...groups.values()].sort((left, right) => right.count - left.count)[0]?.configuration || null;
+}
+
 function getEffectiveCategoryPresentation(categoryKey, mode = shouldUsePrivateAdminState() ? 'draft' : 'published') {
   const categories = mode === 'published' ? compatibilityMasterCategories() : getAdminCategories();
   const category = categories[categoryKey] || { key: categoryKey, card: {}, displaySettings: {} };
   const globalDisplaySettings = mode === 'published'
     ? window.mvpluxPublishedAdminSettings?.globalDisplaySettings || {}
     : window.mvpluxLiveAdminSettings?.globalDisplaySettings || window.mvpluxPublishedAdminSettings?.globalDisplaySettings || {};
-  return window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation(category, {
+  const sharedBackground = !category.parentKey ? sharedHomepageCategoryBackground(categories) : null;
+  const presentationCategory = sharedBackground ? {
+    ...category,
+    card: { ...(category.card || {}), backgroundImage: sharedBackground.backgroundImage },
+    displaySettings: { ...(category.displaySettings || {}), ...sharedBackground }
+  } : category;
+  return window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation(presentationCategory, {
     mode,
     globalDisplaySettings,
     defaultBackground: getShowroomStageBackground()
@@ -4087,6 +4125,7 @@ function renderNormalizedHomepageCategoryCards() {
   if (inlineAdminPageKey() !== 'index.html') return;
   const grid = document.getElementById('homepageCategoryGrid');
   if (!grid) return;
+  applyHomepageCategorySectionLayout();
   const fallback = document.querySelector('[data-homepage-category-fallback]');
   const categories = homepageCategoryRecords();
   grid.replaceChildren();
@@ -4105,9 +4144,8 @@ function renderNormalizedHomepageCategoryCards() {
       const page = categoryDestinationWithRepresentative(basePage, presentation.representativeProductSlug);
       grid.insertAdjacentHTML('beforeend', `
         <article class="product-card admin-master-category-card" data-category-key="${escapeHtml(category.key)}" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
-          <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(presentation.background)}');background-position:${escapeHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}" aria-hidden="true"></span>${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : ''}</div></a>
-          <h3 data-admin-category-field="title" style="transform:${layout.titleTransform};text-align:${layout.titleAlign}"><a href="${escapeHtml(page)}" class="product-title-link" style="text-align:inherit;font-size:${layout.titleFontSizePx}px">${escapeHtml(presentation.title)}</a></h3>
-          <p class="product-description" data-admin-category-field="description" style="transform:${layout.descriptionTransform};text-align:${layout.descriptionAlign};font-size:${layout.descriptionFontSizePx}px">${escapeHtml(presentation.description)}</p>
+          <div class="homepage-collection-card-text"><h3 data-admin-category-field="title"><a href="${escapeHtml(page)}" class="product-title-link">${escapeHtml(presentation.title)}</a></h3>${presentation.funFact ? `<small class="homepage-collection-card-subtitle">${escapeHtml(presentation.funFact)}</small>` : ''}<p class="product-description" data-admin-category-field="description">${escapeHtml(presentation.description)}</p></div>
+          <a href="${escapeHtml(page)}" class="product-image-link"><div class="product-stage-preview admin-category-storefront-stage"><span class="category-background-layer" style="background-image:url('${escapeHtml(presentation.background)}');background-position:${escapeHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}" aria-hidden="true"></span>${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%;transform:${layout.imageTransform}">` : ''}</div></a>
           <a class="button-link" href="${escapeHtml(page)}">View Collection</a>
         </article>`);
     });
@@ -4188,7 +4226,7 @@ function renderExistingCategoryCardFromNormalized(card, categoryKey) {
     return card;
   }
   card.dataset.name = `${presentation.title} ${presentation.description}`;
-  card.querySelectorAll(':scope > .product-image-link, :scope > h3 .product-title-link, :scope > .button-link').forEach((link) => {
+  card.querySelectorAll(':scope > .product-image-link, .homepage-collection-card-text .product-title-link, :scope > .button-link').forEach((link) => {
     link.href = presentation.page || `category.html?category=${encodeURIComponent(categoryKey)}`;
   });
   const background = card.querySelector('.category-background-layer');
@@ -4212,7 +4250,7 @@ function renderExistingCategoryCardFromNormalized(card, categoryKey) {
       image.style.height = `${layout.imageSizePercent}%`;
       image.style.left = `${layout.imageLeftPercent}%`;
       image.style.bottom = `${layout.imageBottomPercent}%`;
-      image.style.setProperty('--admin-base-transform', 'translateX(-50%)');
+      image.style.setProperty('--admin-base-transform', layout.imageTransform);
       image._adminCategoryDisplayBase = {
         standeeSizePercent: presentation.display.standeeSizePercent,
         standeeLeftPercent: presentation.display.standeeLeftPercent,
@@ -4226,6 +4264,7 @@ function renderExistingCategoryCardFromNormalized(card, categoryKey) {
   const heading = card.querySelector('[data-admin-category-field="title"]');
   const title = card.querySelector('.product-title-link') || heading;
   const description = card.querySelector('[data-admin-category-field="description"]');
+  const subtitle = card.querySelector('.homepage-collection-card-subtitle');
   if (heading) {
     heading.style.transform = layout.titleTransform;
     heading.style.textAlign = layout.titleAlign;
@@ -4241,6 +4280,7 @@ function renderExistingCategoryCardFromNormalized(card, categoryKey) {
     description.style.textAlign = layout.descriptionAlign;
     description.style.fontSize = `${layout.descriptionFontSizePx}px`;
   }
+  if (subtitle) subtitle.textContent = presentation.funFact;
   return card;
 }
 
@@ -5750,7 +5790,8 @@ function inlineCategoryDisplayPatch(image, state, owned = inlineAdminOwnedField(
   const baseline = image._adminCategoryDisplayBase || {
     standeeSizePercent: Number(display.standeeSizePercent) || 63,
     standeeLeftPercent: Number(display.standeeLeftPercent) || 0,
-    standeeVerticalPercent: Number(display.standeeVerticalPercent) || 0
+    standeeVerticalPercent: Number(display.standeeVerticalPercent) || 0,
+    standeeRotationDeg: Number(display.standeeRotationDeg) || 0
   };
   image._adminCategoryDisplayBase = baseline;
   const frame = getInlineAdminImageFrame(image);
@@ -5768,7 +5809,8 @@ function categoryDisplayFromImageTransform(baseline = {}, state = {}, width = 40
     standeeLeftPercent: Math.max(-50, Math.min(50, baseline.standeeLeftPercent + ((Number(state?.x) || 0) / safeWidth * 100))),
     // The shared layout uses bottom = 2 - standeeVerticalPercent. A positive DOM
     // translateY moves down, so adding the normalized percentage is its inverse.
-    standeeVerticalPercent: Math.max(-50, Math.min(50, baseline.standeeVerticalPercent + ((Number(state?.y) || 0) / safeHeight * 100)))
+    standeeVerticalPercent: Math.max(-50, Math.min(50, baseline.standeeVerticalPercent + ((Number(state?.y) || 0) / safeHeight * 100))),
+    standeeRotationDeg: Math.max(-180, Math.min(180, (Number(baseline.standeeRotationDeg) || 0) + (Number(state?.rotate) || 0)))
   };
 }
 
@@ -8481,9 +8523,10 @@ function installInlineAdminMode() {
         image._adminCategoryDisplayBase = {
           standeeSizePercent: Number(categoryDisplay.standeeSizePercent) || 63,
           standeeLeftPercent: Number(categoryDisplay.standeeLeftPercent) || 0,
-          standeeVerticalPercent: Number(categoryDisplay.standeeVerticalPercent) || 0
+          standeeVerticalPercent: Number(categoryDisplay.standeeVerticalPercent) || 0,
+          standeeRotationDeg: Number(categoryDisplay.standeeRotationDeg) || 0
         };
-        image.style.setProperty('--admin-base-transform', 'translateX(-50%)');
+        image.style.setProperty('--admin-base-transform', `translateX(-50%) rotate(${Number(categoryDisplay.standeeRotationDeg) || 0}deg)`);
       }
       const saved = productDisplay || (categoryDisplay ? {} : getInlineAdminPageEdits()[inlineAdminKey(image)] || {});
       image._adminImageState = {

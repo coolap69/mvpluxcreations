@@ -36,6 +36,7 @@ const DISPLAY_FIELDS = [
   'standeeSizePercent',
   'standeeLeftPercent',
   'standeeVerticalPercent',
+  'standeeRotationDeg',
   'titleLeftPercent',
   'titleVerticalPercent',
   'titleAlign',
@@ -210,6 +211,8 @@ export function normalizeDisplaySettings(value = {}) {
       rotate: Number.isFinite(Number(transform.rotate)) ? Number(transform.rotate) : 0
     };
   }
+  const sectionLayouts = asObject(source.sectionLayouts);
+  if (Object.keys(sectionLayouts).length) normalized.sectionLayouts = clone(sectionLayouts);
   return normalized;
 }
 
@@ -275,6 +278,7 @@ function normalizeCategoryCard(value = {}) {
     title: String(source.title || ''),
     description: String(source.description || ''),
     image: String(source.image || source.cutoutImage || ''),
+    imageVisible: source.imageVisible !== false,
     backgroundImage: String(source.backgroundImage || ''),
     representativeProductSlug: String(source.representativeProductSlug || ''),
     visible: source.visible !== false,
@@ -378,6 +382,7 @@ export function buildMainCollectionMigrationDrafts({
         title: '',
         description: '',
         image: String(sourceCard.image || ''),
+        imageVisible: sourceCard.imageVisible !== false,
         backgroundImage: String(sourceCard.backgroundImage || ''),
         representativeProductSlug: String(sourceCard.representativeProductSlug || '')
       },

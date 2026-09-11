@@ -13,6 +13,7 @@ import {
   mergeProductSources,
   migrationLockActive,
   normalizeCategories,
+  normalizeDisplaySettings,
   resolveProductDisplaySettings,
   verifyMigrationBackup,
   prepareAdminArchitectureMigration,
@@ -26,6 +27,15 @@ const assert = (condition, message) => {
 Deno.test('new architecture stays disabled until explicitly enabled', () => {
   assert(architectureFeature({}).enabled === false, 'missing flag must preserve old readers');
   assert(architectureFeature({ adminArchitectureV2: { enabled: true } }).enabled === true, 'explicit flag should enable new readers');
+});
+
+Deno.test('normalized global display settings preserve reusable storefront section layouts', () => {
+  const sectionLayouts = {
+    featuredCategories: { sectionMaxWidthPx: 1500, horizontalPaddingPx: 40, verticalPaddingPx: 50, cardGapPx: 24, desktopColumns: 4 }
+  };
+  const normalized = normalizeDisplaySettings({ backgroundPosition: 'center bottom', sectionLayouts });
+  assert(JSON.stringify(normalized.sectionLayouts) === JSON.stringify(sectionLayouts), 'normalization and future migrations must retain the saved Featured Categories section layout');
+  assert(normalized.sectionLayouts !== sectionLayouts, 'normalized section layouts must not share mutable state with their source');
 });
 
 Deno.test('migration backup is complete, recovery-only, and non-recursive', () => {

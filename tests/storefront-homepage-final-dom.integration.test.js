@@ -12,12 +12,13 @@ function sourceFunction(source, start, end) {
 }
 
 async function actualFinalHomepageDom() {
-  const [html, css, source, catalogSource, presentationSource, publishedDocument] = await Promise.all([
+  const [html, css, source, catalogSource, presentationSource, sectionLayoutSource, publishedDocument] = await Promise.all([
     Deno.readTextFile(new URL('../index.html', import.meta.url)),
     Deno.readTextFile(new URL('../style.css', import.meta.url)),
     Deno.readTextFile(new URL('../script.js', import.meta.url)),
     Deno.readTextFile(new URL('../product-catalog.js', import.meta.url)),
     Deno.readTextFile(new URL('../category-presentation.js', import.meta.url)),
+    Deno.readTextFile(new URL('../storefront-section-layout.js', import.meta.url)),
     Deno.readTextFile(new URL('../published-admin-settings.json', import.meta.url)).then(JSON.parse)
   ]);
   const window = new Window({ url: 'https://mvpluxcreations.com/index.html', width: 1440, height: 1200 });
@@ -27,11 +28,13 @@ async function actualFinalHomepageDom() {
   window.document.head.append(style);
   new Function('window', catalogSource)(window);
   new Function('window', presentationSource)(window);
+  new Function('window', sectionLayoutSource)(window);
   window.mvpluxPublishedAdminSettings = structuredClone(publishedDocument.snapshot);
 
   const code = [
     sourceFunction(source, 'function escapeHtml', 'function showSiteMessage'),
     sourceFunction(source, 'function compatibilityMasterCategories', 'function getAdminGlobalDisplaySettings'),
+    sourceFunction(source, 'function applyStorefrontSectionLayout', 'function getEffectiveCategoryPresentation'),
     sourceFunction(source, 'function getEffectiveCategoryPresentation', 'function resolveStorefrontProductDisplay'),
     sourceFunction(source, 'function homepageCategoryRecords', 'function managedCategoryCardMarkup'),
     sourceFunction(source, 'function renderAdminManagedCards', 'function applyAdminProductOverrides'),
@@ -153,6 +156,38 @@ Deno.test('fresh 1440px homepage uses four taller minimum-width Collection track
   assert(minimumStageWidth === 300 && minimumStageHeight === 345, 'a minimum desktop card must provide an approximately 300×345px stage before title and description');
 });
 
+Deno.test('published Featured Categories section layout controls only the real outer section and grid', async () => {
+  const { window, functions } = await actualFinalHomepageDom();
+  const html = await Deno.readTextFile(new URL('../index.html', import.meta.url));
+  assert(html.indexOf('storefront-section-layout.js') < html.indexOf('script.js?v='), 'storefront must load the shared section-layout resolver before its renderer');
+  window.mvpluxPublishedAdminSettings.globalDisplaySettings = {
+    sectionLayouts: {
+      featuredCategories: {
+        sectionMaxWidthPx: 1660,
+        horizontalPaddingPx: 48,
+        verticalPaddingPx: 56,
+        cardGapPx: 30,
+        desktopColumns: 5
+      }
+    }
+  };
+  functions.renderNormalizedHomepageCategoryCards();
+  const shop = window.document.getElementById('shop');
+  const gallery = window.document.querySelector('.fan-gallery-block');
+  assert(shop.style.getPropertyValue('--featured-categories-section-max-width') === '1660px', 'published Section Width must apply to the complete Featured Categories outer container');
+  assert(shop.style.getPropertyValue('--featured-categories-horizontal-padding') === '48px' && shop.style.getPropertyValue('--featured-categories-vertical-padding') === '56px', 'published padding must apply independently to the section');
+  assert(shop.style.getPropertyValue('--featured-categories-card-gap') === '30px' && shop.style.getPropertyValue('--featured-categories-desktop-columns') === '5', 'published gap and columns must apply to the real customer grid');
+  assert(!gallery?.style.getPropertyValue('--featured-categories-section-max-width'), 'Featured Categories layout must not modify Fan Showcase Gallery');
+
+  const freshRoot = window.document.createElement('section');
+  window.MVPLUX_STOREFRONT_SECTION_LAYOUT.apply(
+    'featuredCategories',
+    freshRoot,
+    window.mvpluxPublishedAdminSettings.globalDisplaySettings.sectionLayouts.featuredCategories
+  );
+  assert(freshRoot.style.getPropertyValue('--featured-categories-section-max-width') === '1660px', 'a fresh DOM must reconstruct the saved section width without browser-only state');
+});
+
 Deno.test('normalized Sports and non-Sports presentation changes own the actual final card before and after publication reload', async () => {
   const { window, functions } = await actualFinalHomepageDom();
   const snapshot = window.mvpluxPublishedAdminSettings;
@@ -203,12 +238,12 @@ Deno.test('normalized Sports and non-Sports presentation changes own the actual 
   const sportsBackground = sports.querySelector('.category-background-layer');
   assert(sportsImage.getAttribute('src') === 'images/category-image-b.png', 'published normalized Sports image B must win over legacy image A');
   assert(sportsImage.style.height === '177%' && sportsImage.style.left === '68%' && sportsImage.style.bottom === '31%', 'published normalized Sports image size and X/Y must reach the visible image');
-  assert(sportsBackground.style.backgroundImage.includes('category-background-b.png'), 'published normalized Sports background must win over the legacy background');
-  assert(sportsBackground.style.backgroundPosition === '27% 81%' && sportsBackground.style.transform === 'scale(3,1)', 'published background X/Y plus independent width, height, and zoom must reach the visible layer');
+  assert(sportsBackground.style.backgroundImage === movie.querySelector('.category-background-layer').style.backgroundImage, 'Featured cards must inherit one shared background instead of retaining per-card background overrides');
+  assert(sportsBackground.style.backgroundPosition === movie.querySelector('.category-background-layer').style.backgroundPosition && sportsBackground.style.transform === movie.querySelector('.category-background-layer').style.transform, 'shared background position, width, height, and zoom must apply consistently to every card');
   assert(sports.querySelector('.product-title-link').textContent === 'Sports Image B' && sports.querySelector('.product-description').textContent === 'Published Sports B', 'published normalized title and description must render');
   assert(sports.querySelector('.product-image-link').getAttribute('href') === 'sports-legends.html?view=new', 'published normalized destination must render');
   assert(movie.querySelector('.product-cutout').getAttribute('src') === 'images/movie-image-b.png', 'the same normalized image authority must work for a non-Sports Category');
-  assert(movie.querySelector('.category-background-layer').style.transform === 'scale(1.18,1.18)', 'non-Sports background zoom must use the same presentation path');
+  assert(movie.querySelector('.category-background-layer').style.transform === sportsBackground.style.transform, 'non-Sports cards must use the same shared background presentation path');
   const keys = [...window.document.querySelectorAll('#homepageCategoryGrid > .admin-master-category-card')].map((card) => card.dataset.adminCategoryKey);
   assert(keys.indexOf('movie-characters') < keys.indexOf('sports'), 'normalized Category order must determine final DOM order');
   assert(window.document.querySelector('[data-homepage-category-fallback]').hidden, 'hard-coded fallback must remain inert after the published reload');

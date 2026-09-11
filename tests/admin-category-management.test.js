@@ -104,7 +104,7 @@ Deno.test('Category editor reuses authoritative AI assistance without saving or 
 
 Deno.test('Category visual picker prioritizes assigned product images and searches the repository inventory', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
-  const picker = source.slice(source.indexOf('function repositoryCategoryImageLibrary'), source.indexOf('function categoryEditMarkup'));
+  const picker = source.slice(source.indexOf('function repositoryCategoryImageLibrary'), source.indexOf('function populateNewCategoryVisualPickers'));
   assert(picker.includes('categoryAssignedProducts(category.key)'), 'preferred images must come from products assigned to this Category');
   assert(picker.includes('product.cutoutImage') && picker.includes('product.imageChoices'), 'main and additional product images must be preferred');
   assert(picker.includes('repositoryImagePaths') && picker.includes('imageDraftInventory'), 'repository search must use the existing image inventory');
@@ -117,16 +117,16 @@ Deno.test('Category editor uses a compact two-column preview and control workspa
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
   const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
-  for (const section of ['Live Homepage Collection Card Preview', 'Main Collection Information', 'Representative Product / Standee', 'Homepage Collection Card Image', 'Homepage Collection Card Background', 'Visibility & Homepage Order', '<summary>Advanced</summary>']) {
+  for (const section of ['Live Homepage Collection Card Preview', 'Main Collection Information', 'Representative Product / Standee', 'Homepage Collection Card Image', 'Visibility & Homepage Order', '<summary>Advanced</summary>']) {
     assert(editor.includes(section), `Category editor is missing ${section}`);
   }
-  assert(editor.indexOf("categoryVisualImagePicker(category, 'background')") < editor.indexOf('<summary>Advanced</summary>'), 'everyday custom background controls must be in the main visual workspace before Advanced');
+  assert(editor.includes("${parent ? `${sectionStart('admin-category-background-section', 'Child Group Background', true)}") && !editor.includes("sectionStart('admin-category-background-section', parent ? 'Child Group Background' : 'Homepage Collection Card Background'"), 'background controls must remain available only for Child Groups, not individual Homepage Collection Cards');
   assert(editor.includes('admin-category-editor-workspace') && editor.includes('admin-category-preview-column') && editor.includes('admin-category-controls-column'), 'editor must expose the desktop preview/control workspace');
   assert(editor.includes('data-category-edit-preview') && !editor.includes('data-category-edit-preview hidden'), 'live preview must be visible as soon as the lazy editor mounts');
   assert(editor.includes("categoryDisplayRangeMarkup('standeeSizePercent'") && source.includes('data-category-display-number') && source.includes('data-category-display-range'), 'image placement must keep numeric and slider controls together');
   assert(styles.includes('#categories .admin-category-editor-workspace') && styles.includes('grid-template-columns: minmax(400px,.84fr) minmax(560px,1.16fr)'), 'desktop editor must keep the large preview beside one compact controls column');
   assert(styles.includes('#categories .admin-category-preview-column') && styles.includes('position: sticky'), 'desktop preview should remain visible while editing controls');
-  assert(styles.includes('.admin-category-image-section .admin-category-current-image img') && styles.includes('height: 88px'), 'image and background references must remain compact instead of duplicating giant previews');
+  assert(styles.includes('.admin-category-image-section .admin-category-current-image img') && styles.includes('height: 88px'), 'image references must remain compact instead of duplicating giant previews');
   assert(editor.includes('admin-advanced-fields') && editor.includes('admin-category-ai-text-tools') && editor.includes('Generate Title'), 'less-used AI and text positioning must live inside the collapsed Advanced section');
   assert(!editor.includes('Standee size %'), 'legacy Standee Size wording must be absent from normal Category editing');
 });
@@ -369,16 +369,13 @@ Deno.test('Category bulk deletion checkboxes appear only in explicit Bulk Select
   assert(source.includes("categoryBulkSelectionMode ? `<label class=\"admin-category-select\"") && source.includes('categoryBulkSelectionMode = !categoryBulkSelectionMode'), 'Select checkboxes must mount only after Bulk Select is enabled');
 });
 
-Deno.test('Category text placement is independent, live, and published through displaySettings', async () => {
+Deno.test('Main Collection text content stays individual while Featured card text styling is shared', async () => {
   const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
-  for (const field of ['titleLeftPercent', 'titleVerticalPercent', 'titleAlign', 'titleSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent', 'descriptionAlign', 'descriptionSizePercent']) {
-    assert(adminSource.includes(field), `Admin editor must expose ${field}`);
-    assert(storefrontSource.includes(field), `storefront Category card must apply ${field}`);
-  }
+  for (const field of ['titleFontSizePx', 'titleFontWeight', 'descriptionFontSizePx', 'descriptionFontWeight', 'titleLineHeightPercent', 'descriptionLineHeightPercent', 'textGapPx', 'textPaddingPx']) assert(adminSource.includes(field), `shared Featured Categories editor must expose ${field}`);
   const preview = adminSource.slice(adminSource.indexOf('function previewCategoryEdit'), adminSource.indexOf('function renderCategoryImagePickerGallery'));
-  assert(preview.includes('resolveCategoryCardLayout(presentation)') && preview.includes('layout.imageLeftPercent') && preview.includes('layout.titleTransform') && preview.includes('layout.descriptionTransform'), 'Admin preview must use the shared storefront Category layout for independent image, title, and description placement');
-  assert(adminSource.includes('data-reset-category-text'), 'text placement must have its own reset action');
+  assert(preview.includes('resolveCategoryCardLayout(presentation)') && preview.includes('layout.imageLeftPercent') && preview.includes('homepage-collection-card-text'), 'Admin preview must use the shared storefront Category image layout and compact text container');
+  assert(storefrontSource.includes('homepage-collection-card-text') && storefrontSource.includes('presentation.funFact'), 'storefront must render individual title, subtitle, and description content in the shared text box');
 });
 
 Deno.test('Category actions resolve their explicit Main or Child Group key instead of a stale outer card', async () => {
@@ -401,8 +398,8 @@ Deno.test('Category actions resolve their explicit Main or Child Group key inste
 
   const handler = source.slice(source.indexOf("section.addEventListener('click'"), source.indexOf('\n}\n\nfunction renderAdminProducts', source.indexOf("section.addEventListener('click'")));
   assert(handler.includes('actionCategoryKey = categoryKeyForActionTarget(event.target)'), 'Edit, Open Products, visibility, and ordering must share one action-key resolver');
-  assert(handler.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)'), 'row Publish must find only the sibling editor for the exact published Category key');
-  assert(!handler.includes("card?.querySelector('[data-category-edit]')"), 'Publish must not use the first unrelated Main/Child editor nested in a card');
+  assert(handler.includes("saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'))"), 'every Collection live button must save every dirty open and previously saved Collection change together');
+  assert(!handler.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)') && !handler.includes("card?.querySelector('[data-category-edit]')"), 'the batch live action must not narrow itself to one sibling Main/Child editor');
   for (const action of ['data-edit-category data-category-key', 'data-open-category-products data-category-key', 'data-move-category-homepage="-1" data-category-key', 'data-category-visible-checkbox data-category-key', 'data-category-homepage-checkbox data-category-key']) {
     assert(source.includes(action), `${action} must carry an explicit normalized Category key`);
   }

@@ -729,7 +729,7 @@ Deno.test('hidden Category form preserves both homepage visibility preferences w
   }
 });
 
-Deno.test('actual Category preview applies independent image, text, and background controls without saving', async () => {
+Deno.test('actual Category preview applies individual image geometry with shared compact text/background presentation without saving', async () => {
   let writes = 0;
   const sports = { key: 'sports', title: 'Sports', visible: true, homepageVisible: true, card: { image: 'images/sports.png', backgroundImage: '' }, displaySettings: {} };
   const client = adminGlobalClient([], async () => { writes += 1; return { data: {}, error: null }; });
@@ -739,10 +739,9 @@ Deno.test('actual Category preview applies independent image, text, and backgrou
   helpers.previewCategoryEdit(form);
   const html = form.preview.innerHTML;
   for (const token of [
-    'height:84%', 'left:62%', 'bottom:10%', 'background-position:25% 75%', 'transform:scale(',
+    'height:84%', 'left:62%', 'bottom:10%', 'background-position:', 'transform:scale(',
     'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg',
-    'translate(7%,-6px)', 'text-align:right', 'font-size:24.7px',
-    'translate(-9%,11px)', 'text-align:left', 'font-size:16.1px',
+    'homepage-collection-card-text', '--featured-categories-text-box-height:92px',
     'Sports Legends', 'Sports description'
   ]) assert(html.includes(token), `live Category preview must apply ${token}`);
   form.controls.standeeSizePercent.value = '63';
@@ -752,7 +751,7 @@ Deno.test('actual Category preview applies independent image, text, and backgrou
   form.controls.descriptionVerticalPercent.value = '0';
   form.controls.backgroundPosition.value = 'center center';
   helpers.previewCategoryEdit(form);
-  assert(form.preview.innerHTML.includes('height:63%') && form.preview.innerHTML.includes('left:50%') && form.preview.innerHTML.includes('background-position:center center'), 'reset values must immediately update the same preview');
+  assert(form.preview.innerHTML.includes('height:63%') && form.preview.innerHTML.includes('left:50%'), 'reset image values must immediately update the same preview while the shared background remains independent');
   assert(writes === 0, 'preview and cancel/no-save behavior must never write private or published state');
 });
 

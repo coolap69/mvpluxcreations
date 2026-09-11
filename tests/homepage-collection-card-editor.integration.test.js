@@ -4,6 +4,7 @@ const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.u
 const adminHtml = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
 const styleSource = await Deno.readTextFile(new URL('../style.css', import.meta.url));
 const presentationSource = await Deno.readTextFile(new URL('../category-presentation.js', import.meta.url));
+const sectionLayoutSource = await Deno.readTextFile(new URL('../storefront-section-layout.js', import.meta.url));
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -173,8 +174,8 @@ Deno.test('compact editor clearly separates draft preview from published website
   assert(editor.includes('DRAFT PREVIEW — NOT LIVE YET') || adminSource.includes('DRAFT PREVIEW — NOT LIVE YET'), 'the preview must explicitly identify unpublished draft state');
   assert(adminSource.includes('Published website currently uses') && adminSource.includes('Draft will use'), 'the editor must compare compact published and draft image/background references');
   assert(editor.indexOf('admin-category-editor-actions') > editor.indexOf('admin-category-controls-column'), 'Preview, Save Draft, and Publish must live with the right-side controls');
-  for (const label of ['← Left', 'Right →', '↑ Up', '↓ Down', 'Smaller', 'Larger', 'Zoom Out', 'Zoom In', 'Reset Card Layout']) assert(editor.includes(label) || adminSource.includes(label), `missing compact control ${label}`);
-  assert(events.includes('applyCategoryDisplayAdjustment') && events.includes('resetCategoryCardLayout'), 'delegated Dashboard buttons must call the shared normalized control helpers');
+  for (const label of ['Image Zoom', 'Horizontal Position', 'Vertical Position', 'Rotate Image', 'Reset Image Position / Zoom / Rotation']) assert(editor.includes(label), `missing compact individual image control ${label}`);
+  assert(events.includes('beginCategoryPreviewImageDrag') && events.includes("section.addEventListener('wheel'"), 'individual Dashboard preview must support direct drag and wheel zoom');
   assert(adminSource.includes("state === 'published' && message === 'Published to Website' ? 'PUBLISHED TO WEBSITE'"), 'deployment-confirmed publication must have an unmistakable final status');
   assert(styleSource.includes('grid-template-columns: minmax(400px,.84fr) minmax(560px,1.16fr)') && styleSource.includes('position: sticky'), 'desktop must keep one live card preview beside compact controls');
 });
@@ -190,14 +191,14 @@ Deno.test('fresh desktop Main Collection DOM uses one sticky combined preview be
   assert(desktop.window.getComputedStyle(previewColumn).position === 'sticky', 'the large left preview must remain sticky on desktop');
   assert(desktop.window.getComputedStyle(controlsColumn.querySelector('.admin-category-editor-action-stack')).position === 'sticky', 'Save and Publish must remain sticky at the top of the right controls');
   assert(controlsColumn.querySelector('[data-back-to-collections]') && controlsColumn.querySelector('[data-preview-category-edit]') && controlsColumn.querySelector('button[type="submit"]') && controlsColumn.querySelector('[data-publish-category-edit]'), 'the right toolbar must contain Back, Preview, Save Draft, and Publish');
-  assert(controlsColumn.querySelector('.admin-category-image-section[open]') && controlsColumn.querySelector('.admin-category-background-section[open]'), 'Image and Background accordions must be open by default');
+  assert(controlsColumn.querySelector('.admin-category-image-section[open]') && !controlsColumn.querySelector('.admin-category-background-section'), 'individual Main Collection editor must keep Image open and remove per-card Background controls');
   assert(!controlsColumn.querySelector('.admin-category-information[open]') && !controlsColumn.querySelector('.admin-category-settings[open]'), 'Information and Visibility sections must stay compact until opened');
   const previews = desktop.form.querySelectorAll('.admin-category-placement-preview');
   assert(previews.length === 1, 'the editor must create exactly one large Homepage Collection Card preview');
   assert(previews[0].querySelector('.category-background-layer') && previews[0].querySelector('.product-cutout'), 'background and Product/Standee image must render together in that same preview');
   assert(!controlsColumn.querySelector('.admin-category-placement-preview'), 'the controls must not contain a second large background preview');
   const compactReferences = controlsColumn.querySelectorAll('.admin-category-current-image-reference');
-  assert(compactReferences.length === 2, 'Image and Background controls may retain only their two compact reference thumbnails');
+  assert(compactReferences.length === 1, 'the individual editor may retain only its compact image reference thumbnail');
 
   const tablet = renderedCollectionEditor(900);
   assert(tablet.window.getComputedStyle(tablet.form.querySelector('.admin-category-editor-workspace')).gridTemplateColumns === 'minmax(0, 1fr)', 'smaller screens may stack the editor into one column');
@@ -254,6 +255,7 @@ Deno.test('Shared Collection Card Background saves every Main Collection in one 
     <input name="backgroundSizePercent" value="145"><input name="backgroundWidthPercent" value="132"><input name="backgroundHeightPercent" value="184">
     <p data-shared-collection-background-status></p>
   </form>`;
+  window.document.querySelector('form').dataset.initialSectionLayout = JSON.stringify({ sectionMaxWidthPx: 1400 });
   const targets = [
     { key: 'sports', title: 'Sport Legends', card: { image: 'images/kobe.png', representativeProductSlug: 'kobe' }, displaySettings: { standeeSizePercent: 91, standeeLeftPercent: 17, standeeVerticalPercent: -8 }, order: 2 },
     { key: 'movies', title: 'Movie Stars', card: { image: 'images/terminator.png', representativeProductSlug: 't800' }, displaySettings: { standeeSizePercent: 84, standeeLeftPercent: -9, standeeVerticalPercent: 4 }, order: 1 }
@@ -265,7 +267,8 @@ Deno.test('Shared Collection Card Background saves every Main Collection in one 
   let savedOperations = [];
   const save = new Function('document', 'FormData', 'dependencies', `
     const { editorHasUnsavedChanges, loadAdminLiveSettings, normalizedMainCollectionsForBatch, mainCollectionsForBackgroundBatch, sharedCollectionBackgroundFromForm,
-      sharedCollectionBackgroundSource, adminStateUtils, saveAdminCollectionOperations, renderCategoryManager, setStatus } = dependencies;
+      sharedCollectionBackgroundSource, featuredCategoriesSectionLayoutFromForm, featuredCategoriesSectionLayoutOperation,
+      adminStateUtils, saveAdminCollectionOperations, renderCategoryManager, setStatus } = dependencies;
     let adminLastSaveError = '';
     ${batchBuilderSource}
     ${saveSource}
@@ -283,6 +286,8 @@ Deno.test('Shared Collection Card Background saves every Main Collection in one 
       backgroundHeightPercent: Number(form.elements.namedItem('backgroundHeightPercent').value)
     }),
     sharedCollectionBackgroundSource: (configuration) => ({ card: { backgroundImage: configuration.backgroundImage }, displaySettings: configuration }),
+    featuredCategoriesSectionLayoutFromForm: () => ({ sectionMaxWidthPx: 1400 }),
+    featuredCategoriesSectionLayoutOperation: () => { throw new Error('unchanged section layout must not be saved'); },
     adminStateUtils: { validateAdminImageReference: () => ({ valid: true }) },
     saveAdminCollectionOperations: async (operations) => { batchCalls += 1; savedOperations = structuredClone(operations); return { ok: true }; },
     renderCategoryManager: () => {},
@@ -362,7 +367,7 @@ Deno.test('Collections exposes one sticky live action that includes the shared b
   assert(adminSource.includes('Apply Background to All Main Collections'), 'the shared background must expose one obvious Apply-to-All action');
   assert(!adminSource.includes('Save Shared Background Draft'), 'the shared controller must not duplicate the background workflow with a second save button');
   const all = sourceRange(adminSource, 'async function saveAllCollectionChangesLive', '\n\nfunction categoryKeyForActionTarget');
-  assert(all.includes('saveAllOpenCollectionChanges') && all.includes("['category', 'category-delete'].includes(item.type)") && all.includes('saveLiveChangeIds'), 'the main Collections action must flush Collection forms and publish only Collection changes through one existing live controller');
+  assert(all.includes('saveAllOpenCollectionChanges') && all.includes("['category', 'category-delete', 'section-layout'].includes(item.type)") && all.includes('saveLiveChangeIds'), 'the main Collections action must flush Collection forms and publish only Collection and section-layout changes through one existing live controller');
 });
 
 Deno.test('shared background primary action saves the batch and makes all Collection changes live once', async () => {
@@ -466,4 +471,111 @@ Deno.test('Main Collection text remains Category-owned when representative Produ
   const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');
   assert(!events.includes('product?.cutoutImage') && !events.includes('product.title') && !events.includes('product.description'), 'representative selection must update only representativeProductSlug through the normal form save and must not copy Product presentation fields');
   assert(categoryFormSource.includes("representativeProductSlug: current.parentKey ? '' : String(data.get('representativeProductSlug')"), 'representative selection must remain a separate normalized card reference');
+});
+
+Deno.test('Featured Categories section layout is reusable, bounded, and preserves unrelated global settings', () => {
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories' });
+  window.eval(sectionLayoutSource);
+  const controller = window.MVPLUX_STOREFRONT_SECTION_LAYOUT;
+  const updated = controller.withSectionLayout({ backgroundPosition: 'center bottom', untouched: 17 }, 'featuredCategories', {
+    sectionMaxWidthPx: 1620,
+    horizontalPaddingPx: 46,
+    verticalPaddingPx: 58,
+    cardGapPx: 31,
+    desktopColumns: 5
+  });
+  assert(updated.untouched === 17 && updated.backgroundPosition === 'center bottom', 'section layout must extend the existing global display record instead of replacing it');
+  assert(updated.sectionLayouts.featuredCategories.sectionMaxWidthPx === 1620, 'section width must be normalized into the reusable section layout record');
+  assert(updated.sectionLayouts.featuredCategories.horizontalPaddingPx === 46 && updated.sectionLayouts.featuredCategories.verticalPaddingPx === 58, 'horizontal and vertical padding must remain independent');
+  assert(updated.sectionLayouts.featuredCategories.cardGapPx === 31 && updated.sectionLayouts.featuredCategories.desktopColumns === 5, 'gap and desktop columns must remain independently configurable');
+
+  const root = window.document.createElement('section');
+  controller.apply('featuredCategories', root, updated.sectionLayouts.featuredCategories);
+  assert(root.style.getPropertyValue('--featured-categories-section-max-width') === '1620px', 'the shared renderer must apply section width to the outer section variable');
+  assert(root.style.getPropertyValue('--featured-categories-horizontal-padding') === '46px', 'the shared renderer must apply horizontal padding to the outer section variable');
+  assert(root.style.getPropertyValue('--featured-categories-vertical-padding') === '58px', 'the shared renderer must apply vertical padding to the outer section variable');
+  assert(root.style.getPropertyValue('--featured-categories-card-gap') === '31px' && root.style.getPropertyValue('--featured-categories-desktop-columns') === '5', 'the shared renderer must apply gap and columns to the grid variables');
+});
+
+Deno.test('Featured Categories layout controls share values and expose one eight-card live grid preview', () => {
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories' });
+  window.document.body.innerHTML = `<form>
+    <input name="sectionMaxWidthPx" type="range" min="900" max="1800" value="1400" data-section-layout-range="sectionMaxWidthPx">
+    <input type="number" value="1400" data-section-layout-number="sectionMaxWidthPx">
+    <output data-section-layout-output="sectionMaxWidthPx">1400px</output>
+  </form>`;
+  const helperSource = sourceRange(adminSource, 'function syncSectionLayoutControl', '\n\nfunction featuredCategoriesSectionLayoutOperation');
+  const helpers = new Function('CSS', `${helperSource}; return { syncSectionLayoutControl, setSectionLayoutControlValue };`)(window.CSS);
+  const form = window.document.querySelector('form');
+  const slider = form.elements.namedItem('sectionMaxWidthPx');
+  slider.value = '1550';
+  helpers.syncSectionLayoutControl(form, slider);
+  assert(form.querySelector('[data-section-layout-number]').value === '1550' && form.querySelector('output').textContent === '1550px', 'slider changes must update the same numeric value and output');
+  helpers.setSectionLayoutControlValue(form, 'sectionMaxWidthPx', 1400);
+  assert(slider.value === '1400' && form.querySelector('[data-section-layout-number]').value === '1400', 'preset/reset buttons must update that same slider and numeric value');
+
+  assert(adminSource.includes('Featured Categories Section Size'), 'the existing bottom shared editor must contain the new section layout subsection');
+  assert(adminSource.includes("Array.from({ length: 8 }") && adminSource.includes('data-featured-categories-layout-preview'), 'the Admin must render one complete eight-card section preview');
+  for (const label of ['Section Width', 'Horizontal Padding', 'Vertical Padding', 'Space Between Cards', 'Cards Across', 'Card / Standee Stage Height', 'Shorter Stage', 'Taller Stage', 'Narrower', 'Wider', 'Match Fan Showcase Width', 'Reset Card Layout']) {
+    assert(adminSource.includes(label), `the section editor must expose ${label}`);
+  }
+  assert(adminSource.includes('<legend>Outer Section</legend>') && adminSource.includes('<legend>Cards & Image Area</legend>'), 'the bottom section-size editor must group outer sizing separately from card and image-area controls');
+  assert(adminSource.includes('name="featured-category-shared-design" open><summary>Image & Section Layout</summary>') && adminSource.includes('name="featured-category-shared-design"><summary>Text Area & Style</summary>'), 'image/layout and shared text controls must form one exclusive accordion in the same collective editor');
+  assert(adminSource.includes('Live Section, Card Image & Text Preview · 8 cards'), 'the bottom section-size editor must identify the combined grid, image, and text preview');
+  assert(styleSource.includes('#categories .admin-featured-categories-layout-preview-column {\n  position: sticky;'), 'the eight-card preview must remain visible while editing shared text on desktop');
+  assert(!styleSource.includes('#shop .product-card h3 {\n  min-height: 48px !important;') && !styleSource.includes('#shop .product-description {\n  height: 64px !important;'), 'legacy Product text sizing must not override the shared Featured Collection text box');
+  assert(!adminSource.includes('data-category-image-edit-preview'), 'the individual Main Collection editor must not receive a second image-only preview');
+  assert(styleSource.includes('grid-template-columns: minmax(360px, .78fr) minmax(620px, 1.45fr)'), 'desktop Admin must place layout controls and the large section preview side by side');
+});
+
+Deno.test('Featured Categories layout joins the protected private batch and existing Collection live path', () => {
+  assert(adminHtml.indexOf('storefront-section-layout.js') < adminHtml.indexOf('admin.js?v='), 'Admin must load the shared section-layout resolver before the Collections controller');
+  assert(adminSource.includes("collectionKey: 'globalDisplaySettings'") && adminSource.includes("entryKey: 'sectionLayouts'"), 'section layout must persist inside the existing normalized global display settings');
+  assert(adminSource.includes("id: 'sectionLayouts:featuredCategories'") && adminSource.includes("type: 'section-layout'"), 'saved section layout must participate in the existing draft-versus-live review lifecycle');
+  assert(adminSource.includes("['category', 'category-delete', 'section-layout'].includes(item.type)"), 'Collection Save Live must publish the saved section layout through the same public snapshot operation');
+  assert(adminSource.includes('featuredCategoriesSectionLayoutOperation(sectionLayout)'), 'the shared background form must save layout and background through one protected batch request');
+});
+
+Deno.test('individual Featured card editor owns content and standee controls but no background or text style', () => {
+  const desktop = renderedCollectionEditor(1440);
+  const form = desktop.form;
+  assert(form.querySelector('[name="title"]') && form.querySelector('[name="description"]') && form.querySelector('[name="funFact"]'), 'individual editor must retain title, subtitle, and description content');
+  assert(form.querySelector('[name="standeeSizePercent"]') && form.querySelector('[name="standeeLeftPercent"]') && form.querySelector('[name="standeeVerticalPercent"]') && form.querySelector('[name="standeeRotationDeg"]'), 'individual editor must retain image zoom, X/Y, and rotation');
+  assert(form.querySelector('[name="cardImageVisible"]') && form.querySelector('[data-reset-category-appearance]'), 'individual editor must expose image show/hide and reset');
+  assert(!form.querySelector('[name="cardBackgroundImage"]') && !form.querySelector('[name="backgroundSizePercent"]'), 'individual Main Collection editor must not own any background reference or geometry');
+  assert(!form.querySelector('[name="titleSizePercent"]') && !form.querySelector('[name="descriptionSizePercent"]'), 'individual Main Collection editor must not own shared text styling');
+  const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');
+  assert(events.includes("section.addEventListener('pointerdown', beginCategoryPreviewImageDrag)") && events.includes("section.addEventListener('wheel'"), 'preview must wire direct drag and wheel zoom to the same normalized image controls');
+});
+
+Deno.test('normalized Featured card image visibility and rotation survive reconstruction', () => {
+  const window = new Window({ url: 'https://mvpluxcreations.com/' });
+  window.eval(presentationSource);
+  const visible = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation({
+    key: 'movies', card: { image: 'images/movie.png', imageVisible: true },
+    displaySettings: { standeeRotationDeg: 27 }
+  });
+  const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(visible);
+  assert(visible.image === 'images/movie.png' && layout.imageTransform === 'translateX(-50%) rotate(27deg)', 'saved image and rotation must reconstruct the card without transient DOM state');
+  const hidden = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation({
+    key: 'movies', card: { image: 'images/movie.png', imageVisible: false }, displaySettings: { standeeRotationDeg: 27 }
+  });
+  assert(hidden.image === '' && hidden.imageReference === 'images/movie.png' && hidden.imageVisible === false, 'Hide must preserve the normalized image reference while removing only its visible presentation');
+});
+
+Deno.test('shared Featured text controls persist through the existing section layout record', () => {
+  const window = new Window({ url: 'https://mvpluxcreations.com/' });
+  window.eval(sectionLayoutSource);
+  const value = window.MVPLUX_STOREFRONT_SECTION_LAYOUT.normalize('featuredCategories', {
+    imageAreaMinHeightPx: 680, textBoxHeightPx: 78, titleFontSizePx: 24, titleFontWeight: 900,
+    descriptionFontSizePx: 12, descriptionFontWeight: 500, titleLineHeightPercent: 110,
+    descriptionLineHeightPercent: 130, textGapPx: 3, textPaddingPx: 7,
+    titleFontFamily: 'Georgia, serif', descriptionFontFamily: 'Arial, sans-serif', textAlign: 'left'
+  });
+  const root = window.document.createElement('section');
+  window.MVPLUX_STOREFRONT_SECTION_LAYOUT.apply('featuredCategories', root, value);
+  assert(root.style.getPropertyValue('--featured-categories-image-area-min-height') === '680px' && root.style.getPropertyValue('--featured-categories-text-box-height') === '78px', 'a taller shared standee stage must apply independently from the compact text box');
+  assert(root.style.getPropertyValue('--featured-categories-title-font') === 'Georgia, serif' && root.style.getPropertyValue('--featured-categories-text-align') === 'left', 'shared font and alignment must apply from the same saved section record');
+  assert(adminSource.includes('admin-shared-text-control-groups') && adminSource.includes('<legend>Title</legend>') && adminSource.includes('<legend>Description</legend>') && adminSource.includes('<legend>Text Box</legend>'), 'shared text controls must be grouped by the visual element they affect');
+  assert(adminSource.includes('data-shared-category-text-preview') && adminSource.includes('Compact Text') && adminSource.includes('Bold Titles') && adminSource.includes('Reset Text Style'), 'shared text editor must include an immediate local preview and simple presets');
 });

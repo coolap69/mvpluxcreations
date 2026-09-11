@@ -93,15 +93,13 @@ Deno.test('Category Publish exposes save and publish failures', async () => {
   assert(publishFailure.states.at(-1)?.state === 'failed', 'publisher failure must be visible');
 });
 
-Deno.test('top and editor Save Live buttons share one Category controller and state', () => {
+Deno.test('every Main Collection live button uses the all-Collection live controller', () => {
   const markup = extractedFunction('function categoryPublishButtonMarkup', 'function categoryDisplayRangeMarkup');
   const events = extractedFunction('function setupCategoryManagerEvents()', 'function renderAdminProducts()');
-  assert(markup.includes('data-publish-category-key') && markup.includes("operation?.state === 'publishing'"), 'all Category Publish buttons must bind to shared state');
-  assert(events.includes("event.target.closest('[data-publish-category-key]')") && events.includes('publishCategoryByKey('), 'one delegated handler must own both Publish locations');
-  assert(events.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)'), 'top Category Publish must submit only the mounted sibling editor for its exact Category key');
-  assert(!events.includes("card?.querySelector('[data-category-edit]')"), 'top Category Publish must never select an unrelated nested Main/Child editor');
+  assert(markup.includes('data-publish-category-key') && markup.includes('Save All Collection Changes Live'), 'every repeated Collection live button must clearly describe its batch scope');
+  assert(events.includes("event.target.closest('[data-publish-category-key]')") && events.includes("saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'))"), 'one delegated handler must route every Collection live button through the all-Collection controller');
   const categoryPublish = extractedFunction('async function publishCategoryByKey', 'async function saveCategoryProductAssignments');
-  assert(categoryPublish.includes('saveLiveChangeIds([`category:${categoryKey}`]'), 'Dashboard Category buttons must use the shared Save Live controller');
+  assert(categoryPublish.includes('saveLiveChangeIds([`category:${categoryKey}`]'), 'automatic per-record saves and Admin Mode handoff must retain the normalized Category save controller');
 });
 
 Deno.test('Publish All prepares every saved item and sends every change id through one deployment', async () => {

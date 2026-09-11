@@ -1323,6 +1323,7 @@ function publishableCategory(category = {}) {
       title: category.card?.titleOverride === true ? String(category.card.title || '') : '',
       description: category.card?.descriptionOverride === true ? String(category.card.description || '') : '',
       image: publishImageReference(category.card?.image || ''),
+      imageVisible: category.card?.imageVisible !== false,
       backgroundImage: publishImageReference(category.card?.backgroundImage || ''),
       representativeProductSlug: String(category.card?.representativeProductSlug || '')
     },
@@ -4624,6 +4625,21 @@ function architectureReviewItems() {
   if (!semanticValuesEqual(baseline.extraImages || {}, readExtraImages())) {
     items.push({ id: 'extraImages:all', type: 'extraImages', key: 'all', group: 'Image Changes', title: 'Most Wanted / Gallery images', approved: true, before: baseline.extraImages || {}, after: readExtraImages(), page: 'index.html' });
   }
+  const baselineSectionLayouts = structuredClone(baseline.globalDisplaySettings?.sectionLayouts || {});
+  const currentSectionLayouts = structuredClone(adminLiveSettings?.globalDisplaySettings?.sectionLayouts || {});
+  if (!semanticValuesEqual(baselineSectionLayouts, currentSectionLayouts)) {
+    items.push({
+      id: 'sectionLayouts:featuredCategories',
+      type: 'section-layout',
+      key: FEATURED_CATEGORIES_SECTION_LAYOUT_KEY,
+      group: 'Storefront Section Layout',
+      title: 'Featured Standee Categories layout',
+      approved: true,
+      before: baselineSectionLayouts,
+      after: currentSectionLayouts,
+      page: 'index.html'
+    });
+  }
   return items;
 }
 
@@ -4687,6 +4703,12 @@ function buildSelectedArchitectureSnapshot(items) {
       return;
     }
     if (item.type === 'extraImages') baseline.extraImages = structuredClone(current.extraImages || {});
+    if (item.type === 'section-layout') {
+      baseline.globalDisplaySettings = {
+        ...(baseline.globalDisplaySettings || {}),
+        sectionLayouts: structuredClone(current.globalDisplaySettings?.sectionLayouts || {})
+      };
+    }
   });
   return baseline;
 }
@@ -5125,7 +5147,13 @@ function effectiveCategoryBackground(category = {}) {
 }
 
 function effectiveAdminCategoryPresentation(category = {}) {
-  return window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation(category, {
+  const shared = category.parentKey ? null : sharedCollectionBackgroundConfiguration();
+  const presentationCategory = shared ? {
+    ...category,
+    card: { ...(category.card || {}), backgroundImage: shared.backgroundImage },
+    displaySettings: { ...(category.displaySettings || {}), ...shared }
+  } : category;
+  return window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation(presentationCategory, {
     mode: 'draft',
     globalDisplaySettings: adminLiveSettings?.globalDisplaySettings || adminPublishedBaseline?.globalDisplaySettings || {},
     defaultBackground: IMAGE_IMPORT_DEFAULT_BACKGROUND
@@ -5217,7 +5245,7 @@ function populateNewCategoryVisualPickers(form) {
 function categoryPublishButtonMarkup(categoryKey, { editor = false } = {}) {
   const operation = categoryPublishOperations.get(categoryKey);
   const publishing = operation?.state === 'publishing';
-  const label = publishing ? 'SAVING LIVE…' : 'Save Live';
+  const label = publishing ? 'SAVING ALL COLLECTION CHANGES LIVE…' : 'Save All Collection Changes Live';
   return `<button class="admin-button admin-button-primary" type="button" ${editor ? 'data-publish-category-edit' : `data-publish-category="${escapeAdminHtml(categoryKey)}"`} data-publish-category-key="${escapeAdminHtml(categoryKey)}" data-category-key="${escapeAdminHtml(categoryKey)}" ${publishing ? 'disabled aria-busy="true"' : ''}>${label}</button>`;
 }
 
@@ -5238,6 +5266,100 @@ function sharedCollectionBackgroundDefaults() {
     backgroundSizePercent: 100,
     backgroundWidthPercent: 100,
     backgroundHeightPercent: 100
+  };
+}
+
+const FEATURED_CATEGORIES_SECTION_LAYOUT_KEY = 'featuredCategories';
+
+function featuredCategoriesSectionLayoutDefaults() {
+  return window.MVPLUX_STOREFRONT_SECTION_LAYOUT.normalize(FEATURED_CATEGORIES_SECTION_LAYOUT_KEY, {});
+}
+
+function featuredCategoriesSectionLayoutConfiguration() {
+  const globalDisplaySettings = adminLiveSettings?.globalDisplaySettings || adminPublishedBaseline?.globalDisplaySettings || {};
+  return window.MVPLUX_STOREFRONT_SECTION_LAYOUT.fromGlobalDisplaySettings(
+    'featuredCategories',
+    globalDisplaySettings
+  );
+}
+
+function featuredCategoriesSectionLayoutFromForm(form) {
+  return window.MVPLUX_STOREFRONT_SECTION_LAYOUT.normalize(FEATURED_CATEGORIES_SECTION_LAYOUT_KEY, {
+    sectionMaxWidthPx: form?.elements.namedItem('sectionMaxWidthPx')?.value,
+    horizontalPaddingPx: form?.elements.namedItem('horizontalPaddingPx')?.value,
+    verticalPaddingPx: form?.elements.namedItem('verticalPaddingPx')?.value,
+    cardGapPx: form?.elements.namedItem('cardGapPx')?.value,
+    desktopColumns: form?.elements.namedItem('desktopColumns')?.value,
+    imageAreaMinHeightPx: form?.elements.namedItem('imageAreaMinHeightPx')?.value,
+    textBoxHeightPx: form?.elements.namedItem('textBoxHeightPx')?.value,
+    titleFontSizePx: form?.elements.namedItem('titleFontSizePx')?.value,
+    titleFontWeight: form?.elements.namedItem('titleFontWeight')?.value,
+    descriptionFontSizePx: form?.elements.namedItem('descriptionFontSizePx')?.value,
+    descriptionFontWeight: form?.elements.namedItem('descriptionFontWeight')?.value,
+    titleLineHeightPercent: form?.elements.namedItem('titleLineHeightPercent')?.value,
+    descriptionLineHeightPercent: form?.elements.namedItem('descriptionLineHeightPercent')?.value,
+    textGapPx: form?.elements.namedItem('textGapPx')?.value,
+    textPaddingPx: form?.elements.namedItem('textPaddingPx')?.value,
+    titleFontFamily: form?.elements.namedItem('titleFontFamily')?.value,
+    descriptionFontFamily: form?.elements.namedItem('descriptionFontFamily')?.value,
+    textAlign: form?.elements.namedItem('textAlign')?.value
+  });
+}
+
+function sectionLayoutRangeMarkup(name, label, value, minimum, maximum, suffix = '') {
+  return `<label class="admin-category-range-control"><span class="admin-category-range-heading">${label} <output data-section-layout-output="${name}">${value}${suffix}</output></span>
+    <span class="admin-category-range-inputs"><input name="${name}" type="range" min="${minimum}" max="${maximum}" step="1" value="${value}" data-section-layout-range="${name}">
+    <span class="admin-category-range-value"><input type="number" min="${minimum}" max="${maximum}" step="1" value="${value}" data-section-layout-number="${name}" aria-label="${label} numeric value">${suffix}</span></span>
+    <small>${minimum}${suffix}–${maximum}${suffix}</small>
+  </label>`;
+}
+
+function sectionLayoutSelectMarkup(name, label, value, choices) {
+  return `<label>${label}<select name="${name}" data-section-layout-select="${name}">${choices.map((choice) => `<option value="${escapeAdminHtml(choice)}" ${choice === value ? 'selected' : ''}>${escapeAdminHtml(choice === 'inherit' ? 'Storefront Default' : choice)}</option>`).join('')}</select></label>`;
+}
+
+function syncSectionLayoutControl(form, target) {
+  const name = target?.dataset.sectionLayoutNumber || target?.dataset.sectionLayoutRange;
+  if (!name) return false;
+  const range = form.querySelector(`[data-section-layout-range="${CSS.escape(name)}"]`);
+  const number = form.querySelector(`[data-section-layout-number="${CSS.escape(name)}"]`);
+  if (!range || !number) return false;
+  const value = Math.max(Number(range.min), Math.min(Number(range.max), Number(target.value) || 0));
+  range.value = String(value);
+  number.value = String(value);
+  const output = form.querySelector(`[data-section-layout-output="${CSS.escape(name)}"]`);
+  const suffix = name === 'desktopColumns' || name.endsWith('Weight') ? '' : (name.endsWith('Percent') ? '%' : 'px');
+  if (output) output.textContent = `${value}${suffix}`;
+  return true;
+}
+
+function setSectionLayoutControlValue(form, name, requestedValue) {
+  const range = form?.querySelector(`[data-section-layout-range="${CSS.escape(name)}"]`);
+  const number = form?.querySelector(`[data-section-layout-number="${CSS.escape(name)}"]`);
+  if (!range || !number) return false;
+  const value = Math.max(Number(range.min), Math.min(Number(range.max), Math.round(Number(requestedValue) || 0)));
+  range.value = String(value);
+  number.value = String(value);
+  const output = form.querySelector(`[data-section-layout-output="${CSS.escape(name)}"]`);
+  const suffix = name === 'desktopColumns' || name.endsWith('Weight') ? '' : (name.endsWith('Percent') ? '%' : 'px');
+  if (output) output.textContent = `${value}${suffix}`;
+  return true;
+}
+
+function featuredCategoriesSectionLayoutOperation(configuration) {
+  const sectionLayouts = adminLiveSettings?.globalDisplaySettings?.sectionLayouts || {};
+  return {
+    type: 'value',
+    collectionKey: 'globalDisplaySettings',
+    entryKey: 'sectionLayouts',
+    baseValue: structuredClone(sectionLayouts),
+    value: {
+      ...structuredClone(sectionLayouts),
+      [FEATURED_CATEGORIES_SECTION_LAYOUT_KEY]: window.MVPLUX_STOREFRONT_SECTION_LAYOUT.normalize(
+        FEATURED_CATEGORIES_SECTION_LAYOUT_KEY,
+        configuration
+      )
+    }
   };
 }
 
@@ -5328,6 +5450,58 @@ function previewSharedCollectionBackground(form) {
     <p class="product-description">Background changes never resize or reposition the standee.</p>
   </article>`;
   syncCategoryDisplayOutputs(form);
+  previewFeaturedCategoriesSectionLayout(form);
+}
+
+function previewFeaturedCategoriesSectionLayout(form) {
+  const preview = form?.querySelector('[data-featured-categories-layout-preview]');
+  if (!preview) return;
+  const layoutConfiguration = featuredCategoriesSectionLayoutFromForm(form);
+  const textPreview = form.querySelector('[data-shared-category-text-preview]');
+  if (textPreview) textPreview.innerHTML = `<div style="height:${layoutConfiguration.textBoxHeightPx}px;gap:${layoutConfiguration.textGapPx}px;padding:${layoutConfiguration.textPaddingPx}px;text-align:${layoutConfiguration.textAlign}">
+    <strong style="font-family:${escapeAdminHtml(layoutConfiguration.titleFontFamily)};font-size:${layoutConfiguration.titleFontSizePx}px;font-weight:${layoutConfiguration.titleFontWeight};line-height:${layoutConfiguration.titleLineHeightPercent}%">Movie Stars</strong>
+    <em>Featured Collection</em>
+    <small style="font-family:${escapeAdminHtml(layoutConfiguration.descriptionFontFamily)};font-size:${layoutConfiguration.descriptionFontSizePx}px;font-weight:${layoutConfiguration.descriptionFontWeight};line-height:${layoutConfiguration.descriptionLineHeightPercent}%">Explore movie character standees.</small>
+  </div>`;
+  const backgroundConfiguration = sharedCollectionBackgroundFromForm(form);
+  const categories = normalizedMainCollectionsForBatch().filter((category) => category.visible !== false && category.homepageVisible !== false);
+  const samples = Array.from({ length: 8 }, (_, index) => categories[index] || {
+    key: `preview-${index + 1}`,
+    title: `Collection ${index + 1}`,
+    description: 'Featured standee collection',
+    card: {},
+    displaySettings: {}
+  });
+  const previewWidth = window.MVPLUX_STOREFRONT_SECTION_LAYOUT.previewWidthPercent(
+    FEATURED_CATEGORIES_SECTION_LAYOUT_KEY,
+    layoutConfiguration
+  );
+  preview.innerHTML = `<section class="admin-featured-categories-grid-preview" style="width:${previewWidth}%;--admin-featured-layout-padding-x:${layoutConfiguration.horizontalPaddingPx}px;--admin-featured-layout-padding-y:${layoutConfiguration.verticalPaddingPx}px;--admin-featured-layout-gap:${layoutConfiguration.cardGapPx}px;--admin-featured-layout-columns:${layoutConfiguration.desktopColumns};--admin-featured-image-height:${Math.max(110, Math.round(layoutConfiguration.imageAreaMinHeightPx * .45))}px;--admin-featured-text-height:${Math.max(52, Math.round(layoutConfiguration.textBoxHeightPx * .7))}px;--admin-featured-title-size:${Math.max(10, Math.round(layoutConfiguration.titleFontSizePx * .72))}px;--admin-featured-title-weight:${layoutConfiguration.titleFontWeight};--admin-featured-description-size:${Math.max(8, Math.round(layoutConfiguration.descriptionFontSizePx * .72))}px;--admin-featured-description-weight:${layoutConfiguration.descriptionFontWeight};--admin-featured-title-line-height:${layoutConfiguration.titleLineHeightPercent}%;--admin-featured-description-line-height:${layoutConfiguration.descriptionLineHeightPercent}%;--admin-featured-text-gap:${layoutConfiguration.textGapPx}px;--admin-featured-text-padding:${layoutConfiguration.textPaddingPx}px;--admin-featured-title-font:${escapeAdminHtml(layoutConfiguration.titleFontFamily)};--admin-featured-description-font:${escapeAdminHtml(layoutConfiguration.descriptionFontFamily)};--admin-featured-text-align:${layoutConfiguration.textAlign}">
+    <h4>Featured Standee Categories</h4>
+    <div class="admin-featured-categories-preview-grid">
+      ${samples.map((category) => {
+        const presentation = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation({
+          ...category,
+          card: { ...(category.card || {}), backgroundImage: backgroundConfiguration.backgroundImage },
+          displaySettings: {
+            ...(category.displaySettings || {}),
+            backgroundPosition: backgroundConfiguration.backgroundPosition,
+            backgroundSizePercent: backgroundConfiguration.backgroundSizePercent,
+            backgroundWidthPercent: backgroundConfiguration.backgroundWidthPercent,
+            backgroundHeightPercent: backgroundConfiguration.backgroundHeightPercent
+          }
+        }, { mode: 'draft', defaultBackground: IMAGE_IMPORT_DEFAULT_BACKGROUND, globalDisplaySettings: {} });
+        const cardLayout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
+        return `<article class="admin-featured-categories-preview-card">
+          <div class="admin-featured-categories-preview-text"><strong>${escapeAdminHtml(presentation.title)}</strong>${presentation.funFact ? `<em>${escapeAdminHtml(presentation.funFact)}</em>` : ''}<small>${escapeAdminHtml(presentation.description)}</small></div>
+          <div class="admin-featured-categories-preview-stage">
+            <span class="category-background-layer" style="background-image:url('${escapeAdminHtml(presentation.background)}');background-position:${escapeAdminHtml(cardLayout.backgroundPosition)};transform:${cardLayout.backgroundTransform}" aria-hidden="true"></span>
+            ${presentation.image ? `<img src="${escapeAdminHtml(presentation.image)}" alt="" style="height:${cardLayout.imageSizePercent}%;left:${cardLayout.imageLeftPercent}%;bottom:${cardLayout.imageBottomPercent}%">` : ''}
+          </div>
+        </article>`;
+      }).join('')}
+    </div>
+  </section>`;
 }
 
 function sharedCollectionBackgroundPicker(configuration) {
@@ -5350,8 +5524,10 @@ function renderSharedCollectionBackgroundController({ force = false } = {}) {
   const existing = mount.querySelector('[data-shared-collection-background-form]');
   if (!force && existing?.dataset.editorDirty === 'true') return;
   const configuration = sharedCollectionBackgroundConfiguration();
+  const sectionLayout = featuredCategoriesSectionLayoutConfiguration();
+  const sectionDefinition = window.MVPLUX_STOREFRONT_SECTION_LAYOUT.definitions[FEATURED_CATEGORIES_SECTION_LAYOUT_KEY];
   const count = mainCollectionsForBackgroundBatch().length;
-  mount.innerHTML = `<div class="admin-panel-header"><div><h3>Shared Collection Card Background</h3><p class="admin-note">Choose one background and layout for every normalized Main Collection. This controller never changes standee images, standee placement, text, Products, assignments, order, visibility, or pricing.</p></div></div>
+  mount.innerHTML = `<div class="admin-panel-header"><div><h3>Shared Collection Card Background</h3><p class="admin-note">Choose one background and layout for every normalized Main Collection. This shared Homepage Collection Card background does not overwrite any Product Showroom Background. This controller never changes standee images, standee placement, text content, Products, assignments, order, visibility, or pricing.</p></div></div>
     <form data-shared-collection-background-form data-editor-dirty="false">
       <div class="admin-category-editor-workspace admin-shared-background-workspace">
         <aside class="admin-category-preview-column"><strong>Combined Preview</strong><div data-shared-collection-background-preview></div></aside>
@@ -5371,8 +5547,72 @@ function renderSharedCollectionBackgroundController({ force = false } = {}) {
           <p class="admin-status" data-shared-collection-background-status aria-live="polite">Change the background above, then press Apply once. It saves the complete batch and updates the live homepage. Check Hold Collection changes privately only when the change should remain a draft.</p>
         </div>
       </div>
+      <section class="admin-featured-categories-layout-editor" aria-labelledby="featuredCategoriesLayoutHeading">
+        <div class="admin-featured-categories-layout-controls">
+          <div><h4 id="featuredCategoriesLayoutHeading">Featured Categories Section Size & Shared Card Design</h4><p class="admin-note">Control the entire Featured Standee Categories section here. The preview beside these controls shows the real grid, card image area, and shared text styling together.</p></div>
+          <details class="admin-featured-section-control-group" name="featured-category-shared-design" open><summary>Image & Section Layout</summary>
+            <p class="admin-note">Adjust the outer section, card spacing, and shared image area. Fold this section up when you are ready to work on text.</p>
+            <div class="admin-featured-layout-control-groups">
+              <fieldset><legend>Outer Section</legend>
+                ${sectionLayoutRangeMarkup('sectionMaxWidthPx', 'Section Width', sectionLayout.sectionMaxWidthPx, ...sectionDefinition.limits.sectionMaxWidthPx, 'px')}
+                ${sectionLayoutRangeMarkup('horizontalPaddingPx', 'Horizontal Padding', sectionLayout.horizontalPaddingPx, ...sectionDefinition.limits.horizontalPaddingPx, 'px')}
+                ${sectionLayoutRangeMarkup('verticalPaddingPx', 'Vertical Padding', sectionLayout.verticalPaddingPx, ...sectionDefinition.limits.verticalPaddingPx, 'px')}
+              </fieldset>
+              <fieldset><legend>Cards & Image Area</legend>
+                ${sectionLayoutRangeMarkup('cardGapPx', 'Space Between Cards', sectionLayout.cardGapPx, ...sectionDefinition.limits.cardGapPx, 'px')}
+                ${sectionLayoutRangeMarkup('desktopColumns', 'Cards Across', sectionLayout.desktopColumns, ...sectionDefinition.limits.desktopColumns)}
+                ${sectionLayoutRangeMarkup('imageAreaMinHeightPx', 'Card / Standee Stage Height', sectionLayout.imageAreaMinHeightPx, ...sectionDefinition.limits.imageAreaMinHeightPx, 'px')}
+                <div class="admin-panel-actions"><button type="button" data-adjust-featured-section-layout="imageAreaMinHeightPx" data-featured-section-layout-adjustment="-40">Shorter Stage</button><button type="button" data-adjust-featured-section-layout="imageAreaMinHeightPx" data-featured-section-layout-adjustment="40">Taller Stage</button></div>
+                <p class="admin-note">Stage Height makes every Featured Collection card taller or shorter without enlarging its compact text area or stretching the standee.</p>
+              </fieldset>
+            </div>
+            <div class="admin-panel-actions admin-section-layout-presets">
+              <button type="button" data-adjust-featured-section-layout="sectionMaxWidthPx" data-featured-section-layout-adjustment="-50">Narrower</button>
+              <button type="button" data-adjust-featured-section-layout="sectionMaxWidthPx" data-featured-section-layout-adjustment="50">Wider</button>
+              <button type="button" data-match-fan-showcase-layout>Match Fan Showcase Width</button>
+              <button type="button" data-reset-featured-section-layout>Reset Card Layout</button>
+            </div>
+            <p class="admin-note">Desktop uses the selected Cards Across value. Existing tablet and mobile breakpoints still reduce the grid to two and one columns.</p>
+          </details>
+          <details class="admin-shared-category-text-style" name="featured-category-shared-design"><summary>Text Area & Style</summary>
+            <p class="admin-note">These values style every Featured Standee Categories card. Individual editors control only what each title, subtitle, and description says.</p>
+            <div class="admin-shared-text-workspace">
+              <div class="admin-shared-text-control-groups">
+                <fieldset><legend>Title</legend>
+                  ${sectionLayoutSelectMarkup('titleFontFamily', 'Font', sectionLayout.titleFontFamily, sectionDefinition.choices.titleFontFamily)}
+                  ${sectionLayoutRangeMarkup('titleFontSizePx', 'Size', sectionLayout.titleFontSizePx, ...sectionDefinition.limits.titleFontSizePx, 'px')}
+                  ${sectionLayoutRangeMarkup('titleFontWeight', 'Weight', sectionLayout.titleFontWeight, ...sectionDefinition.limits.titleFontWeight)}
+                  ${sectionLayoutRangeMarkup('titleLineHeightPercent', 'Line Height', sectionLayout.titleLineHeightPercent, ...sectionDefinition.limits.titleLineHeightPercent, '%')}
+                </fieldset>
+                <fieldset><legend>Description</legend>
+                  ${sectionLayoutSelectMarkup('descriptionFontFamily', 'Font', sectionLayout.descriptionFontFamily, sectionDefinition.choices.descriptionFontFamily)}
+                  ${sectionLayoutRangeMarkup('descriptionFontSizePx', 'Size', sectionLayout.descriptionFontSizePx, ...sectionDefinition.limits.descriptionFontSizePx, 'px')}
+                  ${sectionLayoutRangeMarkup('descriptionFontWeight', 'Weight', sectionLayout.descriptionFontWeight, ...sectionDefinition.limits.descriptionFontWeight)}
+                  ${sectionLayoutRangeMarkup('descriptionLineHeightPercent', 'Line Height', sectionLayout.descriptionLineHeightPercent, ...sectionDefinition.limits.descriptionLineHeightPercent, '%')}
+                </fieldset>
+                <fieldset><legend>Text Box</legend>
+                  ${sectionLayoutSelectMarkup('textAlign', 'Alignment', sectionLayout.textAlign, sectionDefinition.choices.textAlign)}
+                  ${sectionLayoutRangeMarkup('textBoxHeightPx', 'Height', sectionLayout.textBoxHeightPx, ...sectionDefinition.limits.textBoxHeightPx, 'px')}
+                  ${sectionLayoutRangeMarkup('textGapPx', 'Space Between Lines', sectionLayout.textGapPx, ...sectionDefinition.limits.textGapPx, 'px')}
+                  ${sectionLayoutRangeMarkup('textPaddingPx', 'Inside Padding', sectionLayout.textPaddingPx, ...sectionDefinition.limits.textPaddingPx, 'px')}
+                </fieldset>
+                <div class="admin-panel-actions"><button type="button" data-shared-text-preset="compact">Compact Text</button><button type="button" data-shared-text-preset="bold">Bold Titles</button><button type="button" data-shared-text-preset="reset">Reset Text Style</button></div>
+              </div>
+              <div class="admin-shared-text-preview" data-shared-category-text-preview aria-label="Shared text style preview"></div>
+            </div>
+          </details>
+          <div class="admin-panel-actions"><button type="submit" class="admin-button admin-button-primary">Save Featured Categories Layout</button></div>
+        </div>
+        <div class="admin-featured-categories-layout-preview-column">
+          <strong>Live Section, Card Image & Text Preview · 8 cards</strong>
+          <div data-featured-categories-layout-preview></div>
+        </div>
+      </section>
     </form>`;
-  previewSharedCollectionBackground(mount.querySelector('[data-shared-collection-background-form]'));
+  const form = mount.querySelector('[data-shared-collection-background-form]');
+  form.dataset.initialBackgroundConfiguration = JSON.stringify(configuration);
+  form.dataset.initialSectionLayout = JSON.stringify(sectionLayout);
+  previewSharedCollectionBackground(form);
 }
 
 function publishedCategoryCardForAdmin(categoryKey) {
@@ -5446,7 +5686,6 @@ function categoryEditMarkup(category) {
   const parent = category.parentKey ? readAdminCategories()[category.parentKey] : null;
   const representativeProducts = parent ? [] : categoryAssignedProducts(category.key);
   const representativeSlug = String(category.card?.representativeProductSlug || '');
-  const sharedBackgroundState = parent ? '' : (categoryUsesSharedCollectionBackground(category) ? 'Using Shared Background' : 'Custom Background');
   const sectionStart = (className, title, open = false) => parent
     ? `<fieldset class="admin-category-editor-section ${className}"><legend>${title}</legend>`
     : `<details class="admin-category-editor-section ${className}" ${open ? 'open' : ''}><summary>${title}</summary>`;
@@ -5462,7 +5701,7 @@ function categoryEditMarkup(category) {
     </div>
     <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
     <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
-    <div class="admin-category-text-controls">
+    ${parent ? `<div class="admin-category-text-controls">
       <h4>Title and Description Placement</h4>
       <div class="admin-category-position-controls">
         ${categoryDisplayRangeMarkup('titleSizePercent', 'Title Size', display.titleSizePercent, 70, 180, '%')}
@@ -5475,7 +5714,7 @@ function categoryEditMarkup(category) {
         <label>Description alignment<select name="descriptionAlign">${['left', 'center', 'right'].map((value) => `<option value="${value}" ${value === display.descriptionAlign ? 'selected' : ''}>${value[0].toUpperCase()}${value.slice(1)}</option>`).join('')}</select></label>
       </div>
       <button type="button" data-reset-category-text>Reset Text Position</button>
-    </div>
+    </div>` : ''}
   </div>`;
   return `
     <form class="admin-category-edit-form ${parent ? 'admin-child-group-edit' : 'admin-main-collection-edit'}" data-category-edit="${escapeAdminHtml(category.key)}">
@@ -5498,8 +5737,8 @@ function categoryEditMarkup(category) {
             <p class="admin-note">${parent ? 'A Child Group organizes Products / Standees inside its Main Collection. Removing an assignment does not delete the Product / Standee.' : 'A Main Collection organizes related Products / Standees and controls its customer browsing page. Editing it does not edit the individual Products / Standees inside it.'}</p>
             <div class="admin-input-group">
               <label>Title<input name="title" required value="${escapeAdminHtml(category.title || '')}"></label>
-              <label>Description<textarea name="description" rows="3">${escapeAdminHtml(category.description || '')}</textarea></label>
-              <label>Fun Fact<textarea name="funFact" rows="2">${escapeAdminHtml(category.funFact || '')}</textarea></label>
+              <label>Description<textarea name="description" rows="2" maxlength="220">${escapeAdminHtml(category.description || '')}</textarea></label>
+              <label>${parent ? 'Fun Fact' : 'Optional subtitle / small label'}<input name="funFact" value="${escapeAdminHtml(category.funFact || '')}" maxlength="80"></label>
             </div>
             <small>Collection key: <code>${escapeAdminHtml(category.key)}</code></small>
           ${sectionEnd}
@@ -5510,18 +5749,18 @@ function categoryEditMarkup(category) {
           </details>`}
           ${sectionStart('admin-category-image-section', parent ? 'Child Group Image' : 'Homepage Collection Card Image', true)}
             ${categoryVisualImagePicker(category)}
-            <p class="admin-note">${categoryAssignedProducts(category.key).length} assigned Product / Standee images are available as representative choices. Changing this image does not change a Product / Standee image.</p>
+            <p class="admin-note">Drag the image in the preview to move it. Scroll over the image to zoom. These controls change only this Homepage Collection Card image.</p>
             <div class="admin-category-position-controls">
-              ${categoryDisplayRangeMarkup('standeeSizePercent', `${parent ? 'Child Group' : 'Homepage Collection Card'} Image Size`, display.standeeSizePercent, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, '%')}
+              ${categoryDisplayRangeMarkup('standeeSizePercent', 'Image Zoom', display.standeeSizePercent, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, '%')}
               ${categoryDisplayRangeMarkup('standeeLeftPercent', 'Horizontal Position', display.standeeLeftPercent, -50, 50)}
               ${categoryDisplayRangeMarkup('standeeVerticalPercent', 'Vertical Position', display.standeeVerticalPercent, -50, 50)}
+              ${parent ? '' : categoryDisplayRangeMarkup('standeeRotationDeg', 'Rotate Image', display.standeeRotationDeg || 0, -180, 180, '°')}
             </div>
-            ${parent ? '<div class="admin-panel-actions"><button type="button" data-center-category-image>Center Standee</button><button type="button" data-reset-category-appearance>Reset Standee to Default</button></div>' : `${categoryDisplayAdjustmentButtons('image')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-image>Center Standee</button><button type="button" data-reset-category-appearance>Reset Standee to Default</button></div>`}
+            ${parent ? '<div class="admin-panel-actions"><button type="button" data-center-category-image>Center Standee</button><button type="button" data-reset-category-appearance>Reset Standee to Default</button></div>' : `<label class="admin-category-image-visibility"><input name="cardImageVisible" type="checkbox" ${category.card?.imageVisible !== false ? 'checked' : ''}> Show image on Homepage Collection Card</label><div class="admin-panel-actions admin-category-section-actions"><button type="button" data-reset-category-appearance>Reset Image Position / Zoom / Rotation</button></div>`}
           ${sectionEnd}
-          ${sectionStart('admin-category-background-section', parent ? 'Child Group Background' : 'Homepage Collection Card Background', true)}
-            ${parent ? '' : `<p class="admin-category-background-mode"><strong>${sharedBackgroundState}</strong> · This status compares the Main Collection's normalized background image and layout with the current shared configuration.</p>`}
+          ${parent ? `${sectionStart('admin-category-background-section', 'Child Group Background', true)}
             ${categoryVisualImagePicker(category, 'background')}
-            <p class="admin-note">This background belongs only to the Homepage Collection Card. It does not overwrite any Product Showroom Background.</p>
+            <p class="admin-note">This background belongs only to this Child Group.</p>
             <input name="backgroundPosition" type="hidden" value="${escapeAdminHtml(display.backgroundPosition)}">
             <div class="admin-category-position-controls">
               ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background Left / Right', backgroundPosition.x, 0, 100, '%')}
@@ -5530,10 +5769,10 @@ function categoryEditMarkup(category) {
               ${categoryDisplayRangeMarkup('backgroundHeightPercent', 'Background Height', display.backgroundHeightPercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
               ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom', display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
             </div>
-            ${parent ? '<button type="button" data-reset-category-background>Reset Background</button>' : `${categoryDisplayAdjustmentButtons('background')}<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-center-category-background>Center Background</button><button type="button" data-reset-category-background>Reset Background</button><button type="button" data-apply-category-background-all>Apply Background + Background Layout to All Collection Cards</button><button type="button" class="admin-button admin-button-secondary" data-reset-category-card-layout>Reset Card Layout</button></div><p class="admin-note" data-category-background-batch-note>${mainCollectionsForBackgroundBatch().length} Main Collection card${mainCollectionsForBackgroundBatch().length === 1 ? '' : 's'} will be affected. Recognized legacy-only homepage cards will first become normalized private drafts. Standee placement and every non-background field will be preserved.</p>`}
+            <button type="button" data-reset-category-background>Reset Background</button>
             <p class="admin-note">Background Zoom scales the existing cover image without changing the physical file.</p>
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
-          ${sectionEnd}
+          ${sectionEnd}` : ''}
           ${sectionStart('admin-category-settings', parent ? 'Child Group Settings' : 'Visibility & Homepage Order')}
             <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child Group of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Collection'}. Child Groups use the same normalized records with <code>parentKey</code> and do not become Homepage Collection Cards.</p>
             <div class="admin-category-settings-grid">
@@ -5755,9 +5994,11 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
   const cardImage = cardImageInput?.dataset.preserveInvalidReference === 'true'
     ? String(current.card?.image || '')
     : String(data.get('cardImage') || '');
-  const cardBackgroundImage = backgroundImageInput?.dataset.preserveInvalidReference === 'true'
+  const cardBackgroundImage = !backgroundImageInput
     ? String(current.card?.backgroundImage || '')
-    : String(data.get('cardBackgroundImage') || '');
+    : (backgroundImageInput.dataset.preserveInvalidReference === 'true'
+      ? String(current.card?.backgroundImage || '')
+      : String(data.get('cardBackgroundImage') || ''));
   const homepageVisible = current.parentKey
     ? false
     : (data.has('visible') ? data.has('homepageVisible') : current.homepageVisible !== false);
@@ -5777,26 +6018,28 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
       title: current.card?.titleOverride === true ? String(current.card.title || '') : '',
       description: current.card?.descriptionOverride === true ? String(current.card.description || '') : '',
       image: cardImage,
+      imageVisible: current.parentKey || !form.elements.namedItem('cardImageVisible') ? current.card?.imageVisible !== false : data.has('cardImageVisible'),
       backgroundImage: cardBackgroundImage,
       representativeProductSlug: current.parentKey ? '' : String(data.get('representativeProductSlug') || '')
     },
     displaySettings: {
       ...(current.displaySettings || {}),
-      backgroundPosition: String(data.get('backgroundPosition') || 'center center'),
-      backgroundSizePercent: safeCategoryDisplayNumber(data.get('backgroundSizePercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
-      backgroundWidthPercent: safeCategoryDisplayNumber(data.get('backgroundWidthPercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
-      backgroundHeightPercent: safeCategoryDisplayNumber(data.get('backgroundHeightPercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX),
+      backgroundPosition: data.has('backgroundPosition') ? String(data.get('backgroundPosition') || 'center center') : String(current.displaySettings?.backgroundPosition || 'center bottom'),
+      backgroundSizePercent: data.has('backgroundSizePercent') ? safeCategoryDisplayNumber(data.get('backgroundSizePercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX) : current.displaySettings?.backgroundSizePercent,
+      backgroundWidthPercent: data.has('backgroundWidthPercent') ? safeCategoryDisplayNumber(data.get('backgroundWidthPercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX) : current.displaySettings?.backgroundWidthPercent,
+      backgroundHeightPercent: data.has('backgroundHeightPercent') ? safeCategoryDisplayNumber(data.get('backgroundHeightPercent'), CATEGORY_BACKGROUND_SIZE_DEFAULT, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX) : current.displaySettings?.backgroundHeightPercent,
       standeeSizePercent: safeCategoryDisplayNumber(data.get('standeeSizePercent'), CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
       standeeLeftPercent: safeCategoryDisplayNumber(data.get('standeeLeftPercent'), 0, -50, 50),
       standeeVerticalPercent: safeCategoryDisplayNumber(data.get('standeeVerticalPercent'), 0, -50, 50),
-      titleLeftPercent: safeCategoryDisplayNumber(data.get('titleLeftPercent'), 0, -50, 50),
-      titleVerticalPercent: safeCategoryDisplayNumber(data.get('titleVerticalPercent'), 0, -50, 50),
-      titleAlign: safeCategoryTextAlignment(data.get('titleAlign')),
-      titleSizePercent: safeCategoryDisplayNumber(data.get('titleSizePercent'), CATEGORY_TEXT_SIZE_DEFAULT, 70, 180),
-      descriptionLeftPercent: safeCategoryDisplayNumber(data.get('descriptionLeftPercent'), 0, -50, 50),
-      descriptionVerticalPercent: safeCategoryDisplayNumber(data.get('descriptionVerticalPercent'), 0, -50, 50),
-      descriptionAlign: safeCategoryTextAlignment(data.get('descriptionAlign')),
-      descriptionSizePercent: safeCategoryDisplayNumber(data.get('descriptionSizePercent'), CATEGORY_TEXT_SIZE_DEFAULT, 70, 180)
+      standeeRotationDeg: current.parentKey ? safeCategoryDisplayNumber(current.displaySettings?.standeeRotationDeg, 0, -180, 180) : safeCategoryDisplayNumber(data.get('standeeRotationDeg'), 0, -180, 180),
+      titleLeftPercent: data.has('titleLeftPercent') ? safeCategoryDisplayNumber(data.get('titleLeftPercent'), 0, -50, 50) : current.displaySettings?.titleLeftPercent,
+      titleVerticalPercent: data.has('titleVerticalPercent') ? safeCategoryDisplayNumber(data.get('titleVerticalPercent'), 0, -50, 50) : current.displaySettings?.titleVerticalPercent,
+      titleAlign: data.has('titleAlign') ? safeCategoryTextAlignment(data.get('titleAlign')) : current.displaySettings?.titleAlign,
+      titleSizePercent: data.has('titleSizePercent') ? safeCategoryDisplayNumber(data.get('titleSizePercent'), CATEGORY_TEXT_SIZE_DEFAULT, 70, 180) : current.displaySettings?.titleSizePercent,
+      descriptionLeftPercent: data.has('descriptionLeftPercent') ? safeCategoryDisplayNumber(data.get('descriptionLeftPercent'), 0, -50, 50) : current.displaySettings?.descriptionLeftPercent,
+      descriptionVerticalPercent: data.has('descriptionVerticalPercent') ? safeCategoryDisplayNumber(data.get('descriptionVerticalPercent'), 0, -50, 50) : current.displaySettings?.descriptionVerticalPercent,
+      descriptionAlign: data.has('descriptionAlign') ? safeCategoryTextAlignment(data.get('descriptionAlign')) : current.displaySettings?.descriptionAlign,
+      descriptionSizePercent: data.has('descriptionSizePercent') ? safeCategoryDisplayNumber(data.get('descriptionSizePercent'), CATEGORY_TEXT_SIZE_DEFAULT, 70, 180) : current.displaySettings?.descriptionSizePercent
     },
     updatedAt: new Date().toISOString(),
     draftStatus: approvalStatus === 'approved' ? 'ready' : 'draft',
@@ -5854,7 +6097,7 @@ function setCategoryPublishState(categoryKey, message, state = '') {
     const publishing = state === 'publishing' || state === 'saving-live';
     button.disabled = publishing;
     button.toggleAttribute('aria-busy', publishing);
-    button.textContent = publishing ? 'SAVING LIVE…' : 'Save Live';
+    button.textContent = publishing ? 'SAVING ALL COLLECTION CHANGES LIVE…' : 'Save All Collection Changes Live';
   });
   document.querySelectorAll(`[data-category-publish-status="${CSS.escape(categoryKey)}"]`).forEach((status) => {
     status.textContent = visibleMessage;
@@ -6070,14 +6313,22 @@ function previewCategoryEdit(form) {
   const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
   const imagePresentation = adminImageReferencePresentation(presentation.image);
   const backgroundPresentation = adminImageReferencePresentation(presentation.background, { background: true });
+  const sharedStyle = window.MVPLUX_STOREFRONT_SECTION_LAYOUT?.fromGlobalDisplaySettings?.(
+    'featuredCategories',
+    adminLiveSettings?.globalDisplaySettings || adminPublishedBaseline?.globalDisplaySettings || {}
+  ) || {
+    imageAreaMinHeightPx: 330, textBoxHeightPx: 92, titleFontSizePx: 19, titleFontWeight: 800,
+    descriptionFontSizePx: 14, descriptionFontWeight: 400, titleLineHeightPercent: 120,
+    descriptionLineHeightPercent: 140, textGapPx: 5, textPaddingPx: 10,
+    titleFontFamily: 'inherit', descriptionFontFamily: 'inherit', textAlign: 'center'
+  };
   preview.hidden = false;
-  preview.innerHTML = `<article class="product-card admin-master-category-card admin-category-placement-preview">
+  preview.innerHTML = `<article class="product-card admin-master-category-card admin-category-placement-preview" style="--featured-categories-image-area-min-height:${sharedStyle.imageAreaMinHeightPx}px;--featured-categories-text-box-height:${sharedStyle.textBoxHeightPx}px;--featured-categories-title-size:${sharedStyle.titleFontSizePx}px;--featured-categories-title-weight:${sharedStyle.titleFontWeight};--featured-categories-description-size:${sharedStyle.descriptionFontSizePx}px;--featured-categories-description-weight:${sharedStyle.descriptionFontWeight};--featured-categories-title-line-height:${sharedStyle.titleLineHeightPercent}%;--featured-categories-description-line-height:${sharedStyle.descriptionLineHeightPercent}%;--featured-categories-text-gap:${sharedStyle.textGapPx}px;--featured-categories-text-padding:${sharedStyle.textPaddingPx}px;--featured-categories-title-font:${escapeAdminHtml(sharedStyle.titleFontFamily)};--featured-categories-description-font:${escapeAdminHtml(sharedStyle.descriptionFontFamily)};--featured-categories-text-align:${sharedStyle.textAlign}">
+    <div class="homepage-collection-card-text"><h3 data-admin-category-field="title"><span class="product-title-link">${escapeAdminHtml(presentation.title)}</span></h3>${presentation.funFact ? `<small class="homepage-collection-card-subtitle">${escapeAdminHtml(presentation.funFact)}</small>` : ''}<p class="product-description" data-admin-category-field="description">${escapeAdminHtml(presentation.description)}</p></div>
     <div class="product-stage-preview admin-category-storefront-stage admin-category-preview-stage">
       <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(backgroundPresentation.preview || IMAGE_IMPORT_DEFAULT_BACKGROUND)}');background-position:${escapeAdminHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}" aria-hidden="true"></span>
-      ${imagePresentation.preview ? `<img class="product-cutout" src="${escapeAdminHtml(imagePresentation.preview)}" alt="" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}
+      ${presentation.imageVisible && imagePresentation.preview ? `<img class="product-cutout" data-category-preview-image src="${escapeAdminHtml(imagePresentation.preview)}" alt="" draggable="false" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%;transform:${layout.imageTransform}">` : `<span>${presentation.imageReference ? 'Image hidden' : escapeAdminHtml(imagePresentation.label)}</span>`}
     </div>
-    <h3 data-admin-category-field="title" style="transform:${layout.titleTransform};text-align:${layout.titleAlign}"><span class="product-title-link" style="text-align:inherit;font-size:${layout.titleFontSizePx}px">${escapeAdminHtml(presentation.title)}</span></h3>
-    <p class="product-description" data-admin-category-field="description" style="transform:${layout.descriptionTransform};text-align:${layout.descriptionAlign};font-size:${layout.descriptionFontSizePx}px">${escapeAdminHtml(presentation.description)}</p>
     <span class="admin-category-preview-status">${category.visible === false ? 'Category hidden from customers' : (category.homepageVisible === false ? 'Hidden from homepage' : 'Shown on homepage')}</span>
   </article>`;
   updateCategoryDraftPublishedState(form, category);
@@ -6224,6 +6475,7 @@ function setCategoryStandeeCentered(form, { resetSize = false, preview = true } 
     'standeeVerticalPercent',
     window.MVPLUX_CATEGORY_PRESENTATION.centeredStandeeVerticalPercent(requestedSize)
   );
+  if (resetSize) setCategoryDisplayControlValue(form, 'standeeRotationDeg', 0);
   syncCategoryDisplayOutputs(form);
   markCategoryEditorDirty(form);
   if (preview) previewCategoryEdit(form);
@@ -6261,12 +6513,12 @@ function syncCategoryBackgroundPosition(form) {
 
 function syncCategoryDisplayOutputs(form) {
   const percentageFields = new Set(['standeeSizePercent', 'titleSizePercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent']);
-  ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent', 'titleLeftPercent', 'titleVerticalPercent', 'titleSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent'].forEach((name) => {
+  ['standeeLeftPercent', 'standeeVerticalPercent', 'standeeSizePercent', 'standeeRotationDeg', 'titleLeftPercent', 'titleVerticalPercent', 'titleSizePercent', 'descriptionLeftPercent', 'descriptionVerticalPercent', 'descriptionSizePercent', 'backgroundPositionX', 'backgroundPositionY', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent'].forEach((name) => {
     const input = form.elements.namedItem(name);
     const number = form.querySelector(`[data-category-display-number="${CSS.escape(name)}"]`);
     const output = form.querySelector(`[data-category-display-output="${name}"]`);
     if (input && number) number.value = input.value;
-    if (input && output) output.textContent = `${input.value}${percentageFields.has(name) ? '%' : ''}`;
+    if (input && output) output.textContent = `${input.value}${percentageFields.has(name) ? '%' : (name === 'standeeRotationDeg' ? '°' : '')}`;
   });
 }
 
@@ -6318,7 +6570,7 @@ function categoryBackgroundBatchOperations(source, targets, updatedAt = new Date
   });
 }
 
-async function saveSharedCollectionBackgroundChanges({ quiet = false, approvalStatus = 'draft' } = {}) {
+async function saveSharedCollectionBackgroundChanges({ quiet = false, approvalStatus = 'draft', forceBackground = false } = {}) {
   const form = document.querySelector('[data-shared-collection-background-form]');
   if (!form || !editorHasUnsavedChanges(form)) return true;
   if (!await loadAdminLiveSettings()) {
@@ -6330,23 +6582,36 @@ async function saveSharedCollectionBackgroundChanges({ quiet = false, approvalSt
   const existingKeys = new Set(normalizedMainCollectionsForBatch().map((category) => category.key));
   const targets = mainCollectionsForBackgroundBatch();
   const status = form.querySelector('[data-shared-collection-background-status]');
-  if (!targets.length) {
+  const configuration = sharedCollectionBackgroundFromForm(form);
+  const sectionLayout = featuredCategoriesSectionLayoutFromForm(form);
+  const backgroundChanged = forceBackground || JSON.stringify(configuration) !== form.dataset.initialBackgroundConfiguration;
+  const sectionLayoutChanged = JSON.stringify(sectionLayout) !== form.dataset.initialSectionLayout;
+  if (!backgroundChanged && !sectionLayoutChanged) {
+    if (status) status.textContent = 'No unsaved shared background or Featured Categories layout changes.';
+    form.dataset.editorDirty = 'false';
+    return true;
+  }
+  if (backgroundChanged && !targets.length) {
     if (status) status.textContent = 'No normalized Main Collections are available.';
     return false;
   }
-  const configuration = sharedCollectionBackgroundFromForm(form);
-  const validation = adminStateUtils.validateAdminImageReference(configuration.backgroundImage, { allowBlank: false });
-  if (!validation.valid) {
+  const validation = backgroundChanged
+    ? adminStateUtils.validateAdminImageReference(configuration.backgroundImage, { allowBlank: false })
+    : { valid: true };
+  if (backgroundChanged && !validation.valid) {
     const message = `Shared background save failed — ${validation.reason}`;
     if (status) status.textContent = message;
     setStatus(message);
     return false;
   }
-  if (status) status.textContent = `Saving one background batch for ${targets.length} Main Collections…`;
-  const operations = categoryBackgroundBatchOperations(sharedCollectionBackgroundSource(configuration), targets, new Date().toISOString(), existingKeys, approvalStatus);
+  if (status) status.textContent = `Saving ${backgroundChanged ? `one background batch for ${targets.length} Main Collections` : ''}${backgroundChanged && sectionLayoutChanged ? ' and ' : ''}${sectionLayoutChanged ? 'the Featured Categories section layout' : ''}…`;
+  const operations = [
+    ...(backgroundChanged ? categoryBackgroundBatchOperations(sharedCollectionBackgroundSource(configuration), targets, new Date().toISOString(), existingKeys, approvalStatus) : []),
+    ...(sectionLayoutChanged ? [featuredCategoriesSectionLayoutOperation(sectionLayout)] : [])
+  ];
   const result = await saveAdminCollectionOperations(operations);
   if (!result.ok) {
-    const message = `Shared Collection Background save failed — ${adminLastSaveError || 'the batch was not saved.'}`;
+    const message = `Shared Collection design save failed — ${adminLastSaveError || 'the batch was not saved.'}`;
     if (status) status.textContent = message;
     setStatus(message);
     return false;
@@ -6354,13 +6619,17 @@ async function saveSharedCollectionBackgroundChanges({ quiet = false, approvalSt
   form.dataset.editorDirty = 'false';
   renderCategoryManager();
   const refreshedStatus = document.querySelector('[data-shared-collection-background-status]');
+  const savedParts = [
+    backgroundChanged ? `${targets.length} Main Collection background${targets.length === 1 ? '' : 's'}` : '',
+    sectionLayoutChanged ? 'Featured Categories section layout' : ''
+  ].filter(Boolean).join(' and ');
   const savedMessage = approvalStatus === 'approved'
-    ? `BACKGROUND BATCH SAVED. SAVING LIVE… ${targets.length} Main Collections are ready.`
-    : `DRAFT SAVED — PRIVATE. ${targets.length} Main Collection background${targets.length === 1 ? '' : 's'} updated in one batch.`;
+    ? `SHARED DESIGN SAVED. SAVING LIVE… ${savedParts} ready.`
+    : `DRAFT SAVED — PRIVATE. ${savedParts} updated in one protected batch.`;
   if (refreshedStatus) refreshedStatus.textContent = savedMessage;
   if (!quiet) setStatus(approvalStatus === 'approved'
     ? savedMessage
-    : `Shared Collection Background saved privately to ${targets.length} Main Collections in one batch. Nothing was published.`);
+    : `Shared Collection design saved privately: ${savedParts}. Nothing was published.`);
   return true;
 }
 
@@ -6435,7 +6704,7 @@ async function saveAllCollectionChangesLive(statusTarget = null, { workingStateC
     return false;
   }
   const changeIds = architectureReviewItems()
-    .filter((item) => ['category', 'category-delete'].includes(item.type))
+    .filter((item) => ['category', 'category-delete', 'section-layout'].includes(item.type))
     .map((item) => item.id);
   if (!changeIds.length) {
     const message = 'LIVE — there are no saved Collection changes waiting to go live.';
@@ -6490,6 +6759,33 @@ function editorHasUnsavedChanges(form) {
   return Boolean(form && (form.dataset.editorDirty === 'true' || form._adminDirtyFields?.size || form.dataset.imageBoxDirty === 'true'));
 }
 
+function beginCategoryPreviewImageDrag(event) {
+  const image = event.target.closest('[data-category-preview-image]');
+  const form = image?.closest('[data-category-edit]');
+  const stage = image?.closest('.admin-category-preview-stage');
+  if (!image || !form || !stage || form.classList.contains('admin-child-group-edit')) return false;
+  event.preventDefault();
+  const startX = event.clientX;
+  const startY = event.clientY;
+  const stageRect = stage.getBoundingClientRect();
+  const startLeft = Number(form.elements.namedItem('standeeLeftPercent')?.value || 0);
+  const startVertical = Number(form.elements.namedItem('standeeVerticalPercent')?.value || 0);
+  const move = (moveEvent) => {
+    setCategoryDisplayControlValue(form, 'standeeLeftPercent', startLeft + ((moveEvent.clientX - startX) / Math.max(1, stageRect.width)) * 100);
+    setCategoryDisplayControlValue(form, 'standeeVerticalPercent', startVertical + ((moveEvent.clientY - startY) / Math.max(1, stageRect.height)) * 100);
+    markCategoryEditorDirty(form);
+    syncCategoryDisplayOutputs(form);
+    previewCategoryEdit(form);
+  };
+  const stop = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', stop);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', stop, { once: true });
+  return true;
+}
+
 function confirmEditorCanClose(form, label) {
   return !editorHasUnsavedChanges(form) || window.confirm(`You have unsaved ${label} changes. Leave without saving?`);
 }
@@ -6498,6 +6794,18 @@ function setupCategoryManagerEvents() {
   const section = document.getElementById('categories');
   if (!section || section.dataset.categoryManagerBound) return;
   section.dataset.categoryManagerBound = 'true';
+  section.addEventListener('pointerdown', beginCategoryPreviewImageDrag);
+  section.addEventListener('wheel', (event) => {
+    const image = event.target.closest('[data-category-preview-image]');
+    const form = image?.closest('[data-category-edit]');
+    if (!image || !form || form.classList.contains('admin-child-group-edit')) return;
+    event.preventDefault();
+    const current = Number(form.elements.namedItem('standeeSizePercent')?.value || CATEGORY_IMAGE_SIZE_DEFAULT);
+    setCategoryDisplayControlValue(form, 'standeeSizePercent', current + (event.deltaY < 0 ? 3 : -3));
+    markCategoryEditorDirty(form);
+    syncCategoryDisplayOutputs(form);
+    previewCategoryEdit(form);
+  }, { passive: false });
   document.getElementById('adminCategorySearch')?.addEventListener('input', renderCategoryManager);
   section.querySelector('.admin-category-visibility-filters')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-category-visibility-filter]');
@@ -6554,6 +6862,7 @@ function setupCategoryManagerEvents() {
     const sharedBackgroundForm = event.target.closest('[data-shared-collection-background-form]');
     if (sharedBackgroundForm) {
       markCategoryEditorDirty(sharedBackgroundForm);
+      syncSectionLayoutControl(sharedBackgroundForm, event.target);
       previewSharedCollectionBackground(sharedBackgroundForm);
     }
   });
@@ -6570,6 +6879,7 @@ function setupCategoryManagerEvents() {
     if (sharedBackgroundForm) {
       markCategoryEditorDirty(sharedBackgroundForm);
       syncCategoryDisplayControl(sharedBackgroundForm, event.target);
+      syncSectionLayoutControl(sharedBackgroundForm, event.target);
       syncCategoryDisplayOutputs(sharedBackgroundForm);
       previewSharedCollectionBackground(sharedBackgroundForm);
       const status = sharedBackgroundForm.querySelector('[data-shared-collection-background-status]');
@@ -6766,6 +7076,46 @@ function setupCategoryManagerEvents() {
       const form = displayAdjustment.closest('[data-category-edit], [data-shared-collection-background-form]');
       if (form) applyCategoryDisplayAdjustment(form, displayAdjustment.dataset.adjustCategoryDisplay, displayAdjustment.dataset.categoryDisplayAdjustment);
     }
+    const sectionLayoutAdjustment = event.target.closest('[data-adjust-featured-section-layout]');
+    if (sectionLayoutAdjustment) {
+      const form = sectionLayoutAdjustment.closest('[data-shared-collection-background-form]');
+      const field = sectionLayoutAdjustment.dataset.adjustFeaturedSectionLayout;
+      const current = Number(form?.elements.namedItem(field)?.value || 0);
+      setSectionLayoutControlValue(form, field, current + Number(sectionLayoutAdjustment.dataset.featuredSectionLayoutAdjustment || 0));
+      markCategoryEditorDirty(form);
+      previewSharedCollectionBackground(form);
+    }
+    const matchFanShowcase = event.target.closest('[data-match-fan-showcase-layout]');
+    if (matchFanShowcase) {
+      const form = matchFanShowcase.closest('[data-shared-collection-background-form]');
+      setSectionLayoutControlValue(form, 'sectionMaxWidthPx', 1400);
+      markCategoryEditorDirty(form);
+      previewSharedCollectionBackground(form);
+    }
+    const resetFeaturedLayout = event.target.closest('[data-reset-featured-section-layout]');
+    if (resetFeaturedLayout) {
+      const form = resetFeaturedLayout.closest('[data-shared-collection-background-form]');
+      Object.entries(featuredCategoriesSectionLayoutDefaults())
+        .forEach(([name, value]) => setSectionLayoutControlValue(form, name, value));
+      markCategoryEditorDirty(form);
+      previewSharedCollectionBackground(form);
+    }
+    const sharedTextPreset = event.target.closest('[data-shared-text-preset]');
+    if (sharedTextPreset) {
+      const form = sharedTextPreset.closest('[data-shared-collection-background-form]');
+      const defaults = featuredCategoriesSectionLayoutDefaults();
+      const values = sharedTextPreset.dataset.sharedTextPreset === 'compact'
+        ? { textBoxHeightPx: 74, textGapPx: 3, textPaddingPx: 7, titleFontSizePx: 18, descriptionFontSizePx: 12, titleLineHeightPercent: 110, descriptionLineHeightPercent: 125 }
+        : sharedTextPreset.dataset.sharedTextPreset === 'bold'
+          ? { titleFontWeight: 900, titleFontSizePx: 21 }
+          : Object.fromEntries(['textBoxHeightPx', 'textGapPx', 'textPaddingPx', 'titleFontSizePx', 'titleFontWeight', 'descriptionFontSizePx', 'descriptionFontWeight', 'titleLineHeightPercent', 'descriptionLineHeightPercent'].map((name) => [name, defaults[name]]));
+      Object.entries(values).forEach(([name, value]) => setSectionLayoutControlValue(form, name, value));
+      if (sharedTextPreset.dataset.sharedTextPreset === 'reset') {
+        ['titleFontFamily', 'descriptionFontFamily', 'textAlign'].forEach((name) => { form.elements.namedItem(name).value = defaults[name]; });
+      }
+      markCategoryEditorDirty(form);
+      previewSharedCollectionBackground(form);
+    }
     const centerSharedBackground = event.target.closest('[data-center-shared-collection-background]');
     if (centerSharedBackground) {
       const form = centerSharedBackground.closest('[data-shared-collection-background-form]');
@@ -6795,7 +7145,7 @@ function setupCategoryManagerEvents() {
           .forEach((name) => setCategoryDisplayControlValue(form, name, defaults[name]));
         markCategoryEditorDirty(form);
         previewSharedCollectionBackground(form);
-        await saveSharedCollectionBackgroundChanges();
+        await saveSharedCollectionBackgroundChanges({ forceBackground: true });
       }
     }
     const resetCardLayout = event.target.closest('[data-reset-category-card-layout]');
@@ -6851,11 +7201,7 @@ function setupCategoryManagerEvents() {
     }
     const publishButton = event.target.closest('[data-publish-category-key]');
     if (publishButton) {
-      const publishKey = publishButton.dataset.publishCategoryKey;
-      const form = publishButton.closest('[data-category-edit]')
-        || card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)
-        || null;
-      await publishCategoryByKey(publishKey, form);
+      await saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'));
     }
     const deleteButton = event.target.closest('[data-delete-category]');
     if (deleteButton) await deleteAdminCategories([deleteButton.dataset.deleteCategory]);

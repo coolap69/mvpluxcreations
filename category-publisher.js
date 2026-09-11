@@ -18,6 +18,7 @@
         title: category.card?.titleOverride === true ? String(category.card.title || '') : '',
         description: category.card?.descriptionOverride === true ? String(category.card.description || '') : '',
         image: validImage(category.card?.image) ? String(category.card.image) : '',
+        imageVisible: category.card?.imageVisible !== false,
         backgroundImage: validImage(category.card?.backgroundImage) ? String(category.card.backgroundImage) : '',
         representativeProductSlug: String(category.card?.representativeProductSlug || '')
       },
