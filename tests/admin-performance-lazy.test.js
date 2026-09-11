@@ -44,7 +44,7 @@ Deno.test('Categories mount editors, products, and image galleries only after ex
   assert(manager.includes("openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''"), 'Category editors must be absent until Edit');
   assert(manager.includes("openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''"), 'Category product lists must be absent until Open Products');
   const picker = sourceBetween('function categoryVisualImagePicker', 'function populateNewCategoryVisualPickers');
-  assert(picker.includes('Choose Change Image to load associated images.'), 'image gallery must begin as an unloaded placeholder');
+  assert(picker.includes('Choose Change Image to load all repository images.'), 'image gallery must begin unloaded while explaining that Change Image opens the complete library');
   assert(!picker.includes('categoryImagePickerChoices(preferred'), 'associated thumbnails must not be constructed with the editor');
 });
 

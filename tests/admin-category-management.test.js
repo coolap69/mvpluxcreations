@@ -102,14 +102,16 @@ Deno.test('Category editor reuses authoritative AI assistance without saving or 
   assert(editor.includes('<details class="admin-advanced-fields"><summary>Advanced</summary>') && editor.includes('${advancedTextTools}'), 'AI actions must render inside the collapsed Advanced section after everyday controls');
 });
 
-Deno.test('Category visual picker prioritizes assigned product images and searches the repository inventory', async () => {
+Deno.test('Category visual picker opens the complete repository inventory with folder search', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const picker = source.slice(source.indexOf('function repositoryCategoryImageLibrary'), source.indexOf('function populateNewCategoryVisualPickers'));
   assert(picker.includes('categoryAssignedProducts(category.key)'), 'preferred images must come from products assigned to this Category');
   assert(picker.includes('product.cutoutImage') && picker.includes('product.imageChoices'), 'main and additional product images must be preferred');
   assert(picker.includes('repositoryImagePaths') && picker.includes('imageDraftInventory'), 'repository search must use the existing image inventory');
   assert(picker.includes('Shared default background'), 'background picker must support inherited shared background');
-  assert(picker.includes('Search All Repository Images'), 'repository-wide search must be an explicit secondary action');
+  assert(picker.includes('Search All Repository Images'), 'repository-wide search remains directly available');
+  assert(picker.includes('All repository images are available. Search by folder or filename'), 'the chooser must explain that every folder is searchable');
+  assert(source.includes("renderCategoryImagePickerGallery(picker, '', true)"), 'Change Image must show the complete repository rather than only associated Product images');
   assert(!picker.includes('<select'), 'Category image selection must not fall back to a giant native dropdown');
 });
 

@@ -18,8 +18,8 @@ const adminProducts = [
     description: 'Shop sports-inspired standee styles, then choose different players, sizes, and background options inside the category.',
     originalHeight: 78,
     page: 'sports-legends.html',
-    cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
-    backgroundImage: 'images/FanBackgrounds/top-favorite-stage-gold.png'
+    cutoutImage: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png',
+    backgroundImage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg'
   },
   {
     slug: 'movie-character-standee',
@@ -27,8 +27,8 @@ const adminProducts = [
     description: 'Browse movie-style standee categories and see more character looks, poses, and display backgrounds inside.',
     originalHeight: 74,
     page: 'movie-inspired.html',
-    cutoutImage: 'images/MovieCharacterStandees/Endorskeleton/Endornobackground.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/Movie Stars/Movie Characters/Endorskeleton/Endornobackground.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'people-public-figure-standee',
@@ -36,8 +36,8 @@ const adminProducts = [
     description: 'Plan actor, creator, historical figure, public speaker, or lookalike-style display ideas.',
     originalHeight: 78,
     page: 'people-public-figures.html',
-    cutoutImage: 'images/PeoplePublicFigureStandees/President/Nobackgroubd.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/People-PublicFigure/President/Nobackgroubd.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'music-artist-standee',
@@ -45,8 +45,8 @@ const adminProducts = [
     description: 'Explore concert-style standee categories with different performers, stage looks, and custom display choices.',
     originalHeight: 69,
     page: 'music-artists.html',
-    cutoutImage: 'images/FrontPageWeb/Music-MJackson-MJTR.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR/MJTR.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'faith-celebration-standee',
@@ -54,8 +54,8 @@ const adminProducts = [
     description: 'View inspirational and celebration display categories for churches, holidays, events, rooms, and plays.',
     originalHeight: 72,
     page: 'religious-cutouts.html',
-    cutoutImage: 'images/FrontPageWeb/Religious-J13D.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/Faith Celebration/Jesus1/J13D.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'holiday-standee',
@@ -63,8 +63,8 @@ const adminProducts = [
     description: 'Seasonal displays for Christmas, Halloween, Easter, Valentine events, parties, and storefronts.',
     originalHeight: 78,
     page: 'holiday-cutouts.html',
-    cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero8T.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/FrontPageWeb/Herobackgroundparts/Herobackgroundparts-hero8T.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'fan-request-standee',
@@ -72,8 +72,8 @@ const adminProducts = [
     description: 'See fan-inspired ideas, mashups, and custom concepts that can become full-size display pieces.',
     originalHeight: 69,
     page: 'fan-inspired.html',
-    cutoutImage: 'images/FrontPageWeb/Music-MJackson-MJzombie.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'dinosaur-party-standee',
@@ -81,8 +81,8 @@ const adminProducts = [
     description: 'Shop dinosaur and creature-style displays for birthdays, rooms, outdoor setups, and big party moments.',
     originalHeight: 96,
     page: 'dinosaur-cutouts.html',
-    cutoutImage: 'images/FrontPageWeb/Dinosaurs-JPRex.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/Dinosaurs-Animals/Dinosaur/JPRex.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'game-fantasy-standee',
@@ -90,8 +90,8 @@ const adminProducts = [
     description: 'Browse game-room, fantasy, stream, and themed-event standee categories with custom scene options.',
     originalHeight: 72,
     page: 'videogame-cutouts.html',
-    cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero10E.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/FrontPageWeb/Herobackgroundparts/Herobackgroundparts-hero10E.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'custom-photo-standee',
@@ -99,8 +99,8 @@ const adminProducts = [
     description: 'Turn your own photo, family member, athlete, or guest of honor into a custom standee display.',
     originalHeight: 66,
     page: 'custom-photo-cutouts.html',
-    cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero7T.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/FrontPageWeb/Herobackgroundparts/Herobackgroundparts-hero7T.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   },
   {
     slug: 'small-standee-party-pack',
@@ -108,8 +108,8 @@ const adminProducts = [
     description: 'Shop smaller standee packs for tables, birthdays, rooms, gifts, and party displays.',
     originalHeight: 36,
     page: 'small-cutout-party-packs.html',
-    cutoutImage: 'images/FrontPageWeb/Herobackgroundparts-hero8T.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'
+    cutoutImage: 'images/FrontPageWeb/Herobackgroundparts/Herobackgroundparts-hero8T.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'
   }
 ];
 
@@ -1090,22 +1090,22 @@ function setupAdminTestMode() {
 }
 
 const extraImageItems = [
-  { key: 'wanted-basketball-cutout', group: 'Most Wanted', label: 'Sport Legend standee', fallback: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png' },
-  { key: 'wanted-basketball-bg', group: 'Most Wanted', label: 'Basketball Legend background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
-  { key: 'wanted-movie-cutout', group: 'Most Wanted', label: 'Movie Inspired standee', fallback: 'images/MovieCharacterStandees/Endorskeleton/Endornobackground.png' },
-  { key: 'wanted-movie-bg', group: 'Most Wanted', label: 'Movie Inspired background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
-  { key: 'wanted-music-cutout', group: 'Most Wanted', label: 'Music Artist standee', fallback: 'images/FrontPageWeb/Music-MJackson-MJTR.png' },
-  { key: 'wanted-music-bg', group: 'Most Wanted', label: 'Music Artist background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
-  { key: 'wanted-dinosaur-cutout', group: 'Most Wanted', label: 'Dinosaur Movie standee', fallback: 'images/FrontPageWeb/Dinosaurs-JPRex.png' },
-  { key: 'wanted-dinosaur-bg', group: 'Most Wanted', label: 'Dinosaur Movie background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
-  { key: 'wanted-custom-cutout', group: 'Most Wanted', label: 'Custom Mashup standee', fallback: 'images/FrontPageWeb/Music-MJackson-MJzombie.png' },
-  { key: 'wanted-custom-bg', group: 'Most Wanted', label: 'Custom Mashup background', fallback: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg' },
-  { key: 'gallery-hero-cutout', group: 'Gallery', label: 'Golden Hero standee', fallback: 'images/FrontPageWeb/Religious-J13D.png' },
-  { key: 'gallery-hero-bg', group: 'Gallery', label: 'Golden Hero background', fallback: 'images/FrontPageWeb/FanBackgrounds-gallery-poster-heroic.jpg' },
-  { key: 'gallery-adventure-cutout', group: 'Gallery', label: 'Dinosaur Movie Night standee', fallback: 'images/FrontPageWeb/Dinosaurs-JPRex.png' },
-  { key: 'gallery-adventure-bg', group: 'Gallery', label: 'Dinosaur Movie Night background', fallback: 'images/FrontPageWeb/FanBackgrounds-gallery-poster-adventure.jpg' },
-  { key: 'gallery-vip-cutout', group: 'Gallery', label: 'VIP Spotlight standee', fallback: 'images/FrontPageWeb/Music-TS-TSfinal.png' },
-  { key: 'gallery-vip-bg', group: 'Gallery', label: 'VIP Spotlight background', fallback: 'images/FrontPageWeb/FanBackgrounds-gallery-poster-premium.jpg' }
+  { key: 'wanted-basketball-cutout', group: 'Most Wanted', label: 'Sport Legend standee', fallback: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png' },
+  { key: 'wanted-basketball-bg', group: 'Most Wanted', label: 'Basketball Legend background', fallback: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'wanted-movie-cutout', group: 'Most Wanted', label: 'Movie Inspired standee', fallback: 'images/Movie Stars/Movie Characters/Endorskeleton/Endornobackground.png' },
+  { key: 'wanted-movie-bg', group: 'Most Wanted', label: 'Movie Inspired background', fallback: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'wanted-music-cutout', group: 'Most Wanted', label: 'Music Artist standee', fallback: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR/MJTR.png' },
+  { key: 'wanted-music-bg', group: 'Most Wanted', label: 'Music Artist background', fallback: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'wanted-dinosaur-cutout', group: 'Most Wanted', label: 'Dinosaur Movie standee', fallback: 'images/Dinosaurs-Animals/Dinosaur/JPRex.png' },
+  { key: 'wanted-dinosaur-bg', group: 'Most Wanted', label: 'Dinosaur Movie background', fallback: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'wanted-custom-cutout', group: 'Most Wanted', label: 'Custom Mashup standee', fallback: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png' },
+  { key: 'wanted-custom-bg', group: 'Most Wanted', label: 'Custom Mashup background', fallback: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+  { key: 'gallery-hero-cutout', group: 'Gallery', label: 'Golden Hero standee', fallback: 'images/Faith Celebration/Jesus1/J13D.png' },
+  { key: 'gallery-hero-bg', group: 'Gallery', label: 'Golden Hero background', fallback: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-heroic.jpg' },
+  { key: 'gallery-adventure-cutout', group: 'Gallery', label: 'Dinosaur Movie Night standee', fallback: 'images/Dinosaurs-Animals/Dinosaur/JPRex.png' },
+  { key: 'gallery-adventure-bg', group: 'Gallery', label: 'Dinosaur Movie Night background', fallback: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-adventure.jpg' },
+  { key: 'gallery-vip-cutout', group: 'Gallery', label: 'VIP Spotlight standee', fallback: 'images/Music Artists/TaylorSwift/TSfinal.png' },
+  { key: 'gallery-vip-bg', group: 'Gallery', label: 'VIP Spotlight background', fallback: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-premium.jpg' }
 ];
 
 function withoutStoredProductPrice(product = {}) {
@@ -3302,7 +3302,7 @@ function syncGeneratedCreationValue(form, fieldName) {
 function renderNewProductPreview(form) {
   const preview = form.querySelector('[data-create-product-preview]');
   if (!preview) return;
-  const image = form.elements.namedItem('cutoutImage')?.value.trim() || 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png';
+  const image = form.elements.namedItem('cutoutImage')?.value.trim() || 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png';
   const background = form.elements.namedItem('backgroundImage')?.value.trim() || IMAGE_IMPORT_DEFAULT_BACKGROUND;
   const title = form.elements.namedItem('title')?.value.trim() || 'Example Standee';
   const description = form.elements.namedItem('description')?.value.trim() || 'Your product description will appear here.';
@@ -3327,7 +3327,7 @@ function renderNewProductPreview(form) {
 function renderNewCategoryPreview(form) {
   const preview = form.querySelector('[data-create-category-preview]');
   if (!preview) return;
-  const image = form.elements.namedItem('cardImage')?.value.trim() || 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png';
+  const image = form.elements.namedItem('cardImage')?.value.trim() || 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png';
   const background = form.elements.namedItem('cardBackgroundImage')?.value.trim() || IMAGE_IMPORT_DEFAULT_BACKGROUND;
   const title = form.elements.namedItem('title')?.value.trim() || 'Example Collection';
   const description = form.elements.namedItem('description')?.value.trim() || 'A short description of this collection appears here.';
@@ -3641,8 +3641,8 @@ async function createCustomProduct() {
     title,
     description: 'New custom standee card.',
     originalHeight: 72,
-    cutoutImage: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
-    backgroundImage: 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg',
+    cutoutImage: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png',
+    backgroundImage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg',
     categories: [],
     visible: false,
     categoryOrder: {}
@@ -3726,7 +3726,7 @@ function productPreviewMarkup(value) {
   const title = value.title || 'Product Card';
   const description = value.description || '';
   const cutoutImage = value.cutoutImage || '';
-  const backgroundImage = value.backgroundImage || 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg';
+  const backgroundImage = value.backgroundImage || 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg';
   const cutoutHeight = value.cutoutHeight || '63';
   const cutoutLeft = value.cutoutLeft || '50';
   const cutoutBottom = value.cutoutBottom || '21';
@@ -5037,9 +5037,9 @@ function categoryChildGroups(categoryKey, categories = readAdminCategories()) {
 function legacyChildGroupDraftCandidates(masterCategory) {
   if (masterCategory?.key !== 'sports' || masterCategory?.page !== 'sports-legends.html') return [];
   return [
-    { key: 'basketball', title: 'Basketball', description: 'Basketball Products / Standees inside Sport Legends.', order: 0, card: { image: 'images/SportLegendStandees/Kobe/KB1nobackground.png' } },
-    { key: 'soccer', title: 'Soccer', description: 'Soccer Products / Standees inside Sport Legends.', order: 1, card: { image: 'images/SportLegendStandees/Messi/Messi2nobackground.png' } },
-    { key: 'football', title: 'Football', description: 'Football Products / Standees inside Sport Legends.', order: 2, card: { image: 'images/SportLegendStandees/TomBrady/TB12Nobackground.png' } }
+    { key: 'basketball', title: 'Basketball', description: 'Basketball Products / Standees inside Sport Legends.', order: 0, card: { image: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png' } },
+    { key: 'soccer', title: 'Soccer', description: 'Soccer Products / Standees inside Sport Legends.', order: 1, card: { image: 'images/Sport Legends/Soccer/Messi/Messi2nobackground.png' } },
+    { key: 'football', title: 'Football', description: 'Football Products / Standees inside Sport Legends.', order: 2, card: { image: 'images/Sport Legends/Football/TomBrady/TB12Nobackground.png' } }
   ].filter((candidate) => !readAdminCategories()[candidate.key]);
 }
 
@@ -5229,8 +5229,8 @@ function categoryVisualImagePicker(category, kind = 'category') {
       <summary>Choose ${objectName} ${isBackground ? 'Background' : 'Image'}</summary>
       <button type="button" data-search-all-category-images>Search All Repository Images</button>
       <label data-category-image-search-controls hidden>Search repository images<input type="search" data-category-image-search placeholder="Search filename or folder"></label>
-      <p class="admin-note">Images associated with products inside this Category appear first.</p>
-      <div class="admin-category-image-gallery" data-category-image-gallery><p class="admin-note">Choose Change Image to load associated images.</p></div>
+      <p class="admin-note">All repository images are available. Search by folder or filename, such as Movie Stars, Holidays, or Sport Legends.</p>
+      <div class="admin-category-image-gallery" data-category-image-gallery><p class="admin-note">Choose Change Image to load all repository images.</p></div>
     </details>
   </section>`;
 }
@@ -7045,8 +7045,12 @@ function setupCategoryManagerEvents() {
     if (changeImage) {
       const picker = changeImage.closest('[data-category-image-picker]');
       const browser = picker?.querySelector('.admin-category-image-browser');
+      const controls = picker?.querySelector('[data-category-image-search-controls]');
       if (browser) browser.open = true;
-      if (picker) renderCategoryImagePickerGallery(picker);
+      if (controls) controls.hidden = false;
+      if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false });
+      if (picker) renderCategoryImagePickerGallery(picker, '', true);
+      controls?.querySelector('input')?.focus();
     }
     const removeImage = event.target.closest('[data-remove-category-image]');
     if (removeImage) updateCategoryPickerValue(removeImage.closest('[data-category-image-picker]'), '');
@@ -7776,7 +7780,7 @@ let repositoryImagePaths = new Set();
 let localOnlyImagePaths = new Set();
 let imageInventorySource = 'fallback';
 
-const IMAGE_IMPORT_DEFAULT_BACKGROUND = 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg';
+const IMAGE_IMPORT_DEFAULT_BACKGROUND = 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg';
 const IMAGE_IMPORT_DESTINATIONS = [
   ['create-product', 'Create new product'],
   ['existing-product', 'Add to existing product']
@@ -8463,9 +8467,9 @@ function renderImageDrafts() {
               <label>Background
                 <select name="backgroundImage">
                   <option value="${IMAGE_IMPORT_DEFAULT_BACKGROUND}" ${draft.backgroundImage === IMAGE_IMPORT_DEFAULT_BACKGROUND ? 'selected' : ''}>Clean stage</option>
-                  <option value="images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg" ${draft.backgroundImage === 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg' ? 'selected' : ''}>Sci-fi stage</option>
-                  <option value="images/FanBackgrounds/top-favorite-stage-gold.png" ${draft.backgroundImage === 'images/FanBackgrounds/top-favorite-stage-gold.png' ? 'selected' : ''}>Gold stage</option>
-                  <option value="images/FanBackgrounds/top-favorite-stage-premium.png" ${draft.backgroundImage === 'images/FanBackgrounds/top-favorite-stage-premium.png' ? 'selected' : ''}>Premium stage</option>
+                  <option value="images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg" ${draft.backgroundImage === 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg' ? 'selected' : ''}>Sci-fi stage</option>
+                  <option value="images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg" ${draft.backgroundImage === 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' ? 'selected' : ''}>Gold stage</option>
+                  <option value="images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg" ${draft.backgroundImage === 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' ? 'selected' : ''}>Premium stage</option>
                 </select>
               </label>
               <fieldset data-import-destinations="create-product"><legend>Category assignments</legend><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>

@@ -395,7 +395,7 @@ This works, but ownership is diffuse and drift is possible.
 
 - `product-drafts.json` parses and contains 53 unique records; every draft file exists.
 - The scanner’s current rules would produce 63 drafts from the present repository.
-- Two current draft entries are stale because they are already published products: `images/FaithCelebrationStandees/Jesus/J5L.png` and `images/FaithCelebrationStandees/Jesus/J5printD.png`.
+- Two current draft entries are stale because they are already published products: `images/Faith Celebration/Jesus/J5L.png` and `images/Faith Celebration/Jesus/J5printD.png`.
 - Twelve newly added product images are absent from the current draft JSON; see Image System Review.
 - Published snapshot has zero deleted-product slugs and zero ignored paths.
 - “Archived” is represented by Admin state and published `visible: false`; four fallback placeholders are currently hidden.
@@ -420,8 +420,8 @@ This works, but ownership is diffuse and drift is possible.
 - Missing referenced image paths: **0**.
 - Unreferenced image files: **36**; 24 are website/business/front-page/hero assets or legacy copies, and 12 are new product images not yet in drafts.
 - Exact binary duplicate groups: **2**.
-  - `images/Business/logogold.png` and `images/Herobackgroundparts/logogold.png`.
-  - `images/Herobackgroundparts/hero10E.png` and `images/MovieCharacterStandees/Endorskeleton/Endornobackground.png`.
+  - `images/FrontPageWeb/Herobackgroundparts-logogold.png` and `images/FrontPageWeb/Herobackgroundparts-logogold.png`.
+  - `images/FrontPageWeb/Herobackgroundparts/hero10E.png` and `images/Movie Stars/Movie Characters/Endorskeleton/Endornobackground.png`.
 
 Duplicate content is not automatically a defect; paths may carry different semantic roles. No file should be removed without visual and relationship review.
 
@@ -429,18 +429,18 @@ Duplicate content is not automatically a defect; paths may carry different seman
 
 The scanner has not been run against these 12 present files:
 
-- `images/MusicArtistStandees/MichaelJackson/MJbeatit/MJ1white1.png`
-- `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJMOONWALKblackbackground.png`
-- `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJMOONWALKbluebackground.png`
-- `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJMOONWALKlightbluebackground.png`
-- `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJSmoothCriminal.png`
-- `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png`
-- `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunk.png`
-- `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunkblackbackground.png`
-- `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png`
-- `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknormal.png`
-- `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunkyellowbackground.png`
-- `images/SportLegendStandees/Kobe/KobeyLayout/KBlayup.png`
+- `images/Music Artists/MichaelJackson/MJbeatit/MJ1white1.png`
+- `images/Music Artists/MichaelJackson/SmoothCriminal/MJMOONWALKblackbackground.png`
+- `images/Music Artists/MichaelJackson/SmoothCriminal/MJMOONWALKbluebackground.png`
+- `images/Music Artists/MichaelJackson/SmoothCriminal/MJMOONWALKlightbluebackground.png`
+- `images/Music Artists/MichaelJackson/SmoothCriminal/MJSmoothCriminal.png`
+- `images/Music Artists/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png`
+- `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunk.png`
+- `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunkblackbackground.png`
+- `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunknobackground.png`
+- `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunknormal.png`
+- `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunkyellowbackground.png`
+- `images/Sport Legends/Basketball/Kobe/KobeyLayout/KBlayup.png`
 
 ## Performance and handling concerns
 

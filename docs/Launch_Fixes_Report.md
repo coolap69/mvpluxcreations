@@ -165,23 +165,23 @@ The scanner reported:
 
 ### Added draft paths
 
-1. `images/MusicArtistStandees/MichaelJackson/MJbeatit/MJ1white1.png`
-2. `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJMOONWALKblackbackground.png`
-3. `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJMOONWALKbluebackground.png`
-4. `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJMOONWALKlightbluebackground.png`
-5. `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJSmoothCriminal.png`
-6. `images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png`
-7. `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunk.png`
-8. `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunkblackbackground.png`
-9. `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png`
-10. `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknormal.png`
-11. `images/SportLegendStandees/Kobe/KobeBackDunk/KBdunkyellowbackground.png`
-12. `images/SportLegendStandees/Kobe/KobeyLayout/KBlayup.png`
+1. `images/Music Artists/MichaelJackson/MJbeatit/MJ1white1.png`
+2. `images/Music Artists/MichaelJackson/SmoothCriminal/MJMOONWALKblackbackground.png`
+3. `images/Music Artists/MichaelJackson/SmoothCriminal/MJMOONWALKbluebackground.png`
+4. `images/Music Artists/MichaelJackson/SmoothCriminal/MJMOONWALKlightbluebackground.png`
+5. `images/Music Artists/MichaelJackson/SmoothCriminal/MJSmoothCriminal.png`
+6. `images/Music Artists/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png`
+7. `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunk.png`
+8. `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunkblackbackground.png`
+9. `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunknobackground.png`
+10. `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunknormal.png`
+11. `images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunkyellowbackground.png`
+12. `images/Sport Legends/Basketball/Kobe/KobeyLayout/KBlayup.png`
 
 ### Removed stale draft paths
 
-- `images/FaithCelebrationStandees/Jesus/J5L.png`
-- `images/FaithCelebrationStandees/Jesus/J5printD.png`
+- `images/Faith Celebration/Jesus/J5L.png`
+- `images/Faith Celebration/Jesus/J5printD.png`
 
 Those files remain intact and remain referenced by their published products. Only their obsolete draft records were removed.
 

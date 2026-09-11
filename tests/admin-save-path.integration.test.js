@@ -740,7 +740,7 @@ Deno.test('actual Category preview applies individual image geometry with shared
   const html = form.preview.innerHTML;
   for (const token of [
     'height:84%', 'left:62%', 'bottom:10%', 'background-position:', 'transform:scale(',
-    'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg',
+    'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg',
     'homepage-collection-card-text', '--featured-categories-text-box-height:92px',
     'Sports Legends', 'Sports description'
   ]) assert(html.includes(token), `live Category preview must apply ${token}`);
@@ -972,8 +972,8 @@ Deno.test('selected publishing includes only chosen Ready records and their requ
     products: {
       'jayson-tatum-terminator': {
         slug: 'jayson-tatum-terminator', title: 'Jayson Tatum Terminator',
-        cutoutImage: 'images/FanRequestStandees/JTTerminator/JT12nobackground.png',
-        backgroundImage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg',
+        cutoutImage: 'images/Fan Request/JTTerminator/JT12nobackground.png',
+        backgroundImage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg',
         imageChoices: [], categories: ['sports'], visible: true,
         approvalStatus: 'approved', draftStatus: 'ready'
       },
@@ -988,7 +988,7 @@ Deno.test('selected publishing includes only chosen Ready records and their requ
   assert(!snapshot.products.unfinished, 'unselected draft must remain private');
   assert(snapshot.products.existing?.title === 'Published', 'unchanged published products must remain in snapshot');
   const images = helpers.automaticPublishImagePaths([jayson], snapshot);
-  assert(images.includes('images/FanRequestStandees/JTTerminator/JT12nobackground.png'), 'new selected product image must be included automatically');
+  assert(images.includes('images/Fan Request/JTTerminator/JT12nobackground.png'), 'new selected product image must be included automatically');
 });
 
 Deno.test('legacy Admin snapshot inventory includes normalized products with new slugs', async () => {

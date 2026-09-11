@@ -21,13 +21,13 @@ SOURCE_SUFFIXES = {".html", ".js", ".css", ".json"}
 IMAGE_REFERENCE = re.compile(r"images/[A-Za-z0-9_./ -]+\.(?:png|jpe?g|webp|gif)", re.IGNORECASE)
 EXCLUDED_ASSET_DIRECTORIES = (
     "images/Business/",
-    "images/FanBackgrounds/",
+    "images/CardBackgrounds/",
     "images/FrontPageWeb/",
-    "images/Herobackgroundparts/",
+    "images/FrontPageWeb/Herobackgroundparts/",
 )
 EXCLUDED_ASSET_PATHS = {
-    "images/DinosaurCreatureStandees/notorch.jpg",
-    "images/DinosaurCreatureStandees/size.jpg",
+    "images/Fans/notorch.jpg",
+    "images/Fans/size.jpg",
 }
 
 
@@ -85,7 +85,7 @@ def main() -> None:
                 "originalHeight": previous.get(image_path, {}).get("originalHeight", ""),
                 "backgroundImage": previous.get(image_path, {}).get(
                     "backgroundImage",
-                    "images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg",
+                    "images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg",
                 ),
                 "categories": previous.get(image_path, {}).get("categories", []),
                 "published": False,

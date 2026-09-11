@@ -3556,141 +3556,141 @@ const standeeCatalog = {
   'kobe-bryant': {
     title: 'Kobe Bryant Standee',
     category: 'Sport Legend Standees',
-    image: 'images/SportLegendStandees/Kobe/KB1nobackground.png',
+    image: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png',
     originalHeight: 78,
     description: 'A court-ready life-size sports display with optional printed background styles.',
     backgrounds: [
-      { name: 'No Background', image: 'images/SportLegendStandees/Kobe/KB1nobackground.png', stage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg' },
-      { name: 'Yellow Court', image: 'images/SportLegendStandees/Kobe/KB1yellowcourtbackground.png', stage: 'images/SportLegendStandees/Kobe/KB1yellowcourtbackground.png' },
-      { name: 'Big Court', image: 'images/SportLegendStandees/Kobe/KB1bigcourtbackground.png', stage: 'images/SportLegendStandees/Kobe/KB1bigcourtbackground.png' },
-      { name: 'Small Court', image: 'images/SportLegendStandees/Kobe/KB1smallcourtbackground.png', stage: 'images/SportLegendStandees/Kobe/KB1smallcourtbackground.png' }
+      { name: 'No Background', image: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' },
+      { name: 'Yellow Court', image: 'images/Sport Legends/Basketball/Kobe/KB1yellowcourtbackground.png', stage: 'images/Sport Legends/Basketball/Kobe/KB1yellowcourtbackground.png' },
+      { name: 'Big Court', image: 'images/Sport Legends/Basketball/Kobe/KB1bigcourtbackground.png', stage: 'images/Sport Legends/Basketball/Kobe/KB1bigcourtbackground.png' },
+      { name: 'Small Court', image: 'images/Sport Legends/Basketball/Kobe/KB1smallcourtbackground.png', stage: 'images/Sport Legends/Basketball/Kobe/KB1smallcourtbackground.png' }
     ],
     facts: ['Original height reference: 6\'6".', 'Great for sports rooms, parties, and themed displays.', 'Purple and gold background options are available.', 'Custom sizes use the original height to calculate pricing.']
   },
   'basketball-center': {
     title: 'Basketball Center Standee',
     category: 'Sport Legend Standees',
-    image: 'images/SportLegendStandees/Shaq/shaqNEW.png',
+    image: 'images/Sport Legends/Basketball/Shaq/shaqNEW.png',
     originalHeight: 85,
     description: 'A larger-than-life basketball display sized from a 7-foot-plus original reference.',
     backgrounds: [
-      { name: 'No Background', image: 'images/SportLegendStandees/Shaq/shaqNEW.png', stage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg' },
-      { name: 'Light/Dark Court', image: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png', stage: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png' },
-      { name: 'Darker Look', image: 'images/SportLegendStandees/Shaq/shaqDarker.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' }
+      { name: 'No Background', image: 'images/Sport Legends/Basketball/Shaq/shaqNEW.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' },
+      { name: 'Light/Dark Court', image: 'images/Sport Legends/Basketball/Shaq/shaqlightdarkbackground.png', stage: 'images/Sport Legends/Basketball/Shaq/shaqlightdarkbackground.png' },
+      { name: 'Darker Look', image: 'images/Sport Legends/Basketball/Shaq/shaqDarker.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' }
     ],
     facts: ['Original height reference: 7\'1".', 'Oversize displays price from the extra-inch calculator.', 'Best for sports bars, fan rooms, and entrance displays.', 'Choose a printed background or keep the cutout clean.']
   },
   'alternate-sports-pose': {
     title: 'Alternate Sports Pose Standee',
     category: 'Sport Legend Standees',
-    image: 'images/SportLegendStandees/Shaq/shaqDarker.png',
+    image: 'images/Sport Legends/Basketball/Shaq/shaqDarker.png',
     originalHeight: 85,
     description: 'A bold alternate pose for fans who want a darker showcase style.',
     backgrounds: [
-      { name: 'Darker Look', image: 'images/SportLegendStandees/Shaq/shaqDarker.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
-      { name: 'Light/Dark Court', image: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png', stage: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png' }
+      { name: 'Darker Look', image: 'images/Sport Legends/Basketball/Shaq/shaqDarker.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+      { name: 'Light/Dark Court', image: 'images/Sport Legends/Basketball/Shaq/shaqlightdarkbackground.png', stage: 'images/Sport Legends/Basketball/Shaq/shaqlightdarkbackground.png' }
     ],
     facts: ['Original height reference: 7\'1".', 'Custom sizes are available from 2 feet and up.', 'A dramatic background makes the pose feel more collectible.', 'Useful for wall-side or corner displays.']
   },
   'endoskeleton-dark': {
     title: 'Endoskeleton Dark Standee',
     category: 'Movie Character Standees',
-    image: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png',
+    image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endordarkinsideshouldercutout.png',
     originalHeight: 78,
     description: 'A sci-fi inspired display with darker background options.',
     backgrounds: [
-      { name: 'Dark Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' },
-      { name: 'No Background', image: 'images/MovieCharacterStandees/Endorskeleton/Endornobackground.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
-      { name: 'White Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' }
+      { name: 'Dark Shoulder', image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endordarkinsideshouldercutout.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg' },
+      { name: 'No Background', image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endornobackground.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+      { name: 'White Shoulder', image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endorwhiteinsideshouldercutout.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' }
     ],
     facts: ['Original height reference: 6\'6".', 'Sci-fi stage options work well for theater rooms.', 'Choose clean or printed versions.', 'Custom sizing follows the same live price calculator.']
   },
   'endoskeleton-white': {
     title: 'Endoskeleton White Standee',
     category: 'Movie Character Standees',
-    image: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png',
+    image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endorwhiteinsideshouldercutout.png',
     originalHeight: 78,
     description: 'A brighter sci-fi display option with clean contrast.',
     backgrounds: [
-      { name: 'White Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
-      { name: 'Dark Shoulder', image: 'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' }
+      { name: 'White Shoulder', image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endorwhiteinsideshouldercutout.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' },
+      { name: 'Dark Shoulder', image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endordarkinsideshouldercutout.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg' }
     ],
     facts: ['Original height reference: 6\'6".', 'White-backed art helps details stand out.', 'Good for bright rooms and event spaces.', 'Pick original size or enter a custom height.']
   },
   'classic-horror-host': {
     title: 'Classic Horror Host Standee',
     category: 'Movie Character Standees',
-    image: 'images/MovieCharacterStandees/Elvira/elviranew.png',
+    image: 'images/Movie Stars/Movie Characters/Elvira/elviranew.png',
     originalHeight: 67,
     description: 'A classic horror-host style cutout for spooky rooms, events, and collectors.',
     backgrounds: [
-      { name: 'Classic Cutout', image: 'images/MovieCharacterStandees/Elvira/elviranew.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
-      { name: 'Alternate Cutout', image: 'images/MovieCharacterStandees/Elvira1/elviraforother.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' }
+      { name: 'Classic Cutout', image: 'images/Movie Stars/Movie Characters/Elvira/elviranew.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+      { name: 'Alternate Cutout', image: 'images/Movie Stars/Movie Characters/Elvira1/elviraforother.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg' }
     ],
     facts: ['Original height reference: 5\'7".', 'Great for Halloween displays and movie rooms.', 'Background choices can shift the mood quickly.', 'Smaller custom sizes are available for tables and shelves.']
   },
   'red-jacket-performer': {
     title: 'Red Jacket Performer Standee',
     category: 'Music Artist Standees',
-    image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTR.png',
+    image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR/MJTR.png',
     originalHeight: 69,
     description: 'A performance-style music standee with concert and premium background options.',
     backgrounds: [
-      { name: 'Clean Performer', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTR.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' },
-      { name: 'Triangle Stage', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTRTrianglehalf.png', stage: 'images/FanBackgrounds/top-favorite-stage-concert.png' },
-      { name: 'White Stage', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTRTrianglehalfblank.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' }
+      { name: 'Clean Performer', image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR/MJTR.png', stage: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-concert.jpg' },
+      { name: 'Triangle Stage', image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR/MJTRTrianglehalf.png', stage: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-concert.jpg' },
+      { name: 'White Stage', image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR/MJTRTrianglehalfblank.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' }
     ],
     facts: ['Original height reference: 5\'9".', 'Concert backgrounds make this feel like a mini stage.', 'Works well for music rooms and birthday setups.', 'Custom size pricing comes from the entered height.']
   },
   'zombie-dance-look': {
     title: 'Zombie Dance Look Standee',
     category: 'Music Artist Standees',
-    image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png',
+    image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png',
     originalHeight: 69,
     description: 'A dance-inspired music display with spooky performance energy.',
     backgrounds: [
-      { name: 'Zombie Look', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png', stage: 'images/FanBackgrounds/top-favorite-stage-scifi.png' },
-      { name: 'Alternate Zombie', image: 'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR1/MJzombie1.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' }
+      { name: 'Zombie Look', image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg' },
+      { name: 'Alternate Zombie', image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR1/MJzombie1.png', stage: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-concert.jpg' }
     ],
     facts: ['Original height reference: 5\'9".', 'A strong pick for music and Halloween themes.', 'Choose a darker or concert-style background.', 'The size picker can make mini versions too.']
   },
   'pop-star-look': {
     title: 'Pop Star Look Standee',
     category: 'Music Artist Standees',
-    image: 'images/MusicArtistStandees/TaylorSwift/TSfinal.png',
+    image: 'images/Music Artists/TaylorSwift/TSfinal.png',
     originalHeight: 71,
     description: 'A pop performance display with colorful, pink, and clean background choices.',
     backgrounds: [
-      { name: 'Clean Pop Look', image: 'images/MusicArtistStandees/TaylorSwift/TSfinal.png', stage: 'images/FanBackgrounds/gallery-poster-concert.png' },
-      { name: 'Colorful', image: 'images/MusicArtistStandees/TaylorSwift/TSfinalcolorfulbackground.png', stage: 'images/MusicArtistStandees/TaylorSwift/TSfinalcolorfulbackground.png' },
-      { name: 'Off White', image: 'images/MusicArtistStandees/TaylorSwift/TSfinaloffwhitebackground.png', stage: 'images/MusicArtistStandees/TaylorSwift/TSfinaloffwhitebackground.png' },
-      { name: 'Pink', image: 'images/MusicArtistStandees/TaylorSwift/Taylor12pink.png', stage: 'images/MusicArtistStandees/TaylorSwift/Taylor12pink.png' }
+      { name: 'Clean Pop Look', image: 'images/Music Artists/TaylorSwift/TSfinal.png', stage: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-concert.jpg' },
+      { name: 'Colorful', image: 'images/Music Artists/TaylorSwift/TSfinalcolorfulbackground.png', stage: 'images/Music Artists/TaylorSwift/TSfinalcolorfulbackground.png' },
+      { name: 'Off White', image: 'images/Music Artists/TaylorSwift/TSfinaloffwhitebackground.png', stage: 'images/Music Artists/TaylorSwift/TSfinaloffwhitebackground.png' },
+      { name: 'Pink', image: 'images/Music Artists/TaylorSwift/Taylor12pink.png', stage: 'images/Music Artists/TaylorSwift/Taylor12pink.png' }
     ],
     facts: ['Original height reference: 5\'11".', 'Colorful backgrounds work well for party photos.', 'Original and custom sizes update live.', 'A clean cutout version is available for simple displays.']
   },
   'celebration-display': {
     title: 'Celebration Display Standee',
     category: 'Faith & Celebration Standees',
-    image: 'images/FaithCelebrationStandees/Jesus1/J13D.png',
+    image: 'images/Faith Celebration/Jesus1/J13D.png',
     originalHeight: 72,
     description: 'A warm celebration display for faith events, holidays, and family gatherings.',
     backgrounds: [
-      { name: 'Celebration', image: 'images/FaithCelebrationStandees/Jesus1/J13D.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
-      { name: 'Light', image: 'images/FaithCelebrationStandees/Jesus1/J13LN.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
-      { name: 'Print', image: 'images/FaithCelebrationStandees/Jesus3/JesusPrint.png', stage: 'images/FanBackgrounds/gallery-poster-premium.png' }
+      { name: 'Celebration', image: 'images/Faith Celebration/Jesus1/J13D.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' },
+      { name: 'Light', image: 'images/Faith Celebration/Jesus1/J13LN.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+      { name: 'Print', image: 'images/Faith Celebration/Jesus3/JesusPrint.png', stage: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-premium.jpg' }
     ],
     facts: ['Original height reference: 6\'.', 'Good for church events and home displays.', 'Gold and premium backgrounds are available.', 'Custom sizes help fit smaller rooms.']
   },
   't-rex': {
     title: 'T-Rex Standee',
     category: 'Dinosaur & Animal Standees',
-    image: 'images/DinosaurCreatureStandees/JPRex.png',
+    image: 'images/Dinosaurs-Animals/Dinosaur/JPRex.png',
     originalHeight: 72,
     description: 'A dinosaur or animal-style display with adventure background options.',
     backgrounds: [
-      { name: 'T-Rex', image: 'images/DinosaurCreatureStandees/JPRex.png', stage: 'images/FanBackgrounds/gallery-poster-adventure.png' },
-      { name: 'Clean T-Rex', image: 'images/FrontPageWeb/Dinosaurs-JPRex-clean.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
-      { name: 'Dinosaur Group', image: 'images/DinosaurCreatureStandees/JPall.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' }
+      { name: 'T-Rex', image: 'images/Dinosaurs-Animals/Dinosaur/JPRex.png', stage: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-adventure.jpg' },
+      { name: 'Clean T-Rex', image: 'images/Dinosaurs-Animals/Dinosaur/JPRex.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' },
+      { name: 'Dinosaur Group', image: 'images/Dinosaurs-Animals/Dinosaur/JPall.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' }
     ],
     facts: ['Original height reference: 6\'.', 'Popular for birthdays and adventure rooms.', 'Group dinosaur art is available as another option.', 'Custom sizing can make a smaller party version.']
   }
@@ -3709,10 +3709,10 @@ const sportsStandeeCatalog = {
     displayFit: { imageHeight: '80%', imageBottom: '13%' },
     facts: ['Original size: 6\'6"', 'Basketball', 'Options: 4 images'],
     options: [
-      { label: 'No Background', image: 'images/SportLegendStandees/Kobe/KB1nobackground.png' },
-      { label: 'Yellow Court', image: 'images/SportLegendStandees/Kobe/KB1yellowcourtbackground.png' },
-      { label: 'Big Court', image: 'images/SportLegendStandees/Kobe/KB1bigcourtbackground.png' },
-      { label: 'Small Court', image: 'images/SportLegendStandees/Kobe/KB1smallcourtbackground.png' }
+      { label: 'No Background', image: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png' },
+      { label: 'Yellow Court', image: 'images/Sport Legends/Basketball/Kobe/KB1yellowcourtbackground.png' },
+      { label: 'Big Court', image: 'images/Sport Legends/Basketball/Kobe/KB1bigcourtbackground.png' },
+      { label: 'Small Court', image: 'images/Sport Legends/Basketball/Kobe/KB1smallcourtbackground.png' }
     ]
   },
   shaq: {
@@ -3723,9 +3723,9 @@ const sportsStandeeCatalog = {
     displayFit: { imageHeight: '88%', imageBottom: '5%' },
     facts: ['Original size: 7\'1"', 'Basketball', 'Options: 3 images'],
     options: [
-      { label: 'No Background', image: 'images/SportLegendStandees/Shaq/shaqNEW.png' },
-      { label: 'Light/Dark Court', image: 'images/SportLegendStandees/Shaq/shaqlightdarkbackground.png' },
-      { label: 'Darker Style', image: 'images/SportLegendStandees/Shaq/shaqDarker.png' }
+      { label: 'No Background', image: 'images/Sport Legends/Basketball/Shaq/shaqNEW.png' },
+      { label: 'Light/Dark Court', image: 'images/Sport Legends/Basketball/Shaq/shaqlightdarkbackground.png' },
+      { label: 'Darker Style', image: 'images/Sport Legends/Basketball/Shaq/shaqDarker.png' }
     ]
   },
   'michael-jordan': {
@@ -3736,9 +3736,9 @@ const sportsStandeeCatalog = {
     displayFit: { imageHeight: '86%', imageBottom: '5%' },
     facts: ['Original size: 6\'6"', 'Basketball', 'Options: 3 images'],
     options: [
-      { label: 'No Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP1/Jordanemptybackground.png' },
-      { label: 'Crowd', image: 'images/SportLegendStandees/MJordan/MJLAYUP1/Jordanregularcrowd.png' },
-      { label: 'Light Crowd', image: 'images/SportLegendStandees/MJordan/MJLAYUP1/Jordanregularlightcrowd.png' }
+      { label: 'No Background', image: 'images/Sport Legends/Basketball/MJordan/MJLAYUP1/Jordanemptybackground.png' },
+      { label: 'Crowd', image: 'images/Sport Legends/Basketball/MJordan/MJLAYUP1/Jordanregularcrowd.png' },
+      { label: 'Light Crowd', image: 'images/Sport Legends/Basketball/MJordan/MJLAYUP1/Jordanregularlightcrowd.png' }
     ]
   },
   'michael-jordan-layup': {
@@ -3749,10 +3749,10 @@ const sportsStandeeCatalog = {
     displayFit: { imageHeight: '86%', imageBottom: '5%' },
     facts: ['Original size: 6\'6"', 'Basketball', 'Options: 4 images'],
     options: [
-      { label: 'No Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordantofixlblueightlowres.png' },
-      { label: 'Image Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordanonimagebackground.png' },
-      { label: 'Light Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordanonlightbackground.png' },
-      { label: 'White Background', image: 'images/SportLegendStandees/MJordan/MJLAYUP/Jordanonwhitebackground.png' }
+      { label: 'No Background', image: 'images/Sport Legends/Basketball/MJordan/MJLAYUP/Jordantofixlblueightlowres.png' },
+      { label: 'Image Background', image: 'images/Sport Legends/Basketball/MJordan/MJLAYUP/Jordanonimagebackground.png' },
+      { label: 'Light Background', image: 'images/Sport Legends/Basketball/MJordan/MJLAYUP/Jordanonlightbackground.png' },
+      { label: 'White Background', image: 'images/Sport Legends/Basketball/MJordan/MJLAYUP/Jordanonwhitebackground.png' }
     ]
   },
   'lionel-messi': {
@@ -3763,9 +3763,9 @@ const sportsStandeeCatalog = {
     displayFit: { imageHeight: '94%' },
     facts: ['Original size: 5\'7"', 'Soccer', 'Options: 3 images'],
     options: [
-      { label: 'No Background', image: 'images/SportLegendStandees/Messi/Messi2nobackground.png' },
-      { label: 'Grass', image: 'images/SportLegendStandees/Messi/Messi2Grass.png' },
-      { label: 'White', image: 'images/SportLegendStandees/Messi/Messi2white.png' }
+      { label: 'No Background', image: 'images/Sport Legends/Soccer/Messi/Messi2nobackground.png' },
+      { label: 'Grass', image: 'images/Sport Legends/Soccer/Messi/Messi2Grass.png' },
+      { label: 'White', image: 'images/Sport Legends/Soccer/Messi/Messi2white.png' }
     ]
   },
   'lionel-messi-classic': {
@@ -3776,10 +3776,10 @@ const sportsStandeeCatalog = {
     displayFit: { imageHeight: '94%' },
     facts: ['Original size: 5\'7"', 'Soccer', 'Options: 4 images'],
     options: [
-      { label: 'No Background', image: 'images/SportLegendStandees/Messi/Messinnone.png' },
-      { label: 'Grass', image: 'images/SportLegendStandees/Messi/MessiGrass.png' },
-      { label: 'Smaller Grass', image: 'images/SportLegendStandees/Messi/MessiGrasssmaller.png' },
-      { label: 'White', image: 'images/SportLegendStandees/Messi/Messiwhite.png' }
+      { label: 'No Background', image: 'images/Sport Legends/Soccer/Messi/Messinnone.png' },
+      { label: 'Grass', image: 'images/Sport Legends/Soccer/Messi/MessiGrass.png' },
+      { label: 'Smaller Grass', image: 'images/Sport Legends/Soccer/Messi/MessiGrasssmaller.png' },
+      { label: 'White', image: 'images/Sport Legends/Soccer/Messi/Messiwhite.png' }
     ]
   },
   'tom-brady': {
@@ -3790,9 +3790,9 @@ const sportsStandeeCatalog = {
     displayFit: { imageHeight: '88%', imageBottom: '5%' },
     facts: ['Original size: 6\'4"', 'Football', 'Options: 3 images'],
     options: [
-      { label: 'No Background', image: 'images/SportLegendStandees/TomBrady/TB12Nobackground.png' },
-      { label: 'Green Background', image: 'images/SportLegendStandees/TomBrady/TB12Greenbackground.png' },
-      { label: 'White Background', image: 'images/SportLegendStandees/TomBrady/TB12Whitebackground.png' }
+      { label: 'No Background', image: 'images/Sport Legends/Football/TomBrady/TB12Nobackground.png' },
+      { label: 'Green Background', image: 'images/Sport Legends/Football/TomBrady/TB12Greenbackground.png' },
+      { label: 'White Background', image: 'images/Sport Legends/Football/TomBrady/TB12Whitebackground.png' }
     ]
   }
 };
@@ -3800,7 +3800,7 @@ const sportsStandeeCatalog = {
 let selectedSportsStandeeKey = 'kobe-bryant';
 
 function getShowroomStageBackground() {
-  return 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg';
+  return 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg';
 }
 
 function getShowroomOriginalPrice(originalHeight) {
@@ -4788,13 +4788,13 @@ function getStandeeBySlug(slug) {
     slug,
     title: (slug || 'Custom Standee').replace(/-/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()),
     category: 'MVPLUXCREATIONS Standee',
-    image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png',
+    image: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png',
     originalHeight: 78,
     description: 'Choose the original size, pick your own custom size, and select from available display backgrounds.',
     backgrounds: [
-      { name: 'Premium Stage', image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png', stage: 'images/FanBackgrounds/top-favorite-stage-premium.png' },
-      { name: 'Gold Stage', image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png', stage: 'images/FanBackgrounds/top-favorite-stage-gold.png' },
-      { name: 'Clean White', image: 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png', stage: 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg' }
+      { name: 'Premium Stage', image: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
+      { name: 'Gold Stage', image: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' },
+      { name: 'Clean White', image: 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' }
     ],
     facts: ['Original size is used as the starting point for custom pricing.', 'Choose a background when options are offered.', 'Use Buy It Now for fast checkout.', 'Enter a height like 5\'8 or 68 for custom sizing.']
   };
@@ -4979,13 +4979,13 @@ function productCardMarkup(product) {
   const originalPrice = calculateCutoutPrice(originalHeight);
   const productImage = Object.prototype.hasOwnProperty.call(product, 'cutoutImage')
     ? String(product.cutoutImage || '')
-    : 'images/FrontPageWeb/Sports-Kobe-KB1forprint.png';
+    : 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png';
 
   return `
     <div class="product-card" data-category="custom" data-name="${product.title || 'Custom card'}" data-admin-card-key="${slug}">
       <a href="${product.href || '#shop'}" class="product-image-link">
-        <div class="product-stage-preview" style="background-image: url('${product.backgroundImage || 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'}');">
-          <img class="product-stage-bg" src="${product.backgroundImage || 'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg'}" alt="">
+        <div class="product-stage-preview" style="background-image: url('${product.backgroundImage || 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'}');">
+          <img class="product-stage-bg" src="${product.backgroundImage || 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'}" alt="">
           <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
           ${productImage ? `<img class="product-cutout" src="${productImage}" alt="">` : '<span class="product-cutout-empty" aria-label="No Product Image Selected"></span>'}
         </div>

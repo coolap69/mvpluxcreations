@@ -158,7 +158,7 @@ Deno.test('current published catalog stays Published after equivalent display-de
 
 Deno.test('private Admin image references allow only blank or repository image paths', () => {
   assert(validateAdminImageReference('', { allowBlank: true }).valid, 'removable image fields must allow blank');
-  assert(validateAdminImageReference('images/HolidayStandees/example.png').valid, 'repository paths must be accepted');
+  assert(validateAdminImageReference('images/Holidays/example.png').valid, 'repository paths must be accepted');
   for (const invalid of [
     'data:image/png;base64,AAAA', 'blob:https://example.com/id', 'admin-upload:image/png:10:abc',
     'https://example.com/image.png', 'http://example.com/image.jpg', '../images/escape.png', 'images/not-an-image.txt'

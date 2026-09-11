@@ -1288,7 +1288,7 @@ button:hover,
   border-radius: 16px;
   cursor: pointer;
   background-color: #111;
-  background-image: var(--category-bg-image, url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg"));
+  background-image: var(--category-bg-image, url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg"));
   background-position: var(--category-bg-position, center 58%);
   background-size: var(--category-bg-size, 125%);
   background-repeat: no-repeat;
@@ -1374,7 +1374,7 @@ button:hover,
    Background: size bigger = zoom in; position second number moves stage floor.
    Cutout: bottom bigger = feet higher; height bigger = standee bigger. */
 .category-sports {
-  --category-bg-image: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg");
+  --category-bg-image: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg");
   --category-bg-size: 220%;
   --category-bg-position: center 61%;
   --category-logo-x: 50%;
@@ -1386,7 +1386,7 @@ button:hover,
 }
 
 .category-movies {
-  --category-bg-image: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg");
+  --category-bg-image: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg");
   --category-bg-size: 220%;
   --category-bg-position: center 61%;
   --category-logo-x: 50%;
@@ -1398,7 +1398,7 @@ button:hover,
 }
 
 .category-people {
-  --category-bg-image: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg");
+  --category-bg-image: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg");
   --category-bg-size: 220%;
   --category-bg-position: center 61%;
   --category-logo-x: 50%;
@@ -1410,7 +1410,7 @@ button:hover,
 }
 
 .category-music {
-  --category-bg-image: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg");
+  --category-bg-image: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg");
   --category-bg-size: 220%;
   --category-bg-position: center 61%;
   --category-logo-x: 50%;
@@ -1422,7 +1422,7 @@ button:hover,
 }
 
 .category-videogames {
-  --category-bg-image: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg");
+  --category-bg-image: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg");
   --category-bg-size: 220%;
   --category-bg-position: center 61%;
   --category-logo-x: 50%;
@@ -1434,7 +1434,7 @@ button:hover,
 }
 
 .category-religious {
-  --category-bg-image: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg");
+  --category-bg-image: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg");
   --category-bg-size: 220%;
   --category-bg-position: center 61%;
   --category-logo-x: 50%;
@@ -1446,7 +1446,7 @@ button:hover,
 }
 
 .category-holiday {
-  --category-bg-image: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg");
+  --category-bg-image: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg");
   --category-bg-size: 220%;
   --category-bg-position: center 61%;
   --category-logo-x: 50%;
@@ -1458,7 +1458,7 @@ button:hover,
 }
 
 .category-dinosaurs {
-  --category-bg-image: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg");
+  --category-bg-image: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg");
   --category-bg-size: 220%;
   --category-bg-position: center 61%;
   --category-logo-x: 50%;
@@ -1473,7 +1473,7 @@ button:hover,
 .category-fan-picks,
 .category-custom-photo,
 .category-party-packs {
-  --category-bg-image: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg");
+  --category-bg-image: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg");
   --category-bg-size: 220%;
   --category-bg-position: center 61%;
   --category-logo-x: 50%;
@@ -4289,7 +4289,7 @@ body .auth-card .password-field input {
   object-fit: contain !important;
   border: 1px solid rgba(244,208,111,0.3) !important;
   border-radius: 8px !important;
-  background: url("images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg") center center / cover no-repeat #050505 !important;
+  background: url("images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg") center center / cover no-repeat #050505 !important;
 }
 
 .sport-type-card span {
@@ -4469,7 +4469,7 @@ body .auth-card .password-field input {
   object-fit: contain !important;
   border: 1px solid rgba(244,208,111,0.36) !important;
   border-radius: 8px !important;
-  background: url("images/FanBackgrounds/top-favorite-stage-gold.png") center center / cover no-repeat #050505 !important;
+  background: url("images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg") center center / cover no-repeat #050505 !important;
 }
 
 .showroom-size-builder {
@@ -4716,7 +4716,7 @@ body .auth-card .password-field input {
   height: 340px !important;
   object-fit: contain !important;
   border-radius: 12px !important;
-  background: url("images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg") center center / cover no-repeat #050505 !important;
+  background: url("images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg") center center / cover no-repeat #050505 !important;
   border: 1px solid rgba(244,208,111,0.35) !important;
   cursor: pointer !important;
 }

@@ -74,7 +74,7 @@ async function actualFinalHomepageDom() {
     STOREFRONT_CATEGORY_CARD_MAP: cardMap, STOREFRONT_CATEGORY_PAGE_MAP: pageMap,
     inlineAdminPageKey: () => 'index.html',
     getAdminGlobalDisplaySettings: () => window.mvpluxPublishedAdminSettings.globalDisplaySettings || {},
-    getShowroomStageBackground: () => 'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg',
+    getShowroomStageBackground: () => 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg',
     getAdminArchivedProducts: () => [], getAdminDeletedProducts: () => [], getAdminCustomProducts: () => [], productCardMarkup: () => '',
     getHomepageCategoryRows: () => [...window.document.querySelectorAll('#shop .featured-category-row .product-carousel-row')],
     getHomepageCategoryCardOrder: () => [], getCardAdminKey: (card) => card.dataset.adminSlug || '', isCardHiddenByAdmin: () => false,
