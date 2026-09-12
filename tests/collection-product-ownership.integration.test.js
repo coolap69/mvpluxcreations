@@ -87,7 +87,8 @@ Deno.test('fresh Sport Legends showroom DOM reconstructs the selected image from
   };
   const select = new Function('window', 'document', 'dependencies', `
     const { getManagedProductBySlug, sanitizeProductImageChoices, formatHeight, updateShowroomPurchase,
-      findWhiteTriangleImage, applyInlineAdminEdits, updateCategoryGroupCurrentProduct, getShowroomStageBackground } = dependencies;
+      findWhiteTriangleImage, applyInlineAdminEdits, updateCategoryGroupCurrentProduct, getShowroomStageBackground,
+      applyProductShowroomDesign } = dependencies;
     let selectedSportsStandeeKey = 'player-one';
     const sportsStandeeCatalog = { 'player-one': { name: 'Static Old Player', options: [{ label: 'Old', image: 'images/static-old.png' }] } };
     ${framework}
@@ -96,7 +97,12 @@ Deno.test('fresh Sport Legends showroom DOM reconstructs the selected image from
     getManagedProductBySlug: () => structuredClone(normalized),
     sanitizeProductImageChoices: (choices) => choices || [], formatHeight: (height) => `${height} inches`,
     updateShowroomPurchase: () => {}, findWhiteTriangleImage: () => '', applyInlineAdminEdits: () => {},
-    updateCategoryGroupCurrentProduct: () => {}, getShowroomStageBackground: () => 'images/default.png'
+    updateCategoryGroupCurrentProduct: () => {}, getShowroomStageBackground: () => 'images/default.png',
+    applyProductShowroomDesign: (stage, product) => {
+      const backgroundImage = product.backgroundImage || 'images/default.png';
+      stage.style.backgroundImage = `url('${backgroundImage}')`;
+      return { backgroundImage };
+    }
   });
   select('player-one', false);
   assert(window.document.getElementById('sportsMainImage').getAttribute('src') === 'images/published-player.png', 'fresh showroom selection must replace the static fallback with the normalized published image');

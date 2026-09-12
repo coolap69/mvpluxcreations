@@ -563,8 +563,8 @@ button[aria-label="Add to cart"]::before {
   --featured-categories-vertical-padding: 34px;
   --featured-categories-card-gap: 22px;
   --featured-categories-desktop-columns: 4;
-  --featured-categories-image-area-min-height: 330px;
-  --featured-categories-text-box-height: 92px;
+  --featured-categories-image-area-min-height: 420px;
+  --featured-categories-text-box-height: 74px;
   --featured-categories-title-size: 19px;
   --featured-categories-title-weight: 800;
   --featured-categories-description-size: 14px;
@@ -7023,9 +7023,17 @@ button[aria-label="Add to cart"]::before {
   cursor: pointer;
 }
 
-#categories .admin-category-image-browser > label {
+#categories .admin-category-image-browser > label,
+#categories .admin-category-image-search-controls label {
   display: grid;
   gap: 6px;
+}
+
+#categories .admin-category-image-search-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(160px, 1fr);
+  gap: 9px;
+  align-items: end;
 }
 
 #categories [data-category-image-search-controls][hidden] {
@@ -7039,6 +7047,11 @@ button[aria-label="Add to cart"]::before {
   max-height: 430px;
   overflow: auto;
   padding: 4px;
+}
+
+#categories .admin-category-image-load-more,
+#categories .admin-category-image-count {
+  grid-column: 1 / -1;
 }
 
 #categories .admin-category-image-choice {
@@ -7658,7 +7671,7 @@ button[aria-label="Add to cart"]::before {
 
 #categories .admin-category-preview-column .admin-category-placement-preview {
   min-height: 640px;
-  grid-template-rows: var(--featured-categories-text-box-height, 92px) minmax(var(--featured-categories-image-area-min-height, 330px), 1fr) auto;
+  grid-template-rows: var(--featured-categories-text-box-height, 74px) minmax(var(--featured-categories-image-area-min-height, 420px), 1fr) auto;
 }
 
 #categories .admin-main-collection-edit [data-category-preview-image] {
@@ -7928,7 +7941,7 @@ button[aria-label="Add to cart"]::before {
     min-height: 520px;
     margin-inline: auto;
     --featured-stage-ratio: 4 / 4.6;
-    grid-template-rows: var(--featured-categories-text-box-height, 92px) minmax(var(--featured-categories-image-area-min-height, 330px), 1fr) auto;
+    grid-template-rows: var(--featured-categories-text-box-height, 74px) minmax(var(--featured-categories-image-area-min-height, 420px), 1fr) auto;
   }
 
   #categories .admin-category-preview-column .admin-builder-preview-panel {
@@ -8495,6 +8508,76 @@ button[aria-label="Add to cart"]::before {
   flex: 1 1 180px;
 }
 
+.admin-shared-product-showroom {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+  padding: 16px;
+  border: 1px solid rgba(212,175,55,.48);
+  border-radius: 14px;
+  background: rgba(4,4,5,.82);
+}
+
+.admin-shared-product-showroom:empty {
+  display: none;
+}
+
+.admin-shared-product-showroom-workspace {
+  display: grid;
+  grid-template-columns: minmax(420px,.95fr) minmax(500px,1.05fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.admin-shared-product-showroom-workspace > aside {
+  position: sticky;
+  top: 86px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(212,175,55,.3);
+  border-radius: 12px;
+  background: rgba(8,8,9,.82);
+}
+
+.admin-shared-product-showroom-stage {
+  position: relative;
+  display: grid;
+  place-items: end center;
+  overflow: hidden;
+  border: 1px solid rgba(212,175,55,.55);
+  border-radius: 12px;
+  background-color: #050505;
+  background-repeat: no-repeat;
+  transition: min-height .18s ease, background-position .18s ease, background-size .18s ease;
+}
+
+.admin-shared-product-showroom-stage img {
+  position: absolute;
+  left: 50%;
+  bottom: 3%;
+  width: auto;
+  height: 82%;
+  max-width: 92%;
+  object-fit: contain;
+  transform: translateX(-50%);
+}
+
+.admin-shared-product-showroom-controls {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.admin-shared-product-showroom-controls > :first-child,
+.admin-shared-product-showroom-controls > :nth-child(2),
+.admin-shared-product-showroom-controls > .admin-panel-actions,
+.admin-shared-product-showroom-controls > .admin-status {
+  grid-column: 1 / -1;
+}
+
 .admin-image-choice-row [data-replace-image-choice-target] {
   max-width: min(360px,100%);
 }
@@ -8507,6 +8590,15 @@ button[aria-label="Add to cart"]::before {
   .admin-product-current-visual img {
     width: 72px;
     height: 72px;
+  }
+
+  .admin-shared-product-showroom-workspace,
+  .admin-shared-product-showroom-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-shared-product-showroom-workspace > aside {
+    position: static;
   }
 }
 

@@ -741,7 +741,7 @@ Deno.test('actual Category preview applies individual image geometry with shared
   for (const token of [
     'height:84%', 'left:62%', 'bottom:10%', 'background-position:', 'transform:scale(',
     'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg',
-    'homepage-collection-card-text', '--featured-categories-text-box-height:92px',
+    'homepage-collection-card-text', '--featured-categories-text-box-height:74px',
     'Sports Legends', 'Sports description'
   ]) assert(html.includes(token), `live Category preview must apply ${token}`);
   form.controls.standeeSizePercent.value = '63';

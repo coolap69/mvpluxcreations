@@ -112,7 +112,10 @@ Deno.test('Category visual picker opens the complete repository inventory with f
   assert(picker.includes('Search All Repository Images'), 'repository-wide search remains directly available');
   assert(picker.includes('All repository images are available. Search by folder or filename'), 'the chooser must explain that every folder is searchable');
   assert(source.includes("renderCategoryImagePickerGallery(picker, '', true)"), 'Change Image must show the complete repository rather than only associated Product images');
-  assert(!picker.includes('<select'), 'Category image selection must not fall back to a giant native dropdown');
+  assert(picker.includes('data-category-image-folder'), 'repository images must be filterable by their organized top-level folder');
+  assert(source.includes('data-category-image-load-more') && source.includes('categoryImageVisibleLimit'), 'large repositories must offer incremental Load More results instead of silently stopping at 80');
+  assert(picker.includes('legacyFolders') && picker.includes('organizedNames'), 'old compatibility paths must be hidden when the same filename exists in the organized library');
+  assert(!picker.includes(".slice(0, 80)"), 'the first result page must not be a permanent 80-image ceiling');
 });
 
 Deno.test('Category editor uses a compact two-column preview and control workspace', async () => {

@@ -2161,6 +2161,11 @@ async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', status
 
 async function saveAllOpenAdminChanges({ quiet = false } = {}) {
   if (!await saveAllOpenCollectionChanges({ quiet: true })) return false;
+  const sharedShowroomForm = document.querySelector('[data-shared-product-showroom-form][data-editor-dirty="true"]');
+  if (sharedShowroomForm && !await saveSharedProductShowroomDesign(sharedShowroomForm)) {
+    if (!quiet) setStatus('Save All stopped at Shared Product Showroom Design.');
+    return false;
+  }
   for (const form of document.querySelectorAll('.admin-product-card[data-slug]')) {
     if (!form._adminDirtyFields?.size) continue;
     if (!await saveProductForm(form)) {
@@ -4537,8 +4542,23 @@ function productImageChoicesMarkup(value) {
           <button type="button" data-remove-image-choice="${escapeAdminHtml(choice.image)}">Remove Image Choice</button>
         </div>
       `).join('') : '<p class="admin-note">No alternate image choices assigned.</p>'}
+      <div class="admin-add-image-choice" data-add-image-choice-controls>
+        <label>Choice label<input type="text" data-new-image-choice-label placeholder="Example: White Background"></label>
+        <label>Repository image<select data-new-image-choice-path>${productVisualOptionsMarkup('product')}</select></label>
+        <div class="admin-panel-actions"><button type="button" data-browse-new-image-choice>Browse All Repository Images</button><button type="button" data-add-new-image-choice>Add Alternate Image Choice</button></div>
+        <p class="admin-note">This attaches an existing repository image to this Product. It does not create another Product or delete the physical file.</p>
+      </div>
     </fieldset>
   `;
+}
+
+function populateProductImageChoiceBrowser(form) {
+  const select = form?.querySelector('[data-new-image-choice-path]');
+  if (!select) return;
+  const product = effectiveAdminProduct(form.dataset.slug) || {};
+  const used = new Set([product.cutoutImage, ...normalizeImageChoices(product.imageChoices).map((choice) => choice.image)].filter(Boolean));
+  const paths = repositoryCategoryImageLibrary().filter((path) => !used.has(path));
+  select.innerHTML = '<option value="">Choose an existing repository image</option>' + paths.map((path) => `<option value="${escapeAdminHtml(path)}">${escapeAdminHtml(path.replace(/^images\//, ''))}</option>`).join('');
 }
 
 function architectureReviewItems() {
@@ -4640,6 +4660,21 @@ function architectureReviewItems() {
       page: 'index.html'
     });
   }
+  const baselineProductShowrooms = structuredClone(baseline.globalDisplaySettings?.productShowrooms || {});
+  const currentProductShowrooms = structuredClone(adminLiveSettings?.globalDisplaySettings?.productShowrooms || {});
+  if (!semanticValuesEqual(baselineProductShowrooms, currentProductShowrooms)) {
+    items.push({
+      id: 'productShowrooms:all',
+      type: 'product-showroom-design',
+      key: 'all',
+      group: 'Shared Product Showroom Design',
+      title: 'Shared Product Showroom backgrounds and stages',
+      approved: true,
+      before: baselineProductShowrooms,
+      after: currentProductShowrooms,
+      page: 'products'
+    });
+  }
   return items;
 }
 
@@ -4707,6 +4742,12 @@ function buildSelectedArchitectureSnapshot(items) {
       baseline.globalDisplaySettings = {
         ...(baseline.globalDisplaySettings || {}),
         sectionLayouts: structuredClone(current.globalDisplaySettings?.sectionLayouts || {})
+      };
+    }
+    if (item.type === 'product-showroom-design') {
+      baseline.globalDisplaySettings = {
+        ...(baseline.globalDisplaySettings || {}),
+        productShowrooms: structuredClone(current.globalDisplaySettings?.productShowrooms || {})
       };
     }
   });
@@ -5164,8 +5205,22 @@ function repositoryCategoryImageLibrary() {
   const values = new Set([...creationImageLibrary('category'), ...creationImageLibrary('background')]);
   repositoryImagePaths.forEach((path) => values.add(path));
   imageDraftInventory.forEach((entry) => { if (validatePublishImagePath(String(entry?.path || ''))) values.add(entry.path); });
-  return [...values].filter((path) => validatePublishImagePath(String(path || '')))
+  const paths = [...values].filter((path) => validatePublishImagePath(String(path || '')));
+  const legacyFolders = /^(?:Business|CustomPhotoStandees|DinosaurAnimalStandees|DinosaurCreatureStandees|FaithCelebrationStandees|FanBackgrounds|FanRequestStandees|GameFantasyStandees|Herobackgroundparts|HolidayStandees|MovieCharacterStandees|Moviestars|MusicArtistStandees|PartyPackStandees|PeoplePublicFigureStandees|SportLegendStandees)(?:\/|$)/i;
+  const organizedNames = new Set(paths
+    .filter((path) => !legacyFolders.test(path.replace(/^images\//i, '')))
+    .map((path) => path.split('/').pop()?.toLowerCase())
+    .filter(Boolean));
+  return paths.filter((path) => {
+    const relative = path.replace(/^images\//i, '');
+    const filename = path.split('/').pop()?.toLowerCase();
+    return !legacyFolders.test(relative) || !organizedNames.has(filename);
+  })
     .sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
+}
+
+function repositoryCategoryImageFolder(path) {
+  return String(path || '').replace(/^images\//i, '').split('/')[0] || 'Other';
 }
 
 function preferredCategoryImages(category, kind = 'category') {
@@ -5228,7 +5283,10 @@ function categoryVisualImagePicker(category, kind = 'category') {
     <details class="admin-category-image-browser">
       <summary>Choose ${objectName} ${isBackground ? 'Background' : 'Image'}</summary>
       <button type="button" data-search-all-category-images>Search All Repository Images</button>
-      <label data-category-image-search-controls hidden>Search repository images<input type="search" data-category-image-search placeholder="Search filename or folder"></label>
+      <div class="admin-category-image-search-controls" data-category-image-search-controls hidden>
+        <label>Search repository images<input type="search" data-category-image-search placeholder="Search filename or folder"></label>
+        <label>Folder<select data-category-image-folder><option value="">All folders</option></select></label>
+      </div>
       <p class="admin-note">All repository images are available. Search by folder or filename, such as Movie Stars, Holidays, or Sport Legends.</p>
       <div class="admin-category-image-gallery" data-category-image-gallery><p class="admin-note">Choose Change Image to load all repository images.</p></div>
     </details>
@@ -5514,7 +5572,7 @@ function sharedCollectionBackgroundPicker(configuration) {
       <div class="admin-panel-actions"><button type="button" data-change-category-image>Change Background Image</button><button type="button" data-reset-shared-collection-background>Use Shared Default Background</button></div>
     </div>
     <input name="cardBackgroundImage" type="hidden" value="${escapeAdminHtml(configuration.backgroundImage)}" data-preserve-invalid-reference="false">
-    <details class="admin-category-image-browser"><summary>Browse Repository Backgrounds</summary><button type="button" data-search-all-category-images>Search All Repository Images</button><label data-category-image-search-controls hidden>Search repository backgrounds<input type="search" data-category-image-search placeholder="Search filename or folder"></label><div class="admin-category-image-gallery" data-category-image-gallery><p class="admin-note">Choose Change Background Image to load available backgrounds.</p></div></details>
+    <details class="admin-category-image-browser"><summary>Browse Repository Backgrounds</summary><button type="button" data-search-all-category-images>Search All Repository Images</button><div class="admin-category-image-search-controls" data-category-image-search-controls hidden><label>Search repository backgrounds<input type="search" data-category-image-search placeholder="Search filename or folder"></label><label>Folder<select data-category-image-folder><option value="">All folders</option></select></label></div><div class="admin-category-image-gallery" data-category-image-gallery><p class="admin-note">Choose Change Background Image to load available backgrounds.</p></div></details>
   </section>`;
 }
 
@@ -6317,7 +6375,7 @@ function previewCategoryEdit(form) {
     'featuredCategories',
     adminLiveSettings?.globalDisplaySettings || adminPublishedBaseline?.globalDisplaySettings || {}
   ) || {
-    imageAreaMinHeightPx: 330, textBoxHeightPx: 92, titleFontSizePx: 19, titleFontWeight: 800,
+    imageAreaMinHeightPx: 420, textBoxHeightPx: 74, titleFontSizePx: 19, titleFontWeight: 800,
     descriptionFontSizePx: 14, descriptionFontWeight: 400, titleLineHeightPercent: 120,
     descriptionLineHeightPercent: 140, textGapPx: 5, textPaddingPx: 10,
     titleFontFamily: 'inherit', descriptionFontFamily: 'inherit', textAlign: 'center'
@@ -6339,11 +6397,27 @@ function renderCategoryImagePickerGallery(picker, query = '', searchAll = false)
   const kind = picker.dataset.imageKind || 'category';
   const selected = picker.querySelector('input[type="hidden"]')?.value || '';
   const normalizedQuery = String(query || '').trim().toLowerCase();
-  const paths = normalizedQuery || searchAll
-    ? repositoryCategoryImageLibrary().filter((path) => `${path} ${creationImageLabel(path)}`.toLowerCase().includes(normalizedQuery)).slice(0, 80)
-    : preferredCategoryImages(category, kind);
+  const folderSelect = picker.querySelector('[data-category-image-folder]');
+  const library = repositoryCategoryImageLibrary();
+  if (folderSelect && folderSelect.options.length <= 1) {
+    [...new Set(library.map(repositoryCategoryImageFolder))].sort((left, right) => left.localeCompare(right)).forEach((folder) => {
+      const option = document.createElement('option');
+      option.value = folder;
+      option.textContent = folder;
+      folderSelect.append(option);
+    });
+  }
+  const selectedFolder = String(folderSelect?.value || '');
+  const matches = library.filter((path) => (
+    (!selectedFolder || repositoryCategoryImageFolder(path) === selectedFolder)
+    && `${path} ${creationImageLabel(path)}`.toLowerCase().includes(normalizedQuery)
+  ));
+  const visibleLimit = Math.max(80, Number.parseInt(picker.dataset.categoryImageVisibleLimit || '80', 10) || 80);
+  const paths = normalizedQuery || selectedFolder || searchAll ? matches.slice(0, visibleLimit) : preferredCategoryImages(category, kind);
   const gallery = picker.querySelector('[data-category-image-gallery]');
-  if (gallery) gallery.innerHTML = categoryImagePickerChoices(paths, selected) || '<p class="admin-note">No matching repository images.</p>';
+  if (gallery) gallery.innerHTML = (categoryImagePickerChoices(paths, selected) || '<p class="admin-note">No matching repository images.</p>')
+    + (matches.length > paths.length ? `<button type="button" class="admin-category-image-load-more" data-category-image-load-more>Load More (${matches.length - paths.length} remaining)</button>` : '')
+    + (searchAll ? `<p class="admin-note admin-category-image-count">Showing ${paths.length} of ${matches.length} repository images.</p>` : '');
 }
 
 function updateCategoryPickerValue(picker, path) {
@@ -6831,6 +6905,14 @@ function setupCategoryManagerEvents() {
     renderCategoryManager();
   });
   section.addEventListener('change', async (event) => {
+    if (event.target.matches('[data-category-image-folder]')) {
+      const picker = event.target.closest('[data-category-image-picker]');
+      if (picker) {
+        picker.dataset.categoryImageVisibleLimit = '80';
+        renderCategoryImagePickerGallery(picker, picker.querySelector('[data-category-image-search]')?.value || '', true);
+      }
+      return;
+    }
     if (event.target.id === 'holdCollectionChangesPrivate') {
       if (event.target.checked) {
         categoryLiveAutosaveTimers.forEach((timer) => window.clearTimeout(timer));
@@ -6872,7 +6954,9 @@ function setupCategoryManagerEvents() {
   });
   section.addEventListener('input', (event) => {
     if (event.target.matches('[data-category-image-search]')) {
-      renderCategoryImagePickerGallery(event.target.closest('[data-category-image-picker]'), event.target.value);
+      const picker = event.target.closest('[data-category-image-picker]');
+      picker.dataset.categoryImageVisibleLimit = '80';
+      renderCategoryImagePickerGallery(picker, event.target.value, true);
       return;
     }
     const sharedBackgroundForm = event.target.closest('[data-shared-collection-background-form]');
@@ -7037,6 +7121,7 @@ function setupCategoryManagerEvents() {
       if (controls) {
         controls.hidden = false;
         if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false });
+        picker.dataset.categoryImageVisibleLimit = '80';
         renderCategoryImagePickerGallery(picker, '', true);
         controls.querySelector('input')?.focus();
       }
@@ -7049,8 +7134,19 @@ function setupCategoryManagerEvents() {
       if (browser) browser.open = true;
       if (controls) controls.hidden = false;
       if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false });
-      if (picker) renderCategoryImagePickerGallery(picker, '', true);
+      if (picker) {
+        picker.dataset.categoryImageVisibleLimit = '80';
+        renderCategoryImagePickerGallery(picker, '', true);
+      }
       controls?.querySelector('input')?.focus();
+    }
+    const loadMoreImages = event.target.closest('[data-category-image-load-more]');
+    if (loadMoreImages) {
+      const picker = loadMoreImages.closest('[data-category-image-picker]');
+      if (picker) {
+        picker.dataset.categoryImageVisibleLimit = String((Number.parseInt(picker.dataset.categoryImageVisibleLimit || '80', 10) || 80) + 80);
+        renderCategoryImagePickerGallery(picker, picker.querySelector('[data-category-image-search]')?.value || '', true);
+      }
     }
     const removeImage = event.target.closest('[data-remove-category-image]');
     if (removeImage) updateCategoryPickerValue(removeImage.closest('[data-category-image-picker]'), '');
@@ -7241,6 +7337,199 @@ function setupCategoryManagerEvents() {
   });
 }
 
+function productShowroomDesignDefaults() {
+  return {
+    backgroundImage: IMAGE_IMPORT_DEFAULT_BACKGROUND,
+    backgroundPositionX: 50,
+    backgroundPositionY: 50,
+    backgroundSizePercent: 100,
+    backgroundWidthPercent: 100,
+    backgroundHeightPercent: 100,
+    stageHeightPx: 560
+  };
+}
+
+function normalizedProductShowroomDesign(value = {}) {
+  const defaults = productShowroomDesignDefaults();
+  return {
+    backgroundImage: String(value.backgroundImage || defaults.backgroundImage),
+    backgroundPositionX: safeCategoryDisplayNumber(value.backgroundPositionX, defaults.backgroundPositionX, 0, 100),
+    backgroundPositionY: safeCategoryDisplayNumber(value.backgroundPositionY, defaults.backgroundPositionY, 0, 100),
+    backgroundSizePercent: safeCategoryDisplayNumber(value.backgroundSizePercent, defaults.backgroundSizePercent, 50, 300),
+    backgroundWidthPercent: safeCategoryDisplayNumber(value.backgroundWidthPercent, defaults.backgroundWidthPercent, 50, 300),
+    backgroundHeightPercent: safeCategoryDisplayNumber(value.backgroundHeightPercent, defaults.backgroundHeightPercent, 50, 300),
+    stageHeightPx: safeCategoryDisplayNumber(value.stageHeightPx, defaults.stageHeightPx, 320, 820)
+  };
+}
+
+function productShowroomDesignState(settings = adminLiveSettings?.globalDisplaySettings) {
+  const source = settings?.productShowrooms && typeof settings.productShowrooms === 'object' ? settings.productShowrooms : {};
+  return {
+    default: normalizedProductShowroomDesign(source.default),
+    collections: source.collections && typeof source.collections === 'object' ? structuredClone(source.collections) : {}
+  };
+}
+
+function productShowroomDesignForScope(scope, settings = adminLiveSettings?.globalDisplaySettings) {
+  const state = productShowroomDesignState(settings);
+  return normalizedProductShowroomDesign(scope === 'default' ? state.default : { ...state.default, ...(state.collections[scope] || {}) });
+}
+
+function productShowroomDesignFromForm(form) {
+  const data = new FormData(form);
+  return normalizedProductShowroomDesign({
+    backgroundImage: data.get('backgroundImage'),
+    backgroundPositionX: data.get('backgroundPositionX'),
+    backgroundPositionY: data.get('backgroundPositionY'),
+    backgroundSizePercent: data.get('backgroundSizePercent'),
+    backgroundWidthPercent: data.get('backgroundWidthPercent'),
+    backgroundHeightPercent: data.get('backgroundHeightPercent'),
+    stageHeightPx: data.get('stageHeightPx')
+  });
+}
+
+function previewSharedProductShowroom(form) {
+  const preview = form?.querySelector('[data-shared-product-showroom-preview]');
+  if (!preview) return;
+  const design = productShowroomDesignFromForm(form);
+  const sample = effectiveAdminProducts().find((product) => product.visible !== false && product.cutoutImage);
+  const width = design.backgroundWidthPercent * design.backgroundSizePercent / 100;
+  const height = design.backgroundHeightPercent * design.backgroundSizePercent / 100;
+  preview.innerHTML = `<div class="admin-shared-product-showroom-stage" style="min-height:${design.stageHeightPx}px;background-image:url('${escapeAdminHtml(design.backgroundImage)}');background-position:${design.backgroundPositionX}% ${design.backgroundPositionY}%;background-size:${width}% ${height}%">
+    ${sample?.cutoutImage ? `<img src="${escapeAdminHtml(sample.cutoutImage)}" alt="Sample Product / Standee">` : '<span>No sample Product image available</span>'}
+  </div><strong>${escapeAdminHtml(sample?.title || 'Product / Standee Preview')}</strong>`;
+}
+
+async function saveSharedProductShowroomDesign(form, { live = false } = {}) {
+  const scope = String(form.elements.namedItem('scope')?.value || 'default');
+  const current = productShowroomDesignState();
+  const next = structuredClone(current);
+  const design = productShowroomDesignFromForm(form);
+  if (scope === 'default') next.default = design;
+  else next.collections[scope] = design;
+  const status = form.querySelector('[data-shared-product-showroom-status]');
+  if (status) status.textContent = live ? 'SAVING LIVE…' : 'SAVING DRAFT…';
+  const result = await saveAdminCollectionOperations([{
+    type: 'value', collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms',
+    baseValue: current, value: next
+  }]);
+  if (!result.ok) {
+    if (status) status.textContent = 'SAVE FAILED — WEBSITE NOT CHANGED.';
+    return false;
+  }
+  form.dataset.editorDirty = 'false';
+  if (!live) {
+    if (status) status.textContent = 'DRAFT SAVED — PRIVATE';
+    return true;
+  }
+  return saveLiveChangeIds(['productShowrooms:all'], 'Shared Product Showroom Design', status, { workingStateCurrent: true });
+}
+
+function productsInSharedShowroomScope(scope) {
+  return effectiveAdminProducts().filter((product) => (
+    product.categoryCard !== true
+    && (scope === 'default' || (product.categories || []).includes(scope))
+  ));
+}
+
+function sharedProductShowroomInheritancePatch(product = {}) {
+  const displayOverrides = { ...(product.displayOverrides || {}) };
+  ['backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent', 'backgroundPosition', 'backgroundPositionX', 'backgroundPositionY']
+    .forEach((field) => { delete displayOverrides[field]; });
+  return {
+    backgroundImage: '',
+    stageBackgroundPosition: '',
+    displayOverrides,
+    draftStatus: 'ready',
+    approvalStatus: 'draft',
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function makeProductsUseSharedShowroomDesign(form) {
+  const scope = String(form.elements.namedItem('scope')?.value || 'default');
+  const products = productsInSharedShowroomScope(scope);
+  const scopeName = scope === 'default' ? 'all Products' : `${readAdminCategories()[scope]?.title || scope} Products`;
+  if (!products.length) {
+    form.querySelector('[data-shared-product-showroom-status]').textContent = 'No Products are assigned to this scope.';
+    return false;
+  }
+  if (!window.confirm(`Make ${products.length} ${scopeName} use this shared showroom design? This removes only their custom showroom background overrides. Product images, text, prices, sizes, and assignments stay unchanged.`)) return false;
+  if (form.dataset.editorDirty === 'true' && !await saveSharedProductShowroomDesign(form)) return false;
+  const patches = Object.fromEntries(products.map((product) => [product.slug, sharedProductShowroomInheritancePatch(product)]));
+  const bases = Object.fromEntries(products.map((product) => [product.slug, product]));
+  const status = form.querySelector('[data-shared-product-showroom-status]');
+  status.textContent = `Saving ${products.length} Product showroom relationships privately…`;
+  if (!await saveAdminProductFieldPatches(patches, bases)) {
+    status.textContent = 'SAVE FAILED — no shared Product relationships were changed.';
+    return false;
+  }
+  status.textContent = `DRAFT SAVED — PRIVATE. ${products.length} Products now use this shared design. Use Save All Live Changes when ready.`;
+  return true;
+}
+
+function renderSharedProductShowroomController() {
+  const mount = document.getElementById('sharedProductShowroomController');
+  if (!mount || !['loading', 'loaded'].includes(adminAreaLoadState.get('products')?.status)) return;
+  const previousScope = mount.querySelector('[data-shared-product-showroom-form] [name="scope"]')?.value || 'default';
+  const design = productShowroomDesignForScope(previousScope);
+  const mainCollections = Object.values(readAdminCategories()).filter((category) => !category.parentKey && category.visible !== false)
+    .sort((left, right) => String(left.title || left.key).localeCompare(String(right.title || right.key)));
+  const affectedCount = productsInSharedShowroomScope(previousScope).length;
+  mount.innerHTML = `<form data-shared-product-showroom-form>
+    <div><h3>Shared Product Showroom Design</h3><p class="admin-note">Control the background and stage used by Products that use a shared default. Homepage Collection Card backgrounds remain separate.</p></div>
+    <div class="admin-shared-product-showroom-workspace">
+      <aside data-shared-product-showroom-preview></aside>
+      <div class="admin-shared-product-showroom-controls">
+        <label>Apply design to<select name="scope"><option value="default">All Products — Global Default</option>${mainCollections.map((category) => `<option value="${escapeAdminHtml(category.key)}" ${category.key === previousScope ? 'selected' : ''}>${escapeAdminHtml(category.title)} Products</option>`).join('')}</select></label>
+        <label>Shared Showroom Background<select name="backgroundImage">${productVisualOptionsMarkup('background', design.backgroundImage)}</select></label>
+        ${categoryDisplayRangeMarkup('stageHeightPx', 'Stage Height', design.stageHeightPx, 320, 820, 'px')}
+        ${categoryDisplayRangeMarkup('backgroundWidthPercent', 'Background Width', design.backgroundWidthPercent, 50, 300, '%')}
+        ${categoryDisplayRangeMarkup('backgroundHeightPercent', 'Background Height', design.backgroundHeightPercent, 50, 300, '%')}
+        ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background Left / Right', design.backgroundPositionX, 0, 100, '%')}
+        ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Up / Down', design.backgroundPositionY, 0, 100, '%')}
+        ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Overall Background Zoom', design.backgroundSizePercent, 50, 300, '%')}
+        <div class="admin-panel-actions"><button type="button" data-center-product-showroom>Center Background</button><button type="button" data-reset-product-showroom>Reset Design</button></div>
+        <div class="admin-panel-actions"><button type="submit">Save Draft</button><button class="admin-button admin-button-primary" type="button" data-save-live-product-showroom>Save Live</button></div>
+        <button type="button" data-make-products-use-shared-showroom>Make ${affectedCount} Products Use Shared Design</button>
+        <p class="admin-status" data-shared-product-showroom-status>Products already using the shared default follow this design automatically. Individual Product backgrounds remain custom overrides unless you deliberately use the button above.</p>
+      </div>
+    </div>
+  </form>`;
+  const form = mount.querySelector('[data-shared-product-showroom-form]');
+  previewSharedProductShowroom(form);
+  form.addEventListener('input', (event) => {
+    syncCategoryDisplayControl(form, event.target);
+    syncCategoryDisplayOutputs(form);
+    previewSharedProductShowroom(form);
+    form.dataset.editorDirty = 'true';
+    form.querySelector('[data-shared-product-showroom-status]').textContent = 'UNSAVED CHANGES';
+  });
+  form.addEventListener('change', (event) => {
+    if (event.target.name !== 'scope') form.dataset.editorDirty = 'true';
+    previewSharedProductShowroom(form);
+  });
+  form.elements.namedItem('scope')?.addEventListener('change', () => renderSharedProductShowroomController());
+  form.addEventListener('submit', async (event) => { event.preventDefault(); await saveSharedProductShowroomDesign(form); });
+  form.querySelector('[data-save-live-product-showroom]')?.addEventListener('click', () => saveSharedProductShowroomDesign(form, { live: true }));
+  form.querySelector('[data-make-products-use-shared-showroom]')?.addEventListener('click', () => makeProductsUseSharedShowroomDesign(form));
+  form.querySelector('[data-center-product-showroom]')?.addEventListener('click', () => {
+    setCategoryDisplayControlValue(form, 'backgroundPositionX', 50);
+    setCategoryDisplayControlValue(form, 'backgroundPositionY', 50);
+    previewSharedProductShowroom(form);
+    form.dataset.editorDirty = 'true';
+    form.querySelector('[data-shared-product-showroom-status]').textContent = 'UNSAVED CHANGES';
+  });
+  form.querySelector('[data-reset-product-showroom]')?.addEventListener('click', () => {
+    const defaults = productShowroomDesignDefaults();
+    Object.entries(defaults).filter(([, value]) => typeof value === 'number').forEach(([name, value]) => setCategoryDisplayControlValue(form, name, value));
+    form.elements.namedItem('backgroundImage').value = defaults.backgroundImage;
+    previewSharedProductShowroom(form);
+    form.dataset.editorDirty = 'true';
+    form.querySelector('[data-shared-product-showroom-status]').textContent = 'UNSAVED CHANGES';
+  });
+}
+
 function renderAdminProducts() {
   const approvedContainer = document.getElementById('approvedProducts');
   const publishedContainer = document.getElementById('publishedProducts');
@@ -7252,6 +7541,7 @@ function renderAdminProducts() {
   if (!productContainers.length) return;
 
   renderSavedProducts();
+  renderSharedProductShowroomController();
 
   const deleted = new Set(readDeletedProducts());
   const availableProducts = allAdminProducts().filter((product) => !archived.has(product.slug) && !deleted.has(product.slug));
@@ -7486,6 +7776,28 @@ function renderAdminProducts() {
     });
 
     form.querySelector('[data-remove-product-image]')?.addEventListener('click', () => removeProductMainImage(form));
+
+    form.querySelector('[data-browse-new-image-choice]')?.addEventListener('click', async () => {
+      if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false });
+      populateProductImageChoiceBrowser(form);
+      form.querySelector('[data-new-image-choice-path]')?.focus();
+    });
+    form.querySelector('[data-add-new-image-choice]')?.addEventListener('click', async () => {
+      const image = String(form.querySelector('[data-new-image-choice-path]')?.value || '');
+      const label = String(form.querySelector('[data-new-image-choice-label]')?.value || '').trim() || creationImageLabel(image);
+      if (!image) {
+        setProductSaveState(form, 'Choose a repository image first.', 'failed');
+        return;
+      }
+      if (form._adminDirtyFields?.size && !await saveProductForm(form)) return;
+      try {
+        await addImageChoiceToProduct(form.dataset.slug, { label, image });
+        setStatus(`DRAFT SAVED — PRIVATE. Added ${label} to ${effectiveAdminProduct(form.dataset.slug)?.title || form.dataset.slug}.`);
+        renderAdminProducts();
+      } catch (error) {
+        setProductSaveState(form, error?.message || 'Could not add that image choice.', 'failed');
+      }
+    });
 
     form.querySelector('[data-remove-product-background]')?.addEventListener('click', () => useDefaultProductShowroomBackground(form));
     form.querySelector('[data-use-default-product-background]')?.addEventListener('click', () => useDefaultProductShowroomBackground(form));

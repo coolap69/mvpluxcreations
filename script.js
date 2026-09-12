@@ -3800,7 +3800,65 @@ const sportsStandeeCatalog = {
 let selectedSportsStandeeKey = 'kobe-bryant';
 
 function getShowroomStageBackground() {
-  return 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg';
+  return resolveSharedProductShowroomDesign().backgroundImage;
+}
+
+function productShowroomDesignDefaults() {
+  return {
+    backgroundImage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg',
+    backgroundPositionX: 50,
+    backgroundPositionY: 50,
+    backgroundSizePercent: 100,
+    backgroundWidthPercent: 100,
+    backgroundHeightPercent: 100,
+    stageHeightPx: 560
+  };
+}
+
+function normalizedProductShowroomDesign(value = {}) {
+  const defaults = productShowroomDesignDefaults();
+  const number = (field, minimum, maximum) => {
+    const parsed = Number(value[field]);
+    return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : defaults[field];
+  };
+  return {
+    backgroundImage: String(value.backgroundImage || defaults.backgroundImage),
+    backgroundPositionX: number('backgroundPositionX', 0, 100),
+    backgroundPositionY: number('backgroundPositionY', 0, 100),
+    backgroundSizePercent: number('backgroundSizePercent', 50, 300),
+    backgroundWidthPercent: number('backgroundWidthPercent', 50, 300),
+    backgroundHeightPercent: number('backgroundHeightPercent', 50, 300),
+    stageHeightPx: number('stageHeightPx', 320, 820)
+  };
+}
+
+function resolveSharedProductShowroomDesign(product = {}, categoryKey = getCurrentProductCategory(), globalDisplaySettings = getAdminGlobalDisplaySettings()) {
+  const settings = globalDisplaySettings?.productShowrooms || {};
+  const sharedDefault = normalizedProductShowroomDesign(settings.default || {});
+  const collectionDesign = categoryKey && settings.collections?.[categoryKey]
+    ? normalizedProductShowroomDesign({ ...sharedDefault, ...settings.collections[categoryKey] })
+    : sharedDefault;
+  const display = product.displayOverrides || {};
+  const productBackground = String(product.backgroundImage || '');
+  return normalizedProductShowroomDesign({
+    ...collectionDesign,
+    ...(productBackground ? { backgroundImage: productBackground } : {}),
+    ...(display.backgroundSizePercent != null ? { backgroundSizePercent: display.backgroundSizePercent } : {}),
+    ...(display.backgroundWidthPercent != null ? { backgroundWidthPercent: display.backgroundWidthPercent } : {}),
+    ...(display.backgroundHeightPercent != null ? { backgroundHeightPercent: display.backgroundHeightPercent } : {})
+  });
+}
+
+function applyProductShowroomDesign(stage, product = {}, categoryKey = getCurrentProductCategory()) {
+  if (!stage) return resolveSharedProductShowroomDesign(product, categoryKey);
+  const design = resolveSharedProductShowroomDesign(product, categoryKey);
+  const width = design.backgroundWidthPercent * design.backgroundSizePercent / 100;
+  const height = design.backgroundHeightPercent * design.backgroundSizePercent / 100;
+  stage.style.backgroundImage = `url('${design.backgroundImage}')`;
+  stage.style.backgroundPosition = product.stageBackgroundPosition || `${design.backgroundPositionX}% ${design.backgroundPositionY}%`;
+  stage.style.backgroundSize = `${width}% ${height}%`;
+  stage.style.minHeight = `${design.stageHeightPx}px`;
+  return design;
 }
 
 function getShowroomOriginalPrice(originalHeight) {
@@ -3913,7 +3971,8 @@ function selectSportsOption(index) {
 
   if (!product || !option || !mainStage || !mainImage) return;
 
-  mainStage.style.backgroundImage = `url('${option.stage || product.backgroundImage || getShowroomStageBackground()}')`;
+  const design = applyProductShowroomDesign(mainStage, product.sourceProduct || product, 'sports');
+  mainStage.style.backgroundImage = `url('${option.stage || product.backgroundImage || design.backgroundImage}')`;
   mainStage.style.setProperty('--showroom-image-height', product.displayFit?.imageHeight || '80%');
   if (option.image) {
     mainImage.src = option.image;
@@ -3951,7 +4010,8 @@ function selectSportsStandee(key, shouldScroll = true) {
       'Sports',
       managedChoices.length ? `Options: ${managedChoices.length + 1} images` : 'Primary image'
     ],
-    options: [{ label: 'Main image', image: managed.cutoutImage, stage: managed.backgroundImage }, ...managedChoices]
+    options: [{ label: 'Main image', image: managed.cutoutImage, stage: managed.backgroundImage }, ...managedChoices],
+    sourceProduct: managed
   } : (catalogProduct ? { ...catalogProduct } : null);
   const optionStrip = document.getElementById('sportsOptionStrip');
   if (!product || !optionStrip) return;
@@ -4036,6 +4096,7 @@ function initializeCategoryShowroomExperience() {
   setupGenericCategoryShowroom();
   initSportsShowroom();
   refreshCategoryShowroomPricing();
+  document.querySelectorAll('[data-category-initial-content][hidden]').forEach((element) => { element.hidden = false; });
 }
 
 function getGenericCategoryFallbackStage() {
@@ -4557,7 +4618,7 @@ function selectGenericCategoryOption(state, options, index) {
   const option = options[index];
   if (!option) return;
 
-  state.stage.style.backgroundImage = `url('${option.stage || getGenericCategoryFallbackStage()}')`;
+  state.stage.style.backgroundImage = `url('${option.stage || state.showroomDesign?.backgroundImage || getGenericCategoryFallbackStage()}')`;
   if (option.image) {
     state.image.src = option.image;
     state.image.hidden = false;
@@ -4574,16 +4635,17 @@ function selectGenericCategoryOption(state, options, index) {
 
 function buildGenericCategoryOptions(card, backgroundImages) {
   const product = getKnownStandeeForCard(card);
+  const sharedStage = resolveSharedProductShowroomDesign(product).backgroundImage;
   const imageChoices = sanitizeProductImageChoices(product?.imageChoices)
     .filter((choice) => choice.image !== product?.cutoutImage);
   if (imageChoices.length) {
     const primaryChoice = product.backgrounds?.find((choice) => choice.image === product.cutoutImage);
     const primaryLabel = primaryChoice?.name || 'Main image';
     return [
-      ...(product.cutoutImage ? [{ label: primaryLabel, image: product.cutoutImage, stage: primaryChoice?.stage || product.backgroundImage || getGenericCategoryFallbackStage() }] : []),
+      ...(product.cutoutImage ? [{ label: primaryLabel, image: product.cutoutImage, stage: primaryChoice?.stage || product.backgroundImage || sharedStage }] : []),
       ...imageChoices.map((choice) => ({
         ...choice,
-        stage: choice.stage || product.backgroundImage || getGenericCategoryFallbackStage()
+        stage: choice.stage || product.backgroundImage || sharedStage
       }))
     ];
   }
@@ -4592,7 +4654,7 @@ function buildGenericCategoryOptions(card, backgroundImages) {
       .map((background) => ({
         label: background.name,
         image: background.image,
-        stage: product.backgroundImage || background.stage || getGenericCategoryFallbackStage()
+        stage: product.backgroundImage || background.stage || sharedStage
       }))
       .sort((a, b) => Number(isNoBackgroundOption(b)) - Number(isNoBackgroundOption(a)));
   }
@@ -4602,7 +4664,7 @@ function buildGenericCategoryOptions(card, backgroundImages) {
   return [{
     label: 'No Background',
     image: cardImage,
-    stage: product?.backgroundImage || getGenericCategoryFallbackStage()
+    stage: product?.backgroundImage || sharedStage
   }];
 }
 
@@ -4679,6 +4741,7 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
     const title = card.querySelector('h3')?.textContent.trim() || 'Standee';
     const productId = card.dataset.productId || title;
     const product = getKnownStandeeForCard(card);
+    state.showroomDesign = applyProductShowroomDesign(state.stage, product);
     const options = buildGenericCategoryOptions(card, backgroundImages);
     const originalSize = product?.originalHeight ? `Original: ${formatHeight(product.originalHeight)}` : 'Original size varies';
     const description = product?.description || `Preview ${title} with the available image choices for this category.`;

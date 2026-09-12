@@ -19,6 +19,34 @@ Deno.test('Main and Child Group filtering preserves the existing shared Sports p
   assert(filteredRenderer.includes("onclick=\"selectSportsStandee('") && filteredRenderer.includes('sports-player-card'), 'filtered Sports cards must keep the existing Sports selection path');
   for (const control of ['Buy Now', 'addSelectedToCart(this)', 'Offer Now', 'live-size-price']) assert(purchase.includes(control), `shared Sports showroom lost ${control}`);
   for (const control of ['Buy Now', 'addSelectedToCart(this)', 'Offer Now', 'sportsSizeBuilder']) assert(sportsHtml.includes(control), `published Sports page lost ${control}`);
+  assert(sportsHtml.includes('data-category-initial-content hidden'), 'the static Sports compatibility showroom must remain inert until normalized published data initializes it');
+  const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
+  assert(initializer.includes("[data-category-initial-content][hidden]") && initializer.includes('element.hidden = false'), 'Sports content must become visible immediately after the normalized showroom finishes initializing');
+});
+
+Deno.test('generic Collection pages keep legacy background choices inert until the normalized showroom is ready', async () => {
+  const genericPages = [
+    'movie-inspired.html', 'music-artists.html', 'religious-cutouts.html', 'dinosaur-cutouts.html',
+    'videogame-cutouts.html', 'custom-photo-cutouts.html', 'fan-inspired.html',
+    'small-cutout-party-packs.html', 'category.html'
+  ];
+  for (const filename of genericPages) {
+    const html = await Deno.readTextFile(new URL(`../${filename}`, import.meta.url));
+    assert(/<section class="category-panel" data-category-background-options hidden><h2>Background Options/.test(html), `${filename} must not flash its static compatibility backgrounds before live content loads`);
+  }
+  const setup = between('function setupGenericCategoryShowroom', 'function normalizeFrontPageCategoryLinks');
+  assert(setup.includes("panel.querySelector('.background-carousel')") && setup.includes('backgroundPanel.remove()'), 'the normalized showroom must still consume and remove the inert compatibility source');
+});
+
+Deno.test('generic and Sports showrooms resolve shared Product showroom designs without changing commerce', () => {
+  const shared = between('function productShowroomDesignDefaults', 'function getShowroomOriginalPrice');
+  const generic = between('function selectGenericCategoryOption', 'function normalizeFrontPageCategoryLinks');
+  const sports = between('function selectSportsOption', 'function bindSportsShowroomClicks');
+  assert(shared.includes('productShowrooms') && shared.includes('settings.collections?.[categoryKey]'), 'storefront must resolve global and Main Collection shared Product showroom settings');
+  assert(shared.includes('product.backgroundImage') && shared.indexOf('...collectionDesign') < shared.indexOf('productBackground ?'), 'individual Product background must remain the final image override');
+  assert(generic.includes('applyProductShowroomDesign(state.stage, product)'), 'generic Collection showroom must apply the resolved shared stage design');
+  assert(sports.includes("applyProductShowroomDesign(mainStage, product.sourceProduct || product, 'sports')"), 'Sport Legends showroom must use the same shared stage resolver');
+  for (const control of ['Buy Now', 'addSelectedToCart(this)', 'Offer Now']) assert(source.includes(control), `shared showroom work must preserve ${control}`);
 });
 
 Deno.test('normal product-page purchase UI retains prices, sizes, Buy, and cart controls', () => {

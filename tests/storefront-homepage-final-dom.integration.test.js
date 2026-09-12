@@ -137,12 +137,16 @@ Deno.test('current mixed published state renders normalized and recognized legac
 Deno.test('fresh 1440px homepage uses four taller minimum-width Collection tracks with horizontal overflow protection', async () => {
   const { window, css } = await actualFinalHomepageDom();
   const mount = window.document.getElementById('homepageCategoryGrid');
+  const shop = window.document.getElementById('shop');
   const cards = [...mount.children].filter((element) => element.matches('.admin-master-category-card'));
   const computed = window.getComputedStyle(mount);
+  const shopComputed = window.getComputedStyle(shop);
   assert(cards.length === 12, 'the current mixed published state must retain all 12 expected Featured Standee Categories');
   assert(computed.gridTemplateColumns.includes('repeat(4') && computed.gridTemplateColumns.includes('330px'), 'desktop must define exactly four 330px-minimum Collection tracks');
   assert(computed.overflowX === 'auto', 'desktop must scroll horizontally instead of shrinking cards below the minimum');
   assert(computed.getPropertyValue('--featured-stage-ratio').replaceAll(' ', '') === '4/4.6', 'the shared storefront stage must be substantially taller than the old 4/3 card stage');
+  assert(shopComputed.getPropertyValue('--featured-categories-image-area-min-height') === '420px', 'the default standee stage must reserve 420px for the image');
+  assert(shopComputed.getPropertyValue('--featured-categories-text-box-height') === '74px', 'the default shared text box must remain compact at 74px');
   assert(css.includes('@media (min-width: 700px) and (max-width: 1099px)') && css.includes('grid-template-columns: repeat(2'), 'tablet layout must remain a readable two-column grid');
   assert(css.includes('@media (max-width: 699px)') && css.includes('grid-template-columns: minmax(0, 1fr)'), 'mobile layout must remain a single responsive column');
 
@@ -152,8 +156,8 @@ Deno.test('fresh 1440px homepage uses four taller minimum-width Collection track
   const minimumTrackSpan = 4 * 330 + 3 * 22;
   assert(minimumTrackSpan > shopContentWidth, 'the 1440px proof must choose scrolling over miniature Collection cards');
   const minimumStageWidth = 330 - 28 - 2;
-  const minimumStageHeight = minimumStageWidth * 4.6 / 4;
-  assert(minimumStageWidth === 300 && minimumStageHeight === 345, 'a minimum desktop card must provide an approximately 300×345px stage before title and description');
+  const minimumStageHeight = Math.max(420, minimumStageWidth * 4.6 / 4);
+  assert(minimumStageWidth === 300 && minimumStageHeight === 420, 'a minimum desktop card must provide an approximately 300×420px stage before its compact title and description');
 });
 
 Deno.test('published Featured Categories section layout controls only the real outer section and grid', async () => {

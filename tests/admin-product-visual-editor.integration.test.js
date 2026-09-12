@@ -98,6 +98,66 @@ Deno.test('Product Editor exposes every actual visual layer with accurate owners
   assert(styleSource.includes('.admin-product-current-visual') && styleSource.includes('height: 96px'), 'visual references must remain compact instead of duplicating the large sticky Product preview');
 });
 
+Deno.test('Product Editor exposes direct alternate-image attachment without creating another Product', () => {
+  const choiceMarkup = sourceRange(adminSource, 'function productImageChoicesMarkup', '\n\nfunction populateProductImageChoiceBrowser');
+  const attachmentHandlers = sourceRange(adminSource, "form.querySelector('[data-browse-new-image-choice]')", "form.querySelector('[data-remove-product-background]')");
+  for (const control of ['Browse All Repository Images', 'Add Alternate Image Choice', 'data-new-image-choice-label', 'data-new-image-choice-path']) {
+    assert(choiceMarkup.includes(control), `missing direct alternate-image control ${control}`);
+  }
+  assert(attachmentHandlers.includes('addImageChoiceToProduct(form.dataset.slug'), 'direct attachment must use the existing normalized Product image-choice save path');
+  assert(!attachmentHandlers.includes('createImageDraft') && !attachmentHandlers.includes('publish'), 'direct attachment must neither create another Product nor publish automatically');
+});
+
+Deno.test('Shared Product Showroom controller uses normalized global settings and preserves Product ownership', () => {
+  const controller = sourceRange(adminSource, 'function productShowroomDesignDefaults', '\n\nfunction renderAdminProducts');
+  for (const text of ['Shared Product Showroom Design', 'All Products — Global Default', 'Stage Height', 'Background Width', 'Background Height', 'Background Left / Right', 'Background Up / Down', 'Overall Background Zoom', 'Save Draft', 'Save Live', 'Products Use Shared Design']) {
+    assert(controller.includes(text), `missing Shared Product Showroom control ${text}`);
+  }
+  assert(controller.includes("collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms'"), 'shared showroom design must extend the existing normalized globalDisplaySettings record');
+  assert(adminSource.includes("id: 'productShowrooms:all'") && adminSource.includes("type: 'product-showroom-design'"), 'shared showroom draft must participate in the existing Save Live snapshot lifecycle');
+  assert(!controller.includes('categoryDisplayCards') && !controller.includes('product.backgroundImage ='), 'shared showroom editor must not write Homepage Collection Cards or individual Product backgrounds');
+  assert(styleSource.includes('.admin-shared-product-showroom-workspace') && styleSource.includes('grid-template-columns: minmax(420px,.95fr) minmax(500px,1.05fr)'), 'shared Product Showroom editor must use a desktop preview-and-controls workspace');
+});
+
+Deno.test('making a Product use a shared showroom clears only background presentation overrides', () => {
+  const patchSource = sourceRange(adminSource, 'function sharedProductShowroomInheritancePatch', '\n\nasync function makeProductsUseSharedShowroomDesign');
+  const patch = new Function(`${patchSource}\nreturn sharedProductShowroomInheritancePatch;`)();
+  const original = {
+    slug: 'captain-america', title: 'Captain America', description: 'Hero', cutoutImage: 'images/captain.png',
+    backgroundImage: 'images/custom-stage.png', stageBackgroundPosition: 'right top', originalHeight: 74,
+    priceOverride: 120, categories: ['movie-characters'], imageChoices: [{ label: 'White', image: 'images/white.png' }],
+    displayOverrides: { standeeSizePercent: 88, standeeLeftPercent: 12, backgroundWidthPercent: 140, backgroundPositionX: 64 }
+  };
+  const result = { ...original, ...patch(original) };
+  assert(result.backgroundImage === '' && result.stageBackgroundPosition === '', 'shared inheritance must clear the Product-specific background reference and legacy position');
+  assert(result.displayOverrides.standeeSizePercent === 88 && result.displayOverrides.standeeLeftPercent === 12, 'shared inheritance must preserve standee geometry');
+  assert(!('backgroundWidthPercent' in result.displayOverrides) && !('backgroundPositionX' in result.displayOverrides), 'shared inheritance must remove only Product background geometry overrides');
+  for (const field of ['slug', 'title', 'description', 'cutoutImage', 'originalHeight', 'priceOverride', 'categories', 'imageChoices']) {
+    assert(JSON.stringify(result[field]) === JSON.stringify(original[field]), `shared inheritance changed protected Product field ${field}`);
+  }
+  const batch = sourceRange(adminSource, 'async function makeProductsUseSharedShowroomDesign', '\n\nfunction renderSharedProductShowroomController');
+  assert(batch.includes('saveAdminProductFieldPatches(patches, bases)'), 'Apply-to-scope must persist all Product inheritance changes in one protected batch');
+});
+
+Deno.test('Product showroom inheritance is Product override then Main Collection then global default', () => {
+  const helpers = sourceRange(storefrontSource, 'function productShowroomDesignDefaults', '\n\nfunction getShowroomOriginalPrice');
+  const settings = {
+    productShowrooms: {
+      default: { backgroundImage: 'images/global.jpg', backgroundWidthPercent: 110, backgroundHeightPercent: 120, backgroundPositionX: 45, backgroundPositionY: 55, backgroundSizePercent: 105, stageHeightPx: 500 },
+      collections: { 'movie-characters': { backgroundImage: 'images/movies.jpg', backgroundHeightPercent: 145, stageHeightPx: 620 } }
+    }
+  };
+  const runtime = new Function('getCurrentProductCategory', 'getAdminGlobalDisplaySettings', `${helpers}\nreturn { resolveSharedProductShowroomDesign, applyProductShowroomDesign };`)(() => 'movie-characters', () => settings);
+  const inherited = runtime.resolveSharedProductShowroomDesign({ categories: ['movie-characters'] }, 'movie-characters', settings);
+  assert(inherited.backgroundImage === 'images/movies.jpg' && inherited.backgroundWidthPercent === 110 && inherited.backgroundHeightPercent === 145 && inherited.stageHeightPx === 620, 'Main Collection shared design must inherit unspecified global values');
+  const custom = runtime.resolveSharedProductShowroomDesign({ backgroundImage: 'images/captain-custom.jpg' }, 'movie-characters', settings);
+  assert(custom.backgroundImage === 'images/captain-custom.jpg' && custom.backgroundHeightPercent === 145, 'Product-specific background must remain an override without losing shared geometry');
+  const style = {};
+  const stage = { style };
+  runtime.applyProductShowroomDesign(stage, {}, 'movie-characters');
+  assert(style.backgroundImage === "url('images/movies.jpg')" && style.backgroundPosition === '45% 55%' && style.backgroundSize === '115.5% 152.25%' && style.minHeight === '620px', 'fresh showroom DOM must reconstruct the shared image, X/Y, independent width/height, zoom, and stage height');
+});
+
 Deno.test('published explicit empty Product image beats catalog and static fallback imagery', () => {
   const sanitizerSource = sourceRange(storefrontSource, 'function sanitizeProductImageChoices', '\n\nfunction validatePublishedAdminSettings');
   const sanitize = new Function(`${sanitizerSource}\nreturn sanitizePublishedProduct;`)();
