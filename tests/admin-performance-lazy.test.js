@@ -58,10 +58,11 @@ Deno.test('Image Inbox and Products render compact summaries before full forms',
 
 Deno.test('normal working-state response strips recovery backup without changing it', () => {
   assert(publisherSource.includes("payload?.action === 'working-state'"), 'publisher must expose the authenticated working-state read');
-  assert(publisherSource.includes('adminPublishingMigrationBackupV1: recoveryBackup, ...workingEdits'), 'working-state must omit the backup from its response');
+  assert(publisherSource.includes('/rest/v1/rpc/get_admin_working_state'), 'working-state must use the reduced authenticated RPC');
+  assert(publisherSource.includes('recoveryBackupAvailable'), 'working-state may report backup availability without returning the backup');
   assert(publisherSource.includes("payload?.action === 'recovery-state'"), 'Advanced must have an explicit full recovery-state read');
   const workingState = publisherSource.slice(publisherSource.indexOf('async function readAdminWorkingState'), publisherSource.indexOf('async function saveAdminWorkingState'));
-  assert(!workingState.includes('save_site_edits') && !workingState.includes('method: \'POST\''), 'working-state must be read-only');
+  assert(!workingState.includes('/rest/v1/site_edits') && !workingState.includes('save_site_edits'), 'normal working-state must not download the complete admin-global row');
 });
 
 Deno.test('Category private saves use reduced working-state reads and responses', () => {
@@ -69,7 +70,8 @@ Deno.test('Category private saves use reduced working-state reads and responses'
   assert(collectionSave.includes('fetchAuthoritativeAdminGlobal(collectionKeys)'), 'private save conflict check must request only affected collections');
   assert(collectionSave.includes("action: 'save-working-state'"), 'private save must use the existing Edge Function to avoid returning the recovery backup to the browser');
   const edgeSave = publisherSource.slice(publisherSource.indexOf('async function saveAdminWorkingState'), publisherSource.indexOf('async function readAdminRecoveryState'));
-  assert(edgeSave.includes("p_page_key: 'admin-global'") && edgeSave.includes('p_expected_revision: expectedRevision'), 'reduced save must preserve the existing revision-protected RPC');
+  assert(edgeSave.includes('/rest/v1/rpc/save_admin_working_state') && edgeSave.includes('p_expected_revision: expectedRevision'), 'reduced save must preserve revision protection without returning the complete row');
+  assert(!edgeSave.includes('save_site_edits'), 'routine working-state saves must not call the full-response RPC');
   assert(!edgeSave.includes('adminPublishingMigrationBackupV1'), 'reduced save response must not process recovery data');
 });
 

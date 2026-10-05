@@ -157,7 +157,7 @@ Deno.test('Product lifecycle labels derive from the published customer snapshot 
   assert(stateFor({ products: { player: product } }, product, { player: { title: 'New private title', approvalStatus: 'draft' } }).label === 'PUBLISHED VERSION EXISTS · DRAFT HAS UNPUBLISHED CHANGES', 'older customer version plus private edits must not look absent from the website');
   assert(stateFor({ products: {} }, product, {}).label === 'DRAFT SAVED — PRIVATE', 'saved Product with no customer snapshot must be labeled private');
 
-  const dirtySource = sourceRange(adminSource, 'function markProductFieldDirty', '\n\nfunction schedulePlacementSave');
+  const dirtySource = sourceRange(adminSource, 'function markProductFieldDirty', '\n\nasync function handleImageUpload');
   let dirtyStatus = '';
   const markDirty = new Function('setProductSaveState', `${dirtySource}\nreturn markProductFieldDirty;`)((_form, message) => { dirtyStatus = message; });
   markDirty({}, 'title');

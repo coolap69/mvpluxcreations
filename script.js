@@ -2095,6 +2095,15 @@ function shouldUsePrivateAdminState() {
   return isInlineAdminEditingEnabled() || isPrivateAdminPreviewEnabled();
 }
 
+function shouldLoadPrivateAdminState() {
+  if (localStorage.getItem('mvpluxIsAdminApproved') !== 'true') return false;
+  const requested = new URLSearchParams(window.location.search).get('adminView');
+  const stored = localStorage.getItem(ADMIN_VIEW_MODE_KEY);
+  return localStorage.getItem('mvpluxAdminAnywhere') === 'true'
+    || ['edit', 'preview'].includes(requested)
+    || ['edit', 'preview'].includes(stored);
+}
+
 function getInlineAdminLabel() {
   return localStorage.getItem('mvpluxSignedInName') || 'Admin';
 }
@@ -3210,48 +3219,70 @@ function getAdminExtraImages() {
   }
 }
 
-async function loadLiveAdminSettings() {
+const STOREFRONT_ADMIN_WORKING_KEYS = [
+  'adminArchitectureV2', 'adminArchitectureMigrationV2', 'adminArchitectureMigrationLockV2',
+  'adminArchitectureBackupVerificationV1', 'cardsSavedForLater', 'categories',
+  'configuredImagePaths', 'coupons', 'customProducts', 'deletedCategories', 'deletedProducts',
+  'dismissedImageDrafts', 'extraImages', 'globalDisplaySettings', 'ignoredImagePaths', 'imageDrafts',
+  'lastPublishedSnapshot', 'liveContentEnabled', 'liveContentRevision', 'livePublishedAt', 'priceSettings',
+  'productRelationshipHistory', 'products', 'publishHistory', 'savedForLaterProducts', 'schemaVersion'
+];
+
+async function callStorefrontWorkingState(payload) {
   const client = getSupabaseClient();
-  if (!client?.from) {
+  const projectUrl = window.MVPLUX_SUPABASE?.url;
+  if (!client?.auth || !projectUrl) throw new Error('Supabase Admin state is unavailable.');
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  const token = sessionData?.session?.access_token;
+  if (!token) throw new Error('Sign in as Admin to load private changes.');
+  const response = await fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      apikey: window.MVPLUX_SUPABASE?.publishableKey || ''
+    },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(result.error || result.message || `Admin state request failed (HTTP ${response.status}).`);
+    error.code = result.code || '';
+    throw error;
+  }
+  return result;
+}
+
+async function loadLiveAdminSettings() {
+  try {
+    const result = await callStorefrontWorkingState({ action: 'working-state', keys: STOREFRONT_ADMIN_WORKING_KEYS });
+    const row = Array.isArray(result.rows) ? result.rows.find((entry) => entry.page_key === 'admin-global') : null;
+    window.mvpluxLiveAdminSettings = row?.edits || {};
+    window.mvpluxLiveAdminRevision = Number(row?.revision) || 0;
+    window.mvpluxLiveAdminStateLoaded = true;
+    storefrontAdminPotentiallyStale = false;
+    return window.mvpluxLiveAdminSettings;
+  } catch (_error) {
     window.mvpluxLiveAdminSettings = null;
     window.mvpluxLiveAdminStateLoaded = false;
     return null;
   }
-
-  const { data, error } = await client
-    .from('site_edits')
-    .select('edits, revision')
-    .eq('page_key', 'admin-global')
-    .maybeSingle();
-
-  if (error) {
-    window.mvpluxLiveAdminSettings = null;
-    window.mvpluxLiveAdminStateLoaded = false;
-    return null;
-  }
-
-  window.mvpluxLiveAdminSettings = data?.edits || {};
-  window.mvpluxLiveAdminRevision = Number(data?.revision) || 0;
-  window.mvpluxLiveAdminStateLoaded = true;
-  storefrontAdminPotentiallyStale = false;
-  return window.mvpluxLiveAdminSettings;
 }
 
 let liveAdminSaveQueue = Promise.resolve(true);
 
-async function fetchAuthoritativeStorefrontAdminGlobal() {
-  const client = getSupabaseClient();
-  if (!client?.from || !client?.auth) throw new Error('Supabase is not ready.');
-  const { data: sessionData, error: sessionError } = await client.auth.getSession();
-  if (sessionError) throw sessionError;
-  if (!sessionData?.session?.user) throw new Error('Sign in as admin to save live.');
-  const { data, error } = await client
-    .from('site_edits')
-    .select('edits, revision')
-    .eq('page_key', 'admin-global')
-    .maybeSingle();
-  if (error) throw error;
-  return { edits: data?.edits || {}, revision: Number(data?.revision) || 0 };
+async function fetchAuthoritativeStorefrontAdminGlobal(keys = STOREFRONT_ADMIN_WORKING_KEYS) {
+  const result = await callStorefrontWorkingState({ action: 'working-state', keys });
+  const row = Array.isArray(result.rows) ? result.rows.find((entry) => entry.page_key === 'admin-global') : null;
+  return {
+    edits: { ...(window.mvpluxLiveAdminSettings || {}), ...(row?.edits || {}) },
+    revision: Number(row?.revision) || 0
+  };
+}
+
+async function saveStorefrontWorkingState(edits, expectedRevision) {
+  return callStorefrontWorkingState({ action: 'save-working-state', edits, expectedRevision });
 }
 
 function showStorefrontAdminConflict(details, retry, keepLatest = null, cancel = null) {
@@ -3307,7 +3338,7 @@ async function saveStorefrontProductPatch(slug, patch, baseRecord, force = false
   }
   updateInlineAdminToolbarState('Saving');
   try {
-    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal(['products', 'customProducts']);
     const defaults = getPublishedProducts()[slug]
       || (window.MVPLUX_PRODUCT_CATALOG || []).find((product) => product.slug === slug)
       || (latest.edits.customProducts || []).find((product) => product.slug === slug)
@@ -3324,15 +3355,12 @@ async function saveStorefrontProductPatch(slug, patch, baseRecord, force = false
       return false;
     }
     const products = utils.applyRecordPatch(latest.edits.products || {}, slug, patch);
-    const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
-      p_page_key: 'admin-global',
-      p_edits: { products },
-      p_expected_revision: latest.revision,
-      p_replace: false
-    });
-    if (error) {
+    let data;
+    try {
+      data = await saveStorefrontWorkingState({ products }, latest.revision);
+    } catch (error) {
       if (String(error.code || '') === '40001' || String(error.message || '').includes('Admin state changed')) {
-        const refreshed = await fetchAuthoritativeStorefrontAdminGlobal();
+        const refreshed = await fetchAuthoritativeStorefrontAdminGlobal(['products', 'customProducts']);
         const refreshedRecord = { ...defaults, ...(refreshed.edits.products?.[slug] || {}) };
         const conflict = utils.analyzeRecordPatch(latestRecord, refreshedRecord, patch);
         window.mvpluxLiveAdminSettings = refreshed.edits;
@@ -3342,7 +3370,7 @@ async function saveStorefrontProductPatch(slug, patch, baseRecord, force = false
       }
       throw error;
     }
-    window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, products };
+    window.mvpluxLiveAdminSettings = { ...latest.edits, ...(data?.edits || { products }) };
     window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
     localStorage.setItem('mvpluxAdminProducts', JSON.stringify(window.mvpluxLiveAdminSettings.products || products));
     announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`products:${slug}`]);
@@ -3360,7 +3388,7 @@ async function saveStorefrontCategoryPatch(categoryKey, section, patch, baseCate
   if (!categoryKey || !Object.keys(patch || {}).length) return false;
   updateInlineAdminToolbarState('Saving Category…');
   try {
-    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal(['categories']);
     const latestCategory = latest.edits.categories?.[categoryKey] || {};
     const utils = await adminStateUtilsPromise;
     const baseSection = section ? baseCategory?.[section] || {} : baseCategory || {};
@@ -3380,14 +3408,8 @@ async function saveStorefrontCategoryPatch(categoryKey, section, patch, baseCate
       ? { ...latestCategory, [section]: { ...latestSection, ...patch }, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus }
       : { ...latestCategory, ...patch, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus };
     const categories = { ...(latest.edits.categories || {}), [categoryKey]: category };
-    const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
-      p_page_key: 'admin-global',
-      p_edits: { categories },
-      p_expected_revision: latest.revision,
-      p_replace: false
-    });
-    if (error) throw error;
-    window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, categories };
+    const data = await saveStorefrontWorkingState({ categories }, latest.revision);
+    window.mvpluxLiveAdminSettings = { ...latest.edits, ...(data?.edits || { categories }) };
     window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
     announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, [`categories:${categoryKey}:${section || 'root'}`]);
     refreshStorefrontCategoryFromNormalized(categoryKey);
@@ -3410,7 +3432,7 @@ async function saveStorefrontProductPatches(recordPatches, baseRecords = {}) {
   if (!entries.length) return true;
   updateInlineAdminToolbarState('Saving');
   try {
-    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal(['products', 'customProducts']);
     const utils = await adminStateUtilsPromise;
     let products = { ...(latest.edits.products || {}) };
     const conflicts = [];
@@ -3432,14 +3454,8 @@ async function saveStorefrontProductPatches(recordPatches, baseRecords = {}) {
       showStorefrontAdminConflict({ conflictingFields: conflicts }, null);
       return false;
     }
-    const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
-      p_page_key: 'admin-global',
-      p_edits: { products },
-      p_expected_revision: latest.revision,
-      p_replace: false
-    });
-    if (error) throw error;
-    window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, products };
+    const data = await saveStorefrontWorkingState({ products }, latest.revision);
+    window.mvpluxLiveAdminSettings = { ...latest.edits, ...(data?.edits || { products }) };
     window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
     localStorage.setItem('mvpluxAdminProducts', JSON.stringify(window.mvpluxLiveAdminSettings.products || products));
     announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, entries.map(([slug]) => `products:${slug}`));
@@ -3448,7 +3464,7 @@ async function saveStorefrontProductPatches(recordPatches, baseRecords = {}) {
   } catch (error) {
     if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
       try {
-        const refreshed = await fetchAuthoritativeStorefrontAdminGlobal();
+        const refreshed = await fetchAuthoritativeStorefrontAdminGlobal(['products', 'customProducts']);
         window.mvpluxLiveAdminSettings = refreshed.edits;
         window.mvpluxLiveAdminRevision = refreshed.revision;
       } catch (_reloadError) { /* Keep the original conflict as the reported failure. */ }
@@ -3463,7 +3479,7 @@ async function saveStorefrontProductPatches(recordPatches, baseRecords = {}) {
 async function saveStorefrontListMembershipPatch(collectionKey, entry, present, baseValues, storageKey) {
   updateInlineAdminToolbarState('Saving');
   try {
-    const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+    const latest = await fetchAuthoritativeStorefrontAdminGlobal([collectionKey]);
     const utils = await adminStateUtilsPromise;
     const latestValues = Array.isArray(latest.edits?.[collectionKey]) ? latest.edits[collectionKey] : [];
     const analysis = utils.analyzeMembershipPatch(baseValues || [], latestValues, entry, present);
@@ -3476,13 +3492,7 @@ async function saveStorefrontListMembershipPatch(collectionKey, entry, present, 
       return false;
     }
     const values = utils.applyMembershipPatch(latestValues, entry, present);
-    const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
-      p_page_key: 'admin-global',
-      p_edits: { [collectionKey]: values },
-      p_expected_revision: latest.revision,
-      p_replace: false
-    });
-    if (error) throw error;
+    const data = await saveStorefrontWorkingState({ [collectionKey]: values }, latest.revision);
     window.mvpluxLiveAdminSettings = { ...latest.edits, [collectionKey]: values, ...(data?.edits || {}) };
     window.mvpluxLiveAdminRevision = Number(data?.revision) || latest.revision + 1;
     if (storageKey) localStorage.setItem(storageKey, JSON.stringify(window.mvpluxLiveAdminSettings[collectionKey] || values));
@@ -3492,7 +3502,7 @@ async function saveStorefrontListMembershipPatch(collectionKey, entry, present, 
   } catch (error) {
     if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
       try {
-        const refreshed = await fetchAuthoritativeStorefrontAdminGlobal();
+        const refreshed = await fetchAuthoritativeStorefrontAdminGlobal([collectionKey]);
         window.mvpluxLiveAdminSettings = refreshed.edits;
         window.mvpluxLiveAdminRevision = refreshed.revision;
       } catch (_reloadError) { /* Preserve the original conflict. */ }
@@ -3506,9 +3516,10 @@ async function saveStorefrontListMembershipPatch(collectionKey, entry, present, 
 
 function saveLiveAdminSettings(patch) {
   const baseSettings = structuredClone(window.mvpluxLiveAdminSettings || {});
+  const patchKeys = Object.keys(patch || {});
   const save = async () => {
     try {
-      const latest = await fetchAuthoritativeStorefrontAdminGlobal();
+      const latest = await fetchAuthoritativeStorefrontAdminGlobal(patchKeys);
       const utils = await adminStateUtilsPromise;
       const conflictingKeys = Object.keys(patch || {}).filter((key) => (
         !utils.valuesEqual(baseSettings[key], latest.edits[key])
@@ -3522,14 +3533,8 @@ function saveLiveAdminSettings(patch) {
         showStorefrontAdminConflict({ conflictingFields: conflictingKeys }, null);
         return false;
       }
-      const { data, error } = await getSupabaseClient().rpc('save_site_edits', {
-        p_page_key: 'admin-global',
-        p_edits: patch || {},
-        p_expected_revision: latest.revision,
-        p_replace: false
-      });
-      if (error) throw error;
-      window.mvpluxLiveAdminSettings = data?.edits || { ...latest.edits, ...(patch || {}) };
+      const data = await saveStorefrontWorkingState(patch || {}, latest.revision);
+      window.mvpluxLiveAdminSettings = { ...latest.edits, ...(data?.edits || patch || {}) };
       window.mvpluxLiveAdminRevision = Number(data?.revision) || (latest.revision + 1);
       announceStorefrontAdminSave('admin-global', window.mvpluxLiveAdminRevision, Object.keys(patch || {}));
       updateInlineAdminToolbarState('Saved Privately');
@@ -3537,7 +3542,7 @@ function saveLiveAdminSettings(patch) {
     } catch (error) {
       if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
         try {
-          const refreshed = await fetchAuthoritativeStorefrontAdminGlobal();
+          const refreshed = await fetchAuthoritativeStorefrontAdminGlobal(patchKeys);
           window.mvpluxLiveAdminSettings = refreshed.edits;
           window.mvpluxLiveAdminRevision = refreshed.revision;
         } catch (_reloadError) { /* Keep the original conflict as the reported failure. */ }
@@ -8916,13 +8921,14 @@ document.addEventListener('DOMContentLoaded', async function () {
   updateCart();
   showInfoSlide(0);
   normalizeFrontPageCategoryLinks();
-  await loadLiveAdminSettings().catch(() => {});
+  const loadPrivateAdminState = shouldLoadPrivateAdminState();
+  if (loadPrivateAdminState) await loadLiveAdminSettings().catch(() => {});
   if (localStorage.getItem('mvpluxIsAdminApproved') === 'true') refreshAdminViewControls();
   renderAdminViewModeLabel();
   bindProductCarouselDragGuard();
   bindBuyerImagePurchaseJumps();
   bindFanCardCommerce();
-  await loadInlineAdminLiveEdits().catch(() => {});
+  if (loadPrivateAdminState && isInlineAdminEditingEnabled()) await loadInlineAdminLiveEdits().catch(() => {});
 
   document.querySelectorAll('img').forEach((image) => {
     image.setAttribute('draggable', 'false');

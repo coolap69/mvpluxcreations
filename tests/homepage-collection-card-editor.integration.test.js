@@ -432,36 +432,24 @@ Deno.test('per-Collection Apply Background to All saves one batch and then uses 
   assert(JSON.stringify(calls) === JSON.stringify(['flush', 'batch', 'render']), 'Hold Private must be the only reason the Apply action stops before live save');
 });
 
-Deno.test('ordinary Collection corrections debounce into the existing Save Live controller', async () => {
+Deno.test('ordinary Collection corrections remain unsaved previews until an explicit save action', () => {
   assert(adminHtml.includes('id="holdCollectionChangesPrivate"') && adminHtml.includes('Hold Collection changes privately'), 'Collections must expose private hold as an unchecked exception to the normal live correction workflow');
-  const source = sourceRange(adminSource, 'function cancelCategoryLiveAutosave', '\n\nfunction editorHasUnsavedChanges');
+  const source = sourceRange(adminSource, 'function markCategoryEditorDirty', '\n\nfunction editorHasUnsavedChanges');
   const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories' });
   window.document.body.innerHTML = '<input id="holdCollectionChangesPrivate" type="checkbox"><form data-category-edit="movie-characters" data-editor-dirty="false"></form>';
   const form = window.document.querySelector('form');
-  let pending;
-  let published = null;
-  window.setTimeout = (callback) => { pending = callback; return 7; };
-  window.clearTimeout = () => {};
   const markDirty = new Function('window', 'document', 'dependencies', `
-    const { categoryLiveAutosaveTimers, setCategoryPublishState, editorHasUnsavedChanges, publishCategoryByKey } = dependencies;
+    const { setCategoryPublishState } = dependencies;
     ${source}
     return markCategoryEditorDirty;
   `)(window, window.document, {
-    categoryLiveAutosaveTimers: new Map(),
-    setCategoryPublishState: () => {},
-    editorHasUnsavedChanges: (target) => target.dataset.editorDirty === 'true',
-    publishCategoryByKey: async (key, target) => { published = [key, target]; return true; }
+    setCategoryPublishState: () => {}
   });
   markDirty(form);
-  assert(form.dataset.editorDirty === 'true' && typeof pending === 'function', 'an ordinary edit must become dirty and schedule one debounced live save');
-  await pending();
-  assert(published?.[0] === 'movie-characters' && published?.[1] === form, 'automatic correction must call the same Category Save Live controller with the current normalized form');
-  window.document.getElementById('holdCollectionChangesPrivate').checked = true;
-  pending = null;
-  markDirty(form);
-  assert(pending === null, 'checking Hold Collection changes privately must suppress automatic live saving while retaining the dirty private edit');
+  assert(form.dataset.editorDirty === 'true', 'an ordinary edit must become dirty until the user chooses Save Draft or Save Live');
   const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');
-  assert(events.includes("section.addEventListener('focusout'") && events.includes('scheduleCategoryLiveAutosave(form, 0)'), 'leaving a Collection field must immediately schedule its existing Save Live operation');
+  assert(!events.includes('scheduleCategoryLiveAutosave') && !adminSource.includes('categoryLiveAutosaveTimers'), 'Collection fields must not generate repeated live writes while typing or leaving controls');
+  assert(events.includes("await saveCategoryEditForm(categoryForm, 'draft')") && events.includes('publishCategoryByKey'), 'explicit Save Draft and Save Live must remain available');
   assert(events.includes("editorHasUnsavedChanges(form) && !document.getElementById('holdCollectionChangesPrivate')?.checked") && events.includes('await publishCategoryByKey(key, form)'), 'Back to Collections must finish the live save before closing unless private hold is checked');
 });
 

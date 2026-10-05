@@ -402,13 +402,18 @@ export function buildMainCollectionMigrationDrafts({
 export function buildMigrationBackup({ checkpointCommit = ADMIN_ARCHITECTURE_ROLLBACK_COMMIT, capturedAt = new Date().toISOString(), adminGlobal = {}, siteEditRows = [], publishedSettings = {}, fallbackCatalog = [], categoryCardDefaults = [] } = {}) {
   const safeGlobal = clone(asObject(adminGlobal));
   delete safeGlobal[ADMIN_ARCHITECTURE_BACKUP_KEY];
+  const safeSiteEdits = clone(Array.isArray(siteEditRows) ? siteEditRows : []).map((row) => (
+    row?.page_key === 'admin-global'
+      ? { ...row, edits: adminArchitectureSource(row.edits) }
+      : row
+  ));
   return {
     backupVersion: 1,
     recoveryOnly: true,
     capturedAt,
     checkpointCommit,
     adminGlobal: safeGlobal,
-    siteEdits: clone(Array.isArray(siteEditRows) ? siteEditRows : []),
+    siteEdits: safeSiteEdits,
     publishedAdminSettings: clone(asObject(publishedSettings)),
     productCatalogFallback: clone(Array.isArray(fallbackCatalog) ? fallbackCatalog : []),
     categoryDisplayCardDefaults: clone(Array.isArray(categoryCardDefaults) ? categoryCardDefaults : [])

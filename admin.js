@@ -148,7 +148,6 @@ const openedCategoryEditors = new Set();
 const openedCategoryProductLists = new Set();
 const openedImageInboxItems = new Set();
 const categoryPublishOperations = new Map();
-const categoryLiveAutosaveTimers = new Map();
 let categoryBulkSelectionMode = false;
 const adminWorkingCollectionsLoaded = new Set();
 const ADMIN_DASHBOARD_COLLECTIONS = [
@@ -452,7 +451,12 @@ async function prepareAdminArchitectureMigrationExplicitly() {
       [architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY]: { ...prepared.migration, backupChecksum: lockedVerification.checksum },
       [architecture.ADMIN_ARCHITECTURE_FEATURE_KEY]: feature
     };
-    const latest = await fetchAuthoritativeAdminGlobal();
+    const latest = await fetchAuthoritativeAdminGlobal([
+      'products', 'customProducts', 'categories', 'globalDisplaySettings', 'schemaVersion',
+      architecture.ADMIN_ARCHITECTURE_LOCK_KEY,
+      architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY,
+      architecture.ADMIN_ARCHITECTURE_FEATURE_KEY
+    ]);
     if (latest.edits?.[architecture.ADMIN_ARCHITECTURE_LOCK_KEY]?.owner !== adminTabId) throw new Error('Migration lock was lost before saving.');
     const { data, error } = await getAdminClient().rpc('save_site_edits', {
       p_page_key: 'admin-global', p_edits: patch, p_expected_revision: latest.revision, p_replace: false
@@ -649,15 +653,14 @@ async function saveAdminProductFieldPatch(slug, patch, baseRecord, form = null, 
     }
 
     const products = utils.applyRecordPatch(latest.edits.products || {}, slug, patch);
-    const { data, error } = await getAdminClient().rpc('save_site_edits', {
-      p_page_key: 'admin-global',
-      p_edits: { products },
-      p_expected_revision: latest.revision,
-      p_replace: false
+    const data = await callAdminPublisher({
+      action: 'save-working-state',
+      edits: { products },
+      expectedRevision: latest.revision
     });
-    if (error) {
-      if (String(error.code || '') === '40001' || String(error.message || '').includes('Admin state changed')) {
-        const refreshed = await fetchAuthoritativeAdminGlobal();
+    if (data?.error) {
+      if (String(data.code || '') === '40001' || String(data.error || '').includes('Admin state changed')) {
+        const refreshed = await fetchAuthoritativeAdminGlobal(['products', 'customProducts']);
         const refreshedRecord = {
           ...baseAdminProductForState(slug, refreshed.edits),
           ...(refreshed.edits.products?.[slug] || {})
@@ -670,9 +673,9 @@ async function saveAdminProductFieldPatch(slug, patch, baseRecord, form = null, 
         showProductSaveConflict(form, conflict, () => saveAdminProductFieldPatch(slug, patch, refreshedRecord, form, true));
         return { ok: false, conflict: true, analysis: conflict };
       }
-      throw error;
+      throw new Error(data.error);
     }
-    adminLiveSettings = data?.edits || { ...latest.edits, products };
+    adminLiveSettings = { ...(adminLiveSettings || {}), ...latest.edits, ...(data?.edits || { products }) };
     adminLiveRevision = Number(data?.revision) || (latest.revision + 1);
     localStorage.setItem('mvpluxAdminProducts', JSON.stringify(adminLiveSettings.products || products));
     announceAdminSave('admin-global', adminLiveRevision, [`products:${slug}`]);
@@ -690,7 +693,7 @@ async function saveAdminProductFieldPatches(recordPatches, baseRecords = {}) {
   const entries = Object.entries(recordPatches || {}).filter(([, patch]) => Object.keys(patch || {}).length);
   if (!entries.length) return true;
   try {
-    const latest = await fetchAuthoritativeAdminGlobal();
+    const latest = await fetchAuthoritativeAdminGlobal(['products', 'customProducts']);
     const utils = await adminStateUtilsPromise;
     let products = { ...(latest.edits.products || {}) };
     const conflicts = [];
@@ -706,14 +709,12 @@ async function saveAdminProductFieldPatches(recordPatches, baseRecords = {}) {
       setStatus(`Conflict — review required. ${conflicts.join('; ')}`);
       return false;
     }
-    const { data, error } = await getAdminClient().rpc('save_site_edits', {
-      p_page_key: 'admin-global',
-      p_edits: { products },
-      p_expected_revision: latest.revision,
-      p_replace: false
+    const data = await callAdminPublisher({
+      action: 'save-working-state',
+      edits: { products },
+      expectedRevision: latest.revision
     });
-    if (error) throw error;
-    adminLiveSettings = data?.edits || { ...latest.edits, products };
+    adminLiveSettings = { ...(adminLiveSettings || {}), ...latest.edits, ...(data?.edits || { products }) };
     adminLiveRevision = Number(data?.revision) || latest.revision + 1;
     localStorage.setItem('mvpluxAdminProducts', JSON.stringify(adminLiveSettings.products || products));
     announceAdminSave('admin-global', adminLiveRevision, entries.map(([slug]) => `products:${slug}`));
@@ -721,7 +722,7 @@ async function saveAdminProductFieldPatches(recordPatches, baseRecords = {}) {
   } catch (error) {
     if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
       try {
-        const refreshed = await fetchAuthoritativeAdminGlobal();
+        const refreshed = await fetchAuthoritativeAdminGlobal(['products', 'customProducts']);
         adminLiveSettings = refreshed.edits;
         adminLiveRevision = refreshed.revision;
       } catch (_reloadError) { /* Keep the original conflict as the reported failure. */ }
@@ -773,6 +774,7 @@ function applyCollectionRecordOperation(collection, operation) {
 async function saveAdminCollectionOperations(operations) {
   const requested = (operations || []).filter(Boolean);
   if (!requested.length) return { ok: true, skipped: true };
+  const collectionKeys = [...new Set(requested.map((operation) => operation.collectionKey))];
   const valueAtPath = (value, path) => path.reduce((current, key) => current?.[key], value);
   const invalidImages = requested.flatMap((operation) => (adminStateUtils.invalidAdminCollectionImageReferences?.(
     operation.collectionKey,
@@ -796,7 +798,6 @@ async function saveAdminCollectionOperations(operations) {
 
   const save = async () => {
     try {
-      const collectionKeys = [...new Set(requested.map((operation) => operation.collectionKey))];
       const latest = await fetchAuthoritativeAdminGlobal(collectionKeys);
       const utils = await adminStateUtilsPromise;
       const collections = {};
@@ -869,7 +870,7 @@ async function saveAdminCollectionOperations(operations) {
     } catch (error) {
       if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
         try {
-          const refreshed = await fetchAuthoritativeAdminGlobal();
+          const refreshed = await fetchAuthoritativeAdminGlobal(collectionKeys);
           adminLiveSettings = refreshed.edits;
           adminLiveRevision = refreshed.revision;
         } catch (_reloadError) { /* Preserve the original conflict. */ }
@@ -923,12 +924,13 @@ function saveAdminImageDraftPatch(path, patch, baseRecord, remove = false) {
 
 async function saveAdminSettingsLive(patch) {
   const baseSettings = structuredClone(adminLiveSettings || {});
+  const patchKeys = Object.keys(patch || {});
   adminSavePending += 1;
   renderAdminDiagnostics();
 
   const save = async () => {
     try {
-      const latest = await fetchAuthoritativeAdminGlobal();
+      const latest = await fetchAuthoritativeAdminGlobal(patchKeys);
       const utils = await adminStateUtilsPromise;
       const conflictingKeys = Object.keys(patch || {}).filter((key) => (
         !utils.valuesEqual(baseSettings[key], latest.edits[key])
@@ -940,14 +942,12 @@ async function saveAdminSettingsLive(patch) {
       if (conflictingKeys.length) {
         throw new Error(`Conflict — review required. Newer server changes exist in: ${conflictingKeys.join(', ')}.`);
       }
-      const { data, error } = await getAdminClient().rpc('save_site_edits', {
-        p_page_key: 'admin-global',
-        p_edits: patch || {},
-        p_expected_revision: latest.revision,
-        p_replace: false
+      const data = await callAdminPublisher({
+        action: 'save-working-state',
+        edits: patch || {},
+        expectedRevision: latest.revision
       });
-      if (error) throw error;
-      adminLiveSettings = data?.edits || { ...latest.edits, ...(patch || {}) };
+      adminLiveSettings = { ...(adminLiveSettings || {}), ...latest.edits, ...(data?.edits || patch || {}) };
       adminLiveRevision = Number(data?.revision) || (latest.revision + 1);
 
       adminLastSaveSucceeded = true;
@@ -957,7 +957,7 @@ async function saveAdminSettingsLive(patch) {
     } catch (error) {
       if (String(error?.code || '') === '40001' || String(error?.message || '').includes('Admin state changed')) {
         try {
-          const refreshed = await fetchAuthoritativeAdminGlobal();
+          const refreshed = await fetchAuthoritativeAdminGlobal(patchKeys);
           adminLiveSettings = refreshed.edits;
           adminLiveRevision = refreshed.revision;
         } catch (_reloadError) { /* Keep the original conflict as the reported failure. */ }
@@ -2277,7 +2277,7 @@ function publishTimingSummary(timing = {}) {
 async function waitForPublishedDeployment(commitHash, {
   onProgress = null,
   timeoutMs = 120000,
-  pollIntervalMs = 3000,
+  pollIntervalMs = 15000,
   now = () => globalThis.performance?.now?.() ?? Date.now(),
   wait = (milliseconds) => new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 } = {}) {
@@ -4001,13 +4001,6 @@ function markProductFieldDirty(form, fieldName) {
   form._adminDirtyVersions.set(fieldName, (form._adminDirtyVersions.get(fieldName) || 0) + 1);
   form._adminDirtyFields.add(fieldName);
   setProductSaveState(form, `UNSAVED CHANGES — ${[...form._adminDirtyFields].join(', ')}`, 'unsaved');
-}
-
-function schedulePlacementSave(form) {
-  clearTimeout(form._placementSaveTimer);
-  form._placementSaveTimer = setTimeout(() => {
-    saveProductForm(form, 'Placement preview changed.');
-  }, 550);
 }
 
 async function handleImageUpload(fileInput, targetInput, form) {
@@ -6749,7 +6742,6 @@ async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
     return true;
   }
   for (const form of forms) {
-    cancelCategoryLiveAutosave(form);
     const category = readAdminCategories()[form.dataset.categoryEdit] || {};
     if (!await saveCategoryEditForm(form, 'draft', { render: false })) {
       setStatus(`Save All stopped at ${category.title || form.dataset.categoryEdit}. That editor remains unsaved; nothing was published.`);
@@ -6797,36 +6789,12 @@ function categoryKeyForActionTarget(target) {
     || '';
 }
 
-function cancelCategoryLiveAutosave(formOrKey) {
-  const key = typeof formOrKey === 'string' ? formOrKey : formOrKey?.dataset?.categoryEdit;
-  const timer = key ? categoryLiveAutosaveTimers.get(key) : null;
-  if (timer) window.clearTimeout(timer);
-  if (key) categoryLiveAutosaveTimers.delete(key);
-}
-
-function scheduleCategoryLiveAutosave(form, delay = 1200) {
-  const key = form?.dataset?.categoryEdit;
-  if (!key || document.getElementById('holdCollectionChangesPrivate')?.checked) return;
-  cancelCategoryLiveAutosave(key);
-  setCategoryPublishState(key, 'UNSAVED CHANGES — saving live automatically…', 'dirty');
-  const timer = window.setTimeout(async () => {
-    categoryLiveAutosaveTimers.delete(key);
-    if (!form.isConnected || !editorHasUnsavedChanges(form)) return;
-    const active = document.activeElement;
-    if (active && form.contains(active) && active.matches('input:not([type]), input[type="text"], input[type="search"], textarea')) {
-      scheduleCategoryLiveAutosave(form, delay);
-      return;
-    }
-    const saved = await publishCategoryByKey(key, form);
-    if (!saved && form.isConnected) form.dataset.editorDirty = 'true';
-  }, delay);
-  categoryLiveAutosaveTimers.set(key, timer);
-}
-
 function markCategoryEditorDirty(form) {
   if (!form) return;
   form.dataset.editorDirty = 'true';
-  if (form.matches('[data-category-edit]')) scheduleCategoryLiveAutosave(form);
+  if (form.matches('[data-category-edit]')) {
+    setCategoryPublishState(form.dataset.categoryEdit, 'UNSAVED CHANGES — preview only until you choose Save Draft or Save Live.', 'dirty');
+  }
 }
 
 function editorHasUnsavedChanges(form) {
@@ -6915,12 +6883,9 @@ function setupCategoryManagerEvents() {
     }
     if (event.target.id === 'holdCollectionChangesPrivate') {
       if (event.target.checked) {
-        categoryLiveAutosaveTimers.forEach((timer) => window.clearTimeout(timer));
-        categoryLiveAutosaveTimers.clear();
         setStatus('Hold is on. Collection changes will remain private until you choose Save Live.');
       } else {
-        section.querySelectorAll('[data-category-edit][data-editor-dirty="true"]').forEach((form) => scheduleCategoryLiveAutosave(form, 0));
-        setStatus('Hold is off. Ordinary Collection corrections will save live when you finish editing.');
+        setStatus('Hold is off. Use Save Live when the current Collection correction is ready for customers.');
       }
       return;
     }
@@ -6947,10 +6912,6 @@ function setupCategoryManagerEvents() {
       syncSectionLayoutControl(sharedBackgroundForm, event.target);
       previewSharedCollectionBackground(sharedBackgroundForm);
     }
-  });
-  section.addEventListener('focusout', (event) => {
-    const form = event.target.closest?.('[data-category-edit]');
-    if (form && editorHasUnsavedChanges(form)) scheduleCategoryLiveAutosave(form, 0);
   });
   section.addEventListener('input', (event) => {
     if (event.target.matches('[data-category-image-search]')) {
@@ -7003,7 +6964,6 @@ function setupCategoryManagerEvents() {
       }
     }
     else if (categoryForm) {
-      cancelCategoryLiveAutosave(categoryForm);
       await saveCategoryEditForm(categoryForm, 'draft');
     }
     else if (productForm) await saveCategoryProductAssignments(productForm, false);
@@ -7022,7 +6982,6 @@ function setupCategoryManagerEvents() {
       const form = backToCollections.closest('[data-category-edit]');
       const key = form?.dataset.categoryEdit;
       if (editorHasUnsavedChanges(form) && !document.getElementById('holdCollectionChangesPrivate')?.checked) {
-        cancelCategoryLiveAutosave(form);
         if (!await publishCategoryByKey(key, form)) return;
       } else if (!confirmEditorCanClose(form, form?.classList.contains('admin-child-group-edit') ? 'Child Group' : 'Main Collection')) return;
       if (key) openedCategoryEditors.delete(key);
@@ -7719,7 +7678,7 @@ function renderAdminProducts() {
         if (field.matches('[type="range"], .admin-long-path, [name="stageBackgroundPosition"]')) {
           syncPreviewFromFields(form);
           if (field.matches('[type="range"], [name="stageBackgroundPosition"]')) {
-            schedulePlacementSave(form);
+            setProductSaveState(form, 'UNSAVED CHANGES — preview updated. Choose Save Draft or Save Live when finished.', 'unsaved');
           }
         } else if (!field.matches('[type="file"]')) {
           updateProductPreview(form);

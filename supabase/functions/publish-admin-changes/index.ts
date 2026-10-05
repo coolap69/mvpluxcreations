@@ -83,7 +83,8 @@ async function readAdminGlobal(supabaseUrl: string, anonKey: string, authorizati
 }
 
 const ADMIN_WORKING_STATE_KEYS = new Set([
-  'adminArchitectureV2', 'adminArchitectureMigrationV2', 'cardsSavedForLater', 'categories', 'configuredImagePaths',
+  'adminArchitectureV2', 'adminArchitectureMigrationV2', 'adminArchitectureMigrationLockV2',
+  'adminArchitectureBackupVerificationV1', 'cardsSavedForLater', 'categories', 'configuredImagePaths',
   'coupons', 'customProducts', 'deletedCategories', 'deletedProducts', 'dismissedImageDrafts',
   'extraImages', 'globalDisplaySettings', 'ignoredImagePaths', 'imageDrafts', 'lastPublishedSnapshot',
   'liveContentEnabled', 'liveContentRevision', 'livePublishedAt',
@@ -92,27 +93,24 @@ const ADMIN_WORKING_STATE_KEYS = new Set([
 ]);
 
 async function readAdminWorkingState(supabaseUrl: string, anonKey: string, authorization: string, requestedKeys: unknown) {
-  const response = await fetch(
-    `${supabaseUrl}/rest/v1/site_edits?page_key=eq.admin-global&select=page_key,edits,revision`,
-    { headers: { Authorization: authorization, apikey: anonKey } }
-  );
-  const rows = await readJson(response);
-  if (!response.ok) throw new PublishError('supabase-read', 502, 'ADMIN_STATE_READ_FAILED', 'Could not read Admin working state.');
-  const row = Array.isArray(rows) && rows[0] ? rows[0] : { page_key: 'admin-global', edits: {}, revision: 0 };
-  const edits = row.edits && typeof row.edits === 'object' && !Array.isArray(row.edits)
-    ? row.edits as Record<string, unknown>
-    : {};
-  const { adminPublishingMigrationBackupV1: recoveryBackup, ...workingEdits } = edits;
   const keys = Array.isArray(requestedKeys)
     ? [...new Set(requestedKeys.map((key) => String(key)).filter((key) => ADMIN_WORKING_STATE_KEYS.has(key)))]
     : [...ADMIN_WORKING_STATE_KEYS];
-  const selectedEdits = Object.fromEntries(keys
-    .filter((key) => Object.prototype.hasOwnProperty.call(workingEdits, key))
-    .map((key) => [key, workingEdits[key]]));
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/get_admin_working_state`, {
+    method: 'POST',
+    headers: { Authorization: authorization, apikey: anonKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_keys: keys })
+  });
+  const row = await readJson(response);
+  if (!response.ok) throw new PublishError('supabase-read', 502, 'ADMIN_STATE_READ_FAILED', 'Could not read Admin working state.');
   return {
-    rows: [{ page_key: 'admin-global', edits: selectedEdits, revision: Number(row.revision) || 0 }],
+    rows: [{
+      page_key: 'admin-global',
+      edits: row?.edits && typeof row.edits === 'object' && !Array.isArray(row.edits) ? row.edits : {},
+      revision: Number(row?.revision) || 0
+    }],
     keys,
-    recoveryBackupAvailable: Boolean(recoveryBackup)
+    recoveryBackupAvailable: row?.recoveryBackupAvailable === true
   };
 }
 
@@ -129,10 +127,10 @@ async function saveAdminWorkingState(supabaseUrl: string, anonKey: string, autho
   if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
     throw new PublishError('validation', 400, 'INVALID_ADMIN_REVISION', 'A valid Admin revision is required.');
   }
-  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/save_site_edits`, {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/save_admin_working_state`, {
     method: 'POST',
     headers: { Authorization: authorization, apikey: anonKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ p_page_key: 'admin-global', p_edits: edits, p_expected_revision: expectedRevision, p_replace: false })
+    body: JSON.stringify({ p_edits: edits, p_expected_revision: expectedRevision })
   });
   const result = await readJson(response);
   if (!response.ok) {
@@ -696,22 +694,9 @@ Deno.serve(async (request) => {
       }
       const deploymentStartedAt = performance.now();
       const result = await deploymentResult(token, owner, repo, commitHash);
-      const current = await readAdminGlobal(supabaseUrl, anonKey, authorization);
-      const currentHistory = Array.isArray(current.edits.publishHistory) ? current.edits.publishHistory : [];
-      const matchingEntry = currentHistory.find((entry) => entry?.commitHash === commitHash);
-      let publishHistory = currentHistory;
-      if (matchingEntry && result !== 'unknown' && matchingEntry.deploymentResult !== result) {
-        const saved = await patchAdminGlobal(supabaseUrl, anonKey, authorization, (latest) => ({
-          publishHistory: (Array.isArray(latest.publishHistory) ? latest.publishHistory : []).map((entry) => (
-            entry?.commitHash === commitHash ? { ...entry, deploymentResult: result } : entry
-          ))
-        }));
-        publishHistory = Array.isArray(saved?.edits?.publishHistory) ? saved.edits.publishHistory : currentHistory;
-      }
       return jsonResponse(request, {
         commitHash,
         deploymentResult: result,
-        publishHistory,
         timing: { deploymentLookupMs: Math.round(performance.now() - deploymentStartedAt) }
       });
     }

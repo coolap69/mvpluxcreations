@@ -120,6 +120,7 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
     mvpluxLiveAdminSettings: null,
     mvpluxLiveAdminRevision: 0,
     mvpluxLiveAdminStateLoaded: false,
+    MVPLUX_SUPABASE: { url: 'https://example.supabase.co', publishableKey: 'test-key' },
     getMvpluxSupabaseClient: () => client,
     addEventListener() {},
     clearTimeout,
@@ -127,8 +128,22 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
     location: { pathname: '/index.html', reload() {} }
   };
   new Function('window', presentationSource)(window);
+  const publisherFetch = async (_url, init = {}) => {
+    const payload = JSON.parse(init.body || '{}');
+    if (payload.action === 'working-state') {
+      const { data, error } = await client.from('site_edits').select('edits, revision').eq('page_key', 'admin-global').maybeSingle();
+      return { ok: !error, status: error ? 500 : 200, json: async () => error ? error : { rows: [{ page_key: 'admin-global', edits: data?.edits || {}, revision: data?.revision || 0 }] } };
+    }
+    if (payload.action === 'save-working-state') {
+      const { data, error } = await client.rpc('save_site_edits', {
+        p_page_key: 'admin-global', p_edits: payload.edits, p_expected_revision: payload.expectedRevision, p_replace: false
+      });
+      return { ok: !error, status: error ? 409 : 200, json: async () => error ? error : { edits: data?.edits || payload.edits, revision: data?.revision || payload.expectedRevision + 1 } };
+    }
+    return { ok: false, status: 400, json: async () => ({ error: 'Unsupported test publisher action.' }) };
+  };
   const factory = new Function(
-    'adminUtils', 'window', 'document', 'localStorage', 'sessionStorage', 'BroadcastChannel',
+    'adminUtils', 'window', 'document', 'localStorage', 'sessionStorage', 'BroadcastChannel', 'fetch',
     `${source}
       return {
         saveStorefrontProductPatch,
@@ -174,7 +189,7 @@ async function loadActualStorefrontHelpers({ client, storage = memoryStorage() }
       };
     `
   );
-  return { helpers: factory(adminUtils, window, document, storage, memoryStorage(), undefined), window, storage };
+  return { helpers: factory(adminUtils, window, document, storage, memoryStorage(), undefined, publisherFetch), window, storage };
 }
 
 async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
@@ -899,7 +914,7 @@ Deno.test('actual legacy coupon mirror waits for Supabase before updating localS
 Deno.test('actual full import awaits authoritative global and page writes before success', async () => {
   const calls = [];
   const client = {
-    auth: { getSession: async () => ({ data: { session: { user: { id: 'admin' } } }, error: null }) },
+    auth: { getSession: async () => ({ data: { session: { user: { id: 'admin' }, access_token: 'test-token' } }, error: null }) },
     from() {
       return {
         select() { return this; },
