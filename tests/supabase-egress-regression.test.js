@@ -1,13 +1,16 @@
+import { Window } from 'npm:happy-dom@18.0.1';
+
 const assert = (condition, message = 'Assertion failed') => { if (!condition) throw new Error(message); };
 
 const root = new URL('../', import.meta.url);
 const read = (path) => Deno.readTextFile(new URL(path, root));
-const [admin, storefront, architecture, publisher, migration] = await Promise.all([
+const [admin, storefront, architecture, publisher, migration, supabaseConfig] = await Promise.all([
   read('admin.js'),
   read('script.js'),
   read('admin-architecture.js'),
   read('supabase/functions/publish-admin-changes/index.ts'),
-  read('supabase/migrations/20261004120000_reduce_admin_state_egress.sql')
+  read('supabase/migrations/20261004120000_reduce_admin_state_egress.sql'),
+  read('supabase-config.js')
 ]);
 
 function between(source, start, end) {
@@ -61,4 +64,25 @@ Deno.test('reduced RPCs are authenticated Admin-only and preserve revision check
   assert(migration.includes('revoke all on function public.get_admin_working_state(text[]) from public, anon, authenticated'));
   assert(migration.includes('grant execute on function public.get_admin_working_state(text[]) to authenticated'));
   assert(migration.includes('revoke all on function public.save_admin_working_state(jsonb,bigint) from public, anon, authenticated'));
+});
+
+Deno.test('Admin-only Supabase activity monitor reports every existing request without creating another request', async () => {
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html' });
+  let networkRequests = 0;
+  window.fetch = async () => {
+    networkRequests += 1;
+    return { ok: true, status: 200 };
+  };
+  window.eval(supabaseConfig);
+  await window.fetch('https://ncbddqxdinvcsoszdsxr.supabase.co/rest/v1/rpc/save_admin_working_state', {
+    method: 'POST', body: '{}'
+  });
+  assert(networkRequests === 1, 'the monitor must not create a tracking request');
+  assert(window.mvpluxSupabaseActivityLog.length === 2, 'one request must record sending and completion states');
+  assert(window.mvpluxSupabaseActivityLog[0].state === 'sending');
+  assert(window.mvpluxSupabaseActivityLog[1].state === 'success');
+  assert(window.mvpluxSupabaseActivityLog[1].kind === 'WRITE');
+  assert(window.document.getElementById('mvpluxSupabaseActivity')?.textContent.includes('WORKED'), 'Admin must see the successful request report');
+  await window.fetch('https://mvpluxcreations.com/style.css');
+  assert(networkRequests === 2 && window.mvpluxSupabaseActivityLog.length === 2, 'non-Supabase requests must pass through without activity entries');
 });

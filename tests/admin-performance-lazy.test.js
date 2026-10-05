@@ -39,9 +39,10 @@ Deno.test('Image Inbox inventory is requested only by its lazy loader or explici
   assert(categoryEvents.includes("if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false })"), 'Search All Repository Images may explicitly load inventory without rendering Image Inbox');
 });
 
-Deno.test('Categories mount editors, products, and image galleries only after explicit actions', () => {
+Deno.test('Categories auto-open one useful editor while keeping remaining editors, products, and image galleries lazy', () => {
   const manager = sourceBetween('function renderCategoryManager()', 'function updateDeleteSelectedCategoriesButton');
-  assert(manager.includes("openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''"), 'Category editors must be absent until Edit');
+  assert(manager.includes('categoryManagerAutoOpenedEditor') && manager.includes('openedCategoryEditors.add(initialCategory.key)'), 'the first normalized Main Collection editor must open automatically');
+  assert(manager.includes("openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''"), 'all remaining Category editors must stay absent until selected');
   assert(manager.includes("openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''"), 'Category product lists must be absent until Open Products');
   const picker = sourceBetween('function categoryVisualImagePicker', 'function populateNewCategoryVisualPickers');
   assert(picker.includes('Choose Change Image to load all repository images.'), 'image gallery must begin unloaded while explaining that Change Image opens the complete library');

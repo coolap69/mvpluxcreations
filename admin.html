@@ -292,6 +292,10 @@
           <label><input id="holdCollectionChangesPrivate" type="checkbox"> Hold Collection changes privately</label>
         </div>
         <p id="collectionLiveStatus" class="admin-status" aria-live="polite">Ordinary corrections save live when you finish editing. Check Hold Collection changes privately only when customers should not see unfinished work.</p>
+        <details id="collectionChangeReport" class="admin-collection-change-report" data-state="idle">
+          <summary><strong>Collection Change Report</strong><span data-collection-change-report-summary>No Collection changes yet.</span></summary>
+          <ul data-collection-change-report-items hidden></ul>
+        </details>
       </div>
       <div class="admin-category-toolbar">
         <label>Search Main Collections<input id="adminCategorySearch" type="search" placeholder="Search name, key, or page"></label>

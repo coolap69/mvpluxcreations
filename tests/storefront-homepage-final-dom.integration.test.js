@@ -96,6 +96,24 @@ async function actualFinalHomepageDom() {
   return { window, source, css, functions, initiallyRendered, fallbackInitiallyHidden };
 }
 
+Deno.test('homepage Collection stages stay navigation-only and retain the same content order as the Admin preview', async () => {
+  const { window, source } = await actualFinalHomepageDom();
+  const card = window.document.querySelector('#homepageCategoryGrid > .admin-master-category-card');
+  const stage = card?.querySelector('.admin-category-storefront-stage');
+  assert(card && stage, 'a normalized Homepage Collection Card and its combined stage must render');
+
+  const enhancer = sourceFunction(source, 'function ensureStageOptionBoxes', 'function bindUniversalSizeBuilderEvents');
+  new Function('document', `${enhancer}; ensureStageOptionBoxes(document);`)(window.document);
+  assert(!stage.querySelector('.stage-option-boxes'), 'Product Original/Custom Size controls must never be injected into a Homepage Collection Card');
+
+  const text = card.querySelector('.homepage-collection-card-text');
+  const imageLink = [...card.children].find((element) => element.matches('.product-image-link'));
+  const viewLink = [...card.children].find((element) => element.matches('.button-link'));
+  assert(window.getComputedStyle(text).order === '1', 'Collection text must remain first');
+  assert(window.getComputedStyle(imageLink).order === '2', 'the combined background and standee stage must remain second');
+  assert(window.getComputedStyle(viewLink).order === '3', 'View Collection must remain the compact footer after the stage');
+});
+
 Deno.test('actual published and compatibility Main Categories remain visible in the dedicated final homepage mount', async () => {
   const { window, functions, initiallyRendered, fallbackInitiallyHidden } = await actualFinalHomepageDom();
   const mount = window.document.getElementById('homepageCategoryGrid');

@@ -114,6 +114,9 @@ Deno.test('Shared Product Showroom controller uses normalized global settings an
     assert(controller.includes(text), `missing Shared Product Showroom control ${text}`);
   }
   assert(controller.includes("collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms'"), 'shared showroom design must extend the existing normalized globalDisplaySettings record');
+  assert(controller.includes("await fetchAuthoritativeAdminGlobal(['globalDisplaySettings'])")
+    && controller.includes("productShowroomDesignState(latest.edits?.globalDisplaySettings)"), 'Product showroom saves must rebase the selected design on the latest authoritative server settings');
+  assert(controller.includes("adminLastSaveError || 'The Product showroom design could not be saved.'"), 'Product showroom save failures must expose the real conflict or persistence error instead of a generic failure');
   assert(adminSource.includes("id: 'productShowrooms:all'") && adminSource.includes("type: 'product-showroom-design'"), 'shared showroom draft must participate in the existing Save Live snapshot lifecycle');
   assert(!controller.includes('categoryDisplayCards') && !controller.includes('product.backgroundImage ='), 'shared showroom editor must not write Homepage Collection Cards or individual Product backgrounds');
   assert(styleSource.includes('.admin-shared-product-showroom-workspace') && styleSource.includes('grid-template-columns: minmax(420px,.95fr) minmax(500px,1.05fr)'), 'shared Product Showroom editor must use a desktop preview-and-controls workspace');

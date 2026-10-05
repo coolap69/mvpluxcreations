@@ -12,14 +12,34 @@ Deno.test('local Image Inbox scans images without writing an inventory file', ()
   assert(adminSource.includes("fetch('/api/local-image-inventory'"), 'local Admin must use the local inventory endpoint');
 });
 
-Deno.test('live Image Inbox uses the authenticated publisher only for a read-only GitHub tree inventory', () => {
-  assert(adminSource.includes("callAdminPublisher({ action: 'image-inventory' })"), 'live Admin must use authenticated inventory');
+Deno.test('live Image Inbox reads the public GitHub tree first and keeps the authenticated publisher as a read-only fallback', () => {
+  const publicLoaderStart = adminSource.indexOf('async function loadPublicRepositoryImagePaths');
+  const publicLoaderEnd = adminSource.indexOf('\n\nasync function loadImageDraftInventory', publicLoaderStart);
+  const publicLoader = adminSource.slice(publicLoaderStart, publicLoaderEnd);
+  const loadStart = adminSource.indexOf('async function loadImageDraftInventory');
+  const loadEnd = adminSource.indexOf('\n\nfunction downloadAdminJson', loadStart);
+  const loader = adminSource.slice(loadStart, loadEnd);
+  assert(publicLoader.includes('PUBLIC_GITHUB_IMAGE_TREE_URL') && publicLoader.includes("entry?.type === 'blob'"), 'live Admin must discover every deployed repository image without requiring Supabase');
+  assert(loader.indexOf('loadPublicRepositoryImagePaths()') < loader.indexOf("callAdminPublisher({ action: 'image-inventory' })"), 'the Supabase inventory action must be fallback-only');
+  assert(loader.includes('The local image scanner is unavailable, so Admin is showing every deployed repository image.'), 'localhost must fall back to the complete deployed inventory instead of a tiny legacy list');
   assert(publisherSource.includes("payload?.action === 'image-inventory'"), 'publisher must expose the inventory action');
   assert(publisherSource.includes('repositoryImageInventory(token, owner, repo, branch)'), 'inventory must read the configured repository branch');
   const inventoryStart = publisherSource.indexOf('async function repositoryImageInventory');
   const inventoryEnd = publisherSource.indexOf('async function publishSnapshot', inventoryStart);
   const inventory = publisherSource.slice(inventoryStart, inventoryEnd);
   assert(!inventory.includes("method: 'POST'") && !inventory.includes("method: 'PATCH'"), 'inventory action must not write to GitHub');
+});
+
+Deno.test('Category image browsers exclude missing inventory paths and replace failed previews instead of showing broken images', () => {
+  assert(adminSource.includes('function imageReferenceExistsInLoadedInventory') && adminSource.includes('imageReferenceExistsInLoadedInventory(path)'), 'Category pickers must filter references against the loaded local or GitHub inventory');
+  assert(adminSource.includes("section.addEventListener('error'") && adminSource.includes('Image moved or unavailable — choose a replacement.'), 'broken Admin thumbnails and previews must become understandable replacement messages');
+  assert(adminSource.includes("data-admin-image-role=\"sample\"") && adminSource.includes('No available sample standee image'), 'the shared-background sample must not display a broken image icon');
+});
+
+Deno.test('Category image browsers open in the relevant folder and close after choosing an image', () => {
+  assert(adminSource.includes('function preferredCategoryImageFolder') && adminSource.includes("category.key === '__shared-collection-background__'"), 'image pickers must choose a relevant Collection folder and the shared editor must start in CardBackgrounds');
+  assert(adminSource.includes("folder.value = ''") && adminSource.includes("picker.dataset.categoryFolderInitialized = 'true'"), 'All Images must remain an explicit user action');
+  assert(adminSource.includes('Image selected. Choose Change Image to browse again.') && adminSource.includes('browser.open = false'), 'the repository gallery must close after an image is selected');
 });
 
 Deno.test('new physical images remain on the static asset publisher while existing references can Save Live', () => {

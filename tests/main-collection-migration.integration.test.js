@@ -118,7 +118,7 @@ Deno.test('legacy-only homepage cards appear in Collections and can become indiv
   assert(render.includes('data-category-homepage-checkbox') && render.includes('Show on Homepage'), 'every Main Collection row must provide one simple homepage visibility checkbox');
   assert(render.includes('data-category-visible-checkbox') && render.includes('Collection Available'), 'the old Hide/Unhide Collection button must be replaced by a second clearly labeled checkbox');
   assert(!render.includes('UNHIDE COLLECTION') && !render.includes('Hide Collection</button>'), 'Collections must not retain competing Hide/Unhide buttons beside the checkboxes');
-  assert(render.includes('Edit Main Collection creates its normalized draft and opens the editor here in one step.'), 'legacy cards must explain the one-step editing behavior');
+  assert(render.includes('Open Main Collection creates its normalized draft and opens the editor here in one step.'), 'legacy cards must explain the one-step editing behavior');
   assert(render.indexOf('data-category-edit-panel') < render.indexOf('data-category-products-panel'), 'the Main Collection editor must appear directly below its Collection row instead of below the Product list');
 
   const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');

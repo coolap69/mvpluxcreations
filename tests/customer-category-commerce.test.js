@@ -38,6 +38,23 @@ Deno.test('generic Collection pages keep legacy background choices inert until t
   assert(setup.includes("panel.querySelector('.background-carousel')") && setup.includes('backgroundPanel.remove()'), 'the normalized showroom must still consume and remove the inert compatibility source');
 });
 
+Deno.test('non-Sports Collection pages show one clean loading stage until normalized content is ready', async () => {
+  const pages = [
+    'movie-inspired.html', 'music-artists.html', 'religious-cutouts.html', 'dinosaur-cutouts.html',
+    'videogame-cutouts.html', 'custom-photo-cutouts.html', 'fan-inspired.html',
+    'small-cutout-party-packs.html', 'holiday-cutouts.html', 'people-public-figures.html', 'category.html'
+  ];
+  for (const filename of pages) {
+    const html = await Deno.readTextFile(new URL(`../${filename}`, import.meta.url));
+    assert((html.match(/data-category-showroom-loading/g) || []).length === 1, `${filename} must have exactly one immediate loading stage`);
+    assert(html.includes('rel="preconnect" href="https://cdn.jsdelivr.net"') && html.includes('rel="preconnect" href="https://ncbddqxdinvcsoszdsxr.supabase.co"'), `${filename} must start both required network connections early`);
+    assert(html.includes('script.js?v=20260911-category-loading-stage'), `${filename} must load the matching no-flash showroom script`);
+  }
+  const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
+  assert(initializer.indexOf('setupGenericCategoryShowroom()') < initializer.indexOf("[data-category-showroom-loading]"), 'the loader must remain until the normalized showroom is constructed');
+  assert(initializer.includes('element.remove()'), 'the clean loader must be removed after the normalized showroom is ready');
+});
+
 Deno.test('generic and Sports showrooms resolve shared Product showroom designs without changing commerce', () => {
   const shared = between('function productShowroomDesignDefaults', 'function getShowroomOriginalPrice');
   const generic = between('function selectGenericCategoryOption', 'function normalizeFrontPageCategoryLinks');

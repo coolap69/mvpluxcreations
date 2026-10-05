@@ -4101,6 +4101,7 @@ function initializeCategoryShowroomExperience() {
   setupGenericCategoryShowroom();
   initSportsShowroom();
   refreshCategoryShowroomPricing();
+  document.querySelectorAll('[data-category-showroom-loading]').forEach((element) => element.remove());
   document.querySelectorAll('[data-category-initial-content][hidden]').forEach((element) => { element.hidden = false; });
 }
 
@@ -5443,7 +5444,7 @@ function getSizeBuilderFromElement(element) {
 }
 
 function ensureStageOptionBoxes(root = document) {
-  root.querySelectorAll?.('.product-stage-preview')?.forEach((stage) => {
+  root.querySelectorAll?.('.product-stage-preview:not(.admin-category-storefront-stage)')?.forEach((stage) => {
     if (stage.querySelector('.stage-option-boxes')) return;
 
     stage.insertAdjacentHTML('beforeend', `

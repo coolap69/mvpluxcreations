@@ -145,6 +145,7 @@ let imageInventoryLoaded = false;
 const adminAreaLoadState = new Map();
 const openedProductEditors = new Set();
 const openedCategoryEditors = new Set();
+let categoryManagerAutoOpenedEditor = false;
 const openedCategoryProductLists = new Set();
 const openedImageInboxItems = new Set();
 const categoryPublishOperations = new Map();
@@ -5198,7 +5199,10 @@ function repositoryCategoryImageLibrary() {
   const values = new Set([...creationImageLibrary('category'), ...creationImageLibrary('background')]);
   repositoryImagePaths.forEach((path) => values.add(path));
   imageDraftInventory.forEach((entry) => { if (validatePublishImagePath(String(entry?.path || ''))) values.add(entry.path); });
-  const paths = [...values].filter((path) => validatePublishImagePath(String(path || '')));
+  const paths = [...values].filter((path) => (
+    validatePublishImagePath(String(path || ''))
+    && imageReferenceExistsInLoadedInventory(path)
+  ));
   const legacyFolders = /^(?:Business|CustomPhotoStandees|DinosaurAnimalStandees|DinosaurCreatureStandees|FaithCelebrationStandees|FanBackgrounds|FanRequestStandees|GameFantasyStandees|Herobackgroundparts|HolidayStandees|MovieCharacterStandees|Moviestars|MusicArtistStandees|PartyPackStandees|PeoplePublicFigureStandees|SportLegendStandees)(?:\/|$)/i;
   const organizedNames = new Set(paths
     .filter((path) => !legacyFolders.test(path.replace(/^images\//i, '')))
@@ -5212,8 +5216,24 @@ function repositoryCategoryImageLibrary() {
     .sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
 }
 
+function imageReferenceExistsInLoadedInventory(path) {
+  if (!imageInventoryLoaded) return true;
+  const reference = String(path || '');
+  if (imageInventorySource === 'local') return imageDraftInventory.some((entry) => entry?.path === reference);
+  return repositoryImagePaths.has(reference);
+}
+
 function repositoryCategoryImageFolder(path) {
   return String(path || '').replace(/^images\//i, '').split('/')[0] || 'Other';
+}
+
+function preferredCategoryImageFolder(category, kind, library) {
+  if (category.key === '__shared-collection-background__') {
+    return library.some((path) => repositoryCategoryImageFolder(path) === 'CardBackgrounds') ? 'CardBackgrounds' : '';
+  }
+  const preferredPath = preferredCategoryImages(category, kind)
+    .find((path) => library.includes(path));
+  return preferredPath ? repositoryCategoryImageFolder(preferredPath) : '';
 }
 
 function preferredCategoryImages(category, kind = 'category') {
@@ -5236,7 +5256,7 @@ function preferredCategoryImages(category, kind = 'category') {
 
 function categoryImagePickerChoices(paths, selected = '') {
   return paths.map((path) => `<button type="button" class="admin-category-image-choice ${path === selected ? 'selected' : ''}" data-category-image-choice="${escapeAdminHtml(path)}" title="${escapeAdminHtml(creationImageLabel(path))}">
-    <img src="${escapeAdminHtml(path)}" alt="" loading="lazy"><span>${escapeAdminHtml(creationImageLabel(path))}</span><em>${path === selected ? 'Current' : 'Use This Image'}</em>
+    <img src="${escapeAdminHtml(path)}" alt="" loading="lazy" data-admin-safe-image><span>${escapeAdminHtml(creationImageLabel(path))}</span><em>${path === selected ? 'Current' : 'Use This Image'}</em>
   </button>`).join('');
 }
 
@@ -5477,7 +5497,9 @@ function previewSharedCollectionBackground(form) {
   const preview = form?.querySelector('[data-shared-collection-background-preview]');
   if (!preview) return;
   const configuration = sharedCollectionBackgroundFromForm(form);
-  const sample = normalizedMainCollectionsForBatch().find((category) => category.card?.image) || {};
+  const sample = normalizedMainCollectionsForBatch().find((category) => (
+    category.card?.image && imageReferenceExistsInLoadedInventory(category.card.image)
+  )) || {};
   const presentation = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation({
     key: '__shared-preview__',
     title: 'Shared Collection Background Preview',
@@ -5495,7 +5517,7 @@ function previewSharedCollectionBackground(form) {
   preview.innerHTML = `<article class="product-card admin-master-category-card admin-category-placement-preview">
     <div class="product-stage-preview admin-category-storefront-stage admin-category-preview-stage">
       <span class="category-background-layer admin-category-preview-background" style="background-image:url('${escapeAdminHtml(presentation.background)}');background-position:${escapeAdminHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}" aria-hidden="true"></span>
-      ${presentation.image ? `<img class="product-cutout" src="${escapeAdminHtml(presentation.image)}" alt="Sample standee" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : '<span>No sample standee image available</span>'}
+      ${presentation.image ? `<img class="product-cutout" src="${escapeAdminHtml(presentation.image)}" alt="Sample standee" data-admin-safe-image data-admin-image-role="sample" style="height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%">` : '<span class="admin-category-no-image">No available sample standee image</span>'}
     </div>
     <h3><span class="product-title-link">Shared Collection Background</span></h3>
     <p class="product-description">Background changes never resize or reposition the standee.</p>
@@ -5775,8 +5797,11 @@ function categoryEditMarkup(category) {
       <div class="admin-category-editor-workspace">
         <aside class="admin-category-preview-column" aria-label="Live collection preview">
           <strong>${parent ? 'Live Child Group Preview' : 'Live Homepage Collection Card Preview'}</strong>
-          <div class="admin-builder-preview-panel" data-category-edit-preview></div>
-          <p class="admin-note">Image, background, size, and position changes update here immediately. Save Draft stores private work; Save Live updates this Main Collection for customers within seconds.</p>
+          <div class="admin-category-preview-visual-editor">
+            <div class="admin-builder-preview-panel" data-category-edit-preview></div>
+            ${parent ? '' : `<label class="admin-category-preview-size-control"><span>Image Size</span><output data-category-preview-size-output>${escapeAdminHtml(String(display.standeeSizePercent))}%</output><input type="range" min="${CATEGORY_IMAGE_SIZE_MIN}" max="${CATEGORY_IMAGE_SIZE_MAX}" step="1" value="${escapeAdminHtml(String(display.standeeSizePercent))}" data-category-preview-size-range aria-label="Homepage Collection Card image size"></label>`}
+          </div>
+          <p class="admin-note">Drag the image to move it. Use the Image Size slider beside the preview to resize it. Normal page scrolling will not change the image. Save Draft stores private work; Save Live updates this Main Collection for customers within seconds.</p>
         </aside>
         <div class="admin-category-controls-column">
           <div class="admin-category-editor-action-stack">
@@ -5979,6 +6004,13 @@ function renderCategoryManager() {
   const homepageOrder = homepageOrderedAdminCategories(categoriesByKey);
   const homepageOrderIndex = new Map(homepageOrder.map((category, index) => [category.key, index]));
   const suspicious = new Set(suspiciousCategoryKeys(Object.fromEntries(categories.map((category) => [category.key, category]))));
+  if (!categoryManagerAutoOpenedEditor && categories.length) {
+    const initialCategory = categories.find((category) => !legacyOnlyKeys.has(category.key));
+    if (initialCategory) {
+      openedCategoryEditors.add(initialCategory.key);
+      categoryManagerAutoOpenedEditor = true;
+    }
+  }
   const migrationMarkup = mainCollectionMigrationMarkup();
   const categoryMarkup = categories.map((category) => {
     const legacyOnly = legacyOnlyKeys.has(category.key);
@@ -5994,7 +6026,7 @@ function renderCategoryManager() {
           <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Collection: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage Collection Card: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span>${legacyOnly ? '<span data-legacy-collection>LEGACY HOMEPAGE CARD · MAKE EDITABLE FIRST</span>' : ''}</div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom collection — review assignments before changing it.</p>' : ''}</div>
           <dl><div><dt>Products / Standees</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Main Collection</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage Collection Card</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
-            <button type="button" data-edit-category data-category-key="${escapeAdminHtml(category.key)}">Edit Main Collection</button>
+            ${openedCategoryEditors.has(category.key) ? '' : `<button type="button" data-edit-category data-category-key="${escapeAdminHtml(category.key)}">Open Main Collection</button>`}
             <label class="admin-category-visibility-checkbox"><input type="checkbox" data-category-visible-checkbox data-category-key="${escapeAdminHtml(category.key)}" ${category.visible === false ? '' : 'checked'}> Collection Available</label>
             <label class="admin-category-homepage-checkbox"><input type="checkbox" data-category-homepage-checkbox data-category-key="${escapeAdminHtml(category.key)}" ${category.homepageVisible === false ? '' : 'checked'}> Show on Homepage</label>
             ${legacyOnly ? '' : `
@@ -6006,7 +6038,7 @@ function renderCategoryManager() {
           </div>
           <p class="admin-status admin-category-card-publish-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '')}</p>
         </div>
-        ${legacyOnly ? '<p class="admin-note">This compatibility card can be shown or hidden immediately with the checkbox. Edit Main Collection creates its normalized draft and opens the editor here in one step.</p>' : `<details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Main Collection Editor</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
+        ${legacyOnly ? '<p class="admin-note">This compatibility card can be shown or hidden immediately with the checkbox. Open Main Collection creates its normalized draft and opens the editor here in one step.</p>' : `<details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Main Collection Editor</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
         ${childGroupMarkup(category, categoriesByKey)}
         <details data-category-products-panel ${openedCategoryProductLists.has(category.key) ? 'open' : ''}><summary>Product / Standee Cards (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''}</div></details>`}
       </article>`;
@@ -6099,6 +6131,7 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
 }
 
 async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = true } = {}) {
+  const changeReportItems = typeof categoryChangeReportItems === 'function' ? categoryChangeReportItems(form) : [];
   const category = categoryFromEditForm(form, approvalStatus);
   const current = readAdminCategories()[category.key] || {};
   if (approvalStatus === 'draft') setCategoryPublishState(category.key, 'Saving Draft…', 'saving');
@@ -6109,21 +6142,25 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
     .filter((item) => !item.valid && item.value !== item.original);
   if (imageValidations.length) {
     setCategoryPublishState(category.key, `${imageValidations[0].label}: ${imageValidations[0].reason}`, 'failed');
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', changeReportItems, 'failed');
     return false;
   }
   if (category.card?.representativeProductSlug
     && !categoryAssignedProducts(category.key).some((product) => product.slug === category.card.representativeProductSlug)) {
     setCategoryPublishState(category.key, 'Choose a representative Product / Standee assigned to this Main Collection.', 'failed');
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', changeReportItems, 'failed');
     return false;
   }
   const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), category, category.key);
   if (duplicates.length) {
     setCategoryPublishState(category.key, `A similar Category already exists: ${duplicates.map((item) => item.title).join(', ')}.`, 'failed');
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', changeReportItems, 'failed');
     return false;
   }
   const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'categories', entryKey: category.key, baseRecord: readAdminCategories()[category.key], patch: category }]);
   if (!result.ok) {
     setCategoryPublishState(category.key, adminLastSaveError || 'Category draft could not be saved.', 'failed');
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', changeReportItems, 'failed');
     return false;
   }
   if (render) {
@@ -6138,6 +6175,11 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
   const message = approvalStatus === 'approved' ? 'Main Collection saved. Validating latest private save…' : 'Draft Saved — Private';
   setCategoryPublishState(category.key, message, approvalStatus === 'approved' ? 'publishing' : 'draft');
   setStatus(message);
+  if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport(
+    approvalStatus === 'approved' ? 'SAVED — validating this Collection for the live website…' : 'DRAFT SAVED — PRIVATE. The customer website has not changed.',
+    changeReportItems,
+    approvalStatus === 'approved' ? 'saving' : 'saved'
+  );
   return true;
 }
 
@@ -6290,6 +6332,7 @@ async function saveCategoryVisibilityLive(categoryKey, field, visible) {
   }
   if (!category) return false;
   const label = field === 'homepageVisible' ? 'homepage visibility' : 'Collection availability';
+  const reportItems = [`${category.title || categoryKey} — ${label}: ${visible ? 'Yes' : 'No'}`];
   setStatus(`${category.title || categoryKey}: saving ${label} live…`);
   const savedLive = await publishCategoryByKey(categoryKey);
   if (savedLive) {
@@ -6297,8 +6340,10 @@ async function saveCategoryVisibilityLive(categoryKey, field, visible) {
     setStatus(field === 'homepageVisible'
       ? `${category.title || categoryKey} is now ${visible ? 'shown on' : 'hidden from'} the live homepage.`
       : `${category.title || categoryKey} is now ${visible ? 'available to' : 'hidden from'} customers.`);
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('LIVE — the change was saved and verified on the customer website.', reportItems, 'live');
   } else {
     setStatus(`SAVE FAILED — ${category.title || categoryKey} was not changed on the website.`);
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', reportItems, 'failed');
   }
   return savedLive;
 }
@@ -6399,6 +6444,10 @@ function renderCategoryImagePickerGallery(picker, query = '', searchAll = false)
       option.textContent = folder;
       folderSelect.append(option);
     });
+  }
+  if (folderSelect && picker.dataset.categoryFolderInitialized !== 'true') {
+    folderSelect.value = preferredCategoryImageFolder(category, kind, library);
+    picker.dataset.categoryFolderInitialized = 'true';
   }
   const selectedFolder = String(folderSelect?.value || '');
   const matches = library.filter((path) => (
@@ -6587,6 +6636,11 @@ function syncCategoryDisplayOutputs(form) {
     if (input && number) number.value = input.value;
     if (input && output) output.textContent = `${input.value}${percentageFields.has(name) ? '%' : (name === 'standeeRotationDeg' ? '°' : '')}`;
   });
+  const standeeSize = form.elements.namedItem('standeeSizePercent');
+  const previewSizeRange = form.querySelector('[data-category-preview-size-range]');
+  const previewSizeOutput = form.querySelector('[data-category-preview-size-output]');
+  if (standeeSize && previewSizeRange) previewSizeRange.value = standeeSize.value;
+  if (standeeSize && previewSizeOutput) previewSizeOutput.textContent = `${standeeSize.value}%`;
 }
 
 function syncCategoryVisibilityControls(form) {
@@ -6595,6 +6649,165 @@ function syncCategoryVisibilityControls(form) {
   if (!categoryVisible || !homepageVisible || readAdminCategories()[form.dataset.categoryEdit]?.parentKey) return;
   homepageVisible.disabled = !categoryVisible.checked;
   homepageVisible.closest('label')?.classList.toggle('admin-control-secondary', !categoryVisible.checked);
+}
+
+const COLLECTION_REPORT_FIELDS = [
+  ['title', 'Main Collection title'],
+  ['description', 'Main Collection description'],
+  ['funFact', 'Subtitle / small label'],
+  ['page', 'Destination page'],
+  ['visible', 'Collection available'],
+  ['homepageVisible', 'Show on homepage'],
+  ['order', 'Homepage order'],
+  ['card.image', 'Homepage Collection Card image'],
+  ['card.imageVisible', 'Card image visible'],
+  ['card.backgroundImage', 'Card background'],
+  ['card.representativeProductSlug', 'Representative Product / Standee'],
+  ['displaySettings.standeeSizePercent', 'Standee size'],
+  ['displaySettings.standeeLeftPercent', 'Standee horizontal position'],
+  ['displaySettings.standeeVerticalPercent', 'Standee vertical position'],
+  ['displaySettings.standeeRotationDeg', 'Standee rotation'],
+  ['displaySettings.backgroundSizePercent', 'Background zoom'],
+  ['displaySettings.backgroundWidthPercent', 'Background width'],
+  ['displaySettings.backgroundHeightPercent', 'Background height'],
+  ['displaySettings.backgroundPosition', 'Background position'],
+  ['displaySettings.titleSizePercent', 'Title size'],
+  ['displaySettings.titleAlign', 'Title alignment'],
+  ['displaySettings.descriptionSizePercent', 'Description size'],
+  ['displaySettings.descriptionAlign', 'Description alignment']
+];
+
+const SHARED_COLLECTION_REPORT_FIELDS = [
+  ['backgroundImage', 'Shared background image'],
+  ['backgroundWidthPercent', 'Shared background width'],
+  ['backgroundHeightPercent', 'Shared background height'],
+  ['backgroundPositionX', 'Shared background horizontal position'],
+  ['backgroundPositionY', 'Shared background vertical position'],
+  ['backgroundSizePercent', 'Shared background zoom']
+];
+
+const FEATURED_SECTION_REPORT_FIELDS = [
+  ['sectionMaxWidthPx', 'Featured section width'],
+  ['horizontalPaddingPx', 'Horizontal padding'],
+  ['verticalPaddingPx', 'Vertical padding'],
+  ['cardGapPx', 'Card gap'],
+  ['desktopColumns', 'Desktop columns'],
+  ['imageAreaMinHeightPx', 'Image area height'],
+  ['textBoxHeightPx', 'Text box height'],
+  ['titleFontSizePx', 'Title font size'],
+  ['titleFontWeight', 'Title weight'],
+  ['descriptionFontSizePx', 'Description font size'],
+  ['descriptionFontWeight', 'Description weight'],
+  ['titleLineHeightPercent', 'Title line height'],
+  ['descriptionLineHeightPercent', 'Description line height'],
+  ['textGapPx', 'Text spacing'],
+  ['textPaddingPx', 'Text padding'],
+  ['titleFontFamily', 'Title font'],
+  ['descriptionFontFamily', 'Description font'],
+  ['textAlign', 'Text alignment']
+];
+
+function collectionReportValue(value) {
+  if (value === true) return 'Yes';
+  if (value === false) return 'No';
+  if (value === undefined || value === null || value === '') return 'None';
+  const text = String(value);
+  return text.length > 90 ? `${text.slice(0, 87)}…` : text;
+}
+
+function collectionReportPathValue(value, path) {
+  return String(path || '').split('.').reduce((current, key) => current?.[key], value);
+}
+
+function collectionReportDifferences(before, after, fields, prefix = '') {
+  return fields.flatMap(([path, label]) => {
+    const previous = collectionReportPathValue(before, path);
+    const next = collectionReportPathValue(after, path);
+    if (semanticValuesEqual(previous, next)) return [];
+    return [`${prefix}${label}: ${collectionReportValue(previous)} → ${collectionReportValue(next)}`];
+  });
+}
+
+function categoryChangeReportItems(form) {
+  if (!form || typeof form.matches !== 'function' || !form.matches('[data-category-edit]')) return [];
+  const current = readAdminCategories()[form.dataset.categoryEdit] || {};
+  const next = categoryFromEditForm(form, current.approvalStatus || 'draft');
+  const title = String(next.title || current.title || form.dataset.categoryEdit || 'Collection');
+  return collectionReportDifferences(
+    publishableCategory(current),
+    publishableCategory(next),
+    COLLECTION_REPORT_FIELDS,
+    `${title} — `
+  );
+}
+
+function sharedCollectionChangeReportItems(form) {
+  if (!form?.matches('[data-shared-collection-background-form]')) return [];
+  const initialBackground = JSON.parse(form.dataset.initialBackgroundConfiguration || '{}');
+  const initialLayout = JSON.parse(form.dataset.initialSectionLayout || '{}');
+  return [
+    ...collectionReportDifferences(initialBackground, sharedCollectionBackgroundFromForm(form), SHARED_COLLECTION_REPORT_FIELDS, 'Shared design — '),
+    ...collectionReportDifferences(initialLayout, featuredCategoriesSectionLayoutFromForm(form), FEATURED_SECTION_REPORT_FIELDS, 'Featured section — ')
+  ];
+}
+
+function pendingCollectionChangeReportItems() {
+  const items = [];
+  document.querySelectorAll('[data-category-edit][data-editor-dirty="true"]').forEach((form) => items.push(...categoryChangeReportItems(form)));
+  const shared = document.querySelector('[data-shared-collection-background-form][data-editor-dirty="true"]');
+  if (shared) items.push(...sharedCollectionChangeReportItems(shared));
+  return [...new Set(items)];
+}
+
+function savedCollectionChangeReportItems() {
+  const publishedCategories = adminPublishedBaseline?.categories || {};
+  const privateCategories = readAdminCategories();
+  const items = [];
+  [...new Set([...Object.keys(publishedCategories), ...Object.keys(privateCategories)])].forEach((key) => {
+    const before = publishedCategories[key];
+    const after = privateCategories[key];
+    const title = String(after?.title || before?.title || key);
+    if (!before && after) items.push(`${title} — New Main Collection`);
+    else if (before && !after) items.push(`${title} — Main Collection removed`);
+    else items.push(...collectionReportDifferences(
+      publishableCategory(before),
+      publishableCategory(after),
+      COLLECTION_REPORT_FIELDS,
+      `${title} — `
+    ));
+  });
+  const publishedLayout = window.MVPLUX_STOREFRONT_SECTION_LAYOUT.fromGlobalDisplaySettings(
+    FEATURED_CATEGORIES_SECTION_LAYOUT_KEY,
+    adminPublishedBaseline?.globalDisplaySettings || {}
+  );
+  const privateLayout = window.MVPLUX_STOREFRONT_SECTION_LAYOUT.fromGlobalDisplaySettings(
+    FEATURED_CATEGORIES_SECTION_LAYOUT_KEY,
+    adminLiveSettings?.globalDisplaySettings || {}
+  );
+  items.push(...collectionReportDifferences(publishedLayout, privateLayout, FEATURED_SECTION_REPORT_FIELDS, 'Featured section — '));
+  return [...new Set(items)];
+}
+
+function setCollectionChangeReport(summary, items = [], state = 'idle') {
+  const report = document.getElementById('collectionChangeReport');
+  if (!report) return;
+  report.dataset.state = state;
+  const summaryNode = report.querySelector('[data-collection-change-report-summary]');
+  const list = report.querySelector('[data-collection-change-report-items]');
+  if (summaryNode) summaryNode.textContent = summary;
+  if (!list) return;
+  const visibleItems = [...new Set(items)].slice(0, 30);
+  list.replaceChildren(...visibleItems.map((message) => {
+    const item = document.createElement('li');
+    item.textContent = message;
+    return item;
+  }));
+  if (items.length > visibleItems.length) {
+    const remainder = document.createElement('li');
+    remainder.textContent = `Plus ${items.length - visibleItems.length} additional changes.`;
+    list.append(remainder);
+  }
+  list.hidden = !items.length;
 }
 
 function normalizedMainCollectionsForBatch() {
@@ -6733,42 +6946,51 @@ async function applyCategoryBackgroundToAll(form) {
 }
 
 async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
+  const reportItems = typeof pendingCollectionChangeReportItems === 'function' ? pendingCollectionChangeReportItems() : [];
   const forms = [...document.querySelectorAll('.admin-category-edit-form[data-category-edit]')]
     .filter((form) => editorHasUnsavedChanges(form));
   const sharedBackgroundForm = document.querySelector('[data-shared-collection-background-form]');
   const hasSharedBackgroundChanges = editorHasUnsavedChanges(sharedBackgroundForm);
   if (!forms.length && !hasSharedBackgroundChanges) {
     if (!quiet) setStatus('No unsaved open Collection changes. Previously saved drafts remain ready for Save Live or Save All Live Changes.');
+    if (!quiet && typeof setCollectionChangeReport === 'function') setCollectionChangeReport('No unsaved open Collection changes.', typeof savedCollectionChangeReportItems === 'function' ? savedCollectionChangeReportItems() : [], 'idle');
     return true;
   }
   for (const form of forms) {
     const category = readAdminCategories()[form.dataset.categoryEdit] || {};
     if (!await saveCategoryEditForm(form, 'draft', { render: false })) {
       setStatus(`Save All stopped at ${category.title || form.dataset.categoryEdit}. That editor remains unsaved; nothing was published.`);
+      if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', reportItems, 'failed');
       return false;
     }
   }
   if (!await saveSharedCollectionBackgroundChanges({ quiet: true })) {
     setStatus('Save All stopped at Shared Collection Card Background. Nothing was published.');
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', reportItems, 'failed');
     return false;
   }
   setStatus(`${forms.length} open Collection editor${forms.length === 1 ? '' : 's'}${hasSharedBackgroundChanges ? ' and the Shared Collection Card Background' : ''} ${forms.length === 1 && !hasSharedBackgroundChanges ? 'was' : 'were'} saved privately. Nothing was published.`);
+  if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('DRAFT SAVED — PRIVATE. The customer website has not changed.', reportItems, 'saved');
   return true;
 }
 
 async function saveAllCollectionChangesLive(statusTarget = null, { workingStateCurrent = false } = {}) {
+  const pendingReportItems = typeof pendingCollectionChangeReportItems === 'function' ? pendingCollectionChangeReportItems() : [];
   if (!await saveAllOpenCollectionChanges({ quiet: true })) {
     const message = 'SAVE FAILED — WEBSITE NOT CHANGED. An open Collection or shared background could not be saved.';
     if (statusTarget) statusTarget.textContent = message;
     setStatus(message);
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport(message, pendingReportItems, 'failed');
     return false;
   }
   if (!workingStateCurrent && !await loadAdminLiveSettings()) {
     const message = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'Saved Collection state could not be reloaded.'}`;
     if (statusTarget) statusTarget.textContent = message;
     setStatus(message);
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport(message, pendingReportItems, 'failed');
     return false;
   }
+  const reportItems = typeof savedCollectionChangeReportItems === 'function' ? savedCollectionChangeReportItems() : pendingReportItems;
   const changeIds = architectureReviewItems()
     .filter((item) => ['category', 'category-delete', 'section-layout'].includes(item.type))
     .map((item) => item.id);
@@ -6776,9 +6998,17 @@ async function saveAllCollectionChangesLive(statusTarget = null, { workingStateC
     const message = 'LIVE — there are no saved Collection changes waiting to go live.';
     if (statusTarget) statusTarget.textContent = message;
     setStatus(message);
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport(message, reportItems, 'live');
     return true;
   }
-  return saveLiveChangeIds(changeIds, `All saved Collection changes (${changeIds.length})`, statusTarget, { workingStateCurrent: true });
+  if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVING LIVE… The website has not changed yet.', reportItems, 'saving');
+  const savedLive = await saveLiveChangeIds(changeIds, `All saved Collection changes (${changeIds.length})`, statusTarget, { workingStateCurrent: true });
+  if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport(
+    savedLive ? 'LIVE — all listed Collection changes were saved and verified on the customer website.' : 'SAVE FAILED — WEBSITE NOT CHANGED.',
+    reportItems,
+    savedLive ? 'live' : 'failed'
+  );
+  return savedLive;
 }
 
 function categoryKeyForActionTarget(target) {
@@ -6795,6 +7025,11 @@ function markCategoryEditorDirty(form) {
   if (form.matches('[data-category-edit]')) {
     setCategoryPublishState(form.dataset.categoryEdit, 'UNSAVED CHANGES — preview only until you choose Save Draft or Save Live.', 'dirty');
   }
+  window.requestAnimationFrame(() => setCollectionChangeReport(
+    'UNSAVED CHANGES — review the list below, then use Save Draft or Save All Collection Changes Live.',
+    pendingCollectionChangeReportItems(),
+    'dirty'
+  ));
 }
 
 function editorHasUnsavedChanges(form) {
@@ -6836,18 +7071,22 @@ function setupCategoryManagerEvents() {
   const section = document.getElementById('categories');
   if (!section || section.dataset.categoryManagerBound) return;
   section.dataset.categoryManagerBound = 'true';
+  section.addEventListener('error', (event) => {
+    const image = event.target.closest?.('img[data-admin-safe-image], img[data-category-current-image], img[data-category-preview-image]');
+    if (!image) return;
+    const choice = image.closest('[data-category-image-choice]');
+    if (choice) {
+      choice.remove();
+      return;
+    }
+    const replacement = document.createElement('span');
+    replacement.className = 'admin-category-no-image';
+    replacement.textContent = image.dataset.adminImageRole === 'sample'
+      ? 'Sample image moved or unavailable — choose a current repository image.'
+      : 'Image moved or unavailable — choose a replacement.';
+    image.replaceWith(replacement);
+  }, true);
   section.addEventListener('pointerdown', beginCategoryPreviewImageDrag);
-  section.addEventListener('wheel', (event) => {
-    const image = event.target.closest('[data-category-preview-image]');
-    const form = image?.closest('[data-category-edit]');
-    if (!image || !form || form.classList.contains('admin-child-group-edit')) return;
-    event.preventDefault();
-    const current = Number(form.elements.namedItem('standeeSizePercent')?.value || CATEGORY_IMAGE_SIZE_DEFAULT);
-    setCategoryDisplayControlValue(form, 'standeeSizePercent', current + (event.deltaY < 0 ? 3 : -3));
-    markCategoryEditorDirty(form);
-    syncCategoryDisplayOutputs(form);
-    previewCategoryEdit(form);
-  }, { passive: false });
   document.getElementById('adminCategorySearch')?.addEventListener('input', renderCategoryManager);
   section.querySelector('.admin-category-visibility-filters')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-category-visibility-filter]');
@@ -6876,6 +7115,7 @@ function setupCategoryManagerEvents() {
     if (event.target.matches('[data-category-image-folder]')) {
       const picker = event.target.closest('[data-category-image-picker]');
       if (picker) {
+        picker.dataset.categoryFolderInitialized = 'true';
         picker.dataset.categoryImageVisibleLimit = '80';
         renderCategoryImagePickerGallery(picker, picker.querySelector('[data-category-image-search]')?.value || '', true);
       }
@@ -6933,6 +7173,9 @@ function setupCategoryManagerEvents() {
     }
     const form = event.target.closest('[data-category-edit]');
     if (!form) return;
+    if (event.target.matches('[data-category-preview-size-range]')) {
+      setCategoryDisplayControlValue(form, 'standeeSizePercent', event.target.value);
+    }
     markCategoryEditorDirty(form);
     syncCategoryDisplayControl(form, event.target);
     syncCategoryBackgroundPosition(form);
@@ -7080,6 +7323,9 @@ function setupCategoryManagerEvents() {
       if (controls) {
         controls.hidden = false;
         if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false });
+        const folder = picker.querySelector('[data-category-image-folder]');
+        if (folder) folder.value = '';
+        picker.dataset.categoryFolderInitialized = 'true';
         picker.dataset.categoryImageVisibleLimit = '80';
         renderCategoryImagePickerGallery(picker, '', true);
         controls.querySelector('input')?.focus();
@@ -7094,8 +7340,11 @@ function setupCategoryManagerEvents() {
       if (controls) controls.hidden = false;
       if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false });
       if (picker) {
+        picker.dataset.categoryFolderInitialized = 'false';
         picker.dataset.categoryImageVisibleLimit = '80';
         renderCategoryImagePickerGallery(picker, '', true);
+        const sharedForm = picker.closest('[data-shared-collection-background-form]');
+        if (sharedForm) previewSharedCollectionBackground(sharedForm);
       }
       controls?.querySelector('input')?.focus();
     }
@@ -7116,7 +7365,19 @@ function setupCategoryManagerEvents() {
     const moveHomepage = event.target.closest('[data-move-category-homepage]');
     if (moveHomepage) await moveCategoryHomepageOrder(actionCategoryKey, Number(moveHomepage.dataset.moveCategoryHomepage));
     const imageChoice = event.target.closest('[data-category-image-choice]');
-    if (imageChoice) updateCategoryPickerValue(imageChoice.closest('[data-category-image-picker]'), imageChoice.dataset.categoryImageChoice);
+    if (imageChoice) {
+      const picker = imageChoice.closest('[data-category-image-picker]');
+      updateCategoryPickerValue(picker, imageChoice.dataset.categoryImageChoice);
+      const browser = picker?.querySelector('.admin-category-image-browser');
+      const controls = picker?.querySelector('[data-category-image-search-controls]');
+      const search = picker?.querySelector('[data-category-image-search]');
+      const gallery = picker?.querySelector('[data-category-image-gallery]');
+      if (browser) browser.open = false;
+      if (controls) controls.hidden = true;
+      if (search) search.value = '';
+      if (gallery) gallery.innerHTML = '<p class="admin-note">Image selected. Choose Change Image to browse again.</p>';
+      if (picker) picker.dataset.categoryFolderInitialized = 'false';
+    }
     const sharedBackground = event.target.closest('[data-use-shared-category-background]');
     if (sharedBackground) updateCategoryPickerValue(sharedBackground.closest('[data-category-image-picker]'), '');
     const useSharedCollectionBackground = event.target.closest('[data-use-shared-collection-background]');
@@ -7361,19 +7622,30 @@ function previewSharedProductShowroom(form) {
 
 async function saveSharedProductShowroomDesign(form, { live = false } = {}) {
   const scope = String(form.elements.namedItem('scope')?.value || 'default');
-  const current = productShowroomDesignState();
+  const status = form.querySelector('[data-shared-product-showroom-status]');
+  if (status) status.textContent = live ? 'SAVING LIVE…' : 'SAVING DRAFT…';
+  let latest;
+  try {
+    latest = await fetchAuthoritativeAdminGlobal(['globalDisplaySettings']);
+    adminLiveSettings = latest.edits;
+    adminLiveRevision = latest.revision;
+    adminPotentiallyStale = false;
+  } catch (error) {
+    adminLastSaveError = error?.message || String(error);
+    if (status) status.textContent = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError}`;
+    return false;
+  }
+  const current = productShowroomDesignState(latest.edits?.globalDisplaySettings);
   const next = structuredClone(current);
   const design = productShowroomDesignFromForm(form);
   if (scope === 'default') next.default = design;
   else next.collections[scope] = design;
-  const status = form.querySelector('[data-shared-product-showroom-status]');
-  if (status) status.textContent = live ? 'SAVING LIVE…' : 'SAVING DRAFT…';
   const result = await saveAdminCollectionOperations([{
     type: 'value', collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms',
     baseValue: current, value: next
   }]);
   if (!result.ok) {
-    if (status) status.textContent = 'SAVE FAILED — WEBSITE NOT CHANGED.';
+    if (status) status.textContent = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'The Product showroom design could not be saved.'}`;
     return false;
   }
   form.dataset.editorDirty = 'false';
@@ -8050,6 +8322,7 @@ let imageImportReady = false;
 let repositoryImagePaths = new Set();
 let localOnlyImagePaths = new Set();
 let imageInventorySource = 'fallback';
+const PUBLIC_GITHUB_IMAGE_TREE_URL = 'https://api.github.com/repos/coolap69/mvpluxcreations/git/trees/main?recursive=1';
 
 const IMAGE_IMPORT_DEFAULT_BACKGROUND = 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg';
 const IMAGE_IMPORT_DESTINATIONS = [
@@ -8950,22 +9223,48 @@ async function publishImageImports(mode) {
   prepareSelectedPublish(selectedChanges);
 }
 
+async function loadPublicRepositoryImagePaths() {
+  const response = await fetch(PUBLIC_GITHUB_IMAGE_TREE_URL, { headers: { Accept: 'application/vnd.github+json' } });
+  if (!response.ok) throw new Error(`GitHub image inventory returned HTTP ${response.status}.`);
+  const tree = await response.json();
+  if (tree?.truncated) throw new Error('GitHub image inventory was truncated.');
+  return (Array.isArray(tree?.tree) ? tree.tree : [])
+    .filter((entry) => entry?.type === 'blob' && validatePublishImagePath(String(entry?.path || '')))
+    .map((entry) => entry.path)
+    .sort((left, right) => left.localeCompare(right));
+}
+
 async function loadImageDraftInventory({ renderInbox = true } = {}) {
   try {
     const localAdmin = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
     if (localAdmin) {
-      const response = await fetch('/api/local-image-inventory', { cache: 'no-store' });
-      if (!response.ok) throw new Error('The local image inventory endpoint is unavailable.');
-      const inventory = await response.json();
-      const localPaths = Array.isArray(inventory.images) ? inventory.images : [];
-      const remotePaths = Array.isArray(inventory.repositoryImages) ? inventory.repositoryImages : [];
-      repositoryImagePaths = new Set(remotePaths);
-      localOnlyImagePaths = new Set(localPaths.filter((path) => !repositoryImagePaths.has(path)));
-      imageDraftInventory = localPaths.map((path) => ({ path }));
-      imageInventorySource = 'local';
+      try {
+        const response = await fetch('/api/local-image-inventory', { cache: 'no-store' });
+        if (!response.ok) throw new Error('The local image inventory endpoint is unavailable.');
+        const inventory = await response.json();
+        const localPaths = Array.isArray(inventory.images) ? inventory.images : [];
+        const remotePaths = Array.isArray(inventory.repositoryImages) ? inventory.repositoryImages : [];
+        repositoryImagePaths = new Set(remotePaths);
+        localOnlyImagePaths = new Set(localPaths.filter((path) => !repositoryImagePaths.has(path)));
+        imageDraftInventory = localPaths.map((path) => ({ path }));
+        imageInventorySource = 'local';
+      } catch (localError) {
+        const paths = await loadPublicRepositoryImagePaths();
+        repositoryImagePaths = new Set(paths);
+        localOnlyImagePaths = new Set();
+        imageDraftInventory = paths.map((path) => ({ path }));
+        imageInventorySource = 'github';
+        setStatus(`The local image scanner is unavailable, so Admin is showing every deployed repository image. Start serve-local-admin.py to include uncommitted local images. ${localError?.message || localError}`);
+      }
     } else {
-      const inventory = await callAdminPublisher({ action: 'image-inventory' });
-      const paths = Array.isArray(inventory.images) ? inventory.images : [];
+      let paths = [];
+      try {
+        paths = await loadPublicRepositoryImagePaths();
+      } catch (githubError) {
+        const inventory = await callAdminPublisher({ action: 'image-inventory' });
+        paths = Array.isArray(inventory.images) ? inventory.images : [];
+        setStatus(`Public repository image list was unavailable, so Admin used the protected inventory fallback. ${githubError?.message || githubError}`);
+      }
       repositoryImagePaths = new Set(paths);
       localOnlyImagePaths = new Set();
       imageDraftInventory = paths.map((path) => ({ path }));

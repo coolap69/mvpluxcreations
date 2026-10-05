@@ -175,9 +175,9 @@ Deno.test('compact editor clearly separates draft preview from published website
   assert(adminSource.includes('Published website currently uses') && adminSource.includes('Draft will use'), 'the editor must compare compact published and draft image/background references');
   assert(editor.indexOf('admin-category-editor-actions') > editor.indexOf('admin-category-controls-column'), 'Preview, Save Draft, and Publish must live with the right-side controls');
   for (const label of ['Image Zoom', 'Horizontal Position', 'Vertical Position', 'Rotate Image', 'Reset Image Position / Zoom / Rotation']) assert(editor.includes(label), `missing compact individual image control ${label}`);
-  assert(events.includes('beginCategoryPreviewImageDrag') && events.includes("section.addEventListener('wheel'"), 'individual Dashboard preview must support direct drag and wheel zoom');
+  assert(events.includes('beginCategoryPreviewImageDrag') && events.includes("event.target.matches('[data-category-preview-size-range]')") && !events.includes("section.addEventListener('wheel'"), 'individual Dashboard preview must support direct drag and explicit size control without accidental wheel zoom');
   assert(adminSource.includes("state === 'published' && message === 'Published to Website' ? 'PUBLISHED TO WEBSITE'"), 'deployment-confirmed publication must have an unmistakable final status');
-  assert(styleSource.includes('grid-template-columns: minmax(400px,.84fr) minmax(560px,1.16fr)') && styleSource.includes('position: sticky'), 'desktop must keep one live card preview beside compact controls');
+  assert(styleSource.includes('grid-template-columns: minmax(360px, .78fr) minmax(480px, 1.22fr)') && styleSource.includes('position: sticky'), 'desktop must keep one live card preview beside immediately usable controls');
 });
 
 Deno.test('fresh desktop Main Collection DOM uses one sticky combined preview beside compact controls', () => {
@@ -187,8 +187,9 @@ Deno.test('fresh desktop Main Collection DOM uses one sticky combined preview be
   const controlsColumn = workspace.children[1];
   const workspaceStyle = desktop.window.getComputedStyle(workspace);
   assert(previewColumn.matches('.admin-category-preview-column') && controlsColumn.matches('.admin-category-controls-column'), 'the actual editor DOM must place preview left and controls right');
-  assert(workspaceStyle.display === 'grid' && workspaceStyle.gridTemplateColumns.includes('minmax(400px,.84fr)') && workspaceStyle.gridTemplateColumns.includes('minmax(560px,1.16fr)'), '1440px desktop must retain the two-column workspace');
+  assert(workspaceStyle.display === 'grid' && workspaceStyle.gridTemplateColumns.includes('minmax(360px, .78fr)') && workspaceStyle.gridTemplateColumns.includes('minmax(480px, 1.22fr)'), '1440px desktop must retain the two-column workspace without browser zooming out');
   assert(desktop.window.getComputedStyle(previewColumn).position === 'sticky', 'the large left preview must remain sticky on desktop');
+  assert(styleSource.includes('max-height: calc(100vh - 102px)') && styleSource.includes('overscroll-behavior: contain'), 'the desktop preview must fit the visible viewport and remain usable while the right-side controls scroll');
   assert(desktop.window.getComputedStyle(controlsColumn.querySelector('.admin-category-editor-action-stack')).position === 'sticky', 'Save and Publish must remain sticky at the top of the right controls');
   assert(controlsColumn.querySelector('[data-back-to-collections]') && controlsColumn.querySelector('[data-preview-category-edit]') && controlsColumn.querySelector('button[type="submit"]') && controlsColumn.querySelector('[data-publish-category-edit]'), 'the right toolbar must contain Back, Preview, Save Draft, and Publish');
   assert(controlsColumn.querySelector('.admin-category-image-section[open]') && !controlsColumn.querySelector('.admin-category-background-section'), 'individual Main Collection editor must keep Image open and remove per-card Background controls');
@@ -196,6 +197,8 @@ Deno.test('fresh desktop Main Collection DOM uses one sticky combined preview be
   const previews = desktop.form.querySelectorAll('.admin-category-placement-preview');
   assert(previews.length === 1, 'the editor must create exactly one large Homepage Collection Card preview');
   assert(previews[0].querySelector('.category-background-layer') && previews[0].querySelector('.product-cutout'), 'background and Product/Standee image must render together in that same preview');
+  const previewSizeRange = previewColumn.querySelector('[data-category-preview-size-range]');
+  assert(previewSizeRange && previewSizeRange.value === '90' && previewColumn.querySelector('[data-category-preview-size-output]')?.textContent === '90%', 'the preview must show one explicit side size slider and its exact percentage');
   assert(!controlsColumn.querySelector('.admin-category-placement-preview'), 'the controls must not contain a second large background preview');
   const compactReferences = controlsColumn.querySelectorAll('.admin-category-current-image-reference');
   assert(compactReferences.length === 1, 'the individual editor may retain only its compact image reference thumbnail');
@@ -362,7 +365,8 @@ Deno.test('Collections exposes one sticky live action that includes the shared b
   assert((adminHtml.match(/id="saveAllLiveCollections"/g) || []).length === 1, 'Collections must have exactly one authoritative main live button');
   assert(adminHtml.includes('Save All Collection Changes Live'), 'the main button must clearly say that all Collection changes go live together');
   assert(adminHtml.includes('id="collectionLiveStatus"'), 'the main live operation must have a visible Collections status target');
-  assert(styleSource.includes('#categories .admin-collection-lifecycle-bar {') && styleSource.includes('position: sticky;'), 'the Collections live toolbar must remain visible while editing the shared controller');
+  const lifecycleStyles = sourceRange(styleSource, '#categories .admin-collection-lifecycle-bar {', '\n}');
+  assert(lifecycleStyles.includes('position: static;'), 'the large Collections lifecycle/report box must not cover the editor while scrolling');
   assert(adminSource.includes("saveAllCollectionChangesLive(\n    document.getElementById('collectionLiveStatus')"), 'the main button must use the Collection-scoped batch Save Live controller and report into Collections');
   assert(adminSource.includes('Apply Background to All Main Collections'), 'the shared background must expose one obvious Apply-to-All action');
   assert(!adminSource.includes('Save Shared Background Draft'), 'the shared controller must not duplicate the background workflow with a second save button');
@@ -533,7 +537,7 @@ Deno.test('individual Featured card editor owns content and standee controls but
   assert(!form.querySelector('[name="cardBackgroundImage"]') && !form.querySelector('[name="backgroundSizePercent"]'), 'individual Main Collection editor must not own any background reference or geometry');
   assert(!form.querySelector('[name="titleSizePercent"]') && !form.querySelector('[name="descriptionSizePercent"]'), 'individual Main Collection editor must not own shared text styling');
   const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');
-  assert(events.includes("section.addEventListener('pointerdown', beginCategoryPreviewImageDrag)") && events.includes("section.addEventListener('wheel'"), 'preview must wire direct drag and wheel zoom to the same normalized image controls');
+  assert(events.includes("section.addEventListener('pointerdown', beginCategoryPreviewImageDrag)") && events.includes("setCategoryDisplayControlValue(form, 'standeeSizePercent', event.target.value)") && !events.includes("section.addEventListener('wheel'"), 'preview drag and side size slider must use normalized controls while normal wheel scrolling remains untouched');
 });
 
 Deno.test('normalized Featured card image visibility and rotation survive reconstruction', () => {
@@ -566,4 +570,17 @@ Deno.test('shared Featured text controls persist through the existing section la
   assert(root.style.getPropertyValue('--featured-categories-title-font') === 'Georgia, serif' && root.style.getPropertyValue('--featured-categories-text-align') === 'left', 'shared font and alignment must apply from the same saved section record');
   assert(adminSource.includes('admin-shared-text-control-groups') && adminSource.includes('<legend>Title</legend>') && adminSource.includes('<legend>Description</legend>') && adminSource.includes('<legend>Text Box</legend>'), 'shared text controls must be grouped by the visual element they affect');
   assert(adminSource.includes('data-shared-category-text-preview') && adminSource.includes('Compact Text') && adminSource.includes('Bold Titles') && adminSource.includes('Reset Text Style'), 'shared text editor must include an immediate local preview and simple presets');
+});
+
+Deno.test('Collection Change Report explains pending, private, live, and failed changes without autosaving', () => {
+  assert(adminHtml.includes('id="collectionChangeReport"'), 'Collections must expose one visible automatic change report');
+  assert(adminHtml.includes('<details id="collectionChangeReport"') && styleSource.includes('.admin-collection-change-report > summary::after'), 'the automatic report must use a compact expandable container instead of covering the editor');
+  assert(adminHtml.includes('data-collection-change-report-items'), 'the report must list the exact changed fields');
+  assert(adminSource.includes("'UNSAVED CHANGES — review the list below, then use Save Draft or Save All Collection Changes Live.'"), 'editing must report an unsaved preview');
+  assert(adminSource.includes("'DRAFT SAVED — PRIVATE. The customer website has not changed.'"), 'private saving must be clearly reported');
+  assert(adminSource.includes("'LIVE — all listed Collection changes were saved and verified on the customer website.'"), 'successful live saving must be clearly reported');
+  assert(adminSource.includes("'SAVE FAILED — WEBSITE NOT CHANGED.'"), 'failed saving must be clearly reported');
+  assert(adminSource.includes('function collectionReportDifferences('), 'the report must compare normalized fields instead of using generic messages');
+  const markDirty = sourceRange(adminSource, 'function markCategoryEditorDirty', '\n\nfunction editorHasUnsavedChanges');
+  assert(!/saveAdmin|callAdminPublisher|saveLive/.test(markDirty), 'automatic reporting must not add Supabase writes while editing');
 });
