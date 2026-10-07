@@ -42,6 +42,12 @@ Deno.test('Category image browsers open in the relevant folder and close after c
   assert(adminSource.includes('Image selected. Choose Change Image to browse again.') && adminSource.includes('browser.open = false'), 'the repository gallery must close after an image is selected');
 });
 
+Deno.test('repository inventory hides legacy-folder duplicates when an organized image exists', () => {
+  assert(adminSource.includes('const LEGACY_REPOSITORY_IMAGE_FOLDER') && adminSource.includes('function preferOrganizedRepositoryImagePaths'), 'Admin must have one reusable legacy-folder duplicate filter');
+  assert(adminSource.includes('return preferOrganizedRepositoryImagePaths(paths);'), 'the complete GitHub inventory must prefer organized paths before rendering Image Inbox');
+  assert(adminSource.includes('!LEGACY_REPOSITORY_IMAGE_FOLDER.test(relative) || !organizedNames.has(filename)'), 'unique legacy images must remain available when no organized filename exists');
+});
+
 Deno.test('new physical images remain on the static asset publisher while existing references can Save Live', () => {
   assert(adminSource.includes('saveLiveChangeIds([`product:${slug}`]'), 'normal Product updates must enter the fast live controller');
   assert(adminSource.includes('New physical image file requires the static asset publisher'), 'Save Live must reject undeployed physical image files');

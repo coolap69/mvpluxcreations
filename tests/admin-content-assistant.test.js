@@ -99,9 +99,10 @@ Deno.test('provider selection and missing secrets fail closed without exposing a
   assert(missingSecret === 'AI service is not configured.', 'missing secrets must fail without naming or exposing the secret');
 });
 
-Deno.test('function prompt covers all four actions and safe content rules', async () => {
+Deno.test('function prompt covers supported actions and safe content rules', async () => {
   const source = await Deno.readTextFile(new URL('../supabase/functions/admin-content-assistant/index.ts', import.meta.url));
-  for (const action of ['title', 'description', 'funFact', 'improve']) assert(source.includes(`'${action}'`), `missing ${action} action`);
+  for (const action of ['title', 'description', 'funFact', 'fillAll', 'improve']) assert(source.includes(`'${action}'`), `missing ${action} action`);
+  assert(source.includes('For fillAll requests, create a coordinated title, description, and fun fact'), 'Fill All must request one coordinated text response');
   assert(source.includes('Do not describe the item as official merchandise.'), 'official-merchandise claims must be prohibited');
   assert(source.includes('do not invent a fact'), 'fun facts must not be invented');
   assert(source.includes('preserve the meaning'), 'Improve Existing Text must preserve meaning');

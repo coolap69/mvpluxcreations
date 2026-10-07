@@ -69,7 +69,7 @@ Deno.serve(async (request) => {
       return json(request, { error: 'The AI request could not be read.' }, 400);
     }
     const action = cleanText(body?.action, 30);
-    if (!['title', 'description', 'funFact', 'improve', 'designBrief'].includes(action)) return json(request, { error: 'Unsupported suggestion action.' }, 400);
+    if (!['title', 'description', 'funFact', 'fillAll', 'improve', 'designBrief'].includes(action)) return json(request, { error: 'Unsupported suggestion action.' }, 400);
     const imagePath = cleanText(body?.imagePath, 500);
     if (imagePath && (!/^images\/[A-Za-z0-9_./ '\-]+\.(?:png|jpe?g|webp|gif)$/i.test(imagePath) || imagePath.includes('..'))) {
       return json(request, { error: 'The selected image path is invalid.' }, 400);
@@ -97,6 +97,7 @@ Deno.serve(async (request) => {
       'For title requests, provide a concise customer-friendly title.',
       'For description requests, describe only details supported by the supplied context or visible image.',
       'For fun facts, do not invent a fact. If the subject cannot be identified reliably, explain briefly that more information is needed.',
+      'For fillAll requests, create a coordinated title, description, and fun fact using only the supplied text context.',
       'For improve requests, preserve the meaning and useful details of the existing text.',
       'For designBrief requests, put the complete editable brief in description. Organize only supplied facts into subject, composition, size, reference notes, customer preferences, open questions, and production checks. Never claim artwork is approved or ready to publish.',
       'When the Admin supplies identity/context, treat it as authoritative. Never replace, contradict, or override it based on the image.',

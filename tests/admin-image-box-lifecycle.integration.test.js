@@ -24,6 +24,7 @@ Deno.test('Image Box exposes one clear lifecycle toolbar and AI remains suggesti
   assert(markup.includes('AI can help fill these fields') && markup.includes('then click Save'), 'AI guidance must explain the Save and Publish lifecycle');
   const ai = sourceRange('async function requestAdminContentSuggestion', 'function bindAdminAiAssistance');
   assert(ai.includes("field.dispatchEvent(new Event('input'"), 'AI suggestions must flow through normal editable field changes');
+  assert(ai.includes("imagePath: ''") && ai.includes("['title', 'description', 'funFact']"), 'Fill All must be one text-only request that avoids repository-image egress');
   assert(!ai.includes('saveAdmin') && !ai.includes('publishScoped') && !ai.includes("action: 'publish'"), 'AI suggestions must never save or publish');
 });
 

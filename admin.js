@@ -3392,7 +3392,9 @@ async function requestAdminContentSuggestion(form, action, button) {
       body: JSON.stringify({
         action,
         identity: String(formData.get('subjectIdentity') || ''),
-        imagePath: String(formData.get('selectedPreviewImage') || formData.get('cutoutImage') || formData.get('cardImage') || form.dataset.imagePath || ''),
+        // Routine text assistance is deliberately text-only. Sending large repository
+        // images through the Edge Function consumed unnecessary Supabase egress.
+        imagePath: '',
         category: formData.getAll('categories').join(', ') || productCategoryNames(existingProduct) || existingCategory?.title || '',
         context: {
           title: String(formData.get('title') || existingProduct?.title || ''),
@@ -3418,12 +3420,15 @@ async function requestAdminContentSuggestion(form, action, button) {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || result.message || `AI request failed (HTTP ${response.status}).`);
-    const fieldNames = action === 'improve' ? ['title', 'description', 'funFact'] : [action];
+    const fieldNames = ['fillAll', 'improve'].includes(action) ? ['title', 'description', 'funFact'] : [action];
+    const populatedFields = fieldNames.filter((fieldName) => form.elements.namedItem(fieldName)?.value.trim());
+    if (action === 'fillAll' && populatedFields.length
+      && !window.confirm('Replace the current title, description, and fun fact with the new AI suggestions?')) return;
     fieldNames.forEach((fieldName) => {
       const field = form.elements.namedItem(fieldName);
       const suggestion = String(result[fieldName] || '').trim();
       if (!field || !suggestion) return;
-      if (field.value.trim() && !window.confirm(`Replace the current ${fieldName === 'funFact' ? 'fun fact' : fieldName} with this suggestion?`)) return;
+      if (action !== 'fillAll' && field.value.trim() && !window.confirm(`Replace the current ${fieldName === 'funFact' ? 'fun fact' : fieldName} with this suggestion?`)) return;
       field.value = suggestion;
       field.dispatchEvent(new Event('input', { bubbles: true }));
     });
@@ -5203,17 +5208,22 @@ function repositoryCategoryImageLibrary() {
     validatePublishImagePath(String(path || ''))
     && imageReferenceExistsInLoadedInventory(path)
   ));
-  const legacyFolders = /^(?:Business|CustomPhotoStandees|DinosaurAnimalStandees|DinosaurCreatureStandees|FaithCelebrationStandees|FanBackgrounds|FanRequestStandees|GameFantasyStandees|Herobackgroundparts|HolidayStandees|MovieCharacterStandees|Moviestars|MusicArtistStandees|PartyPackStandees|PeoplePublicFigureStandees|SportLegendStandees)(?:\/|$)/i;
+  return preferOrganizedRepositoryImagePaths(paths)
+    .sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
+}
+
+const LEGACY_REPOSITORY_IMAGE_FOLDER = /^(?:Business|CustomPhotoStandees|DinosaurAnimalStandees|DinosaurCreatureStandees|FaithCelebrationStandees|FanBackgrounds|FanRequestStandees|FrontPageWeb|GameFantasyStandees|Herobackgroundparts|HolidayStandees|MovieCharacterStandees|Moviestars|MusicArtistStandees|PartyPackStandees|PeoplePublicFigureStandees|SportLegendStandees)(?:\/|$)/i;
+
+function preferOrganizedRepositoryImagePaths(paths) {
   const organizedNames = new Set(paths
-    .filter((path) => !legacyFolders.test(path.replace(/^images\//i, '')))
+    .filter((path) => !LEGACY_REPOSITORY_IMAGE_FOLDER.test(path.replace(/^images\//i, '')))
     .map((path) => path.split('/').pop()?.toLowerCase())
     .filter(Boolean));
   return paths.filter((path) => {
     const relative = path.replace(/^images\//i, '');
     const filename = path.split('/').pop()?.toLowerCase();
-    return !legacyFolders.test(relative) || !organizedNames.has(filename);
-  })
-    .sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
+    return !LEGACY_REPOSITORY_IMAGE_FOLDER.test(relative) || !organizedNames.has(filename);
+  });
 }
 
 function imageReferenceExistsInLoadedInventory(path) {
@@ -5767,10 +5777,7 @@ function categoryEditMarkup(category) {
   const advancedTextTools = `<div class="admin-category-ai-text-tools">
     <label>Who or what is this?<input name="subjectIdentity" type="text" placeholder="Example: Sports Legends – Basketball"></label>
     <div class="admin-ai-actions" aria-label="Optional AI assistance">
-      <button type="button" data-ai-suggest="title">Generate Title</button>
-      <button type="button" data-ai-suggest="description">Generate Description</button>
-      <button type="button" data-ai-suggest="funFact">Generate Fun Fact</button>
-      <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
+      <button type="button" data-ai-suggest="fillAll">Fill All Text with AI</button>
     </div>
     <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
     <p class="admin-note">Your identity is authoritative. AI suggestions remain editable and never save or publish automatically.</p>
@@ -6044,6 +6051,7 @@ function renderCategoryManager() {
       </article>`;
   }).join('') || '<div class="admin-empty-state"><strong>No Main Collections found</strong><span>Create a Main Collection, migrate a legacy Homepage Collection Card, or clear the search.</span></div>';
   container.innerHTML = `${migrationMarkup}${categoryMarkup}`;
+  container.querySelectorAll('.admin-category-edit-form[data-category-edit]').forEach((form) => previewCategoryEdit(form));
 
   const deleted = readDeletedCategories();
   if (deleted.length) container.insertAdjacentHTML('beforeend', `<section class="admin-category-deletions"><h3>Deleted Categories</h3>${deleted.map((key) => {
@@ -6141,19 +6149,22 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
   ].map(([label, value, original]) => ({ label, value, original, ...adminStateUtils.validateAdminImageReference(value, { allowBlank: true }) }))
     .filter((item) => !item.valid && item.value !== item.original);
   if (imageValidations.length) {
-    setCategoryPublishState(category.key, `${imageValidations[0].label}: ${imageValidations[0].reason}`, 'failed');
+    adminLastSaveError = `${category.title || category.key}: ${imageValidations[0].label}: ${imageValidations[0].reason}`;
+    setCategoryPublishState(category.key, adminLastSaveError, 'failed');
     if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', changeReportItems, 'failed');
     return false;
   }
   if (category.card?.representativeProductSlug
     && !categoryAssignedProducts(category.key).some((product) => product.slug === category.card.representativeProductSlug)) {
-    setCategoryPublishState(category.key, 'Choose a representative Product / Standee assigned to this Main Collection.', 'failed');
+    adminLastSaveError = `${category.title || category.key}: choose a representative Product / Standee assigned to this Main Collection.`;
+    setCategoryPublishState(category.key, adminLastSaveError, 'failed');
     if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', changeReportItems, 'failed');
     return false;
   }
   const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), category, category.key);
   if (duplicates.length) {
-    setCategoryPublishState(category.key, `A similar Category already exists: ${duplicates.map((item) => item.title).join(', ')}.`, 'failed');
+    adminLastSaveError = `${category.title || category.key}: a similar Main Collection already exists: ${duplicates.map((item) => item.title).join(', ')}.`;
+    setCategoryPublishState(category.key, adminLastSaveError, 'failed');
     if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', changeReportItems, 'failed');
     return false;
   }
@@ -6977,7 +6988,7 @@ async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
 async function saveAllCollectionChangesLive(statusTarget = null, { workingStateCurrent = false } = {}) {
   const pendingReportItems = typeof pendingCollectionChangeReportItems === 'function' ? pendingCollectionChangeReportItems() : [];
   if (!await saveAllOpenCollectionChanges({ quiet: true })) {
-    const message = 'SAVE FAILED — WEBSITE NOT CHANGED. An open Collection or shared background could not be saved.';
+    const message = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'An open Collection or shared background could not be saved.'}`;
     if (statusTarget) statusTarget.textContent = message;
     setStatus(message);
     if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport(message, pendingReportItems, 'failed');
@@ -9000,10 +9011,7 @@ function renderImageDrafts() {
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(draft.description || '')}</textarea></label>
               <label>Fun fact<textarea name="funFact" rows="2">${escapeAdminHtml(draft.funFact || '')}</textarea></label>
               <div class="admin-ai-actions" aria-label="Optional AI assistance">
-                <button type="button" data-ai-suggest="title">Suggest Title</button>
-                <button type="button" data-ai-suggest="description">Suggest Description</button>
-                <button type="button" data-ai-suggest="funFact">Suggest Fun Fact</button>
-                <button type="button" data-ai-suggest="improve">Improve Existing Text</button>
+                <button type="button" data-ai-suggest="fillAll">Fill All Text with AI</button>
               </div>
               <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
               <p class="admin-note">AI can help fill these fields. Review or edit the suggestions, then click Save Draft or Save Live. AI never saves or publishes automatically.</p>
@@ -9228,10 +9236,11 @@ async function loadPublicRepositoryImagePaths() {
   if (!response.ok) throw new Error(`GitHub image inventory returned HTTP ${response.status}.`);
   const tree = await response.json();
   if (tree?.truncated) throw new Error('GitHub image inventory was truncated.');
-  return (Array.isArray(tree?.tree) ? tree.tree : [])
+  const paths = (Array.isArray(tree?.tree) ? tree.tree : [])
     .filter((entry) => entry?.type === 'blob' && validatePublishImagePath(String(entry?.path || '')))
     .map((entry) => entry.path)
     .sort((left, right) => left.localeCompare(right));
+  return preferOrganizedRepositoryImagePaths(paths);
 }
 
 async function loadImageDraftInventory({ renderInbox = true } = {}) {
@@ -9262,7 +9271,7 @@ async function loadImageDraftInventory({ renderInbox = true } = {}) {
         paths = await loadPublicRepositoryImagePaths();
       } catch (githubError) {
         const inventory = await callAdminPublisher({ action: 'image-inventory' });
-        paths = Array.isArray(inventory.images) ? inventory.images : [];
+        paths = preferOrganizedRepositoryImagePaths(Array.isArray(inventory.images) ? inventory.images : []);
         setStatus(`Public repository image list was unavailable, so Admin used the protected inventory fallback. ${githubError?.message || githubError}`);
       }
       repositoryImagePaths = new Set(paths);

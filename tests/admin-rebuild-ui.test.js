@@ -52,10 +52,11 @@ Deno.test('manual creation remains available without AI and successful saves res
 
 Deno.test('AI controls are enabled after secure Edge Function deployment and remain review-only', () => {
   const staticButtons = [...adminHtml.matchAll(/<button[^>]+data-ai-suggest="[^"]+"[^>]*>/g)].map((match) => match[0]);
-  assert(staticButtons.length === 8, 'both visual builders must expose four AI controls');
+  assert(staticButtons.length === 2, 'both visual builders must expose one Fill All AI control');
   assert(staticButtons.every((button) => !button.includes('disabled')), 'deployed AI controls must be enabled');
   const dynamicButtons = [...adminSource.matchAll(/<button[^>]+data-ai-suggest="[^"]+"[^>]*>/g)].map((match) => match[0]);
-  assert(dynamicButtons.length >= 4 && dynamicButtons.every((button) => !button.includes('disabled')), 'Image Import AI controls must also be enabled');
+  assert(dynamicButtons.length >= 2 && dynamicButtons.every((button) => !button.includes('disabled')), 'Collection and Image Import Fill All AI controls must also be enabled');
+  assert(staticButtons.every((button) => button.includes('data-ai-suggest="fillAll"')) && dynamicButtons.every((button) => button.includes('data-ai-suggest="fillAll"')), 'routine text assistance must use the single Fill All action');
   assert(adminHtml.includes('They never save or publish automatically.'), 'AI controls must explain that suggestions are review-only');
   assert(adminHtml.includes('data-ai-status aria-live="polite"') && adminSource.includes("form.querySelector('[data-ai-status]"), 'AI errors must render directly beneath the controls');
   assert(adminSource.includes("button.dataset.aiBusy === 'true'") && adminSource.includes("button.dataset.aiBusy = 'true'"), 'duplicate simultaneous AI clicks must be blocked');

@@ -8031,9 +8031,8 @@ button[aria-label="Add to cart"]::before {
     position: sticky;
     top: 86px;
     align-self: start;
-    max-height: calc(100vh - 102px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    max-height: none;
+    overflow: visible;
     padding: 10px 12px;
   }
 

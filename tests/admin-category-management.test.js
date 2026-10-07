@@ -93,7 +93,7 @@ Deno.test('Admin Category manager exposes products, image selection, draft, prev
 Deno.test('Category editor reuses authoritative AI assistance without saving or publishing', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
-  for (const token of ['Who or what is this?', 'Generate Title', 'Generate Description', 'Generate Fun Fact', 'Improve Existing Text', 'name="subjectIdentity"']) {
+  for (const token of ['Who or what is this?', 'Fill All Text with AI', 'data-ai-suggest="fillAll"', 'name="subjectIdentity"']) {
     assert(editor.includes(token), `Category editor is missing ${token}`);
   }
   assert(source.includes("identity: String(formData.get('subjectIdentity') || '')"), 'Category identity must use the existing secure AI request');
@@ -114,7 +114,7 @@ Deno.test('Category visual picker opens the complete repository inventory with f
   assert(source.includes("renderCategoryImagePickerGallery(picker, '', true)"), 'Change Image must show the complete repository rather than only associated Product images');
   assert(picker.includes('data-category-image-folder'), 'repository images must be filterable by their organized top-level folder');
   assert(source.includes('data-category-image-load-more') && source.includes('categoryImageVisibleLimit'), 'large repositories must offer incremental Load More results instead of silently stopping at 80');
-  assert(picker.includes('legacyFolders') && picker.includes('organizedNames'), 'old compatibility paths must be hidden when the same filename exists in the organized library');
+  assert(picker.includes('preferOrganizedRepositoryImagePaths') && picker.includes('organizedNames'), 'old compatibility paths must be hidden when the same filename exists in the organized library');
   assert(!picker.includes(".slice(0, 80)"), 'the first result page must not be a permanent 80-image ceiling');
 });
 
@@ -128,11 +128,14 @@ Deno.test('Category editor uses a compact two-column preview and control workspa
   assert(editor.includes("${parent ? `${sectionStart('admin-category-background-section', 'Child Group Background', true)}") && !editor.includes("sectionStart('admin-category-background-section', parent ? 'Child Group Background' : 'Homepage Collection Card Background'"), 'background controls must remain available only for Child Groups, not individual Homepage Collection Cards');
   assert(editor.includes('admin-category-editor-workspace') && editor.includes('admin-category-preview-column') && editor.includes('admin-category-controls-column'), 'editor must expose the desktop preview/control workspace');
   assert(editor.includes('data-category-edit-preview') && !editor.includes('data-category-edit-preview hidden'), 'live preview must be visible as soon as the lazy editor mounts');
+  const manager = source.slice(source.indexOf('function renderCategoryManager()'), source.indexOf('function updateDeleteSelectedCategoriesButton'));
+  assert(manager.includes("container.querySelectorAll('.admin-category-edit-form[data-category-edit]').forEach((form) => previewCategoryEdit(form))"), 'every already-open Collection editor must rebuild its large preview after the manager rerenders');
   assert(editor.includes("categoryDisplayRangeMarkup('standeeSizePercent'") && source.includes('data-category-display-number') && source.includes('data-category-display-range'), 'image placement must keep numeric and slider controls together');
   assert(styles.includes('#categories .admin-category-editor-workspace') && styles.includes('grid-template-columns: minmax(360px, .78fr) minmax(480px, 1.22fr)'), 'desktop editor must keep the preview beside a wider, immediately usable controls column');
   assert(styles.includes('#categories .admin-category-preview-column') && styles.includes('position: sticky'), 'desktop preview should remain visible while editing controls');
+  assert(styles.includes('max-height: none;') && styles.includes('overflow: visible;'), 'desktop preview must not create a nested scroll area that can move the image out of view');
   assert(styles.includes('.admin-category-image-section .admin-category-current-image img') && styles.includes('height: 88px'), 'image references must remain compact instead of duplicating giant previews');
-  assert(editor.includes('admin-advanced-fields') && editor.includes('admin-category-ai-text-tools') && editor.includes('Generate Title'), 'less-used AI and text positioning must live inside the collapsed Advanced section');
+  assert(editor.includes('admin-advanced-fields') && editor.includes('admin-category-ai-text-tools') && editor.includes('Fill All Text with AI'), 'less-used AI and text positioning must live inside the collapsed Advanced section');
   assert(!editor.includes('Standee size %'), 'legacy Standee Size wording must be absent from normal Category editing');
 });
 
