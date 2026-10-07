@@ -3,6 +3,7 @@ import { Window } from 'npm:happy-dom@18.0.1';
 
 const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
 const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+const productCatalogSource = await Deno.readTextFile(new URL('../product-catalog.js', import.meta.url));
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -14,6 +15,28 @@ function sourceRange(source, startToken, endToken) {
   assert(start >= 0 && end > start, `missing source range ${startToken}`);
   return source.slice(start, end);
 }
+
+Deno.test('moved repository images resolve to their organized paths without changing Product identity', async () => {
+  const runtime = { window: {} };
+  new Function('window', productCatalogSource)(runtime.window);
+  const resolve = runtime.window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH;
+  const cases = {
+    'images/SportLegendStandees/Messi/Messi2nobackground.png': 'images/Sport Legends/Soccer/Messi/Messi2nobackground.png',
+    'images/SportLegendStandees/TomBrady/TB12Nobackground.png': 'images/Sport Legends/Football/TomBrady/TB12Nobackground.png',
+    'images/MovieCharacterStandees/Captain America/CAPTAINAnobackgroundpng.png': 'images/Movie Stars/Movie Characters/Captain America/CAPTAINAnobackgroundpng.png'
+  };
+  for (const [oldPath, organizedPath] of Object.entries(cases)) {
+    assert(resolve(oldPath) === organizedPath, `obsolete image path must resolve to ${organizedPath}`);
+    const stat = await Deno.stat(new URL(`../${organizedPath}`, import.meta.url));
+    assert(stat.isFile, `organized image must exist: ${organizedPath}`);
+  }
+  assert(resolve('images/Current/example.png') === 'images/Current/example.png', 'unrelated current image paths must remain unchanged');
+  const catalog = sourceRange(storefrontSource, 'function getManagedProductCatalog', 'function getManagedProductBySlug');
+  assert(catalog.includes('MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH') && catalog.includes('merged.cutoutImage = resolveImagePath')
+    && catalog.includes('image: resolveImagePath(choice.image)'), 'primary images, backgrounds, and alternate image choices must use the same exact relocation resolver');
+  const publisher = sourceRange(adminSource, 'function publishImageReference', 'function publishableNumber');
+  assert(publisher.includes('MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH'), 'the next Save Live must persist organized paths into the normalized public snapshot');
+});
 
 Deno.test('published Product records never become Homepage Collection Cards', () => {
   const getPublishedProducts = new Function('window', `${sourceRange(storefrontSource, 'function getPublishedProducts', 'function getAdminProducts')}\nreturn getPublishedProducts;`)({
@@ -80,6 +103,7 @@ Deno.test('fresh Sport Legends showroom DOM reconstructs the selected image from
   const window = new Window({ url: 'https://mvpluxcreations.com/sports-legends.html' });
   window.document.body.innerHTML = `<section class="sports-showroom"><div id="sportsMainStage"><img id="sportsMainImage"></div><div id="sportsSelectedSport"></div><h2 id="sportsSelectedName"></h2><p id="sportsSelectedDescription"></p><div id="sportsSelectedFacts"></div><div class="sports-choice-section"><div id="sportsOptionStrip"></div></div><div id="sportsSizeBuilder"></div></section>`;
   const framework = sourceRange(storefrontSource, 'function selectSportsOption', 'function bindSportsShowroomClicks');
+  const requestedImageHelper = sourceRange(storefrontSource, 'function optionsWithRequestedCollectionImage', 'function renderNormalizedHomepageCategoryCards');
   const normalized = {
     slug: 'player-one', title: 'Published Player', description: 'Published description', originalHeight: 81,
     cutoutImage: 'images/published-player.png', backgroundImage: 'images/published-stage.png',
@@ -91,6 +115,7 @@ Deno.test('fresh Sport Legends showroom DOM reconstructs the selected image from
       applyProductShowroomDesign } = dependencies;
     let selectedSportsStandeeKey = 'player-one';
     const sportsStandeeCatalog = { 'player-one': { name: 'Static Old Player', options: [{ label: 'Old', image: 'images/static-old.png' }] } };
+    ${requestedImageHelper}
     ${framework}
     return selectSportsStandee;
   `)(window, window.document, {

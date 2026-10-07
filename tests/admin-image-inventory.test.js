@@ -25,7 +25,7 @@ Deno.test('live Image Inbox reads the public GitHub tree first and keeps the aut
   assert(publisherSource.includes("payload?.action === 'image-inventory'"), 'publisher must expose the inventory action');
   assert(publisherSource.includes('repositoryImageInventory(token, owner, repo, branch)'), 'inventory must read the configured repository branch');
   const inventoryStart = publisherSource.indexOf('async function repositoryImageInventory');
-  const inventoryEnd = publisherSource.indexOf('async function publishSnapshot', inventoryStart);
+  const inventoryEnd = publisherSource.indexOf('function decodeGithubBlob', inventoryStart);
   const inventory = publisherSource.slice(inventoryStart, inventoryEnd);
   assert(!inventory.includes("method: 'POST'") && !inventory.includes("method: 'PATCH'"), 'inventory action must not write to GitHub');
 });
@@ -46,6 +46,21 @@ Deno.test('repository inventory hides legacy-folder duplicates when an organized
   assert(adminSource.includes('const LEGACY_REPOSITORY_IMAGE_FOLDER') && adminSource.includes('function preferOrganizedRepositoryImagePaths'), 'Admin must have one reusable legacy-folder duplicate filter');
   assert(adminSource.includes('return preferOrganizedRepositoryImagePaths(paths);'), 'the complete GitHub inventory must prefer organized paths before rendering Image Inbox');
   assert(adminSource.includes('!LEGACY_REPOSITORY_IMAGE_FOLDER.test(relative) || !organizedNames.has(filename)'), 'unique legacy images must remain available when no organized filename exists');
+});
+
+Deno.test('Image Box can permanently delete only a server-verified unused repository image', () => {
+  assert(adminSource.includes('data-delete-unused-image') && adminSource.includes("action: 'delete-unused-image'"), 'Image Box must expose the guarded delete action');
+  assert(adminSource.includes('Permanently delete this unused image from GitHub and the website?'), 'physical deletion must require an explicit destructive confirmation');
+  assert(publisherSource.includes("payload?.action === 'delete-unused-image'"), 'the authenticated publisher must own physical deletion');
+  const deleteStart = publisherSource.indexOf('async function deleteUnusedRepositoryImage');
+  const deleteEnd = publisherSource.indexOf('\n\nasync function publishSnapshot', deleteStart);
+  const deletion = publisherSource.slice(deleteStart, deleteEnd);
+  assert(deletion.includes("'products', 'customProducts', 'categories', 'categoryDisplayCards', 'extraImages'"), 'deletion must re-read normalized private image owners');
+  assert(deletion.includes('snapshotImagePaths(settings.lastPublishedSnapshot)'), 'deletion must protect the current published snapshot');
+  assert(deletion.includes('repositorySourceReferencesImage'), 'deletion must protect static/legacy storefront references');
+  assert(deletion.includes("sha: null"), 'the GitHub tree deletion must remove exactly the selected file');
+  assert(deletion.indexOf('IMAGE_IN_USE') < deletion.indexOf('sha: null'), 'all ownership checks must run before the destructive GitHub operation');
+  assert(!deletion.includes('force: true'), 'image deletion must never force-update main');
 });
 
 Deno.test('new physical images remain on the static asset publisher while existing references can Save Live', () => {

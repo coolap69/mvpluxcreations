@@ -11,6 +11,8 @@ window.MVPLUX_SUPABASE = {
   const projectOrigin = new URL(window.MVPLUX_SUPABASE.url).origin;
   let requestSequence = 0;
   let hideTimer = 0;
+  const MINIMAL_USAGE_MAX_BYTES = 100 * 1024;
+  const MEDIUM_USAGE_MAX_BYTES = 1024 * 1024;
 
   function monitorIsVisibleToCurrentUser() {
     try {
@@ -53,7 +55,7 @@ window.MVPLUX_SUPABASE = {
     if (monitor) return monitor;
     const style = document.createElement('style');
     style.id = 'mvpluxSupabaseActivityStyle';
-    style.textContent = `#mvpluxSupabaseActivity{position:fixed;right:14px;bottom:14px;z-index:2147483647;max-width:min(430px,calc(100vw - 28px));padding:11px 13px;border:1px solid #d8ad32;border-radius:10px;background:#090909;color:#fff;font:600 13px/1.35 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.55)}#mvpluxSupabaseActivity[hidden]{display:none}#mvpluxSupabaseActivity[data-state="success"]{border-color:#4fc67a}#mvpluxSupabaseActivity[data-state="failed"]{border-color:#ef6464}#mvpluxSupabaseActivity strong{display:block;color:#f3ca52;margin-bottom:3px}#mvpluxSupabaseActivity small{display:block;color:#ccc;font-weight:500;overflow-wrap:anywhere}`;
+    style.textContent = `#mvpluxSupabaseActivity{position:fixed;right:14px;bottom:14px;z-index:2147483647;max-width:min(430px,calc(100vw - 28px));padding:11px 13px;border:2px solid #d8ad32;border-radius:10px;background:#211a08;color:#fff;font:600 13px/1.35 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.55)}#mvpluxSupabaseActivity[hidden]{display:none}#mvpluxSupabaseActivity[data-usage="minimal"]{border-color:#52d17c;background:#092416}#mvpluxSupabaseActivity[data-usage="minimal"] strong{color:#70e497}#mvpluxSupabaseActivity[data-usage="medium"]{border-color:#f0a43b;background:#2d1905}#mvpluxSupabaseActivity[data-usage="medium"] strong{color:#ffbd61}#mvpluxSupabaseActivity[data-usage="high"]{border-color:#ef6464;background:#330b0b}#mvpluxSupabaseActivity[data-usage="high"] strong{color:#ff8585}#mvpluxSupabaseActivity[data-usage="failed"]{border-color:#b978ff;background:#210735}#mvpluxSupabaseActivity[data-usage="failed"] strong{color:#d7adff}#mvpluxSupabaseActivity strong{display:block;color:#f3ca52;margin-bottom:3px}#mvpluxSupabaseActivity small{display:block;color:#eee;font-weight:500;overflow-wrap:anywhere}`;
     document.head?.append(style);
     monitor = document.createElement('div');
     monitor.id = 'mvpluxSupabaseActivity';
@@ -65,6 +67,20 @@ window.MVPLUX_SUPABASE = {
     return monitor;
   }
 
+  function usageForBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return 'unknown';
+    if (bytes <= MINIMAL_USAGE_MAX_BYTES) return 'minimal';
+    if (bytes <= MEDIUM_USAGE_MAX_BYTES) return 'medium';
+    return 'high';
+  }
+
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 0) return 'size unavailable';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
   function reportActivity(entry) {
     window.mvpluxSupabaseActivityLog.push(entry);
     if (window.mvpluxSupabaseActivityLog.length > 50) window.mvpluxSupabaseActivityLog.shift();
@@ -74,12 +90,13 @@ window.MVPLUX_SUPABASE = {
     window.clearTimeout(hideTimer);
     monitor.hidden = false;
     monitor.dataset.state = entry.state;
+    monitor.dataset.usage = entry.state === 'failed' ? 'failed' : (entry.usage || 'unknown');
     monitor.querySelector('strong').textContent = entry.state === 'sending'
       ? `SUPABASE ${entry.kind} — SENDING…`
       : entry.state === 'success'
-        ? `SUPABASE ${entry.kind} — WORKED`
+        ? `SUPABASE ${entry.kind} — WORKED · ${entry.usage === 'minimal' ? 'MINIMAL USAGE' : entry.usage === 'medium' ? 'MEDIUM USAGE' : entry.usage === 'high' ? 'HIGH USAGE' : 'SIZE UNKNOWN'}`
         : `SUPABASE ${entry.kind} — FAILED`;
-    monitor.querySelector('small').textContent = `${entry.operation} · request ${entry.id}${entry.status ? ` · HTTP ${entry.status}` : ''}`;
+    monitor.querySelector('small').textContent = `${entry.operation} · request ${entry.id}${entry.status ? ` · HTTP ${entry.status}` : ''}${entry.state === 'success' ? ` · ${formatBytes(entry.responseBytes)}` : ''}`;
     if (entry.state === 'success') hideTimer = window.setTimeout(() => { monitor.hidden = true; }, 6500);
   }
 
@@ -90,7 +107,21 @@ window.MVPLUX_SUPABASE = {
     reportActivity({ ...details, id, state: 'sending', timestamp: Date.now() });
     try {
       const response = await originalFetch(input, init);
-      reportActivity({ ...details, id, state: response.ok ? 'success' : 'failed', status: response.status, timestamp: Date.now() });
+      const baseEntry = { ...details, id, state: response.ok ? 'success' : 'failed', status: response.status, timestamp: Date.now() };
+      if (!response.ok) {
+        reportActivity(baseEntry);
+      } else {
+        const contentLength = Number(response.headers?.get?.('content-length'));
+        if (Number.isFinite(contentLength) && contentLength >= 0) {
+          reportActivity({ ...baseEntry, responseBytes: contentLength, usage: usageForBytes(contentLength) });
+        } else if (monitorIsVisibleToCurrentUser() && typeof response.clone === 'function') {
+          response.clone().arrayBuffer()
+            .then((body) => reportActivity({ ...baseEntry, responseBytes: body.byteLength, usage: usageForBytes(body.byteLength) }))
+            .catch(() => reportActivity({ ...baseEntry, responseBytes: -1, usage: 'unknown' }));
+        } else {
+          reportActivity({ ...baseEntry, responseBytes: -1, usage: 'unknown' });
+        }
+      }
       return response;
     } catch (error) {
       reportActivity({ ...details, id, state: 'failed', status: 0, timestamp: Date.now() });

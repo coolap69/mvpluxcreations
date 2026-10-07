@@ -1226,7 +1226,10 @@ function normalizedCategoryOrder(order = {}) {
 
 function publishImageReference(value) {
   const reference = String(value || '');
-  if (!reference.startsWith('data:image/')) return reference;
+  if (!reference.startsWith('data:image/')) {
+    const resolveImagePath = window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH || ((path) => path);
+    return resolveImagePath(reference);
+  }
   let hash = 2166136261;
   for (let index = 0; index < reference.length; index += 1) {
     hash ^= reference.charCodeAt(index);
@@ -3790,6 +3793,11 @@ function syncPreviewFromFields(form) {
   const cutoutBottom = form.querySelector('[name="cutoutBottom"]')?.value || '21';
   const logoWidth = form.querySelector('[name="logoWidth"]')?.value || '82';
   const logoTop = form.querySelector('[name="logoTop"]')?.value || '-4';
+
+  form.querySelectorAll('[data-product-visual-value]').forEach((output) => {
+    const field = form.querySelector(`[name="${CSS.escape(output.dataset.productVisualValue)}"]`);
+    if (field) output.textContent = `${field.value}%`;
+  });
 
   if (stage && backgroundImage) {
     stage.style.backgroundImage = `url("${backgroundImage}")`;
@@ -7661,14 +7669,16 @@ async function saveSharedProductShowroomDesign(form, { live = false } = {}) {
     if (status) status.textContent = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError}`;
     return false;
   }
-  const current = productShowroomDesignState(latest.edits?.globalDisplaySettings);
+  const latestGlobalDisplay = latest.edits?.globalDisplaySettings || {};
+  const baseProductShowrooms = structuredClone(latestGlobalDisplay.productShowrooms || {});
+  const current = productShowroomDesignState(latestGlobalDisplay);
   const next = structuredClone(current);
   const design = productShowroomDesignFromForm(form);
   if (scope === 'default') next.default = design;
   else next.collections[scope] = design;
   const result = await saveAdminCollectionOperations([{
     type: 'value', collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms',
-    baseValue: current, value: next
+    baseValue: baseProductShowrooms, value: next
   }]);
   if (!result.ok) {
     if (status) status.textContent = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'The Product showroom design could not be saved.'}`;
@@ -7867,10 +7877,20 @@ function renderAdminProducts() {
               <div class="admin-product-current-visual">${cutoutPresentation.preview ? `<img src="${escapeAdminHtml(cutoutPresentation.preview)}" alt="Current Product / Standee Image">` : '<span>No Product Image Selected</span>'}<code>${escapeAdminHtml(value.cutoutImage || 'No Product Image Selected')}</code></div>
               <label>Change / Replace Product Image<select name="cutoutImage" class="admin-product-visual-picker">${productVisualOptionsMarkup('product', value.cutoutImage)}</select></label>
               <div class="admin-panel-actions"><button type="button" data-remove-product-image>Remove Product Image</button><button type="button" data-reset-product-visual="image">Reset Image Placement to Normal</button><a class="admin-button admin-button-secondary" href="#image-inbox">Open Image Box to Add a Repository Image</a></div>
+              <p class="admin-note"><strong>Move the Product image:</strong> drag it in the preview or use the buttons below. Scroll over the image or use Smaller/Larger to resize it.</p>
               <div class="admin-form-row admin-placement-row">
-                <label>Image size %<input name="cutoutHeight" type="range" min="30" max="100" step="1" value="${value.cutoutHeight || '63'}"></label>
-                <label>Image left / right %<input name="cutoutLeft" type="range" min="0" max="100" step="1" value="${value.cutoutLeft || '50'}"></label>
-                <label>Image up / down %<input name="cutoutBottom" type="range" min="0" max="60" step="1" value="${value.cutoutBottom || '21'}"></label>
+                <label>Image size <output data-product-visual-value="cutoutHeight">${value.cutoutHeight || '63'}%</output><input name="cutoutHeight" type="range" min="30" max="100" step="1" value="${value.cutoutHeight || '63'}"></label>
+                <label>Image left / right <output data-product-visual-value="cutoutLeft">${value.cutoutLeft || '50'}%</output><input name="cutoutLeft" type="range" min="0" max="100" step="1" value="${value.cutoutLeft || '50'}"></label>
+                <label>Image up / down <output data-product-visual-value="cutoutBottom">${value.cutoutBottom || '21'}%</output><input name="cutoutBottom" type="range" min="0" max="60" step="1" value="${value.cutoutBottom || '21'}"></label>
+              </div>
+              <div class="admin-panel-actions admin-product-image-placement-actions">
+                <button type="button" data-product-image-adjust="left">← Left</button>
+                <button type="button" data-product-image-adjust="right">Right →</button>
+                <button type="button" data-product-image-adjust="up">↑ Up</button>
+                <button type="button" data-product-image-adjust="down">↓ Down</button>
+                <button type="button" data-product-image-adjust="smaller">Smaller</button>
+                <button type="button" data-product-image-adjust="larger">Larger</button>
+                <button type="button" data-product-image-adjust="center">Center Image</button>
               </div>
             </fieldset>
             <fieldset class="admin-product-visual-section admin-product-background-section">
@@ -8033,6 +8053,27 @@ function renderAdminProducts() {
     });
 
     form.querySelector('[data-remove-product-image]')?.addEventListener('click', () => removeProductMainImage(form));
+    form.querySelectorAll('[data-product-image-adjust]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const action = button.dataset.productImageAdjust;
+        const values = {
+          cutoutHeight: Number(form.elements.namedItem('cutoutHeight')?.value || 63),
+          cutoutLeft: Number(form.elements.namedItem('cutoutLeft')?.value || 50),
+          cutoutBottom: Number(form.elements.namedItem('cutoutBottom')?.value || 21)
+        };
+        if (action === 'left') updateFieldValue(form, 'cutoutLeft', clamp(values.cutoutLeft - 2, 0, 100));
+        if (action === 'right') updateFieldValue(form, 'cutoutLeft', clamp(values.cutoutLeft + 2, 0, 100));
+        if (action === 'up') updateFieldValue(form, 'cutoutBottom', clamp(values.cutoutBottom + 2, 0, 60));
+        if (action === 'down') updateFieldValue(form, 'cutoutBottom', clamp(values.cutoutBottom - 2, 0, 60));
+        if (action === 'smaller') updateFieldValue(form, 'cutoutHeight', clamp(values.cutoutHeight - 3, 30, 100));
+        if (action === 'larger') updateFieldValue(form, 'cutoutHeight', clamp(values.cutoutHeight + 3, 30, 100));
+        if (action === 'center') {
+          updateFieldValue(form, 'cutoutLeft', 50);
+          updateFieldValue(form, 'cutoutBottom', 21);
+        }
+        syncPreviewFromFields(form);
+      });
+    });
 
     form.querySelector('[data-browse-new-image-choice]')?.addEventListener('click', async () => {
       if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false });
@@ -8865,6 +8906,32 @@ async function ignoreImageDraft(path, form) {
   setStatus('Image marked as non-product inventory. The image file was not changed.');
 }
 
+async function deleteUnusedImageDraft(path, form) {
+  if (!ensureImageImportReady(form) || !path) return;
+  const confirmed = window.confirm(
+    `Permanently delete this unused image from GitHub and the website?\n\n${path}\n\nThis cannot be undone from Admin. Deletion will be stopped automatically if any Product, Collection, live content, or storefront file still uses it.`
+  );
+  if (!confirmed) return;
+  setImageDraftActionsBusy(form, true);
+  setImageDraftActionStatus(form, 'Checking every reference before deletion…');
+  try {
+    const result = await callAdminPublisher({ action: 'delete-unused-image', path });
+    imageDraftInventory = imageDraftInventory.filter((draft) => draft?.path !== path);
+    repositoryImagePaths.delete(path);
+    localOnlyImagePaths.delete(path);
+    openedImageInboxItems.delete(path);
+    imageBoxHistoryByPath.delete(path);
+    renderImageDrafts();
+    const commit = result.commitHash ? ` GitHub commit ${result.commitHash.slice(0, 7)}.` : '';
+    setStatus(`IMAGE DELETED — ${path}.${commit} The website deployment is ${result.deploymentResult || 'queued'}.`);
+  } catch (error) {
+    setImageDraftActionsBusy(form, false);
+    const detail = error?.responseBody?.error || error?.message || 'The image was not deleted.';
+    setImageDraftActionStatus(form, `DELETE STOPPED — ${detail}`, 'error');
+    setStatus(`DELETE STOPPED — ${detail}`);
+  }
+}
+
 function updateImageDraftDestination(form) {
   const values = new FormData(form);
   const destination = String(values.get('imageDestination') || 'create-product');
@@ -9018,7 +9085,7 @@ function renderImageDrafts() {
             <button type="button" data-image-import-action data-preview-image-import>Preview</button>
             <button class="admin-button admin-button-primary" type="button" data-image-import-action data-publish-image-box ${imageImportReady ? '' : 'disabled'}>Save Live — Show on Website</button>
             <button type="button" data-image-import-action data-continue-product-editor ${imageImportReady ? '' : 'disabled'}>Continue in Product Editor</button>
-            <details class="admin-card-more-actions"><summary>More</summary><button type="button" data-image-import-action data-ignore-image ${imageImportReady ? '' : 'disabled'}>Ignore Image</button></details>
+            <details class="admin-card-more-actions"><summary>More</summary><button type="button" data-image-import-action data-ignore-image ${imageImportReady ? '' : 'disabled'}>Ignore Image</button><button type="button" class="admin-danger-button" data-image-import-action data-delete-unused-image ${imageImportReady ? '' : 'disabled'}>Permanently Delete Unused Image</button></details>
           </div>
         </div>
         <div class="admin-product-layout">
@@ -9137,6 +9204,7 @@ function renderImageDrafts() {
     form.querySelector('[data-publish-image-box]')?.addEventListener('click', () => handleImageInboxAction(form, 'publish'));
     form.querySelector('[data-continue-product-editor]')?.addEventListener('click', () => handleImageInboxAction(form, 'continue'));
     form.querySelector('[data-ignore-image]')?.addEventListener('click', () => ignoreImageDraft(form.dataset.imagePath, form));
+    form.querySelector('[data-delete-unused-image]')?.addEventListener('click', () => deleteUnusedImageDraft(form.dataset.imagePath, form));
   });
   renderImageImportPending();
 }

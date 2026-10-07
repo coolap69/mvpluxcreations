@@ -1,6 +1,49 @@
 (function () {
   const stage = 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg';
 
+  // One-time compatibility for image files that were organized into new folders.
+  // Saved Product records keep their identity; only these exact obsolete paths are redirected.
+  const relocatedImagePaths = Object.freeze({
+    'images/SportLegendStandees/Shaq/shaqNEW.png': 'images/Sport Legends/Basketball/Shaq/shaqNEW.png',
+    'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-scifi.jpg': 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg',
+    'images/SportLegendStandees/Kobe/KobeBackDunk/KBdunknobackground.png': 'images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunknobackground.png',
+    'images/Herobackgroundparts/hero4JB.png': 'images/FrontPageWeb/Herobackgroundparts/hero4JB.png',
+    'images/SportLegendStandees/TomBrady/TB12Nobackground.png': 'images/Sport Legends/Football/TomBrady/TB12Nobackground.png',
+    'images/Herobackgroundparts/hero7T.png': 'images/FrontPageWeb/Herobackgroundparts/hero7T.png',
+    'images/SportLegendStandees/Kobe/KB1nobackground.png': 'images/Sport Legends/Basketball/Kobe/KB1nobackground.png',
+    'images/Herobackgroundparts/hero10E.png': 'images/FrontPageWeb/Herobackgroundparts/hero10E.png',
+    'images/Herobackgroundparts/hero-left.png': 'images/FrontPageWeb/Herobackgroundparts/hero-left.png',
+    'images/SportLegendStandees/Messi/Messi2nobackground.png': 'images/Sport Legends/Soccer/Messi/Messi2nobackground.png',
+    'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png': 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png',
+    'images/PeoplePublicFigureStandees/President/lasrT2.png': 'images/People-PublicFigure/President/lasrT2.png',
+    'images/FaithCelebrationStandees/Jesus/J5L.png': 'images/Faith Celebration/Jesus/J5L.png',
+    'images/MusicArtistStandees/TaylorSwift/TSfinal.png': 'images/Music Artists/TaylorSwift/TSfinal.png',
+    'images/Herobackgroundparts/hero8T.png': 'images/FrontPageWeb/Herobackgroundparts/hero8T.png',
+    'images/SportLegendStandees/MJordan/MJLAYUP1/Jordanemptybackground.png': 'images/Sport Legends/Basketball/MJordan/MJLAYUP1/Jordanemptybackground.png',
+    'images/FrontPageWeb/Herobackgroundparts-hero8T.png': 'images/FrontPageWeb/Herobackgroundparts/Herobackgroundparts-hero8T.png',
+    'images/FaithCelebrationStandees/Jesus/J5printD.png': 'images/Faith Celebration/Jesus/J5printD.png',
+    'images/MovieCharacterStandees/Endorskeleton/Endordarkinsideshouldercutout.png': 'images/Movie Stars/Movie Characters/Endorskeleton/Endordarkinsideshouldercutout.png',
+    'images/MovieCharacterStandees/Endorskeleton/Endorwhiteinsideshouldercutout.png': 'images/Movie Stars/Movie Characters/Endorskeleton/Endorwhiteinsideshouldercutout.png',
+    'images/FaithCelebrationStandees/Jesus1/J13D.png': 'images/Faith Celebration/Jesus1/J13D.png',
+    'images/FaithCelebrationStandees/Jesus1/J13LN.png': 'images/Faith Celebration/Jesus1/J13LN.png',
+    'images/FaithCelebrationStandees/Jesus3/JesusPrint.png': 'images/Faith Celebration/Jesus3/JesusPrint.png',
+    'images/MovieCharacterStandees/Elvira/elviranew.png': 'images/Movie Stars/Movie Characters/Elvira/elviranew.png',
+    'images/SportLegendStandees/Messi/Messinnone.png': 'images/Sport Legends/Soccer/Messi/Messinnone.png',
+    'images/SportLegendStandees/MJordan/MJLAYUP/Jordantofixlblueightlowres.png': 'images/Sport Legends/Basketball/MJordan/MJLAYUP/Jordantofixlblueightlowres.png',
+    'images/MusicArtistStandees/MichaelJackson/MJacksonTriller/MJTR/MJTR.png': 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR/MJTR.png',
+    'images/SportLegendStandees/Shaq/shaqDarker.png': 'images/Sport Legends/Basketball/Shaq/shaqDarker.png',
+    'images/FanRequestStandees/JTTerminator/JT12nobackground.png': 'images/Fan Request/JTTerminator/JT12nobackground.png',
+    'images/PeoplePublicFigureStandees/President/lasrT2white.png': 'images/People-PublicFigure/President/lasrT2white.png',
+    'images/Herobackgroundparts/hero-right.png': 'images/FrontPageWeb/Herobackgroundparts/hero-right.png',
+    'images/PeoplePublicFigureStandees/President/Nobackgroubd.png': 'images/People-PublicFigure/President/Nobackgroubd.png',
+    'images/MovieCharacterStandees/Captain America/CAPTAINAnobackgroundpng.png': 'images/Movie Stars/Movie Characters/Captain America/CAPTAINAnobackgroundpng.png',
+    'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg': 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg',
+    'images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png': 'images/Music Artists/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png',
+    'images/FrontPageWeb/Herobackgroundparts-hero7T.png': 'images/FrontPageWeb/Herobackgroundparts/Herobackgroundparts-hero7T.png'
+  });
+
+  window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH = (path) => relocatedImagePaths[String(path || '')] || String(path || '');
+
   window.MVPLUX_PRODUCT_CATEGORIES = [
     { key: 'sports', label: 'Sports', page: 'sports-legends.html' },
     { key: 'movie-characters', label: 'Movie Characters', page: 'movie-inspired.html' },

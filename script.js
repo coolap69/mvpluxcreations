@@ -3178,11 +3178,19 @@ function getManagedProductCatalog() {
     const slug = product?.slug;
     if (!slug || deleted.has(slug)) return;
     const merged = { ...(bySlug.get(slug) || {}), ...product, ...(overrides[slug] || {}) };
+    const resolveImagePath = window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH || ((path) => String(path || ''));
+    merged.cutoutImage = resolveImagePath(merged.cutoutImage);
+    merged.backgroundImage = resolveImagePath(merged.backgroundImage);
     const deletedCategories = new Set(shouldUsePrivateAdminState()
       ? window.mvpluxLiveAdminSettings?.deletedCategories || []
       : window.mvpluxPublishedAdminSettings?.deletedCategories || []);
     merged.categories = Array.isArray(merged.categories) ? [...new Set(merged.categories)].filter((key) => !deletedCategories.has(key)) : [];
     merged.imageChoices = sanitizeProductImageChoices(merged.imageChoices)
+      .map((choice) => ({
+        ...choice,
+        image: resolveImagePath(choice.image),
+        ...(choice.stage ? { stage: resolveImagePath(choice.stage) } : {})
+      }))
       .filter((choice) => choice.image !== merged.cutoutImage);
     merged.categoryOrder = merged.categoryOrder && typeof merged.categoryOrder === 'object'
       ? { ...merged.categoryOrder }
@@ -4023,6 +4031,13 @@ function selectSportsStandee(key, shouldScroll = true, preferredImage = '') {
     options: [{ label: 'Main image', image: managed.cutoutImage, stage: managed.backgroundImage }, ...managedChoices],
     sourceProduct: managed
   } : (catalogProduct ? { ...catalogProduct } : null);
+  if (product) {
+    product.options = optionsWithRequestedCollectionImage(
+      product.options,
+      preferredImage,
+      product.backgroundImage || resolveSharedProductShowroomDesign(product.sourceProduct || managed, 'sports').backgroundImage
+    );
+  }
   const optionStrip = document.getElementById('sportsOptionStrip');
   if (!product || !optionStrip) return;
 
@@ -4224,11 +4239,17 @@ function categoryRepresentativeProductSlug(categoryKey, cardImage = '', savedRep
 
 function categoryDestinationWithRepresentative(page, representativeProductSlug = '', representativeImage = '') {
   const destination = String(page || '');
-  if (!destination || !representativeProductSlug) return destination;
+  if (!destination || (!representativeProductSlug && !representativeImage)) return destination;
   const url = new URL(destination, window.location.href);
-  url.searchParams.set('product', representativeProductSlug);
+  if (representativeProductSlug) url.searchParams.set('product', representativeProductSlug);
   if (representativeImage) url.searchParams.set('collectionImage', representativeImage);
   return `${url.pathname.split('/').pop() || ''}${url.search}${url.hash}`;
+}
+
+function optionsWithRequestedCollectionImage(options = [], requestedImage = '', stage = '') {
+  const normalized = Array.isArray(options) ? [...options] : [];
+  if (!requestedImage || normalized.some((option) => option?.image === requestedImage)) return normalized;
+  return [{ label: 'Homepage Collection Image', image: requestedImage, stage }, ...normalized];
 }
 
 function renderNormalizedHomepageCategoryCards() {
@@ -4259,9 +4280,7 @@ function renderNormalizedHomepageCategoryCards() {
       const representativeProduct = typeof getManagedProductBySlug === 'function'
         ? getManagedProductBySlug(representativeProductSlug)
         : null;
-      const representativeImage = categoryProductImageReferences(representativeProduct).has(presentation.image)
-        ? presentation.image
-        : '';
+      const representativeImage = presentation.image || '';
       const page = categoryDestinationWithRepresentative(basePage, representativeProductSlug, representativeImage);
       grid.insertAdjacentHTML('beforeend', `
         <article class="product-card admin-master-category-card" data-category-key="${escapeHtml(category.key)}" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
@@ -4353,10 +4372,7 @@ function renderExistingCategoryCardFromNormalized(card, categoryKey) {
   const representativeProduct = typeof getManagedProductBySlug === 'function'
     ? getManagedProductBySlug(representativeProductSlug)
     : null;
-  const representativeImage = typeof categoryProductImageReferences === 'function'
-    && categoryProductImageReferences(representativeProduct).has(presentation.image)
-    ? presentation.image
-    : '';
+  const representativeImage = presentation.image || '';
   const baseDestination = presentation.page || `category.html?category=${encodeURIComponent(categoryKey)}`;
   const destination = typeof categoryDestinationWithRepresentative === 'function'
     ? categoryDestinationWithRepresentative(baseDestination, representativeProductSlug, representativeImage)
@@ -4820,7 +4836,11 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
     const productId = card.dataset.productId || title;
     const product = getKnownStandeeForCard(card);
     state.showroomDesign = applyProductShowroomDesign(state.stage, product);
-    const options = buildGenericCategoryOptions(card, backgroundImages);
+    const options = optionsWithRequestedCollectionImage(
+      buildGenericCategoryOptions(card, backgroundImages),
+      preferredImage,
+      state.showroomDesign?.backgroundImage || getGenericCategoryFallbackStage()
+    );
     const originalSize = product?.originalHeight ? `Original: ${formatHeight(product.originalHeight)}` : 'Original size varies';
     const description = product?.description || `Preview ${title} with the available image choices for this category.`;
     state.name.textContent = title;

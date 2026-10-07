@@ -85,7 +85,7 @@ async function readAdminGlobal(supabaseUrl: string, anonKey: string, authorizati
 const ADMIN_WORKING_STATE_KEYS = new Set([
   'adminArchitectureV2', 'adminArchitectureMigrationV2', 'adminArchitectureMigrationLockV2',
   'adminArchitectureBackupVerificationV1', 'cardsSavedForLater', 'categories', 'configuredImagePaths',
-  'coupons', 'customProducts', 'deletedCategories', 'deletedProducts', 'dismissedImageDrafts',
+  'categoryDisplayCards', 'coupons', 'customProducts', 'deletedCategories', 'deletedProducts', 'dismissedImageDrafts',
   'extraImages', 'globalDisplaySettings', 'ignoredImagePaths', 'imageDrafts', 'lastPublishedSnapshot',
   'liveContentEnabled', 'liveContentRevision', 'livePublishedAt',
   'priceSettings', 'productRelationshipHistory', 'products', 'publishHistory', 'savedForLaterProducts',
@@ -571,6 +571,112 @@ async function repositoryImageInventory(token: string, owner: string, repo: stri
   return { images, commitHash };
 }
 
+function decodeGithubBlob(content: unknown) {
+  if (typeof content !== 'string') return '';
+  const binary = atob(content.replace(/\s/g, ''));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function repositoryRuntimeTextPath(path: unknown) {
+  return typeof path === 'string'
+    && /\.(?:html|js|css|json)$/i.test(path)
+    && !/^(?:tests|node_modules|supabase)\//.test(path);
+}
+
+async function repositorySourceReferencesImage(
+  token: string,
+  owner: string,
+  repo: string,
+  treeEntries: Array<{ type?: string; path?: string; sha?: string }>,
+  imagePath: string
+) {
+  for (const entry of treeEntries) {
+    if (entry.type !== 'blob' || !entry.sha || !repositoryRuntimeTextPath(entry.path)) continue;
+    const blob = await githubRequest(token, `/repos/${owner}/${repo}/git/blobs/${entry.sha}`);
+    if (decodeGithubBlob(blob?.content).includes(imagePath)) return entry.path || 'storefront source';
+  }
+  return '';
+}
+
+async function deleteUnusedRepositoryImage(
+  supabaseUrl: string,
+  anonKey: string,
+  authorization: string,
+  token: string,
+  owner: string,
+  repo: string,
+  branch: string,
+  rawPath: unknown
+) {
+  const imagePath = String(rawPath || '').trim();
+  if (!isRepositoryImagePath(imagePath)) {
+    throw new PublishError('validation', 400, 'INVALID_IMAGE_PATH', 'Choose a valid repository image to delete.');
+  }
+
+  // A physical deletion is deliberately rare and destructive. Re-read only the
+  // normalized collections that can own images immediately before deleting.
+  const working = await readAdminWorkingState(supabaseUrl, anonKey, authorization, [
+    'products', 'customProducts', 'categories', 'categoryDisplayCards', 'extraImages',
+    'globalDisplaySettings', 'lastPublishedSnapshot'
+  ]);
+  const settings = working.rows[0]?.edits || {};
+  const privateReferences = snapshotImagePaths(settings);
+  const publishedReferences = snapshotImagePaths(settings.lastPublishedSnapshot);
+  if (privateReferences.has(imagePath) || publishedReferences.has(imagePath)) {
+    const locations = [
+      privateReferences.has(imagePath) ? 'private Admin content' : '',
+      publishedReferences.has(imagePath) ? 'the live/published website' : ''
+    ].filter(Boolean).join(' and ');
+    throw new PublishError('image-delete', 409, 'IMAGE_IN_USE', `Deletion stopped. ${imagePath} is still used by ${locations}. Remove or replace that reference first.`);
+  }
+
+  const branchRef = `heads/${branch.split('/').map(encodeURIComponent).join('/')}`;
+  const reference = await githubRequest(token, `/repos/${owner}/${repo}/git/ref/${branchRef}`);
+  const parentCommitHash = reference?.object?.sha || '';
+  if (!parentCommitHash) throw new PublishError('github-delete', 502, 'GITHUB_BRANCH_UNAVAILABLE', 'Could not read the GitHub branch. No image was deleted.');
+  const parentCommit = await githubRequest(token, `/repos/${owner}/${repo}/git/commits/${parentCommitHash}`);
+  const baseTreeHash = parentCommit?.tree?.sha || '';
+  const tree = await githubRequest(token, `/repos/${owner}/${repo}/git/trees/${baseTreeHash}?recursive=1`);
+  if (tree?.truncated) throw new PublishError('github-delete', 502, 'GITHUB_TREE_TRUNCATED', 'The GitHub tree was incomplete. No image was deleted.');
+  const entries = Array.isArray(tree?.tree) ? tree.tree : [];
+  const imageEntry = entries.find((entry: { type?: string; path?: string }) => entry.type === 'blob' && entry.path === imagePath);
+  if (!imageEntry) throw new PublishError('github-delete', 404, 'IMAGE_NOT_FOUND', 'That image is no longer present in GitHub. Refresh Image Box.');
+
+  const sourceReference = await repositorySourceReferencesImage(token, owner, repo, entries, imagePath);
+  if (sourceReference) {
+    throw new PublishError('image-delete', 409, 'IMAGE_IN_USE', `Deletion stopped. ${imagePath} is still referenced by ${sourceReference}. Replace that reference first.`);
+  }
+
+  const updatedTree = await githubRequest(token, `/repos/${owner}/${repo}/git/trees`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      base_tree: baseTreeHash,
+      tree: [{ path: imagePath, mode: '100644', type: 'blob', sha: null }]
+    })
+  });
+  const commit = await githubRequest(token, `/repos/${owner}/${repo}/git/commits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: `Delete unused image: ${imagePath}`,
+      tree: updatedTree.sha,
+      parents: [parentCommitHash]
+    })
+  });
+  await githubRequest(token, `/repos/${owner}/${repo}/git/refs/${branchRef}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sha: commit.sha, force: false })
+  });
+  return {
+    path: imagePath,
+    commitHash: commit?.sha || '',
+    deploymentResult: await deploymentResult(token, owner, repo, commit?.sha || '')
+  };
+}
+
 async function publishSnapshot(
   token: string,
   owner: string,
@@ -686,6 +792,11 @@ Deno.serve(async (request) => {
     const branch = Deno.env.get('GITHUB_BRANCH')?.trim() || 'main';
     if (payload?.action === 'image-inventory') {
       return jsonResponse(request, await repositoryImageInventory(token, owner, repo, branch));
+    }
+    if (payload?.action === 'delete-unused-image') {
+      return jsonResponse(request, await deleteUnusedRepositoryImage(
+        supabaseUrl, anonKey, authorization, token, owner, repo, branch, payload.path
+      ));
     }
     if (payload?.action === 'deployment-status') {
       const commitHash = String(payload.commitHash || '').trim();

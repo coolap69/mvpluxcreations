@@ -47,10 +47,16 @@ Deno.test('Homepage Collection Card background and Product Showroom Background r
 
 Deno.test('Homepage Collection Card navigation carries the representative slug to the same Main Collection page', () => {
   const code = sourceRange(storefrontSource, 'function categoryDestinationWithRepresentative', '\n\nfunction renderNormalizedHomepageCategoryCards');
-  const destination = new Function('window', `${code}\nreturn categoryDestinationWithRepresentative;`)({ location: { href: 'https://mvpluxcreations.com/index.html' } });
+  const runtime = new Function('window', `${code}\nreturn { categoryDestinationWithRepresentative, optionsWithRequestedCollectionImage };`)({ location: { href: 'https://mvpluxcreations.com/index.html' } });
+  const destination = runtime.categoryDestinationWithRepresentative;
   assert(destination('sports-legends.html', 'kobe-bryant') === 'sports-legends.html?product=kobe-bryant', 'Kobe must open on the Sport Legends page without creating another page');
   assert(destination('sports-legends.html', 'michael-jordan') === 'sports-legends.html?product=michael-jordan', 'changing the representative must change only the clean product query');
   assert(destination('sports-legends.html', 'tom-brady', 'images/Sport Legends/Tom Brady.png') === 'sports-legends.html?product=tom-brady&collectionImage=images%2FSport+Legends%2FTom+Brady.png', 'the exact Homepage Collection Card image must travel with its representative Product');
+  assert(destination('holiday-cutouts.html', '', 'images/Holidays/Penny.png') === 'holiday-cutouts.html?collectionImage=images%2FHolidays%2FPenny.png', 'an unmatched Homepage Collection Card image must still travel to its showroom');
+  const productOptions = [{ label: 'Main image', image: 'images/product.png', stage: 'images/stage.png' }];
+  const withHomepageImage = runtime.optionsWithRequestedCollectionImage(productOptions, 'images/collection.png', 'images/shared-stage.png');
+  assert(withHomepageImage[0].image === 'images/collection.png' && withHomepageImage[0].stage === 'images/shared-stage.png', 'the destination showroom must display the exact clicked Collection image first');
+  assert(productOptions.length === 1 && productOptions[0].image === 'images/product.png', 'temporary Collection-image presentation must not modify Product image choices');
   const sportsStartup = sourceRange(storefrontSource, 'function initSportsShowroom', '\n\nfunction initializeCategoryShowroomExperience');
   assert(sportsStartup.includes("params.get('product') || params.get('player')") && sportsStartup.includes('getManagedProductBySlug(player)') && sportsStartup.includes('requestedCollectionCardImage()'), 'Sport Legends must accept the representative Product and exact card image');
 });
@@ -87,6 +93,8 @@ Deno.test('all normalized collection showrooms honor the requested Product and e
   const genericShowroom = sourceRange(storefrontSource, 'function setupGenericCategoryShowroom', '\n\nfunction normalizeFrontPageCategoryLinks');
   assert(managedRenderer.includes("new URLSearchParams(window.location.search).get('product')") && managedRenderer.includes('products.some((product) => product.slug === requestedSlug)'), 'every collection page must prioritize the requested representative Product before its old default');
   assert(genericShowroom.includes('requestedCollectionCardImage()') && genericShowroom.includes('options.findIndex((option) => option.image === preferredImage)'), 'generic non-Sports collection pages must open the exact selected Homepage Collection Card image');
+  assert(storefrontSource.includes('function optionsWithRequestedCollectionImage')
+    && storefrontSource.includes("label: 'Homepage Collection Image'"), 'every collection showroom must temporarily display an unmatched Homepage Collection Card image without changing Product data');
 });
 
 Deno.test('normalized Child Groups drive strict hierarchy and dormant relationships remain private', () => {

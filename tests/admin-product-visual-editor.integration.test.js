@@ -115,11 +115,26 @@ Deno.test('Shared Product Showroom controller uses normalized global settings an
   }
   assert(controller.includes("collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms'"), 'shared showroom design must extend the existing normalized globalDisplaySettings record');
   assert(controller.includes("await fetchAuthoritativeAdminGlobal(['globalDisplaySettings'])")
-    && controller.includes("productShowroomDesignState(latest.edits?.globalDisplaySettings)"), 'Product showroom saves must rebase the selected design on the latest authoritative server settings');
+    && controller.includes('productShowroomDesignState(latestGlobalDisplay)'), 'Product showroom saves must rebase the selected design on the latest authoritative server settings');
+  assert(controller.includes('baseProductShowrooms = structuredClone(latestGlobalDisplay.productShowrooms || {})')
+    && controller.includes('baseValue: baseProductShowrooms, value: next'), 'shared showroom conflict detection must compare the raw server value instead of normalized defaults that cause false overlap');
   assert(controller.includes("adminLastSaveError || 'The Product showroom design could not be saved.'"), 'Product showroom save failures must expose the real conflict or persistence error instead of a generic failure');
   assert(adminSource.includes("id: 'productShowrooms:all'") && adminSource.includes("type: 'product-showroom-design'"), 'shared showroom draft must participate in the existing Save Live snapshot lifecycle');
   assert(!controller.includes('categoryDisplayCards') && !controller.includes('product.backgroundImage ='), 'shared showroom editor must not write Homepage Collection Cards or individual Product backgrounds');
   assert(styleSource.includes('.admin-shared-product-showroom-workspace') && styleSource.includes('grid-template-columns: minmax(420px,.95fr) minmax(500px,1.05fr)'), 'shared Product Showroom editor must use a desktop preview-and-controls workspace');
+});
+
+Deno.test('Product image placement exposes buttons, sliders, drag, and wheel over the same saved fields', () => {
+  const renderer = sourceRange(adminSource, 'function renderAdminProducts', '\n\nfunction filterAdminProductLibrary');
+  for (const action of ['left', 'right', 'up', 'down', 'smaller', 'larger', 'center']) {
+    assert(renderer.includes(`data-product-image-adjust="${action}"`), `missing visible Product image action ${action}`);
+  }
+  for (const field of ['cutoutHeight', 'cutoutLeft', 'cutoutBottom']) {
+    assert(renderer.includes(`data-product-visual-value="${field}"`) && renderer.includes(`name="${field}" type="range"`), `${field} must expose one synchronized value and slider`);
+  }
+  assert(renderer.includes("updateFieldValue(form, 'cutoutLeft'") && renderer.includes("updateFieldValue(form, 'cutoutBottom'") && renderer.includes("updateFieldValue(form, 'cutoutHeight'"), 'buttons must update the same normalized Product fields used by sliders');
+  const direct = sourceRange(adminSource, 'function attachPreviewControls', '\n\nfunction collectProductFormData');
+  assert(direct.includes("dragTarget(event, 'cutout')") && direct.includes("cutout?.addEventListener('wheel'"), 'direct Product preview manipulation must retain drag and wheel sizing');
 });
 
 Deno.test('making a Product use a shared showroom clears only background presentation overrides', () => {

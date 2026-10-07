@@ -91,7 +91,7 @@ Deno.test('Admin-only Supabase activity monitor reports every existing request w
   let networkRequests = 0;
   window.fetch = async () => {
     networkRequests += 1;
-    return { ok: true, status: 200 };
+    return { ok: true, status: 200, headers: { get: () => '4096' } };
   };
   window.eval(supabaseConfig);
   await window.fetch('https://ncbddqxdinvcsoszdsxr.supabase.co/rest/v1/rpc/save_admin_working_state', {
@@ -102,7 +102,34 @@ Deno.test('Admin-only Supabase activity monitor reports every existing request w
   assert(window.mvpluxSupabaseActivityLog[0].state === 'sending');
   assert(window.mvpluxSupabaseActivityLog[1].state === 'success');
   assert(window.mvpluxSupabaseActivityLog[1].kind === 'WRITE');
-  assert(window.document.getElementById('mvpluxSupabaseActivity')?.textContent.includes('WORKED'), 'Admin must see the successful request report');
+  assert(window.mvpluxSupabaseActivityLog[1].usage === 'minimal' && window.mvpluxSupabaseActivityLog[1].responseBytes === 4096, 'the existing request report must classify actual response bytes');
+  assert(window.document.getElementById('mvpluxSupabaseActivity')?.textContent.includes('MINIMAL USAGE'), 'Admin must see the successful green minimal-usage report');
   await window.fetch('https://mvpluxcreations.com/style.css');
   assert(networkRequests === 2 && window.mvpluxSupabaseActivityLog.length === 2, 'non-Supabase requests must pass through without activity entries');
+});
+
+Deno.test('Supabase monitor uses green, orange, and red response-size levels', async () => {
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html' });
+  const sizes = [20 * 1024, 300 * 1024, 2 * 1024 * 1024];
+  window.fetch = async () => ({ ok: true, status: 200, headers: { get: () => String(sizes.shift()) } });
+  window.eval(supabaseConfig);
+  const target = 'https://ncbddqxdinvcsoszdsxr.supabase.co/rest/v1/rpc/get_public_site_snapshot';
+  for (const expected of ['minimal', 'medium', 'high']) {
+    await window.fetch(target, { method: 'POST', body: '{}' });
+    const monitor = window.document.getElementById('mvpluxSupabaseActivity');
+    assert(monitor?.dataset.usage === expected, `expected ${expected} usage color`);
+  }
+  const reports = window.mvpluxSupabaseActivityLog.filter((entry) => entry.state === 'success');
+  assert(reports.map((entry) => entry.usage).join(',') === 'minimal,medium,high');
+});
+
+Deno.test('Supabase monitor keeps high usage red and shows failed requests in purple', async () => {
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html' });
+  window.fetch = async () => ({ ok: false, status: 503, headers: { get: () => '2097152' } });
+  window.eval(supabaseConfig);
+  await window.fetch('https://ncbddqxdinvcsoszdsxr.supabase.co/rest/v1/rpc/save_admin_working_state', { method: 'POST', body: '{}' });
+  const monitor = window.document.getElementById('mvpluxSupabaseActivity');
+  assert(monitor?.dataset.usage === 'failed', 'a failed request must use the separate purple state');
+  assert(monitor?.textContent.includes('FAILED'));
+  assert(supabaseConfig.includes('[data-usage="high"]') && supabaseConfig.includes('[data-usage="failed"]'), 'high usage and failure must retain separate red and purple selectors');
 });
