@@ -58,15 +58,16 @@ Deno.test('Homepage Collection Card navigation carries the representative slug t
 Deno.test('Homepage Collection Card image resolves its uniquely matching assigned representative generically', () => {
   const code = sourceRange(storefrontSource, 'function categoryProductImageReferences', '\n\nfunction categoryDestinationWithRepresentative');
   const products = [
-    { slug: 'tom-brady', categories: ['sports'], cutoutImage: 'images/brady.png', imageChoices: [{ image: 'images/brady-alt.png' }] },
+    { slug: 'tom-brady', categories: ['sports'], cutoutImage: 'images/SportLegendStandees/TomBrady/TB12Nobackground.png', imageChoices: [{ image: 'images/brady-alt.png' }] },
     { slug: 'captain-america', categories: ['movie-characters'], cutoutImage: 'images/captain.png', imageChoices: [] }
   ];
   const resolve = new Function('sanitizeProductImageChoices', 'getManagedProductCatalog', `${code}\nreturn categoryRepresentativeProductSlug;`)(
     (choices) => Array.isArray(choices) ? choices : [],
     () => products
   );
-  assert(resolve('sports', 'images/brady.png', '') === 'tom-brady', 'a Sports card image must select its matching Sports Product');
+  assert(resolve('sports', 'images/SportLegendStandees/TomBrady/TB12Nobackground.png', '') === 'tom-brady', 'a Sports card image must select its matching Sports Product');
   assert(resolve('sports', 'images/brady-alt.png', '') === 'tom-brady', 'an alternate Product image must still select the same representative Product');
+  assert(resolve('sports', 'images/Sport Legends/Football/TomBrady/TB12Nobackground.png', 'kobe-bryant') === 'tom-brady', 'the live organized Tom Brady card path must defeat the stale Kobe representative by matching the same unique filename');
   assert(resolve('movie-characters', 'images/captain.png', '') === 'captain-america', 'the same matching rule must work outside Sports');
   assert(resolve('sports', 'images/unrelated.png', 'tom-brady') === 'tom-brady', 'an unmatched image must preserve an explicit assigned representative rather than guessing');
 });
@@ -75,6 +76,7 @@ Deno.test('Admin card-image selection synchronizes only the representative refer
   const synchronizer = sourceRange(adminSource, 'function synchronizeCategoryRepresentativeWithImage', '\n\nfunction updateCategoryPickerValue');
   const pickerUpdate = sourceRange(adminSource, 'function updateCategoryPickerValue', '\n\nfunction syncCategoryDisplayControl');
   assert(synchronizer.includes("product?.cutoutImage === imagePath") && synchronizer.includes('normalizeImageChoices(product?.imageChoices)'), 'Admin must match both primary and alternate Product images');
+  assert(synchronizer.includes('selectedFilename') && synchronizer.includes('filename(image) === selectedFilename'), 'Admin must recognize the same uniquely named image after repository folder reorganization');
   assert(synchronizer.includes('matches.length !== 1') && synchronizer.includes('select.value = matches[0].slug'), 'Admin must auto-select only one unambiguous assigned Product');
   assert(pickerUpdate.includes('synchronizeCategoryRepresentativeWithImage(editForm, path)'), 'the existing Homepage Collection Card image picker must use the shared representative synchronizer');
   assert(!synchronizer.includes('product.title') && !synchronizer.includes('product.description'), 'image synchronization must never copy Product text into the Main Collection');

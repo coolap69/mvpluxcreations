@@ -6462,10 +6462,23 @@ function renderCategoryImagePickerGallery(picker, query = '', searchAll = false)
 
 function synchronizeCategoryRepresentativeWithImage(form, imagePath) {
   if (!form || form.classList.contains('admin-child-group-edit') || !imagePath) return '';
-  const matches = categoryAssignedProducts(form.dataset.categoryEdit).filter((product) => (
+  const assigned = categoryAssignedProducts(form.dataset.categoryEdit);
+  let matches = assigned.filter((product) => (
     product?.cutoutImage === imagePath
     || normalizeImageChoices(product?.imageChoices).some((choice) => choice.image === imagePath)
   ));
+  if (!matches.length) {
+    const filename = (value) => {
+      const name = String(value || '').split(/[\\/]/).pop() || '';
+      try { return decodeURIComponent(name).trim().toLowerCase(); }
+      catch (_error) { return name.trim().toLowerCase(); }
+    };
+    const selectedFilename = filename(imagePath);
+    matches = assigned.filter((product) => [
+      product?.cutoutImage,
+      ...normalizeImageChoices(product?.imageChoices).map((choice) => choice.image)
+    ].some((image) => selectedFilename && filename(image) === selectedFilename));
+  }
   if (matches.length !== 1) return '';
   const select = form.elements.namedItem('representativeProductSlug');
   if (!select || ![...select.options].some((option) => option.value === matches[0].slug)) return '';

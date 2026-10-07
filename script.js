@@ -4198,6 +4198,12 @@ function categoryProductImageReferences(product) {
   ].filter(Boolean));
 }
 
+function categoryImageFileIdentity(imagePath = '') {
+  const filename = String(imagePath).split(/[\\/]/).pop() || '';
+  try { return decodeURIComponent(filename).trim().toLowerCase(); }
+  catch (_error) { return filename.trim().toLowerCase(); }
+}
+
 function categoryRepresentativeProductSlug(categoryKey, cardImage = '', savedRepresentativeSlug = '') {
   if (typeof getManagedProductCatalog !== 'function') return savedRepresentativeSlug;
   const assigned = getManagedProductCatalog().filter((product) => (
@@ -4207,6 +4213,12 @@ function categoryRepresentativeProductSlug(categoryKey, cardImage = '', savedRep
     ? assigned.filter((product) => categoryProductImageReferences(product).has(cardImage))
     : [];
   if (imageMatches.length === 1) return imageMatches[0].slug;
+  const imageIdentity = categoryImageFileIdentity(cardImage);
+  const organizedPathMatches = imageIdentity
+    ? assigned.filter((product) => [...categoryProductImageReferences(product)]
+      .some((image) => categoryImageFileIdentity(image) === imageIdentity))
+    : [];
+  if (organizedPathMatches.length === 1) return organizedPathMatches[0].slug;
   return assigned.some((product) => product.slug === savedRepresentativeSlug) ? savedRepresentativeSlug : '';
 }
 
