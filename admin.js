@@ -1,5 +1,5 @@
 let adminStateUtils = null;
-const adminStateUtilsPromise = import('./admin-state-utils.js');
+const adminStateUtilsPromise = import('./admin-state-utils.js?v=20261007-subcollection-save');
 adminStateUtilsPromise.then((module) => {
   adminStateUtils = module;
 });
@@ -3390,11 +3390,13 @@ async function requestAdminContentSuggestion(form, action, button) {
           title: String(formData.get('title') || existingProduct?.title || ''),
           description: String(formData.get('description') || existingProduct?.description || ''),
           funFact: String(formData.get('funFact') || existingProduct?.funFact || ''),
+          originalHeight: String(formData.get('originalHeight') || existingProduct?.originalHeight || ''),
           existingProduct: existingProduct ? {
             slug: existingProduct.slug,
             title: existingProduct.title,
             description: existingProduct.description,
             funFact: existingProduct.funFact,
+            originalHeight: existingProduct.originalHeight,
             categories: existingProduct.categories,
             imageChoices: existingProduct.imageChoices
           } : null,
@@ -3410,10 +3412,14 @@ async function requestAdminContentSuggestion(form, action, button) {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || result.message || `AI request failed (HTTP ${response.status}).`);
-    const fieldNames = ['fillAll', 'improve'].includes(action) ? ['title', 'description', 'funFact'] : [action];
+    const canSuggestOriginalHeight = Boolean(form.elements.namedItem('originalHeight'))
+      && (!formData.has('imageDestination') || formData.get('imageDestination') === 'create-product');
+    const fieldNames = ['fillAll', 'improve'].includes(action)
+      ? ['title', 'description', 'funFact', ...(action === 'fillAll' && canSuggestOriginalHeight ? ['originalHeight'] : [])]
+      : [action];
     const populatedFields = fieldNames.filter((fieldName) => form.elements.namedItem(fieldName)?.value.trim());
     if (action === 'fillAll' && populatedFields.length
-      && !window.confirm('Replace the current title, description, and fun fact with the new AI suggestions?')) return;
+      && !window.confirm(`Replace the current title, description, fun fact${canSuggestOriginalHeight ? ', and original height' : ''} with the new AI suggestions?`)) return;
     fieldNames.forEach((fieldName) => {
       const field = form.elements.namedItem(fieldName);
       const suggestion = String(result[fieldName] || '').trim();
@@ -5047,16 +5053,16 @@ function categoryAssignmentOptions(product) {
 
 function categoryProductsMarkup(category) {
   const products = categoryAssignedProducts(category.key);
-  const relationship = category.parentKey ? 'Child Group' : 'Main Collection';
+  const relationship = category.parentKey ? 'Subcollection' : 'Main Collection';
   if (!products.length) return `<p class="admin-note">No Product / Standee Cards are assigned to this ${relationship}.</p>`;
   return products.map((product) => `
     <form class="admin-category-product-row" data-category-product="${escapeAdminHtml(product.slug)}" data-category-key="${escapeAdminHtml(category.key)}">
       <img src="${escapeAdminHtml(product.cutoutImage || '')}" alt="">
       <div><strong>${escapeAdminHtml(product.title || product.slug)}</strong><small>${escapeAdminHtml(product.slug)}</small><span>${product.visible === false ? 'Hidden' : 'Visible'}</span></div>
-      <details><summary>Collection / Child Group assignments</summary><div class="admin-category-options">${categoryAssignmentOptions(product)}</div></details>
+      <details><summary>Collection / Subcollection assignments</summary><div class="admin-category-options">${categoryAssignmentOptions(product)}</div></details>
       <div class="admin-card-actions">
         <button type="submit">Save Assignments</button>
-        <button type="button" data-remove-product-category>Remove from ${category.parentKey ? 'Child Group' : 'Collection'}</button>
+        <button type="button" data-remove-product-category>Remove from ${category.parentKey ? 'Subcollection' : 'Collection'}</button>
         <button type="button" data-publish-category-product>Save Live</button>
         <a class="admin-button admin-button-secondary" href="#products" data-open-category-product="${escapeAdminHtml(product.slug)}">Open / Edit Product / Standee</a>
       </div>
@@ -5093,7 +5099,7 @@ async function saveLegacyChildGroupsAsDrafts(masterCategory) {
   const result = await saveAdminCollectionOperations(operations);
   if (!result.ok) return false;
   renderAdminProducts();
-  setStatus('Basketball, Soccer, and Football were saved as normalized private Child Group drafts. No Product / Standee assignments were changed. Assign products deliberately, then publish each Child Group when ready.');
+  setStatus('Basketball, Soccer, and Football were saved as normalized private Subcollection drafts. No Product / Standee assignments were changed. Assign products deliberately, then publish each Subcollection when ready.');
   return true;
 }
 
@@ -5102,47 +5108,54 @@ function childGroupMarkup(masterCategory, categories) {
   const legacyCandidates = legacyChildGroupDraftCandidates(masterCategory);
   const products = Object.fromEntries(effectiveAdminProducts().map((product) => [product.slug, product]));
   const hierarchyWarnings = adminStateUtils?.categoryHierarchyWarnings?.(categories, products) || [];
-  return `<details class="admin-child-groups-panel" data-child-groups-panel>
-    <summary>Child Groups (${children.length})</summary>
+  return `<section class="admin-child-groups-panel" data-child-groups-panel>
+    <header class="admin-subcollection-group-header"><strong>Subcollections (${children.length})</strong></header>
     <div class="admin-child-groups-list">
       ${children.length ? children.map((child) => {
         const count = categoryAssignedProducts(child.key).length;
         const warnings = hierarchyWarnings.filter((warning) => warning.categoryKey === child.key);
+        const imagePresentation = adminImageReferencePresentation(child.card?.image);
         return `<article class="admin-child-group-row" data-child-group-card="${escapeAdminHtml(child.key)}">
-          <div class="admin-child-group-summary"><strong>${escapeAdminHtml(child.title || child.key)}</strong><code>${escapeAdminHtml(child.key)}</code></div>
-          <span><strong>${count}</strong> Product / Standee Cards</span>
-          <span>${child.visible === false ? 'Hidden' : 'Visible'}</span>
-          <span>Order ${Number(child.order || 0)}</span>
+          <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
+          <div class="admin-child-group-summary"><strong>${escapeAdminHtml(child.title || child.key)}</strong><p>${escapeAdminHtml(child.description || 'No description yet.')}</p><code>${escapeAdminHtml(child.key)}</code></div>
+          <dl class="admin-subcollection-facts"><div><dt>Products / Standees</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${child.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Order</dt><dd>${Number(child.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
-            <button type="button" data-open-child-products data-category-key="${escapeAdminHtml(child.key)}">Open Product / Standee Cards</button>
-            <button type="button" data-edit-child-group data-category-key="${escapeAdminHtml(child.key)}">Edit Child Group</button>
-            ${categoryPublishButtonMarkup(child.key)}
-            <button type="button" data-toggle-child-group="${child.visible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(child.key)}">${child.visible === false ? 'Unhide Child Group' : 'Hide Child Group'}</button>
+            <button type="button" data-edit-child-group data-category-key="${escapeAdminHtml(child.key)}">Open Subcollection</button>
+            <button type="button" data-toggle-child-group="${child.visible === false ? 'show' : 'hide'}" data-category-key="${escapeAdminHtml(child.key)}">${child.visible === false ? 'Unhide Subcollection' : 'Hide Subcollection'}</button>
           </div>
           ${warnings.length ? `<p class="admin-warning-message">Assignment warning: ${warnings.map((warning) => warning.productSlug ? `${warning.productSlug} is assigned to ${child.title || child.key} without ${masterCategory.title || masterCategory.key}` : warning.type).join('; ')}. Nothing was repaired automatically.</p>` : ''}
           <details data-child-products-panel ${openedCategoryProductLists.has(child.key) ? 'open' : ''}><summary>Product / Standee Cards (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(child.key) ? categoryProductsMarkup(child) : ''}</div></details>
-          <details data-child-edit-panel ${openedCategoryEditors.has(child.key) ? 'open' : ''}><summary>Edit Child Group</summary><div data-category-editor-mount>${openedCategoryEditors.has(child.key) ? categoryEditMarkup(child) : ''}</div></details>
+          <div class="admin-subcollection-editor-mount" data-child-edit-panel ${openedCategoryEditors.has(child.key) ? '' : 'hidden'}><div data-category-editor-mount>${openedCategoryEditors.has(child.key) ? categoryEditMarkup(child) : ''}</div></div>
         </article>`;
-      }).join('') : '<p class="admin-note">No normalized Child Groups have been created for this Main Collection. Legacy page buttons are not counted here.</p>'}
-      ${legacyCandidates.length ? `<aside class="admin-warning-message"><strong>Legacy storefront groups detected:</strong> ${legacyCandidates.map((item) => escapeAdminHtml(item.title)).join(', ')}. These static page buttons are not normalized Child Groups yet.<br><button type="button" data-normalize-legacy-child-groups="${escapeAdminHtml(masterCategory.key)}">Create Normalized Child Group Drafts</button><small>This creates Child Group records only. It does not change Product / Standee assignments or publish customer content.</small></aside>` : ''}
-      <p class="admin-note">A Child Group organizes Products / Standees inside this Main Collection. Removing an assignment does not delete the Product / Standee.</p>
-      <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}">+ Add Child Group</button>
+      }).join('') : '<p class="admin-note">No normalized Subcollections have been created for this Main Collection. Legacy page buttons are not counted here.</p>'}
+      ${legacyCandidates.length ? `<aside class="admin-warning-message"><strong>Legacy storefront groups detected:</strong> ${legacyCandidates.map((item) => escapeAdminHtml(item.title)).join(', ')}. These static page buttons are not normalized Subcollections yet.<br><button type="button" data-normalize-legacy-child-groups="${escapeAdminHtml(masterCategory.key)}">Create Normalized Subcollection Drafts</button><small>This creates Subcollection records only. It does not change Product / Standee assignments or publish customer content.</small></aside>` : ''}
+      <p class="admin-note">A Subcollection organizes Products / Standees inside this Main Collection. Removing an assignment does not delete the Product / Standee.</p>
+      <button type="button" data-add-child-group="${escapeAdminHtml(masterCategory.key)}">+ Add Subcollection</button>
       <div class="admin-child-group-creator" data-child-group-creator="${escapeAdminHtml(masterCategory.key)}" hidden>
         <form data-new-child-group-form="${escapeAdminHtml(masterCategory.key)}">
-          <h4>Add Child Group under ${escapeAdminHtml(masterCategory.title || masterCategory.key)}</h4>
-          <p class="admin-note">This creates a private Child Group only. It will not appear on the homepage and no products are assigned automatically.</p>
+          <h4>Add Subcollection under ${escapeAdminHtml(masterCategory.title || masterCategory.key)}</h4>
+          <p class="admin-note">This creates a private Subcollection only. It will not appear on the homepage and no products are assigned automatically.</p>
           <div class="admin-category-settings-grid">
-            <label>Child Group title<input name="title" required placeholder="Example: Basketball"></label>
+            <label>Subcollection title<input name="title" required placeholder="Example: Basketball"></label>
             <label>Key<input name="key" placeholder="Generated from title"></label>
             <label>Order<input name="order" type="number" min="0" value="999"></label>
             <label><input name="visible" type="checkbox" checked> Visible after publication</label>
           </div>
-          <div class="admin-panel-actions"><button type="submit">Save Child Group Draft</button><button type="button" data-cancel-child-group>Cancel</button></div>
+          <div class="admin-panel-actions"><button type="submit">Create Subcollection</button><button type="button" data-cancel-child-group>Cancel</button></div>
           <p class="admin-status" data-child-group-status aria-live="polite"></p>
         </form>
       </div>
     </div>
-  </details>`;
+  </section>`;
+}
+
+function childGroupsWorkspaceMarkup(mainCollections, categories) {
+  if (!mainCollections.length) return '<p class="admin-note">Create a Main Collection before adding Subcollections.</p>';
+  return mainCollections.map((masterCategory) => `
+    <section class="admin-child-group-master" data-category-card="${escapeAdminHtml(masterCategory.key)}">
+      <header><div><span class="admin-note">Main Collection</span><h3>${escapeAdminHtml(masterCategory.title || masterCategory.key)}</h3></div><code>${escapeAdminHtml(masterCategory.key)}</code></header>
+      ${childGroupMarkup(masterCategory, categories)}
+    </section>`).join('');
 }
 
 const CATEGORY_IMAGE_SIZE_DEFAULT = 63;
@@ -5283,7 +5296,7 @@ function adminImageReferencePresentation(value, { background = false } = {}) {
 
 function categoryVisualImagePicker(category, kind = 'category') {
   const isBackground = kind === 'background';
-  const objectName = category.parentKey ? 'Child Group' : 'Homepage Collection Card';
+  const objectName = category.parentKey ? 'Subcollection' : 'Homepage Collection Card';
   const selected = String(isBackground ? category.card?.backgroundImage || '' : category.card?.image || '');
   const presentation = adminImageReferencePresentation(selected, { background: isBackground });
   return `<section class="admin-category-image-picker" data-category-image-picker data-category-key="${escapeAdminHtml(category.key)}" data-image-kind="${kind}">
@@ -5316,13 +5329,6 @@ function populateNewCategoryVisualPickers(form) {
   form.querySelectorAll('[data-new-category-image-picker]').forEach((mount) => {
     mount.innerHTML = categoryVisualImagePicker(draft, mount.dataset.newCategoryImagePicker === 'background' ? 'background' : 'category');
   });
-}
-
-function categoryPublishButtonMarkup(categoryKey, { editor = false } = {}) {
-  const operation = categoryPublishOperations.get(categoryKey);
-  const publishing = operation?.state === 'publishing';
-  const label = publishing ? 'SAVING ALL COLLECTION CHANGES LIVE…' : 'Save All Collection Changes Live';
-  return `<button class="admin-button admin-button-primary" type="button" ${editor ? 'data-publish-category-edit' : `data-publish-category="${escapeAdminHtml(categoryKey)}"`} data-publish-category-key="${escapeAdminHtml(categoryKey)}" data-category-key="${escapeAdminHtml(categoryKey)}" ${publishing ? 'disabled aria-busy="true"' : ''}>${label}</button>`;
 }
 
 function categoryDisplayRangeMarkup(name, label, value, minimum, maximum, suffix = '') {
@@ -5794,25 +5800,25 @@ function categoryEditMarkup(category) {
   return `
     <form class="admin-category-edit-form ${parent ? 'admin-child-group-edit' : 'admin-main-collection-edit'}" data-category-edit="${escapeAdminHtml(category.key)}">
       <header class="admin-category-editor-header">
-        <div><span class="admin-note">${parent ? 'Editing Child Group' : 'Editing Main Collection'}</span><h3>${escapeAdminHtml(category.title || category.key)}</h3></div>
+        <div><span class="admin-note">${parent ? 'Editing Subcollection' : 'Editing Main Collection'}</span><h3>${escapeAdminHtml(category.title || category.key)}</h3></div>
       </header>
       <div class="admin-category-editor-workspace">
         <aside class="admin-category-preview-column" aria-label="Live collection preview">
-          <strong>${parent ? 'Live Child Group Preview' : 'Live Homepage Collection Card Preview'}</strong>
+          <strong>${parent ? 'Live Subcollection Preview' : 'Live Homepage Collection Card Preview'}</strong>
           <div class="admin-category-preview-visual-editor">
             <div class="admin-builder-preview-panel" data-category-edit-preview></div>
-            ${parent ? '' : `<label class="admin-category-preview-size-control"><span>Image Size</span><output data-category-preview-size-output>${escapeAdminHtml(String(display.standeeSizePercent))}%</output><input type="range" min="${CATEGORY_IMAGE_SIZE_MIN}" max="${CATEGORY_IMAGE_SIZE_MAX}" step="1" value="${escapeAdminHtml(String(display.standeeSizePercent))}" data-category-preview-size-range aria-label="Homepage Collection Card image size"></label>`}
+            <label class="admin-category-preview-size-control"><span>Image Size</span><output data-category-preview-size-output>${escapeAdminHtml(String(display.standeeSizePercent))}%</output><input type="range" min="${CATEGORY_IMAGE_SIZE_MIN}" max="${CATEGORY_IMAGE_SIZE_MAX}" step="1" value="${escapeAdminHtml(String(display.standeeSizePercent))}" data-category-preview-size-range aria-label="${parent ? 'Subcollection' : 'Homepage Collection Card'} image size"></label>
           </div>
-          <p class="admin-note">Drag the image to move it. Use the Image Size slider beside the preview to resize it. Normal page scrolling will not change the image. Save Draft stores private work; Save Live updates this Main Collection for customers within seconds.</p>
+          <p class="admin-note">Drag the image to move it. Use the Image Size slider beside the preview to resize it. Normal page scrolling will not change the image. Use the one Save All Collection Changes Live button at the top when your Collection-page changes are ready.</p>
         </aside>
         <div class="admin-category-controls-column">
           <div class="admin-category-editor-action-stack">
-            <div class="admin-panel-actions admin-category-editor-actions"><button type="button" data-back-to-collections>Back to Collections</button><button type="button" data-preview-category-edit>Preview</button><button type="submit">Save Changes / Save Draft</button><button type="button" data-save-all-open-collections>Save All Open Collection Changes</button>${categoryPublishButtonMarkup(category.key, { editor: true })}</div>
+            <div class="admin-panel-actions admin-category-editor-actions"><button type="button" data-back-to-collections>${parent ? 'Back to Subcollections' : 'Back to Collections'}</button><button type="button" data-preview-category-edit>Preview</button></div>
             ${parent ? '' : categoryCardDraftStatusMarkup(category)}
             <p class="admin-status admin-category-card-publish-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${publishStatus}</p>
           </div>
-          ${sectionStart('admin-category-information', parent ? 'Child Group Information' : 'Main Collection Information')}
-            <p class="admin-note">${parent ? 'A Child Group organizes Products / Standees inside its Main Collection. Removing an assignment does not delete the Product / Standee.' : 'A Main Collection organizes related Products / Standees and controls its customer browsing page. Editing it does not edit the individual Products / Standees inside it.'}</p>
+          ${sectionStart('admin-category-information', parent ? 'Subcollection Information' : 'Main Collection Information')}
+            <p class="admin-note">${parent ? 'A Subcollection organizes Products / Standees inside its Main Collection. Removing an assignment does not delete the Product / Standee.' : 'A Main Collection organizes related Products / Standees and controls its customer browsing page. Editing it does not edit the individual Products / Standees inside it.'}</p>
             <div class="admin-input-group">
               <label>Title<input name="title" required value="${escapeAdminHtml(category.title || '')}"></label>
               <label>Description<textarea name="description" rows="2" maxlength="220">${escapeAdminHtml(category.description || '')}</textarea></label>
@@ -5825,21 +5831,24 @@ function categoryEditMarkup(category) {
             <p class="admin-note">This is the card customers see for this Main Collection in Featured Standee Categories. Its representative Product / Standee and visual settings do not change that Product / Standee record.</p>
             <label>Representative Product / Standee<select name="representativeProductSlug"><option value="">No representative selected</option>${representativeProducts.map((product) => `<option value="${escapeAdminHtml(product.slug)}" ${product.slug === representativeSlug ? 'selected' : ''}>${escapeAdminHtml(product.title || product.slug)}</option>`).join('')}</select><small>Choosing a Product / Standee remembers which item should open first on the Main Collection page.</small></label>
           </details>`}
-          ${sectionStart('admin-category-image-section', parent ? 'Child Group Image' : 'Homepage Collection Card Image', true)}
+          ${sectionStart('admin-category-image-section', parent ? 'Subcollection Image' : 'Homepage Collection Card Image', true)}
             ${categoryVisualImagePicker(category)}
-            <p class="admin-note">Drag the image in the preview to move it. Scroll over the image to zoom. These controls change only this Homepage Collection Card image.</p>
+            <p class="admin-note">Drag the image in the preview to move it. Use the visible Image Zoom control for precise sizing. These controls change only this ${parent ? 'Subcollection' : 'Homepage Collection Card'} image.</p>
+            ${categoryDisplayAdjustmentButtons('image')}
             <div class="admin-category-position-controls">
               ${categoryDisplayRangeMarkup('standeeSizePercent', 'Image Zoom', display.standeeSizePercent, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, '%')}
               ${categoryDisplayRangeMarkup('standeeLeftPercent', 'Horizontal Position', display.standeeLeftPercent, -50, 50)}
               ${categoryDisplayRangeMarkup('standeeVerticalPercent', 'Vertical Position', display.standeeVerticalPercent, -50, 50)}
-              ${parent ? '' : categoryDisplayRangeMarkup('standeeRotationDeg', 'Rotate Image', display.standeeRotationDeg || 0, -180, 180, '°')}
+              ${categoryDisplayRangeMarkup('standeeRotationDeg', 'Rotate Image', display.standeeRotationDeg || 0, -180, 180, '°')}
             </div>
-            ${parent ? '<div class="admin-panel-actions"><button type="button" data-center-category-image>Center Standee</button><button type="button" data-reset-category-appearance>Reset Standee to Default</button></div>' : `<label class="admin-category-image-visibility"><input name="cardImageVisible" type="checkbox" ${category.card?.imageVisible !== false ? 'checked' : ''}> Show image on Homepage Collection Card</label><div class="admin-panel-actions admin-category-section-actions"><button type="button" data-reset-category-appearance>Reset Image Position / Zoom / Rotation</button></div>`}
+            <label class="admin-category-image-visibility"><input name="cardImageVisible" type="checkbox" ${category.card?.imageVisible !== false ? 'checked' : ''}> Show image on ${parent ? 'Subcollection card' : 'Homepage Collection Card'}</label>
+            ${parent ? '<div class="admin-panel-actions"><button type="button" data-center-category-image>Center Standee</button><button type="button" data-reset-category-appearance>Reset Standee to Default</button></div>' : '<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-reset-category-appearance>Reset Image Position / Zoom / Rotation</button></div>'}
           ${sectionEnd}
-          ${parent ? `${sectionStart('admin-category-background-section', 'Child Group Background', true)}
+          ${parent ? `${sectionStart('admin-category-background-section', 'Subcollection Background', true)}
             ${categoryVisualImagePicker(category, 'background')}
-            <p class="admin-note">This background belongs only to this Child Group.</p>
+            <p class="admin-note">Edit this Subcollection alone, or use Apply This Background to All Subcollections to give every normalized Subcollection the same background and background layout.</p>
             <input name="backgroundPosition" type="hidden" value="${escapeAdminHtml(display.backgroundPosition)}">
+            ${categoryDisplayAdjustmentButtons('background')}
             <div class="admin-category-position-controls">
               ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background Left / Right', backgroundPosition.x, 0, 100, '%')}
               ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Up / Down', backgroundPosition.y, 0, 100, '%')}
@@ -5847,22 +5856,23 @@ function categoryEditMarkup(category) {
               ${categoryDisplayRangeMarkup('backgroundHeightPercent', 'Background Height', display.backgroundHeightPercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
               ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom', display.backgroundSizePercent, CATEGORY_BACKGROUND_SIZE_MIN, CATEGORY_BACKGROUND_SIZE_MAX, '%')}
             </div>
-            <button type="button" data-reset-category-background>Reset Background</button>
+            <div class="admin-panel-actions"><button type="button" data-reset-category-background>Reset Background</button><button type="button" class="admin-button admin-button-primary" data-apply-child-group-background-all>Apply This Background to All Subcollections (${normalizedChildGroupsForBackgroundBatch().length})</button></div>
             <p class="admin-note">Background Zoom scales the existing cover image without changing the physical file.</p>
+            <p class="admin-note">Apply to All copies only the background image, width, height, X/Y position, and zoom. It never copies the Subcollection image or changes Products, assignments, text, visibility, order, or pricing.</p>
             <p class="admin-note">${category.card?.backgroundImage || category.displaySettings?.backgroundImage ? 'This intentional custom background is retained until you replace it or use the shared default.' : 'Using the shared showroom background automatically.'}</p>
           ${sectionEnd}` : ''}
-          ${sectionStart('admin-category-settings', parent ? 'Child Group Settings' : 'Visibility & Homepage Order')}
-            <p class="admin-note"><strong>Structure:</strong> ${parent ? `Child Group of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Collection'}. Child Groups use the same normalized records with <code>parentKey</code> and do not become Homepage Collection Cards.</p>
+          ${sectionStart('admin-category-settings', parent ? 'Subcollection Settings' : 'Visibility & Homepage Order')}
+            <p class="admin-note"><strong>Structure:</strong> ${parent ? `Subcollection of ${escapeAdminHtml(parent.title || parent.key)}` : 'Main Collection'}. Subcollections use the same normalized records with <code>parentKey</code> and do not become Homepage Collection Cards.</p>
             <div class="admin-category-settings-grid">
               <label>Destination page<input name="page" value="${escapeAdminHtml(category.page || '')}"></label>
               <label>Homepage Order<input name="order" type="number" min="0" value="${escapeAdminHtml(String(category.order ?? 0))}"></label>
-              <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> ${parent ? 'Child Group' : 'Main Collection'} visible to customers</label>
-              <label class="${category.visible === false || parent ? 'admin-control-secondary' : ''}"><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false && !parent ? 'checked' : ''} ${category.visible === false || parent ? 'disabled' : ''}> ${parent ? 'Child Groups do not appear on Homepage' : 'Show on Homepage'}</label>
+              <label><input name="visible" type="checkbox" ${category.visible !== false ? 'checked' : ''}> ${parent ? 'Subcollection' : 'Main Collection'} visible to customers</label>
+              <label class="${category.visible === false || parent ? 'admin-control-secondary' : ''}"><input name="homepageVisible" type="checkbox" ${category.homepageVisible !== false && !parent ? 'checked' : ''} ${category.visible === false || parent ? 'disabled' : ''}> ${parent ? 'Subcollections do not appear on Homepage' : 'Show on Homepage'}</label>
             </div>
             ${parent ? '' : `<div class="admin-panel-actions admin-category-section-actions"><button type="button" data-move-category-homepage="-1" data-category-key="${escapeAdminHtml(category.key)}">Move Up</button><button type="button" data-move-category-homepage="1" data-category-key="${escapeAdminHtml(category.key)}">Move Down</button></div>`}
           ${sectionEnd}
           <details class="admin-advanced-fields"><summary>Advanced</summary>
-            <p class="admin-note">Only display settings owned by the normalized Main Collection or Child Group are stored. Physical images are never modified.</p>
+            <p class="admin-note">Only display settings owned by the normalized Main Collection or Subcollection are stored. Physical images are never modified.</p>
             ${advancedTextTools}
           </details>
         </div>
@@ -5999,6 +6009,7 @@ function renderCategoryManager() {
     .filter((category) => category?.key && !readDeletedCategories().includes(category.key))
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0) || String(left.title).localeCompare(String(right.title)));
   const categoriesByKey = Object.fromEntries(allCategories.map((category) => [category.key, category]));
+  const allMainCollections = allCategories.filter((category) => !category.parentKey);
   const categories = allCategories
     .filter((category) => !category.parentKey)
     .filter((category) => visibilityFilter === 'all' || (visibilityFilter === 'hidden' ? category.visible === false : category.visible !== false))
@@ -6026,13 +6037,12 @@ function renderCategoryManager() {
           ${categoryBulkSelectionMode ? `<label class="admin-category-select"><input type="checkbox" data-select-category value="${escapeAdminHtml(category.key)}"> Select for bulk deletion</label>` : ''}
           <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
           <div><h3>${escapeAdminHtml(category.title || category.key)}</h3><code>${escapeAdminHtml(category.key)}</code><div class="admin-category-status-badges"><span data-category-visibility-badge="${category.visible === false ? 'hidden' : 'visible'}">Collection: ${category.visible === false ? 'HIDDEN' : 'VISIBLE'}</span><span data-homepage-visibility-badge="${category.homepageVisible === false ? 'hidden' : 'shown'}">Homepage Collection Card: ${category.homepageVisible === false ? 'HIDDEN' : 'SHOWN'}</span>${legacyOnly ? '<span data-legacy-collection>LEGACY HOMEPAGE CARD · MAKE EDITABLE FIRST</span>' : ''}</div>${suspicious.has(category.key) ? '<p class="admin-warning-message">Overlapping Custom collection — review assignments before changing it.</p>' : ''}</div>
-          <dl><div><dt>Products / Standees</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Main Collection</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage Collection Card</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Child Groups</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
+          <dl><div><dt>Products / Standees</dt><dd>${count}</dd></div><div><dt>Status</dt><dd>${status}</dd></div><div><dt>Main Collection</dt><dd>${category.visible === false ? 'Hidden' : 'Visible'}</dd></div><div><dt>Homepage Collection Card</dt><dd>${category.homepageVisible === false ? 'Hidden' : 'Shown'}</dd></div><div><dt>Subcollections</dt><dd>${childCount}</dd></div><div><dt>Homepage Order</dt><dd>${Number(category.order || 0)}</dd></div></dl>
           <div class="admin-card-actions">
             ${openedCategoryEditors.has(category.key) ? '' : `<button type="button" data-edit-category data-category-key="${escapeAdminHtml(category.key)}">Open Main Collection</button>`}
             <label class="admin-category-visibility-checkbox"><input type="checkbox" data-category-visible-checkbox data-category-key="${escapeAdminHtml(category.key)}" ${category.visible === false ? '' : 'checked'}> Collection Available</label>
             <label class="admin-category-homepage-checkbox"><input type="checkbox" data-category-homepage-checkbox data-category-key="${escapeAdminHtml(category.key)}" ${category.homepageVisible === false ? '' : 'checked'}> Show on Homepage</label>
             ${legacyOnly ? '' : `
-            ${categoryPublishButtonMarkup(category.key)}
             <button type="button" data-move-category-homepage="-1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) > 0 ? '' : 'disabled'}>Move Up</button>
             <button type="button" data-move-category-homepage="1" data-category-key="${escapeAdminHtml(category.key)}" ${homepageOrderIndex.has(category.key) && homepageOrderIndex.get(category.key) < homepageOrder.length - 1 ? '' : 'disabled'}>Move Down</button>
             <button type="button" data-open-category-products data-category-key="${escapeAdminHtml(category.key)}">Open Product / Standee Cards</button>
@@ -6041,17 +6051,18 @@ function renderCategoryManager() {
           <p class="admin-status admin-category-card-publish-status" data-category-publish-status="${escapeAdminHtml(category.key)}" aria-live="polite">${escapeAdminHtml(categoryPublishOperations.get(category.key)?.message || '')}</p>
         </div>
         ${legacyOnly ? '<p class="admin-note">This compatibility card can be shown or hidden immediately with the checkbox. Open Main Collection creates its normalized draft and opens the editor here in one step.</p>' : `<details data-category-edit-panel ${openedCategoryEditors.has(category.key) ? 'open' : ''}><summary>Main Collection Editor</summary><div data-category-editor-mount>${openedCategoryEditors.has(category.key) ? categoryEditMarkup(category) : ''}</div></details>
-        ${childGroupMarkup(category, categoriesByKey)}
         <details data-category-products-panel ${openedCategoryProductLists.has(category.key) ? 'open' : ''}><summary>Product / Standee Cards (${count})</summary><div class="admin-category-products" data-category-products-mount>${openedCategoryProductLists.has(category.key) ? categoryProductsMarkup(category) : ''}</div></details>`}
       </article>`;
   }).join('') || '<div class="admin-empty-state"><strong>No Main Collections found</strong><span>Create a Main Collection, migrate a legacy Homepage Collection Card, or clear the search.</span></div>';
   container.innerHTML = `${migrationMarkup}${categoryMarkup}`;
-  container.querySelectorAll('.admin-category-edit-form[data-category-edit]').forEach((form) => previewCategoryEdit(form));
+  const childWorkspace = document.getElementById('adminChildGroupsWorkspaceMount');
+  if (childWorkspace) childWorkspace.innerHTML = childGroupsWorkspaceMarkup(allMainCollections, categoriesByKey);
+  document.querySelectorAll('.admin-category-workspace .admin-category-edit-form[data-category-edit]').forEach((form) => previewCategoryEdit(form));
 
   const deleted = readDeletedCategories();
   if (deleted.length) container.insertAdjacentHTML('beforeend', `<section class="admin-category-deletions"><h3>Deleted Categories</h3>${deleted.map((key) => {
     const published = (adminPublishedBaseline?.deletedCategories || []).includes(key);
-    return `<article><strong>${escapeAdminHtml(key)}</strong><span>${published ? 'Live deletion' : 'Private deletion draft'} · Products and image files are preserved.</span>${published ? '' : `<button type="button" data-publish-category-deletion="${escapeAdminHtml(key)}">Save Deletion Live</button>`}<button type="button" data-recreate-category="${escapeAdminHtml(key)}">Recreate Category</button></article>`;
+    return `<article><strong>${escapeAdminHtml(key)}</strong><span>${published ? 'Live deletion' : 'Deletion waiting for Save All Collection Changes Live'} · Products and image files are preserved.</span><button type="button" data-recreate-category="${escapeAdminHtml(key)}">Recreate Category</button></article>`;
   }).join('')}</section>`);
   updateDeleteSelectedCategoriesButton();
   renderSharedCollectionBackgroundController();
@@ -6104,7 +6115,7 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
       title: current.card?.titleOverride === true ? String(current.card.title || '') : '',
       description: current.card?.descriptionOverride === true ? String(current.card.description || '') : '',
       image: cardImage,
-      imageVisible: current.parentKey || !form.elements.namedItem('cardImageVisible') ? current.card?.imageVisible !== false : data.has('cardImageVisible'),
+      imageVisible: !form.elements.namedItem('cardImageVisible') ? current.card?.imageVisible !== false : data.has('cardImageVisible'),
       backgroundImage: cardBackgroundImage,
       representativeProductSlug: current.parentKey ? '' : String(data.get('representativeProductSlug') || '')
     },
@@ -6117,7 +6128,7 @@ function categoryFromEditForm(form, approvalStatus = 'draft') {
       standeeSizePercent: safeCategoryDisplayNumber(data.get('standeeSizePercent'), CATEGORY_IMAGE_SIZE_DEFAULT, CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX),
       standeeLeftPercent: safeCategoryDisplayNumber(data.get('standeeLeftPercent'), 0, -50, 50),
       standeeVerticalPercent: safeCategoryDisplayNumber(data.get('standeeVerticalPercent'), 0, -50, 50),
-      standeeRotationDeg: current.parentKey ? safeCategoryDisplayNumber(current.displaySettings?.standeeRotationDeg, 0, -180, 180) : safeCategoryDisplayNumber(data.get('standeeRotationDeg'), 0, -180, 180),
+      standeeRotationDeg: data.has('standeeRotationDeg') ? safeCategoryDisplayNumber(data.get('standeeRotationDeg'), 0, -180, 180) : safeCategoryDisplayNumber(current.displaySettings?.standeeRotationDeg, 0, -180, 180),
       titleLeftPercent: data.has('titleLeftPercent') ? safeCategoryDisplayNumber(data.get('titleLeftPercent'), 0, -50, 50) : current.displaySettings?.titleLeftPercent,
       titleVerticalPercent: data.has('titleVerticalPercent') ? safeCategoryDisplayNumber(data.get('titleVerticalPercent'), 0, -50, 50) : current.displaySettings?.titleVerticalPercent,
       titleAlign: data.has('titleAlign') ? safeCategoryTextAlignment(data.get('titleAlign')) : current.displaySettings?.titleAlign,
@@ -6158,7 +6169,7 @@ async function saveCategoryEditForm(form, approvalStatus = 'draft', { render = t
   }
   const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), category, category.key);
   if (duplicates.length) {
-    adminLastSaveError = `${category.title || category.key}: a similar Main Collection already exists: ${duplicates.map((item) => item.title).join(', ')}.`;
+    adminLastSaveError = `${category.title || category.key}: a similar ${category.parentKey ? 'Subcollection under this Main Collection' : 'Main Collection'} already exists: ${duplicates.map((item) => item.title).join(', ')}.`;
     setCategoryPublishState(category.key, adminLastSaveError, 'failed');
     if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', changeReportItems, 'failed');
     return false;
@@ -6235,10 +6246,10 @@ async function saveCategoryProductAssignments(form, removeCurrent = false) {
   const result = await saveAdminCollectionOperations([{ type: 'record', collectionKey: 'products', entryKey: slug, baseRecord: readAdminProducts()[slug], patch: { categories: updated.categories, categoryOrder: updated.categoryOrder, updatedAt: new Date().toISOString(), draftStatus: 'draft', approvalStatus: 'draft' } }]);
   if (!result.ok) return false;
   renderAdminProducts();
-  const relationship = readAdminCategories()[currentCategory]?.parentKey ? 'Child Group' : 'Collection';
+  const relationship = readAdminCategories()[currentCategory]?.parentKey ? 'Subcollection' : 'Collection';
   setStatus(removeCurrent
     ? `Draft Saved — Product / Standee removed from this ${relationship}. The product, other assignments, and image files were preserved. Publish the Product / Standee when ready.`
-    : 'Product / Standee Collection and Child Group assignments saved privately.');
+    : 'Product / Standee Collection and Subcollection assignments saved privately.');
   return true;
 }
 
@@ -6250,13 +6261,13 @@ async function saveNewChildGroupFromForm(form) {
   const key = makeSlug(data.get('key') || title);
   const status = form.querySelector('[data-child-group-status]');
   if (!parent || !title || !key) {
-    if (status) status.textContent = 'Add a Child Group title and key.';
+    if (status) status.textContent = 'Add a Subcollection title and key.';
     return false;
   }
   const candidate = adminStateUtils.childCategoryDefaults(parentKey, { key, title });
   const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), candidate);
   if (duplicates.length) {
-    if (status) status.textContent = `A similar Child Group already exists under this Main Category: ${duplicates.map((item) => item.title || item.key).join(', ')}.`;
+    if (status) status.textContent = `A similar Subcollection already exists under this Main Category: ${duplicates.map((item) => item.title || item.key).join(', ')}.`;
     return false;
   }
   const now = new Date().toISOString();
@@ -6275,13 +6286,13 @@ async function saveNewChildGroupFromForm(form) {
     draftStatus: 'draft',
     approvalStatus: 'draft'
   });
-  if (status) status.textContent = 'Saving Child Group draft…';
+  if (status) status.textContent = 'Saving Subcollection draft…';
   const result = await saveAdminCollectionOperations([
     { type: 'record', collectionKey: 'categories', entryKey: key, baseRecord: undefined, patch: category },
     { type: 'membership', collectionKey: 'deletedCategories', entryKey: key, present: false, baseValues: readDeletedCategories() }
   ]);
   if (!result.ok) {
-    if (status) status.textContent = adminLastSaveError || 'Child Group draft could not be saved.';
+    if (status) status.textContent = adminLastSaveError || 'Subcollection draft could not be saved.';
     return false;
   }
   openedCategoryEditors.add(key);
@@ -6359,7 +6370,7 @@ async function deleteAdminCategories(keys) {
   if (!categoryKeys.length) return false;
   const childBlockers = adminStateUtils?.categoryDeletionBlockers?.(readAdminCategories(), categoryKeys) || [];
   if (childBlockers.length) {
-    setStatus(`Permanent Delete blocked. Choose what should happen to these Child Groups first: ${childBlockers.map((item) => item.childTitle).join(', ')}. No cascading deletion was performed.`);
+    setStatus(`Permanent Delete blocked. Choose what should happen to these Subcollections first: ${childBlockers.map((item) => item.childTitle).join(', ')}. No cascading deletion was performed.`);
     return false;
   }
   const details = categoryKeys.map((key) => {
@@ -6851,6 +6862,13 @@ function normalizedMainCollectionsForBatch() {
   ));
 }
 
+function normalizedChildGroupsForBackgroundBatch() {
+  const deleted = new Set(readDeletedCategories());
+  return Object.values(readAdminCategories()).filter((category) => (
+    category?.key && category.parentKey && !deleted.has(category.key)
+  ));
+}
+
 function mainCollectionsForBackgroundBatch() {
   const deleted = new Set(readDeletedCategories());
   const normalized = Object.fromEntries(normalizedMainCollectionsForBatch().map((category) => [category.key, category]));
@@ -6960,7 +6978,7 @@ async function applyCategoryBackgroundToAll(form) {
     setStatus('No Main Collection cards are available for the background update.');
     return false;
   }
-  const heldPrivate = document.getElementById('holdCollectionChangesPrivate')?.checked;
+  const heldPrivate = collectionChangesHeldPrivate();
   const destination = heldPrivate ? 'save it as a private draft' : 'update the live homepage';
   if (!window.confirm(`Apply this background and its complete layout to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'} and ${destination}?\n\nStandee images, standee placement, text, representatives, visibility, order, Products, assignments, and pricing will not change.`)) return false;
   const operations = categoryBackgroundBatchOperations(source, targets, new Date().toISOString(), existingKeys, heldPrivate ? 'draft' : 'approved');
@@ -6976,41 +6994,105 @@ async function applyCategoryBackgroundToAll(form) {
     setStatus(`DRAFT SAVED — PRIVATE. The background was applied to ${targets.length} Main Collection card${targets.length === 1 ? '' : 's'}. Uncheck Hold Collection changes privately when it should go live.`);
     return true;
   }
-  return saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'), { workingStateCurrent: true });
+  return saveAllCollectionChangesLive(collectionLiveStatusForForm(form), { workingStateCurrent: true });
 }
 
-async function saveAllOpenCollectionChanges({ quiet = false } = {}) {
+async function applyChildGroupBackgroundToAll(form) {
+  if (!form) return false;
+  const categoryKey = form.dataset.categoryEdit;
+  const current = readAdminCategories()[categoryKey];
+  if (!current?.parentKey) {
+    setStatus('Only normalized Subcollections can use the shared Subcollection background action.');
+    return false;
+  }
+  const targets = normalizedChildGroupsForBackgroundBatch();
+  if (!targets.length) {
+    setStatus('No normalized Subcollections are available for the background update.');
+    return false;
+  }
+  const heldPrivate = collectionChangesHeldPrivate();
+  const destination = heldPrivate ? 'save the complete batch privately' : 'update the live website';
+  if (!window.confirm(`Apply this Subcollection background and its complete layout to ${targets.length} Subcollection${targets.length === 1 ? '' : 's'} and ${destination}?\n\nSubcollection images and placement, text, Products, assignments, visibility, order, pricing, and Main Collection cards will not change.`)) return false;
+  const approvalStatus = heldPrivate ? 'draft' : 'approved';
+  if (!await saveAllOpenCollectionChanges({ quiet: true, approvalStatus })) {
+    setStatus('Shared Subcollection background save stopped — an open Collection editor could not be saved. The website was not changed.');
+    return false;
+  }
+  const source = readAdminCategories()[categoryKey];
+  if (!source?.parentKey) {
+    setStatus('Shared Subcollection background save stopped — the selected Subcollection could not be reloaded after saving.');
+    return false;
+  }
+  const existingKeys = new Set(targets.map((target) => target.key));
+  const refreshedTargets = normalizedChildGroupsForBackgroundBatch();
+  const operations = categoryBackgroundBatchOperations(source, refreshedTargets, new Date().toISOString(), existingKeys, approvalStatus);
+  setStatus(`Saving one shared background batch for ${refreshedTargets.length} Subcollection${refreshedTargets.length === 1 ? '' : 's'}…`);
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) {
+    setStatus(`Shared Subcollection background save failed — the website was not changed. ${adminLastSaveError || ''}`.trim());
+    return false;
+  }
+  renderCategoryManager();
+  if (heldPrivate) {
+    setStatus(`DRAFT SAVED — PRIVATE. The background and background layout were applied to ${refreshedTargets.length} Subcollection${refreshedTargets.length === 1 ? '' : 's'}. Subcollection images and content were unchanged.`);
+    return true;
+  }
+  return saveAllCollectionChangesLive(collectionLiveStatusForForm(form), { workingStateCurrent: true });
+}
+
+async function saveAllOpenCollectionChanges({ quiet = false, approvalStatus = 'draft' } = {}) {
   const reportItems = typeof pendingCollectionChangeReportItems === 'function' ? pendingCollectionChangeReportItems() : [];
   const forms = [...document.querySelectorAll('.admin-category-edit-form[data-category-edit]')]
     .filter((form) => editorHasUnsavedChanges(form));
   const sharedBackgroundForm = document.querySelector('[data-shared-collection-background-form]');
   const hasSharedBackgroundChanges = editorHasUnsavedChanges(sharedBackgroundForm);
   if (!forms.length && !hasSharedBackgroundChanges) {
-    if (!quiet) setStatus('No unsaved open Collection changes. Previously saved drafts remain ready for Save Live or Save All Live Changes.');
+    if (!quiet) setStatus('No unsaved Collection changes.');
     if (!quiet && typeof setCollectionChangeReport === 'function') setCollectionChangeReport('No unsaved open Collection changes.', typeof savedCollectionChangeReportItems === 'function' ? savedCollectionChangeReportItems() : [], 'idle');
     return true;
   }
   for (const form of forms) {
     const category = readAdminCategories()[form.dataset.categoryEdit] || {};
-    if (!await saveCategoryEditForm(form, 'draft', { render: false })) {
+    if (!await saveCategoryEditForm(form, approvalStatus, { render: false })) {
       setStatus(`Save All stopped at ${category.title || form.dataset.categoryEdit}. That editor remains unsaved; nothing was published.`);
       if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', reportItems, 'failed');
       return false;
     }
   }
-  if (!await saveSharedCollectionBackgroundChanges({ quiet: true })) {
+  if (!await saveSharedCollectionBackgroundChanges({ quiet: true, approvalStatus })) {
     setStatus('Save All stopped at Shared Collection Card Background. Nothing was published.');
     if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', reportItems, 'failed');
     return false;
   }
-  setStatus(`${forms.length} open Collection editor${forms.length === 1 ? '' : 's'}${hasSharedBackgroundChanges ? ' and the Shared Collection Card Background' : ''} ${forms.length === 1 && !hasSharedBackgroundChanges ? 'was' : 'were'} saved privately. Nothing was published.`);
-  if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('DRAFT SAVED — PRIVATE. The customer website has not changed.', reportItems, 'saved');
+  if (!quiet) {
+    const privateSave = approvalStatus !== 'approved';
+    const message = privateSave
+      ? `${forms.length} open Collection editor${forms.length === 1 ? '' : 's'}${hasSharedBackgroundChanges ? ' and the Shared Collection Card Background' : ''} ${forms.length === 1 && !hasSharedBackgroundChanges ? 'was' : 'were'} saved privately. Hold is on, so the customer website was not changed.`
+      : 'Collection changes saved. Updating the customer website…';
+    setStatus(message);
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport(
+      privateSave ? 'DRAFT SAVED — PRIVATE. Hold is on, so the customer website has not changed.' : 'SAVING LIVE… The website has not changed yet.',
+      reportItems,
+      privateSave ? 'saved' : 'saving'
+    );
+  }
   return true;
 }
 
 async function saveAllCollectionChangesLive(statusTarget = null, { workingStateCurrent = false } = {}) {
   const pendingReportItems = typeof pendingCollectionChangeReportItems === 'function' ? pendingCollectionChangeReportItems() : [];
-  if (!await saveAllOpenCollectionChanges({ quiet: true })) {
+  const heldPrivate = collectionChangesHeldPrivate();
+  if (heldPrivate) {
+    const savedDraft = await saveAllOpenCollectionChanges({ quiet: true, approvalStatus: 'draft' });
+    const message = savedDraft
+      ? 'DRAFT SAVED — PRIVATE. Hold is on, so the customer website was not changed.'
+      : `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'An open Collection or shared background could not be saved.'}`;
+    if (statusTarget) statusTarget.textContent = message;
+    setStatus(message);
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport(message, pendingReportItems, savedDraft ? 'saved' : 'failed');
+    return savedDraft;
+  }
+  if (!await saveAllOpenCollectionChanges({ quiet: true, approvalStatus: 'approved' })) {
     const message = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'An open Collection or shared background could not be saved.'}`;
     if (statusTarget) statusTarget.textContent = message;
     setStatus(message);
@@ -7057,10 +7139,10 @@ function markCategoryEditorDirty(form) {
   if (!form) return;
   form.dataset.editorDirty = 'true';
   if (form.matches('[data-category-edit]')) {
-    setCategoryPublishState(form.dataset.categoryEdit, 'UNSAVED CHANGES — preview only until you choose Save Draft or Save Live.', 'dirty');
+    setCategoryPublishState(form.dataset.categoryEdit, 'UNSAVED CHANGES — preview only until you use Save All Collection Changes Live.', 'dirty');
   }
   window.requestAnimationFrame(() => setCollectionChangeReport(
-    'UNSAVED CHANGES — review the list below, then use Save Draft or Save All Collection Changes Live.',
+    'UNSAVED CHANGES — review the list below, then use Save All Collection Changes Live.',
     pendingCollectionChangeReportItems(),
     'dirty'
   ));
@@ -7074,7 +7156,7 @@ function beginCategoryPreviewImageDrag(event) {
   const image = event.target.closest('[data-category-preview-image]');
   const form = image?.closest('[data-category-edit]');
   const stage = image?.closest('.admin-category-preview-stage');
-  if (!image || !form || !stage || form.classList.contains('admin-child-group-edit')) return false;
+  if (!image || !form || !stage) return false;
   event.preventDefault();
   const startX = event.clientX;
   const startY = event.clientY;
@@ -7101,8 +7183,17 @@ function confirmEditorCanClose(form, label) {
   return !editorHasUnsavedChanges(form) || window.confirm(`You have unsaved ${label} changes. Leave without saving?`);
 }
 
+function collectionChangesHeldPrivate() {
+  return Boolean(document.getElementById('holdCollectionChangesPrivate')?.checked
+    || document.getElementById('holdSubcollectionChangesPrivate')?.checked);
+}
+
+function collectionLiveStatusForForm(form) {
+  return document.getElementById(form?.closest('#subcollections') ? 'subcollectionLiveStatus' : 'collectionLiveStatus');
+}
+
 function setupCategoryManagerEvents() {
-  const section = document.getElementById('categories');
+  const section = document.querySelector('.admin-page');
   if (!section || section.dataset.categoryManagerBound) return;
   section.dataset.categoryManagerBound = 'true';
   section.addEventListener('error', (event) => {
@@ -7125,8 +7216,9 @@ function setupCategoryManagerEvents() {
   section.querySelector('.admin-category-visibility-filters')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-category-visibility-filter]');
     if (!button) return;
-    section.dataset.categoryVisibilityFilter = button.dataset.categoryVisibilityFilter;
-    section.querySelectorAll('[data-category-visibility-filter]').forEach((item) => {
+    const categoriesSection = document.getElementById('categories');
+    categoriesSection.dataset.categoryVisibilityFilter = button.dataset.categoryVisibilityFilter;
+    categoriesSection.querySelectorAll('[data-category-visibility-filter]').forEach((item) => {
       const active = item === button;
       item.classList.toggle('active', active);
       item.setAttribute('aria-pressed', String(active));
@@ -7155,11 +7247,24 @@ function setupCategoryManagerEvents() {
       }
       return;
     }
-    if (event.target.id === 'holdCollectionChangesPrivate') {
-      if (event.target.checked) {
-        setStatus('Hold is on. Collection changes will remain private until you choose Save Live.');
+    if (['holdCollectionChangesPrivate', 'holdSubcollectionChangesPrivate'].includes(event.target.id)) {
+      const checked = event.target.checked;
+      ['holdCollectionChangesPrivate', 'holdSubcollectionChangesPrivate'].forEach((id) => {
+        const checkbox = document.getElementById(id);
+        if (checkbox && checkbox !== event.target) checkbox.checked = checked;
+      });
+      const saveButton = document.getElementById('saveAllLiveCollections');
+      const subcollectionSaveButton = document.getElementById('saveAllLiveSubcollections');
+      if (saveButton) saveButton.textContent = checked
+        ? 'Save All Collection Changes Privately'
+        : 'Save All Collection Changes Live';
+      if (subcollectionSaveButton) subcollectionSaveButton.textContent = checked
+        ? 'Save All Collection & Subcollection Changes Privately'
+        : 'Save All Collection & Subcollection Changes Live';
+      if (checked) {
+        setStatus('Hold is on. The save buttons will save all Collection and Subcollection changes privately.');
       } else {
-        setStatus('Hold is off. Use Save Live when the current Collection correction is ready for customers.');
+        setStatus('Hold is off. The save buttons will save all Collection and Subcollection changes to the live website.');
       }
       return;
     }
@@ -7202,7 +7307,7 @@ function setupCategoryManagerEvents() {
       syncCategoryDisplayOutputs(sharedBackgroundForm);
       previewSharedCollectionBackground(sharedBackgroundForm);
       const status = sharedBackgroundForm.querySelector('[data-shared-collection-background-status]');
-      if (status) status.textContent = 'UNSAVED CHANGES — Save All Open Collection Changes keeps this batch private; Save All Live Changes makes it public.';
+      if (status) status.textContent = 'UNSAVED CHANGES — use Save All Collection Changes Live at the top when ready.';
       return;
     }
     const form = event.target.closest('[data-category-edit]');
@@ -7226,7 +7331,7 @@ function setupCategoryManagerEvents() {
     event.preventDefault();
     if (sharedBackgroundForm) {
       const count = mainCollectionsForBackgroundBatch().length;
-      const heldPrivate = document.getElementById('holdCollectionChangesPrivate')?.checked;
+      const heldPrivate = collectionChangesHeldPrivate();
       const destination = heldPrivate ? 'save it as a private draft' : 'update the live homepage';
       if (window.confirm(`Apply this background and layout to ${count} Main Collection${count === 1 ? '' : 's'} and ${destination}?\n\nStandee images and placement, text, representatives, visibility, order, Products, assignments, and pricing will remain unchanged.`)) {
         if (await saveSharedCollectionBackgroundChanges({ quiet: true, approvalStatus: heldPrivate ? 'draft' : 'approved' })) {
@@ -7240,9 +7345,7 @@ function setupCategoryManagerEvents() {
         }
       }
     }
-    else if (categoryForm) {
-      await saveCategoryEditForm(categoryForm, 'draft');
-    }
+    else if (categoryForm) await saveAllCollectionChangesLive(collectionLiveStatusForForm(categoryForm));
     else if (productForm) await saveCategoryProductAssignments(productForm, false);
     else await saveNewChildGroupFromForm(childGroupForm);
   });
@@ -7258,12 +7361,16 @@ function setupCategoryManagerEvents() {
     if (backToCollections) {
       const form = backToCollections.closest('[data-category-edit]');
       const key = form?.dataset.categoryEdit;
-      if (editorHasUnsavedChanges(form) && !document.getElementById('holdCollectionChangesPrivate')?.checked) {
+      if (editorHasUnsavedChanges(form) && !collectionChangesHeldPrivate()) {
         if (!await publishCategoryByKey(key, form)) return;
-      } else if (!confirmEditorCanClose(form, form?.classList.contains('admin-child-group-edit') ? 'Child Group' : 'Main Collection')) return;
+      } else if (!confirmEditorCanClose(form, form?.classList.contains('admin-child-group-edit') ? 'Subcollection' : 'Main Collection')) return;
       if (key) openedCategoryEditors.delete(key);
       renderCategoryManager();
-      document.querySelector(`[data-category-card="${CSS.escape(readAdminCategories()[key]?.parentKey || key || '')}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const parentKey = readAdminCategories()[key]?.parentKey;
+      const destination = parentKey
+        ? document.querySelector(`#subcollections [data-category-card="${CSS.escape(parentKey)}"]`)
+        : document.querySelector(`#categories [data-category-card="${CSS.escape(key || '')}"]`);
+      destination?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
     if (event.target.closest('[data-open-category-products]')) {
@@ -7301,16 +7408,15 @@ function setupCategoryManagerEvents() {
       }
     }
     const childCard = event.target.closest('[data-child-group-card]');
-    if (event.target.closest('[data-open-child-products]')) {
+    const childProductsPanel = event.target.closest('[data-child-products-panel]');
+    if (childProductsPanel && event.target.closest('summary')) {
       const key = actionCategoryKey;
       const category = readAdminCategories()[key];
-      const panel = childCard?.querySelector('[data-child-products-panel]');
-      const mount = panel?.querySelector('[data-category-products-mount]');
+      const mount = childProductsPanel.querySelector('[data-category-products-mount]');
       if (key && category && mount && !openedCategoryProductLists.has(key)) {
         mount.innerHTML = categoryProductsMarkup(category);
         openedCategoryProductLists.add(key);
       }
-      panel?.setAttribute('open', '');
     }
     if (event.target.closest('[data-edit-child-group]')) {
       const key = actionCategoryKey;
@@ -7321,9 +7427,12 @@ function setupCategoryManagerEvents() {
         mount.innerHTML = categoryEditMarkup(category);
         openedCategoryEditors.add(key);
       }
-      panel?.setAttribute('open', '');
+      if (panel) panel.hidden = false;
       const form = mount?.querySelector('[data-category-edit]');
-      if (form) previewCategoryEdit(form);
+      if (form) {
+        previewCategoryEdit(form);
+        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
     const childVisibility = event.target.closest('[data-toggle-child-group]');
     if (childVisibility) await saveCategoryVisibility(actionCategoryKey, 'visible', childVisibility.dataset.toggleChildGroup === 'show');
@@ -7349,7 +7458,6 @@ function setupCategoryManagerEvents() {
     if (event.target.closest('[data-migrate-legacy-main-collections]')) await saveLegacyMainCollectionsAsDrafts();
     const previewButton = event.target.closest('[data-preview-category-edit]');
     if (previewButton) previewCategoryEdit(previewButton.closest('[data-category-edit]'));
-    if (event.target.closest('[data-save-all-open-collections]')) await saveAllOpenCollectionChanges();
     const searchAllImages = event.target.closest('[data-search-all-category-images]');
     if (searchAllImages) {
       const picker = searchAllImages.closest('[data-category-image-picker]');
@@ -7542,6 +7650,8 @@ function setupCategoryManagerEvents() {
     }
     const applyBackgroundAll = event.target.closest('[data-apply-category-background-all]');
     if (applyBackgroundAll) await applyCategoryBackgroundToAll(applyBackgroundAll.closest('[data-category-edit]'));
+    const applyChildGroupBackgroundAll = event.target.closest('[data-apply-child-group-background-all]');
+    if (applyChildGroupBackgroundAll) await applyChildGroupBackgroundToAll(applyChildGroupBackgroundAll.closest('[data-category-edit]'));
     const resetText = event.target.closest('[data-reset-category-text]');
     if (resetText) {
       const form = resetText.closest('[data-category-edit]');
@@ -7555,7 +7665,7 @@ function setupCategoryManagerEvents() {
     }
     const publishButton = event.target.closest('[data-publish-category-key]');
     if (publishButton) {
-      await saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'));
+      await saveAllCollectionChangesLive(collectionLiveStatusForForm(publishButton.closest('[data-category-edit]')));
     }
     const deleteButton = event.target.closest('[data-delete-category]');
     if (deleteButton) await deleteAdminCategories([deleteButton.dataset.deleteCategory]);
@@ -7968,7 +8078,7 @@ function renderAdminProducts() {
       <article class="admin-review-item admin-published-item"><div class="admin-review-image">${product.cutoutImage ? `<img src="${escapeAdminHtml(product.cutoutImage)}" alt="">` : '<span>No image</span>'}</div><div><strong>${escapeAdminHtml(product.title || product.slug)}</strong><p>Published — customers can see this</p></div></article>
     `).join('') || '<div class="admin-empty-state"><strong>No published products yet</strong><span>Published products will appear here after the first successful publish.</span></div>';
   }
-  if (categoryContainer && ['loading', 'loaded'].includes(adminAreaLoadState.get('categories')?.status)) {
+  if (categoryContainer && (['categories', 'subcollections'].some((area) => ['loading', 'loaded'].includes(adminAreaLoadState.get(area)?.status)))) {
     renderCategoryManager();
   }
   const recoveryDetails = document.getElementById('legacyRecoveryEditor');
@@ -9106,12 +9216,12 @@ function renderImageDrafts() {
               <label>Title<input name="title" type="text" value="${escapeAdminHtml(draft.title || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(draft.description || '')}</textarea></label>
               <label>Fun fact<textarea name="funFact" rows="2">${escapeAdminHtml(draft.funFact || '')}</textarea></label>
+              <label data-import-destinations="create-product">Original height<input name="originalHeight" type="text" value="${escapeAdminHtml(draft.originalHeight || '')}" placeholder="6'6 or 78"><small>AI may suggest the commonly listed real-world height when it can identify the subject. Review it before saving.</small></label>
               <div class="admin-ai-actions" aria-label="Optional AI assistance">
-                <button type="button" data-ai-suggest="fillAll">Fill All Text with AI</button>
+                <button type="button" data-ai-suggest="fillAll">Fill Product Details with AI</button>
               </div>
               <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
-              <p class="admin-note">AI can help fill these fields. Review or edit the suggestions, then click Save Draft or Save Live. AI never saves or publishes automatically.</p>
-              <label data-import-destinations="create-product">Original height<input name="originalHeight" type="text" value="${escapeAdminHtml(draft.originalHeight || '')}" placeholder="6'6 or 78"></label>
+              <p class="admin-note">AI can help fill the title, description, fun fact, and original height. Review or edit every suggestion, then click Save Draft or Save Live. AI never saves or publishes automatically.</p>
               <label>Background
                 <select name="backgroundImage">
                   <option value="${IMAGE_IMPORT_DEFAULT_BACKGROUND}" ${draft.backgroundImage === IMAGE_IMPORT_DEFAULT_BACKGROUND ? 'selected' : ''}>Clean stage</option>
@@ -9120,7 +9230,7 @@ function renderImageDrafts() {
                   <option value="images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg" ${draft.backgroundImage === 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' ? 'selected' : ''}>Premium stage</option>
                 </select>
               </label>
-              <fieldset data-import-destinations="create-product"><legend>Where should customers find this standee?</legend><p class="admin-note">Select its Main Collection, such as Sport Legends. If you also select a Child Group such as Basketball, select both Sport Legends and Basketball.</p><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
+              <fieldset data-import-destinations="create-product"><legend>Where should customers find this standee?</legend><p class="admin-note">Select its Main Collection, such as Sport Legends. If you also select a Subcollection such as Basketball, select both Sport Legends and Basketball.</p><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
               <details class="admin-advanced-fields" data-import-destinations="create-product"><summary>Advanced</summary>
                 <label>Generated product ID<input name="slug" type="text" value="${escapeAdminHtml(draft.slug || '')}" placeholder="Generated from title"></label>
                 <label data-import-destinations="create-product">Price override (optional)<input name="priceOverride" type="number" min="0" step="0.01" value="${escapeAdminHtml(draft.priceOverride || '')}"></label>
@@ -9598,7 +9708,7 @@ async function ensureAdminAreaLoaded(area, { force = false } = {}) {
       else renderImageDrafts();
       renderImageImportPending();
     }
-    if (area === 'categories') {
+    if (area === 'categories' || area === 'subcollections') {
       await ensureAdminWorkingCollections(['categories', 'deletedCategories']);
       adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
       setupAdminCreationWorkspace();
@@ -9816,10 +9926,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('publishAdminChanges')?.addEventListener('click', publishAdminChanges);
   document.getElementById('activateFastLiveContent')?.addEventListener('click', activateFastLiveContent);
-  document.getElementById('saveAllOpenCollections')?.addEventListener('click', () => saveAllOpenCollectionChanges());
   document.getElementById('saveAllLiveDashboard')?.addEventListener('click', () => saveAllLiveChanges('All intended Admin changes'));
   document.getElementById('saveAllLiveCollections')?.addEventListener('click', () => saveAllCollectionChangesLive(
     document.getElementById('collectionLiveStatus')
+  ));
+  document.getElementById('saveAllLiveSubcollections')?.addEventListener('click', () => saveAllCollectionChangesLive(
+    document.getElementById('subcollectionLiveStatus')
   ));
   document.getElementById('saveAllLiveAdminChanges')?.addEventListener('click', () => saveAllLiveChanges('All intended Admin changes'));
   document.getElementById('refreshPublishHistory')?.addEventListener('click', refreshPublishHistory);

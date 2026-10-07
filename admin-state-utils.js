@@ -181,7 +181,10 @@ export function findEquivalentCategories(categories = {}, candidate = {}, exclud
     const sameTitle = candidateTitle
       && String(category.parentKey || '') === candidateParent
       && normalizeCategoryIdentity(category.title) === candidateTitle;
-    const samePage = candidatePage && normalizeCategoryIdentity(category.page) === candidatePage;
+    const samePage = !candidateParent
+      && !category.parentKey
+      && candidatePage
+      && normalizeCategoryIdentity(category.page) === candidatePage;
     return sameKey || sameTitle || samePage;
   });
 }

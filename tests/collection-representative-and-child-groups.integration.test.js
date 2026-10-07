@@ -119,7 +119,7 @@ Deno.test('legacy Sports groups have an explicit private normalization boundary 
   const importer = sourceRange(adminSource, 'function legacyChildGroupDraftCandidates', '\n\nfunction childGroupMarkup');
   assert(importer.includes("key: 'basketball'") && importer.includes("key: 'soccer'") && importer.includes("key: 'football'"), 'the three remaining static Sports groups must be detected for explicit normalization');
   assert(importer.includes("collectionKey: 'categories'") && !importer.includes("collectionKey: 'products'"), 'normalizing legacy Child Groups must create private Category records without rewriting Product assignments');
-  assert(adminSource.includes('Legacy storefront groups detected:') && adminSource.includes('Create Normalized Child Group Drafts'), 'Dashboard must explain why normalized Child Groups are currently zero and offer an explicit safe conversion');
+  assert(adminSource.includes('Legacy storefront groups detected:') && adminSource.includes('Create Normalized Subcollection Drafts'), 'Dashboard must explain why normalized Subcollections are currently zero and offer an explicit safe conversion');
 });
 
 Deno.test('scoped Main Collection publication retains representative ownership without rewriting products', () => {
@@ -128,7 +128,7 @@ Deno.test('scoped Main Collection publication retains representative ownership w
   assert(!publishOperation.includes('snapshot.products[') && !publishOperation.includes('products ='), 'publishing a Main Collection must not rewrite Product / Standee records');
 });
 
-Deno.test('Admin terminology explains Main Collection, Homepage Collection Card, Child Group, Product / Standee, and Image Box ownership', () => {
+Deno.test('Admin terminology explains Main Collection, Homepage Collection Card, Subcollection, Product / Standee, and Image Box ownership', () => {
   assert(adminSource.includes('Homepage Collection Card — Featured Standee Categories'), 'Homepage Collection Card editor must name its customer-facing section');
   assert(adminSource.includes('Image Box creates or edits Product / Standee records') && adminSource.includes('It does not create Main Collections or Homepage Collection Cards'), 'Image Box must clearly remain Product / Standee-only');
   assert(adminSource.includes('does not overwrite any Product Showroom Background'), 'Homepage background help must explain independent ownership');

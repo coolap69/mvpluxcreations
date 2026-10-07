@@ -60,7 +60,7 @@ Deno.test('high-frequency Collection and Product controls remain previews until 
   assert(!admin.includes('scheduleCategoryLiveAutosave'));
   assert(!admin.includes('categoryLiveAutosaveTimers'));
   assert(!admin.includes('schedulePlacementSave'));
-  assert(admin.includes('UNSAVED CHANGES — preview only until you choose Save Draft or Save Live.'));
+  assert(admin.includes('UNSAVED CHANGES — preview only until you use Save All Collection Changes Live.'));
 });
 
 Deno.test('deployment polling checks GitHub only and runs at a reduced interval', () => {

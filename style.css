@@ -782,7 +782,7 @@ button[aria-label="Add to cart"]::before {
 }
 
 #homepageCategoryGrid .homepage-collection-card-text,
-#categories .admin-category-placement-preview .homepage-collection-card-text {
+.admin-category-workspace .admin-category-placement-preview .homepage-collection-card-text {
   display: grid;
   align-content: center;
   gap: var(--featured-categories-text-gap);
@@ -796,13 +796,13 @@ button[aria-label="Add to cart"]::before {
 
 #homepageCategoryGrid .homepage-collection-card-text h3,
 #homepageCategoryGrid .homepage-collection-card-text p,
-#categories .admin-category-placement-preview .homepage-collection-card-text h3,
-#categories .admin-category-placement-preview .homepage-collection-card-text p {
+.admin-category-workspace .admin-category-placement-preview .homepage-collection-card-text h3,
+.admin-category-workspace .admin-category-placement-preview .homepage-collection-card-text p {
   margin: 0;
 }
 
 #homepageCategoryGrid .product-title-link,
-#categories .admin-category-placement-preview .product-title-link {
+.admin-category-workspace .admin-category-placement-preview .product-title-link {
   display: -webkit-box;
   overflow: hidden;
   font-size: var(--featured-categories-title-size);
@@ -814,7 +814,7 @@ button[aria-label="Add to cart"]::before {
 }
 
 #homepageCategoryGrid .product-description,
-#categories .admin-category-placement-preview .product-description {
+.admin-category-workspace .admin-category-placement-preview .product-description {
   display: -webkit-box;
   overflow: hidden;
   font-size: var(--featured-categories-description-size);
@@ -826,7 +826,7 @@ button[aria-label="Add to cart"]::before {
 }
 
 #homepageCategoryGrid .homepage-collection-card-subtitle,
-#categories .admin-category-placement-preview .homepage-collection-card-subtitle {
+.admin-category-workspace .admin-category-placement-preview .homepage-collection-card-subtitle {
   overflow: hidden;
   color: #f4d06f;
   font-size: max(10px, calc(var(--featured-categories-description-size) - 2px));
@@ -6792,23 +6792,37 @@ button[aria-label="Add to cart"]::before {
 .admin-category-edit-form { margin-top: 12px; padding: 14px; border: 1px solid rgba(212,175,55,.2); border-radius: 10px; }
 .admin-category-deletions { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(255,151,151,.32); border-radius: 12px; }
 .admin-category-deletions article { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-#categories .admin-category-migration { display: grid; gap: 12px; margin-bottom: 16px; padding: 16px; border: 1px solid rgba(232,168,55,.58); border-radius: 12px; background: rgba(38,27,8,.72); }
-#categories .admin-category-migration h3,
-#categories .admin-category-migration p { margin: 0; }
-#categories .admin-category-migration-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 8px; }
-#categories .admin-category-migration-list article { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid rgba(232,168,55,.28); border-radius: 9px; background: rgba(0,0,0,.25); }
-#categories .admin-category-migration-list span { color: #ffd29a; font-size: .75rem; font-weight: 900; }
-#categories .admin-category-migration-list small { color: var(--admin-muted); overflow-wrap: anywhere; }
+.admin-category-workspace .admin-category-migration { display: grid; gap: 12px; margin-bottom: 16px; padding: 16px; border: 1px solid rgba(232,168,55,.58); border-radius: 12px; background: rgba(38,27,8,.72); }
+.admin-category-workspace .admin-category-migration h3,
+.admin-category-workspace .admin-category-migration p { margin: 0; }
+.admin-category-workspace .admin-category-migration-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(230px,1fr)); gap: 8px; }
+.admin-category-workspace .admin-category-migration-list article { display: grid; gap: 4px; padding: 9px 10px; border: 1px solid rgba(232,168,55,.28); border-radius: 9px; background: rgba(0,0,0,.25); }
+.admin-category-workspace .admin-category-migration-list span { color: #ffd29a; font-size: .75rem; font-weight: 900; }
+.admin-category-workspace .admin-category-migration-list small { color: var(--admin-muted); overflow-wrap: anywhere; }
 .admin-master-category-card .button-link { display: inline-flex; margin-top: auto; }
-#categories .admin-child-groups-panel { grid-column: 1 / -1; padding: 12px; border: 1px solid rgba(212,175,55,.2); border-radius: 10px; }
-#categories .admin-child-groups-panel > summary { cursor: pointer; color: var(--admin-gold-light); font-weight: 850; }
-#categories .admin-child-groups-list { display: grid; gap: 8px; margin-top: 10px; }
-#categories .admin-child-group-row { display: grid; grid-template-columns: minmax(190px,1fr) minmax(100px,.45fr) minmax(90px,.4fr) minmax(90px,.4fr) minmax(300px,auto); align-items: center; gap: 10px; padding: 10px; border: 1px solid rgba(255,255,255,.1); border-radius: 9px; background: rgba(255,255,255,.025); }
-#categories .admin-child-group-summary { display: grid; gap: 3px; }
-#categories .admin-child-group-summary code { color: var(--admin-muted); }
-#categories .admin-child-group-row > details,
-#categories .admin-child-group-row > .admin-warning-message { grid-column: 1 / -1; }
-#categories .admin-child-group-row > .admin-card-actions { justify-content: flex-end; }
+.admin-category-workspace .admin-child-groups-panel { grid-column: 1 / -1; padding: 12px; border: 1px solid rgba(212,175,55,.2); border-radius: 10px; }
+.admin-category-workspace .admin-subcollection-group-header { display: flex; align-items: center; justify-content: space-between; color: var(--admin-gold-light); font-weight: 850; }
+.admin-category-workspace .admin-child-groups-list { display: grid; gap: 8px; margin-top: 10px; }
+.admin-category-workspace .admin-child-group-row { display: grid; grid-template-columns: 88px minmax(220px,1.25fr) minmax(250px,1fr) auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; background: rgba(255,255,255,.025); }
+.admin-category-workspace .admin-child-group-row > .admin-review-image { width: 88px; height: 88px; }
+.admin-category-workspace .admin-child-group-summary { display: grid; gap: 3px; }
+.admin-category-workspace .admin-child-group-summary p { margin: 0; color: var(--admin-muted); line-height: 1.35; }
+.admin-category-workspace .admin-child-group-summary code { color: var(--admin-muted); }
+.admin-category-workspace .admin-subcollection-facts { display: grid; grid-template-columns: repeat(3,minmax(76px,1fr)); gap: 8px; margin: 0; }
+.admin-category-workspace .admin-subcollection-facts div { display: grid; gap: 2px; }
+.admin-category-workspace .admin-subcollection-facts dt { color: var(--admin-muted); font-size: .72rem; font-weight: 800; }
+.admin-category-workspace .admin-subcollection-facts dd { margin: 0; font-weight: 850; }
+.admin-category-workspace .admin-child-group-row > details,
+.admin-category-workspace .admin-child-group-row > .admin-subcollection-editor-mount,
+.admin-category-workspace .admin-child-group-row > .admin-warning-message { grid-column: 1 / -1; }
+.admin-category-workspace .admin-child-group-row > .admin-card-actions { justify-content: flex-end; }
+.admin-category-workspace .admin-child-groups-workspace { margin: 14px 0; padding: 14px; border: 1px solid rgba(212,175,55,.38); border-radius: 14px; background: rgba(8,8,8,.94); }
+.admin-category-workspace .admin-child-groups-workspace > summary { cursor: pointer; color: var(--admin-gold-light); font-size: 1.15rem; font-weight: 900; }
+.admin-category-workspace #adminChildGroupsWorkspaceMount { display: grid; gap: 14px; margin-top: 14px; }
+.admin-category-workspace .admin-child-group-master { padding: 12px; border: 1px solid rgba(212,175,55,.2); border-radius: 12px; background: rgba(255,255,255,.02); }
+.admin-category-workspace .admin-child-group-master > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-category-workspace .admin-child-group-master h3 { margin: 2px 0 0; color: var(--admin-gold-light); }
+.admin-category-workspace .admin-child-group-master > .admin-child-groups-panel { margin-top: 10px; }
 
 .category-group-nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin: 18px auto 24px; padding: 10px; max-width: 1120px; }
 .category-group-nav a { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 15px; border: 1px solid rgba(212,175,55,.48); border-radius: 999px; color: inherit; text-decoration: none; font-weight: 800; }
@@ -6825,8 +6839,9 @@ button[aria-label="Add to cart"]::before {
   .admin-category-card-summary dl, .admin-category-card-summary .admin-card-actions { grid-column: 1 / -1; }
   .admin-category-product-row { grid-template-columns: 64px 1fr; }
   .admin-category-product-row details, .admin-category-product-row .admin-card-actions { grid-column: 1 / -1; }
-  #categories .admin-child-group-row { grid-template-columns: minmax(150px,1fr) repeat(3,minmax(80px,.45fr)); }
-  #categories .admin-child-group-row > .admin-card-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  .admin-category-workspace .admin-child-group-row { grid-template-columns: 76px minmax(150px,1fr); }
+  .admin-category-workspace .admin-child-group-row > .admin-subcollection-facts,
+  .admin-category-workspace .admin-child-group-row > .admin-card-actions { grid-column: 1 / -1; justify-content: flex-start; }
 }
 
 .admin-commerce-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
@@ -6907,60 +6922,60 @@ button[aria-label="Add to cart"]::before {
   .admin-published-item { grid-template-columns: 1fr !important; }
 }
 
-/* Desktop-first Category manager layout. Keep every override inside #categories. */
-#categories #adminProducts,
-#categories .admin-category-manager-card,
-#categories .admin-category-manager-card > details,
-#categories .admin-category-edit-form,
-#categories .admin-category-products {
+/* Desktop-first Category manager layout. Keep every override inside .admin-category-workspace. */
+.admin-category-workspace #adminProducts,
+.admin-category-workspace .admin-category-manager-card,
+.admin-category-workspace .admin-category-manager-card > details,
+.admin-category-workspace .admin-category-edit-form,
+.admin-category-workspace .admin-category-products {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
 }
 
-#categories .admin-category-manager-card {
+.admin-category-workspace .admin-category-manager-card {
   grid-template-columns: minmax(0, 1fr) !important;
 }
 
-#categories .admin-category-manager-card > details {
+.admin-category-workspace .admin-category-manager-card > details {
   grid-column: 1 / -1;
 }
 
-#categories .admin-category-edit-form .admin-input-group {
+.admin-category-workspace .admin-category-edit-form .admin-input-group {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px 18px;
 }
 
-#categories .admin-category-edit-form .admin-input-group > label {
+.admin-category-workspace .admin-category-edit-form .admin-input-group > label {
   min-width: 0;
 }
 
-#categories .admin-category-edit-form .admin-input-group > label:nth-child(2),
-#categories .admin-category-edit-form .admin-input-group > label:nth-child(3),
-#categories .admin-category-edit-form .admin-input-group > label:nth-child(6) {
+.admin-category-workspace .admin-category-edit-form .admin-input-group > label:nth-child(2),
+.admin-category-workspace .admin-category-edit-form .admin-input-group > label:nth-child(3),
+.admin-category-workspace .admin-category-edit-form .admin-input-group > label:nth-child(6) {
   grid-column: span 2;
 }
 
-#categories .admin-category-edit-form select,
-#categories .admin-category-edit-form input,
-#categories .admin-category-edit-form textarea {
+.admin-category-workspace .admin-category-edit-form select,
+.admin-category-workspace .admin-category-edit-form input,
+.admin-category-workspace .admin-category-edit-form textarea {
   min-width: 0;
   max-width: 100%;
 }
 
-#categories .admin-category-edit-form .admin-panel-actions,
-#categories .admin-category-card-summary > .admin-card-actions {
+.admin-category-workspace .admin-category-edit-form .admin-panel-actions,
+.admin-category-workspace .admin-category-card-summary > .admin-card-actions {
   width: 100%;
   justify-content: flex-start;
 }
 
-#categories .admin-category-edit-form {
+.admin-category-workspace .admin-category-edit-form {
   display: grid;
   gap: 16px;
 }
 
-#categories .admin-category-editor-section {
+.admin-category-workspace .admin-category-editor-section {
   min-width: 0;
   display: grid;
   gap: 13px;
@@ -6970,7 +6985,7 @@ button[aria-label="Add to cart"]::before {
   border-radius: 12px;
 }
 
-#categories .admin-category-preview-background {
+.admin-category-workspace .admin-category-preview-background {
   position: absolute;
   z-index: 0;
   inset: 0;
@@ -6980,18 +6995,18 @@ button[aria-label="Add to cart"]::before {
   pointer-events: none;
 }
 
-#categories .admin-category-placement-preview {
+.admin-category-workspace .admin-category-placement-preview {
   position: relative;
 }
 
-#categories .admin-category-preview-stage,
-#categories .admin-category-preview-text {
+.admin-category-workspace .admin-category-preview-stage,
+.admin-category-workspace .admin-category-preview-text {
   position: relative;
   z-index: 1;
 }
 
-#categories .admin-category-editor-section > legend,
-#categories .admin-category-editor-section > summary {
+.admin-category-workspace .admin-category-editor-section > legend,
+.admin-category-workspace .admin-category-editor-section > summary {
   padding: 0 7px;
   color: var(--admin-gold-light);
   font-weight: 900;
@@ -6999,7 +7014,7 @@ button[aria-label="Add to cart"]::before {
   text-transform: uppercase;
 }
 
-#categories details.admin-category-editor-section > summary {
+.admin-category-workspace details.admin-category-editor-section > summary {
   margin: -3px -2px;
   padding: 7px 9px;
   border-radius: 8px;
@@ -7007,39 +7022,39 @@ button[aria-label="Add to cart"]::before {
   list-style-position: inside;
 }
 
-#categories details.admin-category-editor-section[open] > summary {
+.admin-category-workspace details.admin-category-editor-section[open] > summary {
   margin-bottom: 3px;
   background: rgba(212,175,55,.055);
 }
 
-#categories .admin-category-information > label,
-#categories .admin-category-editor-section > label {
+.admin-category-workspace .admin-category-information > label,
+.admin-category-workspace .admin-category-editor-section > label {
   display: grid;
   gap: 6px;
 }
 
-#categories .admin-category-picker-grid,
-#categories .admin-category-appearance-grid,
-#categories .admin-category-position-controls,
-#categories .admin-category-settings-grid {
+.admin-category-workspace .admin-category-picker-grid,
+.admin-category-workspace .admin-category-appearance-grid,
+.admin-category-workspace .admin-category-position-controls,
+.admin-category-workspace .admin-category-settings-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
-#categories .admin-category-picker-grid {
+.admin-category-workspace .admin-category-picker-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-#categories .admin-category-image-picker,
-#categories .admin-category-current-image,
-#categories .admin-category-image-browser {
+.admin-category-workspace .admin-category-image-picker,
+.admin-category-workspace .admin-category-current-image,
+.admin-category-workspace .admin-category-image-browser {
   min-width: 0;
   display: grid;
   gap: 9px;
 }
 
-#categories .admin-category-image-picker {
+.admin-category-workspace .admin-category-image-picker {
   align-content: start;
   padding: 13px;
   border: 1px solid rgba(255,255,255,.12);
@@ -7047,7 +7062,7 @@ button[aria-label="Add to cart"]::before {
   background: rgba(255,255,255,.025);
 }
 
-#categories .admin-category-current-image img {
+.admin-category-workspace .admin-category-current-image img {
   width: 100%;
   height: 320px;
   object-fit: contain;
@@ -7056,13 +7071,13 @@ button[aria-label="Add to cart"]::before {
   background: #050505 center / cover no-repeat;
 }
 
-#categories .admin-category-current-image code {
+.admin-category-workspace .admin-category-current-image code {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--admin-muted);
 }
 
-#categories .admin-category-image-browser > summary {
+.admin-category-workspace .admin-category-image-browser > summary {
   min-height: 40px;
   display: grid;
   place-items: center;
@@ -7073,24 +7088,24 @@ button[aria-label="Add to cart"]::before {
   cursor: pointer;
 }
 
-#categories .admin-category-image-browser > label,
-#categories .admin-category-image-search-controls label {
+.admin-category-workspace .admin-category-image-browser > label,
+.admin-category-workspace .admin-category-image-search-controls label {
   display: grid;
   gap: 6px;
 }
 
-#categories .admin-category-image-search-controls {
+.admin-category-workspace .admin-category-image-search-controls {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(160px, 1fr);
   gap: 9px;
   align-items: end;
 }
 
-#categories [data-category-image-search-controls][hidden] {
+.admin-category-workspace [data-category-image-search-controls][hidden] {
   display: none;
 }
 
-#categories .admin-category-image-gallery {
+.admin-category-workspace .admin-category-image-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 9px;
@@ -7099,12 +7114,12 @@ button[aria-label="Add to cart"]::before {
   padding: 4px;
 }
 
-#categories .admin-category-image-load-more,
-#categories .admin-category-image-count {
+.admin-category-workspace .admin-category-image-load-more,
+.admin-category-workspace .admin-category-image-count {
   grid-column: 1 / -1;
 }
 
-#categories .admin-category-image-choice {
+.admin-category-workspace .admin-category-image-choice {
   min-width: 0;
   min-height: 150px;
   display: grid;
@@ -7117,36 +7132,36 @@ button[aria-label="Add to cart"]::before {
   color: var(--admin-text);
 }
 
-#categories .admin-category-image-choice.selected {
+.admin-category-workspace .admin-category-image-choice.selected {
   border-color: var(--admin-gold);
   box-shadow: 0 0 0 2px rgba(212,175,55,.25);
 }
 
-#categories .admin-category-image-choice img {
+.admin-category-workspace .admin-category-image-choice img {
   width: 100%;
   height: 112px;
   object-fit: contain;
 }
 
-#categories .admin-category-image-choice span {
+.admin-category-workspace .admin-category-image-choice span {
   overflow-wrap: anywhere;
   font-size: .72rem;
   line-height: 1.25;
 }
 
-#categories .admin-category-image-choice em {
+.admin-category-workspace .admin-category-image-choice em {
   color: var(--admin-gold-light);
   font-size: .72rem;
   font-style: normal;
   font-weight: 800;
 }
 
-#categories .admin-category-current-image [data-invalid-image="true"] {
+.admin-category-workspace .admin-category-current-image [data-invalid-image="true"] {
   color: #ffd18a;
   font-weight: 850;
 }
 
-#categories .admin-category-no-image {
+.admin-category-workspace .admin-category-no-image {
   min-height: 180px;
   display: grid;
   place-items: center;
@@ -7155,56 +7170,56 @@ button[aria-label="Add to cart"]::before {
   color: var(--admin-muted);
 }
 
-#categories .admin-category-appearance-grid {
+.admin-category-workspace .admin-category-appearance-grid {
   align-items: end;
 }
 
-#categories .admin-category-appearance-grid > label,
-#categories .admin-category-position-controls > label {
+.admin-category-workspace .admin-category-appearance-grid > label,
+.admin-category-workspace .admin-category-position-controls > label {
   min-width: 0;
   display: grid;
   gap: 6px;
 }
 
-#categories .admin-category-position-controls > label span {
+.admin-category-workspace .admin-category-position-controls > label span {
   color: var(--admin-muted);
   font-size: .74rem;
 }
 
-#categories .admin-category-position-controls output {
+.admin-category-workspace .admin-category-position-controls output {
   color: var(--admin-gold-light);
   font-weight: 850;
 }
 
-#categories .admin-category-position-controls .admin-panel-actions {
+.admin-category-workspace .admin-category-position-controls .admin-panel-actions {
   align-content: end;
   align-items: end;
 }
 
-#categories .admin-category-range-heading,
-#categories .admin-category-range-inputs {
+.admin-category-workspace .admin-category-range-heading,
+.admin-category-workspace .admin-category-range-inputs {
   display: flex;
   align-items: center;
   gap: 9px;
 }
 
-#categories .admin-category-range-heading {
+.admin-category-workspace .admin-category-range-heading {
   justify-content: space-between;
   color: var(--admin-text);
   font-size: .96rem;
   font-weight: 850;
 }
 
-#categories .admin-category-range-inputs > input[type="range"] {
+.admin-category-workspace .admin-category-range-inputs > input[type="range"] {
   flex: 1 1 auto;
 }
 
-#categories .admin-category-range-control > small {
+.admin-category-workspace .admin-category-range-control > small {
   color: var(--admin-muted);
   font-size: .72rem;
 }
 
-#categories .admin-category-ai-text-tools {
+.admin-category-workspace .admin-category-ai-text-tools {
   display: grid;
   gap: 10px;
   padding: 9px 11px;
@@ -7213,21 +7228,21 @@ button[aria-label="Add to cart"]::before {
   background: rgba(255,255,255,.025);
 }
 
-#categories .admin-category-ai-text-tools > summary {
+.admin-category-workspace .admin-category-ai-text-tools > summary {
   cursor: pointer;
   color: var(--admin-gold-light);
   font-size: 1rem;
   font-weight: 900;
 }
 
-#categories .admin-category-preview-status {
+.admin-category-workspace .admin-category-preview-status {
   color: var(--admin-gold-light);
   font-size: .82rem;
   font-weight: 850;
   text-align: center;
 }
 
-#categories .admin-category-draft-published-state {
+.admin-category-workspace .admin-category-draft-published-state {
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -7236,23 +7251,23 @@ button[aria-label="Add to cart"]::before {
   background: rgba(0,0,0,.28);
 }
 
-#categories [data-category-draft-preview-state] {
+.admin-category-workspace [data-category-draft-preview-state] {
   color: var(--admin-gold-light);
   font-size: .88rem;
   letter-spacing: .04em;
 }
 
-#categories [data-category-draft-preview-state][data-state="draft"] {
+.admin-category-workspace [data-category-draft-preview-state][data-state="draft"] {
   color: #ffd18a;
 }
 
-#categories .admin-category-reference-compare {
+.admin-category-workspace .admin-category-reference-compare {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
   gap: 8px;
 }
 
-#categories .admin-category-reference-compare article {
+.admin-category-workspace .admin-category-reference-compare article {
   min-width: 0;
   display: grid;
   grid-template-columns: 48px minmax(0,1fr);
@@ -7263,8 +7278,8 @@ button[aria-label="Add to cart"]::before {
   border-radius: 8px;
 }
 
-#categories .admin-category-reference-compare img,
-#categories .admin-category-reference-empty {
+.admin-category-workspace .admin-category-reference-compare img,
+.admin-category-workspace .admin-category-reference-empty {
   width: 48px;
   height: 48px;
   display: grid;
@@ -7277,38 +7292,38 @@ button[aria-label="Add to cart"]::before {
   text-align: center;
 }
 
-#categories .admin-category-reference-compare small {
+.admin-category-workspace .admin-category-reference-compare small {
   display: block;
   margin-top: 3px;
   color: var(--admin-muted);
   overflow-wrap: anywhere;
 }
 
-#categories .admin-category-nudge-controls {
+.admin-category-workspace .admin-category-nudge-controls {
   display: grid;
   grid-template-columns: repeat(6,minmax(0,1fr));
   gap: 6px;
 }
 
-#categories .admin-category-nudge-controls button {
+.admin-category-workspace .admin-category-nudge-controls button {
   min-width: 0;
   min-height: 38px;
   padding: 6px 7px;
   font-size: .82rem;
 }
 
-#categories .admin-category-settings-grid {
+.admin-category-workspace .admin-category-settings-grid {
   grid-template-columns: minmax(320px, 2fr) minmax(100px, .5fr) minmax(150px, .7fr) minmax(180px, .8fr);
   align-items: end;
 }
 
-#categories .admin-category-settings-grid > label {
+.admin-category-workspace .admin-category-settings-grid > label {
   min-width: 0;
   display: grid;
   gap: 6px;
 }
 
-#categories .admin-category-appearance > .admin-builder-preview-panel {
+.admin-category-workspace .admin-category-appearance > .admin-builder-preview-panel {
   position: static;
   width: 100%;
   min-width: 0;
@@ -7317,18 +7332,18 @@ button[aria-label="Add to cart"]::before {
   background: transparent;
 }
 
-#categories .admin-category-placement-preview {
+.admin-category-workspace .admin-category-placement-preview {
   min-height: 620px;
   grid-template-rows: minmax(430px, 1fr) auto;
 }
 
-#categories .admin-category-preview-stage {
+.admin-category-workspace .admin-category-preview-stage {
   position: relative;
   min-height: 430px;
   overflow: hidden;
 }
 
-#categories .admin-category-preview-stage > img {
+.admin-category-workspace .admin-category-preview-stage > img {
   position: absolute;
   width: auto;
   max-width: none;
@@ -7337,7 +7352,7 @@ button[aria-label="Add to cart"]::before {
   filter: drop-shadow(0 14px 18px rgba(0,0,0,.65));
 }
 
-#categories .admin-category-visibility-filters {
+.admin-category-workspace .admin-category-visibility-filters {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 7px;
@@ -7347,20 +7362,20 @@ button[aria-label="Add to cart"]::before {
   background: rgba(0,0,0,.25);
 }
 
-#categories .admin-category-visibility-filters button.active {
+.admin-category-workspace .admin-category-visibility-filters button.active {
   border-color: var(--admin-gold);
   background: var(--admin-gold);
   color: #090909;
 }
 
-#categories .admin-category-status-badges {
+.admin-category-workspace .admin-category-status-badges {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
 }
 
-#categories .admin-category-status-badges span {
+.admin-category-workspace .admin-category-status-badges span {
   padding: 4px 7px;
   border: 1px solid rgba(212,175,55,.32);
   border-radius: 999px;
@@ -7371,24 +7386,24 @@ button[aria-label="Add to cart"]::before {
   letter-spacing: .03em;
 }
 
-#categories .admin-category-status-badges [data-category-visibility-badge="hidden"],
-#categories .admin-category-status-badges [data-homepage-visibility-badge="hidden"] {
+.admin-category-workspace .admin-category-status-badges [data-category-visibility-badge="hidden"],
+.admin-category-workspace .admin-category-status-badges [data-homepage-visibility-badge="hidden"] {
   border-color: rgba(255,181,91,.48);
   background: rgba(140,73,15,.2);
   color: #ffd29a;
 }
 
-#categories .admin-category-card-summary button:disabled,
-#categories .admin-control-secondary {
+.admin-category-workspace .admin-category-card-summary button:disabled,
+.admin-category-workspace .admin-control-secondary {
   opacity: .52;
 }
 
-#categories .admin-control-secondary {
+.admin-category-workspace .admin-control-secondary {
   color: var(--admin-muted);
 }
 
-#categories .admin-category-text-controls,
-#categories .admin-child-group-creator {
+.admin-category-workspace .admin-category-text-controls,
+.admin-category-workspace .admin-child-group-creator {
   display: grid;
   gap: 12px;
   padding: 13px;
@@ -7397,36 +7412,36 @@ button[aria-label="Add to cart"]::before {
   background: rgba(255,255,255,.025);
 }
 
-#categories .admin-child-group-creator[hidden] {
+.admin-category-workspace .admin-child-group-creator[hidden] {
   display: none;
 }
 
-#categories .admin-category-text-controls h4,
-#categories .admin-child-group-creator h4 {
+.admin-category-workspace .admin-category-text-controls h4,
+.admin-category-workspace .admin-child-group-creator h4 {
   margin: 0;
 }
 
-#categories .admin-category-preview-text {
+.admin-category-workspace .admin-category-preview-text {
   overflow: hidden;
 }
 
-#categories .admin-category-preview-text h4,
-#categories .admin-category-preview-text p {
+.admin-category-workspace .admin-category-preview-text h4,
+.admin-category-workspace .admin-category-preview-text p {
   position: relative;
   transform-origin: center;
 }
 
-#categories .admin-category-card-publish-status {
+.admin-category-workspace .admin-category-card-publish-status {
   grid-column: 1 / -1;
   min-height: 1.2em;
   margin: 0;
 }
 
-#categories .admin-category-card-publish-status:empty {
+.admin-category-workspace .admin-category-card-publish-status:empty {
   display: none;
 }
 
-#categories .admin-category-editor-header {
+.admin-category-workspace .admin-category-editor-header {
   position: sticky;
   top: 0;
   z-index: 8;
@@ -7441,18 +7456,18 @@ button[aria-label="Add to cart"]::before {
   box-shadow: 0 8px 24px rgba(0,0,0,.28);
 }
 
-#categories .admin-category-editor-header h3 {
+.admin-category-workspace .admin-category-editor-header h3 {
   margin: 2px 0 0;
 }
 
-#categories .admin-category-editor-workspace {
+.admin-category-workspace .admin-category-editor-workspace {
   display: grid;
   grid-template-columns: minmax(420px, .95fr) minmax(560px, 1.25fr);
   gap: 20px;
   align-items: start;
 }
 
-#categories .admin-category-preview-column {
+.admin-category-workspace .admin-category-preview-column {
   position: sticky;
   top: 86px;
   display: grid;
@@ -7464,13 +7479,13 @@ button[aria-label="Add to cart"]::before {
   background: rgba(4,4,5,.7);
 }
 
-#categories .admin-category-controls-column {
+.admin-category-workspace .admin-category-controls-column {
   display: grid;
   gap: 15px;
   min-width: 0;
 }
 
-#categories .admin-shared-collection-background {
+.admin-category-workspace .admin-shared-collection-background {
   display: grid;
   gap: 14px;
   margin-top: 24px;
@@ -7480,11 +7495,11 @@ button[aria-label="Add to cart"]::before {
   background: rgba(4,4,5,.82);
 }
 
-#categories .admin-shared-collection-background:empty {
+.admin-category-workspace .admin-shared-collection-background:empty {
   display: none;
 }
 
-#categories .admin-featured-categories-layout-editor {
+.admin-category-workspace .admin-featured-categories-layout-editor {
   display: grid;
   grid-template-columns: minmax(360px, .78fr) minmax(620px, 1.45fr);
   gap: 18px;
@@ -7494,8 +7509,8 @@ button[aria-label="Add to cart"]::before {
   border-top: 1px solid rgba(212,175,55,.35);
 }
 
-#categories .admin-featured-categories-layout-controls,
-#categories .admin-featured-categories-layout-preview-column {
+.admin-category-workspace .admin-featured-categories-layout-controls,
+.admin-category-workspace .admin-featured-categories-layout-preview-column {
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -7505,26 +7520,26 @@ button[aria-label="Add to cart"]::before {
   background: rgba(8,8,9,.82);
 }
 
-#categories .admin-featured-categories-layout-controls h4,
-#categories .admin-featured-categories-grid-preview h4 {
+.admin-category-workspace .admin-featured-categories-layout-controls h4,
+.admin-category-workspace .admin-featured-categories-grid-preview h4 {
   margin: 0;
   color: #f4d06f;
 }
 
-#categories .admin-section-layout-controls {
+.admin-category-workspace .admin-section-layout-controls {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-#categories .admin-section-layout-controls > label:first-child {
+.admin-category-workspace .admin-section-layout-controls > label:first-child {
   grid-column: 1 / -1;
 }
 
-#categories .admin-featured-layout-control-groups {
+.admin-category-workspace .admin-featured-layout-control-groups {
   display: grid;
   gap: 10px;
 }
 
-#categories .admin-featured-layout-control-groups fieldset {
+.admin-category-workspace .admin-featured-layout-control-groups fieldset {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
   gap: 10px;
@@ -7534,18 +7549,18 @@ button[aria-label="Add to cart"]::before {
   border-radius: 9px;
 }
 
-#categories .admin-featured-layout-control-groups legend {
+.admin-category-workspace .admin-featured-layout-control-groups legend {
   padding: 0 6px;
   color: #f4d06f;
   font-weight: 900;
 }
 
-#categories .admin-featured-layout-control-groups .admin-note {
+.admin-category-workspace .admin-featured-layout-control-groups .admin-note {
   grid-column: 1 / -1;
   margin: 0;
 }
 
-#categories .admin-featured-categories-layout-preview-column {
+.admin-category-workspace .admin-featured-categories-layout-preview-column {
   position: sticky;
   top: 86px;
   min-height: 540px;
@@ -7554,33 +7569,33 @@ button[aria-label="Add to cart"]::before {
   overflow-y: auto;
 }
 
-#categories .admin-featured-section-control-group,
-#categories .admin-shared-category-text-style {
+.admin-category-workspace .admin-featured-section-control-group,
+.admin-category-workspace .admin-shared-category-text-style {
   padding: 10px;
   border: 1px solid rgba(212,175,55,.3);
   border-radius: 9px;
   background: rgba(4,4,5,.58);
 }
 
-#categories .admin-featured-section-control-group > summary,
-#categories .admin-shared-category-text-style > summary {
+.admin-category-workspace .admin-featured-section-control-group > summary,
+.admin-category-workspace .admin-shared-category-text-style > summary {
   cursor: pointer;
   color: #f4d06f;
   font-weight: 900;
 }
 
-#categories .admin-featured-section-control-group[open] > summary,
-#categories .admin-shared-category-text-style[open] > summary {
+.admin-category-workspace .admin-featured-section-control-group[open] > summary,
+.admin-category-workspace .admin-shared-category-text-style[open] > summary {
   margin-bottom: 10px;
 }
 
-#categories .admin-featured-categories-layout-preview-column > [data-featured-categories-layout-preview] {
+.admin-category-workspace .admin-featured-categories-layout-preview-column > [data-featured-categories-layout-preview] {
   display: grid;
   place-items: start center;
   min-width: 620px;
 }
 
-#categories .admin-featured-categories-grid-preview {
+.admin-category-workspace .admin-featured-categories-grid-preview {
   box-sizing: border-box;
   max-width: 100%;
   padding: var(--admin-featured-layout-padding-y) var(--admin-featured-layout-padding-x);
@@ -7591,19 +7606,19 @@ button[aria-label="Add to cart"]::before {
   transition: width .18s ease, padding .18s ease;
 }
 
-#categories .admin-featured-categories-grid-preview > h4 {
+.admin-category-workspace .admin-featured-categories-grid-preview > h4 {
   margin-bottom: 14px;
   text-align: center;
 }
 
-#categories .admin-featured-categories-preview-grid {
+.admin-category-workspace .admin-featured-categories-preview-grid {
   display: grid;
   grid-template-columns: repeat(var(--admin-featured-layout-columns), minmax(108px, 1fr));
   gap: var(--admin-featured-layout-gap);
   transition: gap .18s ease;
 }
 
-#categories .admin-featured-categories-preview-card {
+.admin-category-workspace .admin-featured-categories-preview-card {
   display: grid;
   grid-template-rows: var(--admin-featured-text-height) minmax(var(--admin-featured-image-height), 1fr);
   min-width: 0;
@@ -7614,14 +7629,14 @@ button[aria-label="Add to cart"]::before {
   color: #fff;
 }
 
-#categories .admin-featured-categories-preview-stage {
+.admin-category-workspace .admin-featured-categories-preview-stage {
   position: relative;
   min-height: var(--admin-featured-image-height);
   overflow: hidden;
   background: #050505;
 }
 
-#categories .admin-featured-categories-preview-stage > img {
+.admin-category-workspace .admin-featured-categories-preview-stage > img {
   position: absolute;
   z-index: 2;
   max-width: 88%;
@@ -7630,7 +7645,7 @@ button[aria-label="Add to cart"]::before {
   filter: drop-shadow(0 8px 8px rgba(0,0,0,.7));
 }
 
-#categories .admin-featured-categories-preview-text {
+.admin-category-workspace .admin-featured-categories-preview-text {
   display: grid;
   align-content: center;
   gap: var(--admin-featured-text-gap);
@@ -7641,23 +7656,23 @@ button[aria-label="Add to cart"]::before {
   text-align: var(--admin-featured-text-align);
 }
 
-#categories .admin-featured-categories-preview-text > strong,
-#categories .admin-featured-categories-preview-text > small,
-#categories .admin-featured-categories-preview-text > em {
+.admin-category-workspace .admin-featured-categories-preview-text > strong,
+.admin-category-workspace .admin-featured-categories-preview-text > small,
+.admin-category-workspace .admin-featured-categories-preview-text > em {
   overflow: hidden;
   margin: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-#categories .admin-featured-categories-preview-text > strong {
+.admin-category-workspace .admin-featured-categories-preview-text > strong {
   font-size: var(--admin-featured-title-size);
   font-family: var(--admin-featured-title-font);
   font-weight: var(--admin-featured-title-weight);
   line-height: var(--admin-featured-title-line-height);
 }
 
-#categories .admin-featured-categories-preview-text > small {
+.admin-category-workspace .admin-featured-categories-preview-text > small {
   color: #d8ccb0;
   font-size: var(--admin-featured-description-size);
   font-family: var(--admin-featured-description-font);
@@ -7665,13 +7680,13 @@ button[aria-label="Add to cart"]::before {
   line-height: var(--admin-featured-description-line-height);
 }
 
-#categories .admin-featured-categories-preview-text > em {
+.admin-category-workspace .admin-featured-categories-preview-text > em {
   color: #f4d06f;
   font-size: max(8px, calc(var(--admin-featured-description-size) - 2px));
   font-style: normal;
 }
 
-#categories .admin-collection-lifecycle-bar {
+.admin-category-workspace .admin-collection-lifecycle-bar {
   position: static;
   display: grid;
   gap: 8px;
@@ -7683,15 +7698,15 @@ button[aria-label="Add to cart"]::before {
   box-shadow: 0 8px 24px rgba(0,0,0,.34);
 }
 
-#categories .admin-collection-lifecycle-bar .admin-panel-actions {
+.admin-category-workspace .admin-collection-lifecycle-bar .admin-panel-actions {
   justify-content: flex-end;
 }
 
-#categories .admin-collection-lifecycle-bar .admin-status {
+.admin-category-workspace .admin-collection-lifecycle-bar .admin-status {
   margin: 0;
 }
 
-#categories .admin-category-background-mode {
+.admin-category-workspace .admin-category-background-mode {
   margin: 0;
   padding: 8px 10px;
   border: 1px solid rgba(212,175,55,.28);
@@ -7699,12 +7714,12 @@ button[aria-label="Add to cart"]::before {
   background: rgba(244,208,111,.07);
 }
 
-#categories .admin-category-editor-actions {
+.admin-category-workspace .admin-category-editor-actions {
   justify-content: flex-end;
   padding: 10px;
 }
 
-#categories .admin-category-editor-action-stack {
+.admin-category-workspace .admin-category-editor-action-stack {
   position: sticky;
   top: 86px;
   z-index: 7;
@@ -7717,19 +7732,19 @@ button[aria-label="Add to cart"]::before {
   box-shadow: 0 8px 20px rgba(0,0,0,.24);
 }
 
-#categories .admin-category-preview-column .admin-category-placement-preview {
+.admin-category-workspace .admin-category-preview-column .admin-category-placement-preview {
   min-height: 640px;
   grid-template-rows: var(--featured-categories-text-box-height, 74px) minmax(var(--featured-categories-image-area-min-height, 420px), 1fr) auto;
 }
 
-#categories .admin-category-preview-visual-editor {
+.admin-category-workspace .admin-category-preview-visual-editor {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 58px;
   align-items: stretch;
   gap: 9px;
 }
 
-#categories .admin-category-preview-size-control {
+.admin-category-workspace .admin-category-preview-size-control {
   min-width: 0;
   display: grid;
   grid-template-rows: auto auto minmax(220px, 1fr);
@@ -7741,7 +7756,7 @@ button[aria-label="Add to cart"]::before {
   background: rgba(0,0,0,.52);
 }
 
-#categories .admin-category-preview-size-control > span {
+.admin-category-workspace .admin-category-preview-size-control > span {
   color: var(--admin-gold-light);
   font-size: .75rem;
   font-weight: 850;
@@ -7749,7 +7764,7 @@ button[aria-label="Add to cart"]::before {
   text-align: center;
 }
 
-#categories .admin-category-preview-size-control > output {
+.admin-category-workspace .admin-category-preview-size-control > output {
   width: 46px;
   padding: 5px 2px;
   border: 1px solid rgba(212,175,55,.34);
@@ -7761,7 +7776,7 @@ button[aria-label="Add to cart"]::before {
   text-align: center;
 }
 
-#categories .admin-category-preview-size-control > input[type="range"] {
+.admin-category-workspace .admin-category-preview-size-control > input[type="range"] {
   width: 24px;
   height: 100%;
   min-height: 220px;
@@ -7771,17 +7786,17 @@ button[aria-label="Add to cart"]::before {
   writing-mode: vertical-lr;
 }
 
-#categories .admin-main-collection-edit [data-category-preview-image] {
+.admin-category-workspace .admin-main-collection-edit [data-category-preview-image] {
   cursor: grab;
   touch-action: none;
   user-select: none;
 }
 
-#categories .admin-main-collection-edit [data-category-preview-image]:active {
+.admin-category-workspace .admin-main-collection-edit [data-category-preview-image]:active {
   cursor: grabbing;
 }
 
-#categories .admin-category-image-visibility {
+.admin-category-workspace .admin-category-image-visibility {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -7790,7 +7805,7 @@ button[aria-label="Add to cart"]::before {
   border-radius: 8px;
 }
 
-#categories .admin-shared-text-workspace {
+.admin-category-workspace .admin-shared-text-workspace {
   display: grid;
   grid-template-columns: minmax(0,1.25fr) minmax(260px,.75fr);
   gap: 14px;
@@ -7798,12 +7813,12 @@ button[aria-label="Add to cart"]::before {
   margin-top: 10px;
 }
 
-#categories .admin-shared-text-control-groups {
+.admin-category-workspace .admin-shared-text-control-groups {
   display: grid;
   gap: 10px;
 }
 
-#categories .admin-shared-text-control-groups fieldset {
+.admin-category-workspace .admin-shared-text-control-groups fieldset {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
   gap: 9px;
@@ -7813,13 +7828,13 @@ button[aria-label="Add to cart"]::before {
   border-radius: 9px;
 }
 
-#categories .admin-shared-text-control-groups legend {
+.admin-category-workspace .admin-shared-text-control-groups legend {
   padding: 0 6px;
   color: #f4d06f;
   font-weight: 900;
 }
 
-#categories .admin-shared-text-preview {
+.admin-category-workspace .admin-shared-text-preview {
   position: sticky;
   top: 90px;
   padding: 14px;
@@ -7828,7 +7843,7 @@ button[aria-label="Add to cart"]::before {
   background: #050505;
 }
 
-#categories .admin-shared-text-preview::before {
+.admin-category-workspace .admin-shared-text-preview::before {
   content: "Text Preview";
   display: block;
   margin-bottom: 9px;
@@ -7839,7 +7854,7 @@ button[aria-label="Add to cart"]::before {
   text-transform: uppercase;
 }
 
-#categories .admin-shared-text-preview > div {
+.admin-category-workspace .admin-shared-text-preview > div {
   display: grid;
   align-content: center;
   overflow: hidden;
@@ -7849,9 +7864,9 @@ button[aria-label="Add to cart"]::before {
   background: rgba(255,255,255,.035);
 }
 
-#categories .admin-shared-text-preview strong,
-#categories .admin-shared-text-preview small,
-#categories .admin-shared-text-preview em {
+.admin-category-workspace .admin-shared-text-preview strong,
+.admin-category-workspace .admin-shared-text-preview small,
+.admin-category-workspace .admin-shared-text-preview em {
   overflow: hidden;
   margin: 0;
   text-overflow: ellipsis;
@@ -7859,52 +7874,52 @@ button[aria-label="Add to cart"]::before {
 }
 
 @media (max-width: 1099px) {
-  #categories .admin-shared-text-workspace {
+  .admin-category-workspace .admin-shared-text-workspace {
     grid-template-columns: minmax(0,1fr);
   }
 
-  #categories .admin-shared-text-preview {
+  .admin-category-workspace .admin-shared-text-preview {
     position: static;
   }
 }
 
-#categories .admin-shared-text-preview em {
+.admin-category-workspace .admin-shared-text-preview em {
   color: #f4d06f;
   font-size: 11px;
   font-style: normal;
 }
 
-#categories .admin-category-image-section .admin-category-current-image img,
-#categories .admin-category-background-section .admin-category-current-image img {
+.admin-category-workspace .admin-category-image-section .admin-category-current-image img,
+.admin-category-workspace .admin-category-background-section .admin-category-current-image img {
   height: 220px;
 }
 
-#categories .admin-category-position-controls {
+.admin-category-workspace .admin-category-position-controls {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-#categories .admin-category-position-controls > label:first-child {
+.admin-category-workspace .admin-category-position-controls > label:first-child {
   grid-column: 1 / -1;
 }
 
-#categories .admin-category-range-value {
+.admin-category-workspace .admin-category-range-value {
   display: inline-flex !important;
   align-items: center;
   gap: 4px;
   color: var(--admin-text) !important;
 }
 
-#categories .admin-category-range-value input {
+.admin-category-workspace .admin-category-range-value input {
   width: 92px;
 }
 
-#categories .admin-category-background-section > label {
+.admin-category-workspace .admin-category-background-section > label {
   display: grid;
   gap: 6px;
 }
 
 @media (min-width: 1100px) {
-  .admin-shell #categories {
+  .admin-shell .admin-category-workspace {
     position: relative;
     left: 50%;
     width: min(calc(100vw - 48px), 1760px);
@@ -7913,121 +7928,121 @@ button[aria-label="Add to cart"]::before {
     transform: translateX(-50%);
   }
 
-  #categories .admin-category-card-summary {
+  .admin-category-workspace .admin-category-card-summary {
     grid-template-columns: 76px minmax(190px, .6fr) minmax(340px, 1fr) minmax(560px, 1.4fr);
     align-items: center;
     gap: 8px 14px;
   }
 
-  #categories .admin-category-card-summary.bulk-select-active {
+  .admin-category-workspace .admin-category-card-summary.bulk-select-active {
     grid-template-columns: auto 76px minmax(190px, .6fr) minmax(340px, 1fr) minmax(560px, 1.4fr);
   }
 
-  #categories .admin-category-card-summary .admin-review-image {
+  .admin-category-workspace .admin-category-card-summary .admin-review-image {
     width: 76px;
     height: 76px;
   }
 
-#categories .admin-category-card-summary dl {
+.admin-category-workspace .admin-category-card-summary dl {
     grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
   }
 
-  #categories .admin-category-more-menu {
+  .admin-category-workspace .admin-category-more-menu {
     min-width: 86px;
   }
 
-  #categories .admin-category-card-summary > .admin-card-actions {
+  .admin-category-workspace .admin-category-card-summary > .admin-card-actions {
     grid-column: auto;
     justify-content: flex-end;
   }
 
-  #categories .admin-category-product-row {
+  .admin-category-workspace .admin-category-product-row {
     grid-template-columns: 82px minmax(190px, .7fr) minmax(360px, 1.4fr) minmax(300px, auto);
   }
 }
 
 @media (min-width: 1100px) {
-  #categories .admin-category-manager-card {
+  .admin-category-workspace .admin-category-manager-card {
     gap: 8px;
     padding: 10px 12px;
   }
 
-  #categories .admin-category-card-summary dl {
+  .admin-category-workspace .admin-category-card-summary dl {
     gap: 5px;
   }
 
-  #categories .admin-category-card-summary dl div {
+  .admin-category-workspace .admin-category-card-summary dl div {
     padding: 5px 7px;
   }
 
-  #categories .admin-category-card-summary dt,
-  #categories .admin-category-status-badges span {
+  .admin-category-workspace .admin-category-card-summary dt,
+  .admin-category-workspace .admin-category-status-badges span {
     font-size: .78rem;
   }
 
-  #categories .admin-category-card-summary dd {
+  .admin-category-workspace .admin-category-card-summary dd {
     font-size: 1rem;
   }
 
-  #categories .admin-category-card-summary .admin-card-actions {
+  .admin-category-workspace .admin-category-card-summary .admin-card-actions {
     flex-wrap: wrap;
     gap: 6px;
   }
 
-  #categories .admin-category-card-summary .admin-card-actions button {
+  .admin-category-workspace .admin-category-card-summary .admin-card-actions button {
     min-height: 38px;
     padding: 7px 10px;
     font-size: .95rem;
     white-space: nowrap;
   }
 
-  #categories .admin-category-edit-form {
+  .admin-category-workspace .admin-category-edit-form {
     gap: 10px;
     padding: 10px;
   }
 
-  #categories .admin-category-editor-workspace {
+  .admin-category-workspace .admin-category-editor-workspace {
     grid-template-columns: minmax(400px,.84fr) minmax(560px,1.16fr);
     gap: 14px;
   }
 
-  #categories .admin-category-controls-column {
+  .admin-category-workspace .admin-category-controls-column {
     grid-template-columns: minmax(0,1fr);
     gap: 10px;
   }
 
-  #categories .admin-category-editor-action-stack { order: 0; }
-  #categories .admin-main-collection-edit .admin-homepage-collection-card-identity { order: 1; }
-  #categories .admin-main-collection-edit .admin-category-image-section { order: 2; }
-  #categories .admin-main-collection-edit .admin-category-background-section { order: 3; }
-  #categories .admin-main-collection-edit .admin-category-information { order: 4; }
-  #categories .admin-main-collection-edit .admin-category-settings { order: 5; }
-  #categories .admin-main-collection-edit .admin-advanced-fields { order: 6; }
+  .admin-category-workspace .admin-category-editor-action-stack { order: 0; }
+  .admin-category-workspace .admin-main-collection-edit .admin-homepage-collection-card-identity { order: 1; }
+  .admin-category-workspace .admin-main-collection-edit .admin-category-image-section { order: 2; }
+  .admin-category-workspace .admin-main-collection-edit .admin-category-background-section { order: 3; }
+  .admin-category-workspace .admin-main-collection-edit .admin-category-information { order: 4; }
+  .admin-category-workspace .admin-main-collection-edit .admin-category-settings { order: 5; }
+  .admin-category-workspace .admin-main-collection-edit .admin-advanced-fields { order: 6; }
 
-  #categories .admin-category-editor-section {
+  .admin-category-workspace .admin-category-editor-section {
     gap: 9px;
     padding: 10px 12px;
   }
 
-  #categories .admin-category-information .admin-input-group,
-  #categories .admin-category-position-controls {
+  .admin-category-workspace .admin-category-information .admin-input-group,
+  .admin-category-workspace .admin-category-position-controls {
     gap: 8px 10px;
   }
 
-  #categories .admin-category-position-controls {
+  .admin-category-workspace .admin-category-position-controls {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  #categories .admin-category-position-controls > label:first-child {
+  .admin-category-workspace .admin-category-position-controls > label:first-child {
     grid-column: auto;
   }
 
-  #categories .admin-category-image-section .admin-category-current-image img,
-  #categories .admin-category-background-section .admin-category-current-image img {
+  .admin-category-workspace .admin-category-image-section .admin-category-current-image img,
+  .admin-category-workspace .admin-category-background-section .admin-category-current-image img {
     height: 88px;
   }
 
-  #categories .admin-category-preview-column {
+  .admin-category-workspace .admin-category-preview-column {
     position: sticky;
     top: 86px;
     align-self: start;
@@ -8036,7 +8051,7 @@ button[aria-label="Add to cart"]::before {
     padding: 10px 12px;
   }
 
-  #categories .admin-category-preview-column .admin-category-placement-preview {
+  .admin-category-workspace .admin-category-preview-column .admin-category-placement-preview {
     width: 100%;
     min-height: 520px;
     margin-inline: auto;
@@ -8044,207 +8059,207 @@ button[aria-label="Add to cart"]::before {
     grid-template-rows: var(--featured-categories-text-box-height, 74px) minmax(var(--featured-categories-image-area-min-height, 420px), 1fr) auto;
   }
 
-  #categories .admin-category-preview-column .admin-builder-preview-panel {
+  .admin-category-workspace .admin-category-preview-column .admin-builder-preview-panel {
     position: static;
     padding: 0;
     border: 0;
     background: transparent;
   }
 
-  #categories .admin-category-preview-column .admin-category-preview-stage {
+  .admin-category-workspace .admin-category-preview-column .admin-category-preview-stage {
     min-height: 380px;
   }
 
-  #categories .admin-category-information .admin-input-group {
+  .admin-category-workspace .admin-category-information .admin-input-group {
     grid-template-columns: minmax(220px, .7fr) minmax(320px, 1.15fr) minmax(280px, 1fr);
   }
 
-  #categories .admin-category-information .admin-input-group > label:nth-child(n) {
+  .admin-category-workspace .admin-category-information .admin-input-group > label:nth-child(n) {
     grid-column: auto;
   }
 
-  #categories .admin-category-image-section,
-  #categories .admin-category-background-section {
+  .admin-category-workspace .admin-category-image-section,
+  .admin-category-workspace .admin-category-background-section {
     align-content: start;
   }
 
-  #categories .admin-main-collection-edit .admin-category-image-picker {
+  .admin-category-workspace .admin-main-collection-edit .admin-category-image-picker {
     grid-template-columns: 104px minmax(0,1fr);
     align-items: center;
     padding: 8px;
   }
 
-  #categories .admin-main-collection-edit .admin-category-current-image {
+  .admin-category-workspace .admin-main-collection-edit .admin-category-current-image {
     display: contents;
   }
 
-  #categories .admin-main-collection-edit .admin-category-current-image > strong,
-  #categories .admin-main-collection-edit .admin-category-current-image > span,
-  #categories .admin-main-collection-edit .admin-category-current-image > .admin-panel-actions,
-  #categories .admin-main-collection-edit .admin-category-current-image > details {
+  .admin-category-workspace .admin-main-collection-edit .admin-category-current-image > strong,
+  .admin-category-workspace .admin-main-collection-edit .admin-category-current-image > span,
+  .admin-category-workspace .admin-main-collection-edit .admin-category-current-image > .admin-panel-actions,
+  .admin-category-workspace .admin-main-collection-edit .admin-category-current-image > details {
     grid-column: 2;
   }
 
-  #categories .admin-main-collection-edit .admin-category-current-image > img,
-  #categories .admin-main-collection-edit .admin-category-current-image > .admin-category-no-image {
+  .admin-category-workspace .admin-main-collection-edit .admin-category-current-image > img,
+  .admin-category-workspace .admin-main-collection-edit .admin-category-current-image > .admin-category-no-image {
     grid-column: 1;
     grid-row: 1 / span 4;
     width: 96px;
     min-height: 72px;
   }
 
-  #categories .admin-main-collection-edit .admin-category-image-browser {
+  .admin-category-workspace .admin-main-collection-edit .admin-category-image-browser {
     grid-column: 1 / -1;
   }
 
-  #categories .admin-category-position-controls > label {
+  .admin-category-workspace .admin-category-position-controls > label {
     padding: 7px 8px;
     border: 1px solid rgba(255,255,255,.08);
     border-radius: 8px;
     background: rgba(255,255,255,.02);
   }
 
-  #categories .admin-category-position-controls > label > small {
+  .admin-category-workspace .admin-category-position-controls > label > small {
     display: none;
   }
 
-  #categories .admin-category-range-value input {
+  .admin-category-workspace .admin-category-range-value input {
     width: 76px;
     min-height: 38px;
     padding: 6px 8px;
     font-size: 1rem;
   }
 
-  #categories .admin-category-section-actions {
+  .admin-category-workspace .admin-category-section-actions {
     gap: 6px;
   }
 
-  #categories .admin-category-section-actions button {
+  .admin-category-workspace .admin-category-section-actions button {
     min-height: 38px;
     padding: 6px 9px;
   }
 }
 
 @media (min-width: 721px) and (max-width: 1099px) {
-  #categories .admin-featured-categories-layout-editor {
+  .admin-category-workspace .admin-featured-categories-layout-editor {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #categories .admin-featured-categories-layout-preview-column {
+  .admin-category-workspace .admin-featured-categories-layout-preview-column {
     position: static;
     max-height: none;
   }
 
-  #categories .admin-featured-categories-layout-preview-column > [data-featured-categories-layout-preview] {
+  .admin-category-workspace .admin-featured-categories-layout-preview-column > [data-featured-categories-layout-preview] {
     min-width: 560px;
   }
 
-  #categories .admin-category-editor-workspace {
+  .admin-category-workspace .admin-category-editor-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #categories .admin-category-preview-column {
+  .admin-category-workspace .admin-category-preview-column {
     position: static;
   }
 
-  #categories .admin-category-editor-actions {
+  .admin-category-workspace .admin-category-editor-actions {
     position: static;
     justify-content: stretch;
   }
 
-  #categories .admin-category-editor-action-stack {
+  .admin-category-workspace .admin-category-editor-action-stack {
     position: static;
   }
 
-  #categories .admin-category-editor-actions button {
+  .admin-category-workspace .admin-category-editor-actions button {
     flex: 1 1 140px;
   }
 
-  #categories .admin-category-card-summary {
+  .admin-category-workspace .admin-category-card-summary {
     grid-template-columns: 92px minmax(0, 1fr);
   }
 
-  #categories .admin-category-card-summary.bulk-select-active {
+  .admin-category-workspace .admin-category-card-summary.bulk-select-active {
     grid-template-columns: auto 92px minmax(0, 1fr);
   }
 
-  #categories .admin-category-card-summary dl,
-  #categories .admin-category-card-summary > .admin-card-actions {
+  .admin-category-workspace .admin-category-card-summary dl,
+  .admin-category-workspace .admin-category-card-summary > .admin-card-actions {
     grid-column: 1 / -1;
   }
 
-  #categories .admin-category-edit-form .admin-input-group {
+  .admin-category-workspace .admin-category-edit-form .admin-input-group {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  #categories .admin-category-edit-form .admin-input-group > label:nth-child(2),
-  #categories .admin-category-edit-form .admin-input-group > label:nth-child(3),
-  #categories .admin-category-edit-form .admin-input-group > label:nth-child(6) {
+  .admin-category-workspace .admin-category-edit-form .admin-input-group > label:nth-child(2),
+  .admin-category-workspace .admin-category-edit-form .admin-input-group > label:nth-child(3),
+  .admin-category-workspace .admin-category-edit-form .admin-input-group > label:nth-child(6) {
     grid-column: 1 / -1;
   }
 
-  #categories .admin-category-position-controls {
+  .admin-category-workspace .admin-category-position-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  #categories .admin-category-settings-grid {
+  .admin-category-workspace .admin-category-settings-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  #categories .admin-category-nudge-controls {
+  .admin-category-workspace .admin-category-nudge-controls {
     grid-template-columns: repeat(3,minmax(0,1fr));
   }
 
-  #categories .admin-category-settings-grid > label:first-child {
+  .admin-category-workspace .admin-category-settings-grid > label:first-child {
     grid-column: 1 / -1;
   }
 }
 
 @media (max-width: 720px) {
-  #categories .admin-featured-categories-layout-editor,
-  #categories .admin-section-layout-controls {
+  .admin-category-workspace .admin-featured-categories-layout-editor,
+  .admin-category-workspace .admin-section-layout-controls {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #categories .admin-section-layout-controls > label:first-child {
+  .admin-category-workspace .admin-section-layout-controls > label:first-child {
     grid-column: auto;
   }
 
-  #categories .admin-featured-categories-layout-preview-column {
+  .admin-category-workspace .admin-featured-categories-layout-preview-column {
     position: static;
     min-height: 0;
     max-height: none;
   }
 
-  #categories .admin-featured-categories-layout-preview-column > [data-featured-categories-layout-preview] {
+  .admin-category-workspace .admin-featured-categories-layout-preview-column > [data-featured-categories-layout-preview] {
     min-width: 520px;
   }
 
-  #categories .admin-category-editor-header {
+  .admin-category-workspace .admin-category-editor-header {
     position: static;
     align-items: stretch;
     flex-direction: column;
   }
 
-  #categories .admin-category-editor-workspace {
+  .admin-category-workspace .admin-category-editor-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #categories .admin-category-preview-column {
+  .admin-category-workspace .admin-category-preview-column {
     position: static;
   }
 
-  #categories .admin-category-preview-visual-editor {
+  .admin-category-workspace .admin-category-preview-visual-editor {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #categories .admin-category-preview-size-control {
+  .admin-category-workspace .admin-category-preview-size-control {
     grid-template-columns: auto auto minmax(160px, 1fr);
     grid-template-rows: auto;
     align-items: center;
   }
 
-  #categories .admin-category-preview-size-control > input[type="range"] {
+  .admin-category-workspace .admin-category-preview-size-control > input[type="range"] {
     width: 100%;
     height: auto;
     min-height: 18px;
@@ -8252,51 +8267,51 @@ button[aria-label="Add to cart"]::before {
     writing-mode: horizontal-tb;
   }
 
-  #categories .admin-category-editor-action-stack {
+  .admin-category-workspace .admin-category-editor-action-stack {
     position: static;
   }
 
-  #categories .admin-category-preview-column .admin-category-placement-preview {
+  .admin-category-workspace .admin-category-preview-column .admin-category-placement-preview {
     min-height: 430px;
     grid-template-rows: minmax(300px, 1fr) auto;
   }
 
-  #categories .admin-category-card-summary,
-  #categories .admin-category-edit-form .admin-input-group,
-  #categories .admin-category-product-row {
+  .admin-category-workspace .admin-category-card-summary,
+  .admin-category-workspace .admin-category-edit-form .admin-input-group,
+  .admin-category-workspace .admin-category-product-row {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #categories .admin-category-picker-grid,
-  #categories .admin-category-appearance-grid,
-  #categories .admin-category-position-controls {
+  .admin-category-workspace .admin-category-picker-grid,
+  .admin-category-workspace .admin-category-appearance-grid,
+  .admin-category-workspace .admin-category-position-controls {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #categories .admin-category-settings-grid {
+  .admin-category-workspace .admin-category-settings-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #categories .admin-category-reference-compare,
-  #categories .admin-category-nudge-controls {
+  .admin-category-workspace .admin-category-reference-compare,
+  .admin-category-workspace .admin-category-nudge-controls {
     grid-template-columns: repeat(2,minmax(0,1fr));
   }
 
-  #categories .admin-category-settings-grid > label:first-child {
+  .admin-category-workspace .admin-category-settings-grid > label:first-child {
     grid-column: 1 / -1;
   }
 
-  #categories .admin-child-group-row {
+  .admin-category-workspace .admin-child-group-row {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #categories .admin-child-group-row > * {
+  .admin-category-workspace .admin-child-group-row > * {
     grid-column: 1 / -1;
   }
 
-  #categories .admin-category-card-summary > *,
-  #categories .admin-category-edit-form .admin-input-group > label,
-  #categories .admin-category-product-row > * {
+  .admin-category-workspace .admin-category-card-summary > *,
+  .admin-category-workspace .admin-category-edit-form .admin-input-group > label,
+  .admin-category-workspace .admin-category-product-row > * {
     grid-column: 1 / -1 !important;
   }
 }
@@ -9312,12 +9327,12 @@ button[aria-label="Add to cart"]::before {
 .admin-collection-change-report li { margin: 3px 0; }
 
 @media (min-width: 1100px) {
-  .admin-shell .admin-page:has(#categories:not([hidden])) {
+  .admin-shell .admin-page:has(.admin-category-workspace:not([hidden])) {
     width: min(96%, 1680px) !important;
     max-width: 1680px;
   }
 
-  #categories .admin-category-editor-workspace {
+  .admin-category-workspace .admin-category-editor-workspace {
     grid-template-columns: minmax(360px, .78fr) minmax(480px, 1.22fr);
   }
 }

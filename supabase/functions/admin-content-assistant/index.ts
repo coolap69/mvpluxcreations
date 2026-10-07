@@ -53,6 +53,11 @@ function cleanText(value: unknown, max: number) {
   return String(value || '').trim().slice(0, max);
 }
 
+function cleanOriginalHeight(value: unknown) {
+  const height = Number(value);
+  return Number.isFinite(height) && height >= 12 && height <= 120 ? String(Math.round(height)) : '';
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: headers(request) });
   if (request.method !== 'POST') return json(request, { error: 'Method not allowed.' }, 405);
@@ -80,6 +85,7 @@ Deno.serve(async (request) => {
     const currentTitle = cleanText(context.title, 160);
     const currentDescription = cleanText(context.description, action === 'designBrief' ? 3000 : 800);
     const currentFunFact = cleanText(context.funFact, 400);
+    const currentOriginalHeight = cleanText(context.originalHeight, 30);
     if (!identity && !imagePath && !category && !currentTitle && !currentDescription && !currentFunFact) {
       return json(request, { error: 'Choose an image or enter some product information first.' }, 400);
     }
@@ -87,17 +93,19 @@ Deno.serve(async (request) => {
       action === 'designBrief'
         ? 'Create an internal production design brief from a customer custom-standee request.'
         : 'Create concise customer-facing content for a custom cardboard standee store.',
-      'Return only valid JSON with keys title, description, and funFact.',
+      'Return only valid JSON with keys title, description, funFact, and originalHeight.',
       `Requested action: ${action}.`,
       `Authoritative identity/context supplied by the Admin: ${identity || 'not supplied'}.`,
       `Category context: ${category || 'not selected'}.`,
       `Current title: ${currentTitle || 'blank'}.`,
       `Current description: ${currentDescription || 'blank'}.`,
       `Current fun fact: ${currentFunFact || 'blank'}.`,
+      `Current original height: ${currentOriginalHeight || 'blank'}.`,
       'For title requests, provide a concise customer-friendly title.',
       'For description requests, describe only details supported by the supplied context or visible image.',
       'For fun facts, do not invent a fact. If the subject cannot be identified reliably, explain briefly that more information is needed.',
-      'For fillAll requests, create a coordinated title, description, and fun fact using only the supplied text context.',
+      'For fillAll requests, create a coordinated title, description, fun fact, and original height using only the supplied context.',
+      'For originalHeight, return only the commonly listed full-size real-world height as a whole number of inches. If it is unknown, uncertain, not applicable, or cannot be supported by the supplied identity/context, return an empty string. Never estimate height from image pixels.',
       'For improve requests, preserve the meaning and useful details of the existing text.',
       'For designBrief requests, put the complete editable brief in description. Organize only supplied facts into subject, composition, size, reference notes, customer preferences, open questions, and production checks. Never claim artwork is approved or ready to publish.',
       'When the Admin supplies identity/context, treat it as authoritative. Never replace, contradict, or override it based on the image.',
@@ -115,6 +123,7 @@ Deno.serve(async (request) => {
       title: cleanText(suggestion.title, 70),
       description: cleanedDescription,
       funFact: cleanText(suggestion.funFact, 180),
+      originalHeight: cleanOriginalHeight(suggestion.originalHeight),
       ...(action === 'designBrief' ? { designBrief: cleanedDescription } : {})
     });
   } catch (error) {

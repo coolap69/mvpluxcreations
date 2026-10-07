@@ -81,11 +81,14 @@ Deno.test('Custom Other, Custom Photo, and Party Packs remain separate for the A
   assert(assignments.filter((key) => key === 'small-party-packs').length === 0, 'Party Packs must remain unassigned');
 });
 
-Deno.test('Admin Category manager exposes products, image selection, draft, preview, scoped publish, and deletion controls', async () => {
+Deno.test('Admin Category manager exposes products, image selection, one Collection save action, preview, and deletion controls', async () => {
   const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   for (const token of ['Search Main Collections', 'All Collections', 'Visible', 'Hidden', 'Delete Selected Collections', 'adminCategoryBuilderMount']) assert(html.includes(token), `missing ${token}`);
-  for (const token of ['Open Product / Standee Cards', 'Delete Main Collection', 'data-category-product', 'data-remove-product-category', 'data-category-image-picker', 'Save Draft', 'data-preview-category-edit', 'data-publish-category-edit']) assert(source.includes(token), `missing ${token}`);
+  for (const token of ['Open Product / Standee Cards', 'Delete Main Collection', 'data-category-product', 'data-remove-product-category', 'data-category-image-picker', 'data-preview-category-edit']) assert(source.includes(token), `missing ${token}`);
+  assert((html.match(/id="saveAllLiveCollections"/g) || []).length === 1, 'Collections must expose exactly one page-level save action');
+  const categoryEditor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
+  assert(!categoryEditor.includes('Save Changes / Save Draft') && !categoryEditor.includes('data-publish-category-edit'), 'individual Collection editors must not duplicate the page-level save action');
   assert(source.includes('saveLiveChangeIds([`category:${categoryKey}`]'), 'Main Collection Save Live must use the one normalized public-live controller');
   assert(source.includes('collectionKey: \'deletedCategories\''), 'Category deletion must persist a tombstone');
 });
@@ -125,14 +128,14 @@ Deno.test('Category editor uses a compact two-column preview and control workspa
   for (const section of ['Live Homepage Collection Card Preview', 'Main Collection Information', 'Representative Product / Standee', 'Homepage Collection Card Image', 'Visibility & Homepage Order', '<summary>Advanced</summary>']) {
     assert(editor.includes(section), `Category editor is missing ${section}`);
   }
-  assert(editor.includes("${parent ? `${sectionStart('admin-category-background-section', 'Child Group Background', true)}") && !editor.includes("sectionStart('admin-category-background-section', parent ? 'Child Group Background' : 'Homepage Collection Card Background'"), 'background controls must remain available only for Child Groups, not individual Homepage Collection Cards');
+  assert(editor.includes("${parent ? `${sectionStart('admin-category-background-section', 'Subcollection Background', true)}") && !editor.includes("sectionStart('admin-category-background-section', parent ? 'Subcollection Background' : 'Homepage Collection Card Background'"), 'background controls must remain available only for Subcollections, not individual Homepage Collection Cards');
   assert(editor.includes('admin-category-editor-workspace') && editor.includes('admin-category-preview-column') && editor.includes('admin-category-controls-column'), 'editor must expose the desktop preview/control workspace');
   assert(editor.includes('data-category-edit-preview') && !editor.includes('data-category-edit-preview hidden'), 'live preview must be visible as soon as the lazy editor mounts');
   const manager = source.slice(source.indexOf('function renderCategoryManager()'), source.indexOf('function updateDeleteSelectedCategoriesButton'));
-  assert(manager.includes("container.querySelectorAll('.admin-category-edit-form[data-category-edit]').forEach((form) => previewCategoryEdit(form))"), 'every already-open Collection editor must rebuild its large preview after the manager rerenders');
+  assert(manager.includes("document.querySelectorAll('.admin-category-workspace .admin-category-edit-form[data-category-edit]').forEach((form) => previewCategoryEdit(form))"), 'every already-open Main Collection or dedicated Subcollection editor must rebuild its large preview after the manager rerenders');
   assert(editor.includes("categoryDisplayRangeMarkup('standeeSizePercent'") && source.includes('data-category-display-number') && source.includes('data-category-display-range'), 'image placement must keep numeric and slider controls together');
-  assert(styles.includes('#categories .admin-category-editor-workspace') && styles.includes('grid-template-columns: minmax(360px, .78fr) minmax(480px, 1.22fr)'), 'desktop editor must keep the preview beside a wider, immediately usable controls column');
-  assert(styles.includes('#categories .admin-category-preview-column') && styles.includes('position: sticky'), 'desktop preview should remain visible while editing controls');
+  assert(styles.includes('.admin-category-workspace .admin-category-editor-workspace') && styles.includes('grid-template-columns: minmax(360px, .78fr) minmax(480px, 1.22fr)'), 'desktop editor must keep the preview beside a wider, immediately usable controls column');
+  assert(styles.includes('.admin-category-workspace .admin-category-preview-column') && styles.includes('position: sticky'), 'desktop preview should remain visible while editing controls');
   assert(styles.includes('max-height: none;') && styles.includes('overflow: visible;'), 'desktop preview must not create a nested scroll area that can move the image out of view');
   assert(styles.includes('.admin-category-image-section .admin-category-current-image img') && styles.includes('height: 88px'), 'image references must remain compact instead of duplicating giant previews');
   assert(editor.includes('admin-advanced-fields') && editor.includes('admin-category-ai-text-tools') && editor.includes('Fill All Text with AI'), 'less-used AI and text positioning must live inside the collapsed Advanced section');
@@ -186,7 +189,7 @@ Deno.test('published Sports assignments retain every established product while a
 Deno.test('Category cards expose simple live visibility checkboxes and confirmed Delete controls at the top', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const manager = source.slice(source.indexOf('function renderCategoryManager'), source.indexOf('function updateDeleteSelectedCategoriesButton'));
-  for (const token of ['Collection Available', 'Show on Homepage', 'data-category-visible-checkbox', 'data-category-homepage-checkbox', 'Child Groups', 'data-delete-category']) {
+  for (const token of ['Collection Available', 'Show on Homepage', 'data-category-visible-checkbox', 'data-category-homepage-checkbox', 'Subcollections', 'data-delete-category']) {
     assert(manager.includes(token), `Category card is missing ${token}`);
   }
   assert(!manager.includes('UNHIDE COLLECTION') && !manager.includes('Hide from Homepage</button>'), 'old competing visibility buttons must not remain beside the checkboxes');
@@ -360,14 +363,76 @@ Deno.test('duplicate detection is sibling-aware while allowing the same title un
   assert(otherMaster.length === 0, 'same Child Group title under a different Main Category must be allowed when keys differ');
 });
 
-Deno.test('Admin renders compact Child Group rows and private creation without automatic assignments', async () => {
+Deno.test('Subcollections may share their Main Collection destination page without becoming duplicates', () => {
+  const hierarchy = {
+    sports: { key: 'sports', title: 'Sport Legends', page: 'sports-legends.html' },
+    basketball: { key: 'basketball', title: 'Basketball', parentKey: 'sports', page: 'sports-legends.html' },
+    soccer: { key: 'soccer', title: 'Soccer', parentKey: 'sports', page: 'sports-legends.html' },
+    football: { key: 'football', title: 'Football', parentKey: 'sports', page: 'sports-legends.html' }
+  };
+  const matches = findEquivalentCategories(hierarchy, hierarchy.basketball, 'basketball');
+  assert(matches.length === 0, 'the shared parent destination page must not make sibling Subcollections or their Main Collection duplicates');
+});
+
+Deno.test('Admin loads the versioned Subcollection duplicate validator', async () => {
+  const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  assert(source.includes("import('./admin-state-utils.js?v=20261007-subcollection-save')"), 'the corrected hierarchy validator must not be replaced by a stale browser-cached module');
+  assert(html.includes('admin.js?v=20261007-subcollection-save'), 'the Admin entry script must reload with the Subcollection save fix');
+});
+
+Deno.test('Admin renders Subcollections in their own area with private creation and no automatic assignments', async () => {
+  const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const markup = source.slice(source.indexOf('function childGroupMarkup'), source.indexOf('const CATEGORY_IMAGE_SIZE_DEFAULT'));
-  for (const token of ['Child Groups', 'admin-child-group-row', 'Open Product / Standee Cards', 'Edit Child Group', 'data-toggle-child-group', '+ Add Child Group']) assert(markup.includes(token), `missing Child Group UI token ${token}`);
-  assert(markup.includes('data-add-child-group') && markup.includes('data-new-child-group-form'), 'Add Child Group must open the private Child Group creator');
+  for (const token of ['Subcollections', 'admin-child-group-row', 'Open Subcollection', 'data-toggle-child-group', '+ Add Subcollection']) assert(markup.includes(token), `missing Subcollection UI token ${token}`);
+  assert(!markup.includes('data-open-child-products') && !markup.includes('<summary>Edit Subcollection</summary>'), 'Subcollections must not duplicate their Product or editor navigation controls');
+  assert(markup.includes('admin-review-image') && markup.includes("child.description || 'No description yet.'"), 'each Subcollection list card must show its image and editable text context before opening');
+  assert(source.includes("const childProductsPanel = event.target.closest('[data-child-products-panel]')"), 'the single Product / Standee Cards expander must load its normalized assignments without a duplicate open button');
+  assert(markup.includes('data-add-child-group') && markup.includes('data-new-child-group-form'), 'Add Subcollection must open the private Subcollection creator');
+  assert(html.includes('href="#subcollections"') && html.includes('id="subcollections" data-admin-area="subcollections"') && html.includes('id="adminChildGroupsWorkspaceMount"'), 'Subcollections must have their own top-level Admin area instead of being inside Collections');
+  assert(!html.slice(html.indexOf('id="categories"'), html.indexOf('id="subcollections"')).includes('adminChildGroupsWorkspaceMount'), 'Collections must no longer contain the Subcollection workspace');
+  assert(source.includes("if (area === 'categories' || area === 'subcollections')"), 'Collections and Subcollections must load through the same normalized Category controller');
+  assert(html.includes('id="saveAllLiveSubcollections"') && source.includes("document.getElementById('saveAllLiveSubcollections')"), 'the Subcollections area must expose the same authoritative all-changes live save operation');
+  assert(source.includes('function childGroupsWorkspaceMarkup') && source.includes('childGroupsWorkspaceMarkup(allMainCollections, categoriesByKey)'), 'the dedicated area must render the same normalized Subcollection records');
+  const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
+  assert(editor.includes('Subcollection Image') && editor.includes('Subcollection Information'), 'the opened Subcollection must use the full image preview and text editor');
+  assert(editor.includes("categoryDisplayRangeMarkup('standeeRotationDeg'") && editor.includes('Show image on ${parent ? \'Subcollection card\''), 'Subcollections must expose image rotation and visibility alongside existing image geometry');
+  const drag = source.slice(source.indexOf('function beginCategoryPreviewImageDrag'), source.indexOf('function confirmEditorCanClose'));
+  assert(!drag.includes("form.classList.contains('admin-child-group-edit')"), 'Child Group images must support the same direct preview dragging as Main Collection images');
   const save = source.slice(source.indexOf('async function saveNewChildGroupFromForm'), source.indexOf('async function saveCategoryVisibility'));
   assert(save.includes('childCategoryDefaults(parentKey') && save.includes("homepageVisible: false") === false, 'Child Group creation must use the existing parentKey defaults');
   assert(!save.includes("collectionKey: 'products'") && !save.includes('categories:'), 'Child Group creation must not assign or rewrite products');
+});
+
+Deno.test('Subcollections can apply one normalized background to every Subcollection without copying content or standee geometry', async () => {
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
+  assert(editor.includes('data-apply-child-group-background-all') && editor.includes('Apply This Background to All Subcollections'), 'the full Subcollection editor must expose one clear shared-background action');
+  assert(source.includes('function normalizedChildGroupsForBackgroundBatch') && source.includes('async function applyChildGroupBackgroundToAll'), 'the action must target normalized Child Groups through one protected batch operation');
+  const start = source.indexOf('function categoryBackgroundBatchOperations');
+  const end = source.indexOf('\n\nasync function saveSharedCollectionBackgroundChanges', start);
+  const build = new Function(`${source.slice(start, end)}; return categoryBackgroundBatchOperations;`)();
+  const shared = {
+    card: { backgroundImage: 'images/CardBackgrounds/shared.png' },
+    displaySettings: { backgroundPosition: '34% 71%', backgroundSizePercent: 126, backgroundWidthPercent: 142, backgroundHeightPercent: 188 }
+  };
+  const targets = [
+    { key: 'basketball', parentKey: 'sport-legends', title: 'Basketball', description: 'Hoops', visible: true, order: 1, card: { image: 'images/kobe.png', backgroundImage: 'images/old-a.png' }, displaySettings: { standeeSizePercent: 81, standeeLeftPercent: 12, standeeVerticalPercent: -4 } },
+    { key: 'movie-heroes', parentKey: 'movie-characters', title: 'Movie Heroes', description: 'Heroes', visible: false, order: 8, card: { image: 'images/captain.png', backgroundImage: 'images/old-b.png' }, displaySettings: { standeeSizePercent: 109, standeeLeftPercent: -7, standeeVerticalPercent: 5 } }
+  ];
+  const before = structuredClone(targets);
+  const operations = build(shared, targets, '2026-10-07T12:00:00.000Z', new Set(targets.map((target) => target.key)), 'approved');
+  assert(operations.length === 2, 'all normalized Child Groups must be included in one batch');
+  operations.forEach((operation, index) => {
+    const saved = { ...targets[index], ...operation.patch };
+    assert(saved.card.backgroundImage === shared.card.backgroundImage, 'the shared Child Group background image must be copied');
+    for (const field of ['backgroundPosition', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent']) assert(saved.displaySettings[field] === shared.displaySettings[field], `the shared Child Group ${field} must be copied`);
+    assert(saved.card.image === before[index].card.image, 'each Child Group image must remain unchanged');
+    for (const field of ['standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent']) assert(saved.displaySettings[field] === before[index].displaySettings[field], `each Child Group ${field} must remain unchanged`);
+    for (const field of ['parentKey', 'title', 'description', 'visible', 'order']) assert(saved[field] === before[index][field], `each Child Group ${field} must remain unchanged`);
+    assert(operation.patch.approvalStatus === 'approved' && operation.patch.draftStatus === 'ready', 'the live action must use the existing approved lifecycle rather than another publisher');
+  });
 });
 
 Deno.test('Category bulk deletion checkboxes appear only in explicit Bulk Select mode', async () => {
@@ -406,7 +471,7 @@ Deno.test('Category actions resolve their explicit Main or Child Group key inste
 
   const handler = source.slice(source.indexOf("section.addEventListener('click'"), source.indexOf('\n}\n\nfunction renderAdminProducts', source.indexOf("section.addEventListener('click'")));
   assert(handler.includes('actionCategoryKey = categoryKeyForActionTarget(event.target)'), 'Edit, Open Products, visibility, and ordering must share one action-key resolver');
-  assert(handler.includes("saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'))"), 'every Collection live button must save every dirty open and previously saved Collection change together');
+  assert(handler.includes("saveAllCollectionChangesLive(collectionLiveStatusForForm(publishButton.closest('[data-category-edit]')))"), 'every Collection or Subcollection live action must save every dirty open and previously saved change together');
   assert(!handler.includes('card?.querySelector(`[data-category-edit="${CSS.escape(publishKey)}"]`)') && !handler.includes("card?.querySelector('[data-category-edit]')"), 'the batch live action must not narrow itself to one sibling Main/Child editor');
   for (const action of ['data-edit-category data-category-key', 'data-open-category-products data-category-key', 'data-move-category-homepage="-1" data-category-key', 'data-category-visible-checkbox data-category-key', 'data-category-homepage-checkbox data-category-key']) {
     assert(source.includes(action), `${action} must carry an explicit normalized Category key`);

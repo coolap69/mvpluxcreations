@@ -21,10 +21,11 @@ Deno.test('Image Box exposes one clear lifecycle toolbar and AI remains suggesti
   assert((markup.match(/>Continue in Product Editor</g) || []).length === 1, 'Image Box must have exactly one Continue in Product Editor button');
   assert(markup.includes('Create Product From Image') && markup.includes('UNSAVED CHANGES') && markup.includes('DRAFT SAVED — PRIVATE'), 'title and lifecycle status must be separate and unambiguous');
   assert(markup.includes('const normalizedProduct = workflowDraft.resultSlug ? effectiveAdminProduct(workflowDraft.resultSlug)') && markup.includes('title: normalizedProduct.title'), 'reopened Image Box must hydrate from the same normalized product that Product Editor saved');
-  assert(markup.includes('AI can help fill these fields') && markup.includes('then click Save'), 'AI guidance must explain the Save and Publish lifecycle');
+  assert(markup.includes('AI can help fill the title, description, fun fact, and original height') && markup.includes('then click Save Draft or Save Live'), 'AI guidance must explain both the suggested fields and the Save lifecycle');
   const ai = sourceRange('async function requestAdminContentSuggestion', 'function bindAdminAiAssistance');
   assert(ai.includes("field.dispatchEvent(new Event('input'"), 'AI suggestions must flow through normal editable field changes');
-  assert(ai.includes("imagePath: ''") && ai.includes("['title', 'description', 'funFact']"), 'Fill All must be one text-only request that avoids repository-image egress');
+  assert(ai.includes("imagePath: ''") && ai.includes("['title', 'description', 'funFact'") && ai.includes("['originalHeight']"), 'Fill All must be one text-only request that can populate reviewable Product height without repository-image egress');
+  assert(markup.includes('Fill Product Details with AI') && markup.includes('AI may suggest the commonly listed real-world height'), 'Image Box must explain that AI can suggest an editable original height');
   assert(!ai.includes('saveAdmin') && !ai.includes('publishScoped') && !ai.includes("action: 'publish'"), 'AI suggestions must never save or publish');
 });
 

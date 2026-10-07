@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20261006-collection-preview-ai" />
+  <link rel="stylesheet" href="style.css?v=20261007-subcollections-area" />
 </head>
 <body class="admin-shell">
   <header class="top-nav">
@@ -34,6 +34,7 @@
       <a href="#products">Products</a>
       <a href="#image-inbox">Image Inbox</a>
       <a href="#categories">Collections</a>
+      <a href="#subcollections">Subcollections</a>
       <a href="#orders">Orders &amp; Offers</a>
       <a href="#settings">Settings</a>
       <a href="#advanced">Advanced</a>
@@ -140,7 +141,7 @@
             <p class="admin-note">AI suggestions fill these fields for your review. They never save or publish automatically.</p>
             <label>Original Height<input name="originalHeight" type="text" placeholder="Known height, or leave blank for the Admin default"></label>
             <label>Choose Background<select name="backgroundImage" data-admin-image-picker="background"><option value="">Use the clean showroom background</option></select></label>
-            <fieldset><legend>Collection / Child Group assignments</legend><div class="admin-category-options" data-create-product-categories></div></fieldset>
+            <fieldset><legend>Collection / Subcollection assignments</legend><div class="admin-category-options" data-create-product-categories></div></fieldset>
             <details class="admin-advanced-fields"><summary>Advanced</summary>
               <label>Price Override <span>(optional)</span><input name="priceOverride" type="number" min="0" step="0.01" placeholder="Automatic when blank"></label>
               <label>Add Image Choices <span>(optional)</span><select name="imageChoicePicker" data-admin-image-picker="choices" multiple size="4"></select></label>
@@ -271,19 +272,18 @@
       <div id="publishedProducts" class="admin-product-list"></div>
     </section>
 
-    <section class="admin-panel" id="categories" data-admin-area="categories" hidden>
+    <section class="admin-panel admin-category-workspace" id="categories" data-admin-area="categories" hidden>
       <div class="admin-panel-header">
         <div>
           <h2>Collections</h2>
-          <p class="admin-note"><strong>Manage the collections customers use to browse your standees.</strong> Each Main Collection can have a Homepage Collection Card in Featured Standee Categories, optional Child Groups, and assigned Products / Standees. Editing a Homepage Collection Card changes how that collection is represented on the homepage; it does not edit the individual Products / Standees inside the collection.</p>
+          <p class="admin-note"><strong>Manage the Main Collections customers use to browse your standees.</strong> Each Main Collection can have a Homepage Collection Card in Featured Standee Categories, optional Subcollections, and assigned Products / Standees. Editing a Homepage Collection Card changes how that collection is represented on the homepage; it does not edit its Subcollections or individual Products / Standees.</p>
         </div>
       </div>
       <div class="admin-collection-lifecycle-bar" aria-label="Collection save actions">
         <div class="admin-panel-actions">
           <button class="admin-button admin-button-primary" type="button" data-new-category>+ New Main Collection</button>
-          <button class="admin-button admin-button-secondary" id="saveAllOpenCollections" type="button">Save All Collection Drafts</button>
           <button class="admin-button admin-button-primary" id="saveAllLiveCollections" type="button">Save All Collection Changes Live</button>
-          <label><input id="holdCollectionChangesPrivate" type="checkbox"> Hold Collection changes privately</label>
+          <label><input id="holdCollectionChangesPrivate" type="checkbox"> Keep Collection changes private (optional)</label>
         </div>
         <p id="collectionLiveStatus" class="admin-status" aria-live="polite">Ordinary corrections save live when you finish editing. Check Hold Collection changes privately only when customers should not see unfinished work.</p>
         <details id="collectionChangeReport" class="admin-collection-change-report" data-state="idle">
@@ -308,6 +308,23 @@
       <div id="adminCategoryDuplicateNotice" class="admin-status-message" hidden></div>
       <div id="adminProducts" class="admin-product-list"></div>
       <section id="sharedCollectionBackgroundController" class="admin-shared-collection-background" aria-label="Shared Collection Card Background"></section>
+    </section>
+
+    <section class="admin-panel admin-category-workspace" id="subcollections" data-admin-area="subcollections" hidden>
+      <div class="admin-panel-header">
+        <div>
+          <h2>Subcollections</h2>
+          <p class="admin-note"><strong>Organize Products / Standees inside their Main Collection.</strong> Examples include Basketball, Soccer, and Football inside Sport Legends. A Subcollection uses the same normalized Category record with a parent Main Collection; it does not create another Homepage Collection Card.</p>
+        </div>
+      </div>
+      <div class="admin-collection-lifecycle-bar" aria-label="Subcollection save actions">
+        <div class="admin-panel-actions">
+          <button class="admin-button admin-button-primary" id="saveAllLiveSubcollections" type="button">Save All Collection &amp; Subcollection Changes Live</button>
+          <label><input id="holdSubcollectionChangesPrivate" type="checkbox"> Keep Collection and Subcollection changes private (optional)</label>
+        </div>
+        <p id="subcollectionLiveStatus" class="admin-status" aria-live="polite">Edit one or several Subcollections, then use this one button to save all Collection and Subcollection changes live.</p>
+      </div>
+      <div id="adminChildGroupsWorkspaceMount" class="admin-child-groups-workspace"></div>
     </section>
 
     <section class="admin-panel" id="advanced" data-admin-area="advanced" hidden>
@@ -501,6 +518,6 @@
   <script src="category-presentation.js?v=20260910-featured-category-editor"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
   <script src="storefront-section-layout.js?v=20260911-featured-stage-balance"></script>
-  <script src="admin.js?v=20261006-organized-image-paths"></script>
+  <script src="admin.js?v=20261007-subcollection-save"></script>
 </body>
 </html>

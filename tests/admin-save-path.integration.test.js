@@ -196,7 +196,7 @@ async function loadActualAdminHelpers({ client, storage = memoryStorage() }) {
   const presentationSource = await Deno.readTextFile(new URL('../category-presentation.js', import.meta.url));
   let source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   source = source.replace(
-    "const adminStateUtilsPromise = import('./admin-state-utils.js');",
+    "const adminStateUtilsPromise = import('./admin-state-utils.js?v=20261007-subcollection-save');",
     'const adminStateUtilsPromise = Promise.resolve(adminUtils);'
   );
   source = source.replace(

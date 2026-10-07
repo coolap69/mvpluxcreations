@@ -1,6 +1,7 @@
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 
 const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+const adminHtml = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
 const publisherSource = await Deno.readTextFile(new URL('../supabase/functions/publish-admin-changes/index.ts', import.meta.url));
 
 function extractedFunction(startToken, endToken) {
@@ -93,11 +94,12 @@ Deno.test('Category Publish exposes save and publish failures', async () => {
   assert(publishFailure.states.at(-1)?.state === 'failed', 'publisher failure must be visible');
 });
 
-Deno.test('every Main Collection live button uses the all-Collection live controller', () => {
-  const markup = extractedFunction('function categoryPublishButtonMarkup', 'function categoryDisplayRangeMarkup');
+Deno.test('the one Main Collection live button uses the all-Collection live controller', () => {
   const events = extractedFunction('function setupCategoryManagerEvents()', 'function renderAdminProducts()');
-  assert(markup.includes('data-publish-category-key') && markup.includes('Save All Collection Changes Live'), 'every repeated Collection live button must clearly describe its batch scope');
-  assert(events.includes("event.target.closest('[data-publish-category-key]')") && events.includes("saveAllCollectionChangesLive(document.getElementById('collectionLiveStatus'))"), 'one delegated handler must route every Collection live button through the all-Collection controller');
+  assert((adminHtml.match(/id="saveAllLiveCollections"/g) || []).length === 1 && adminHtml.includes('Save All Collection Changes Live'), 'Collections must expose one clearly named live button');
+  assert(source.includes("document.getElementById('saveAllLiveCollections')?.addEventListener('click', () => saveAllCollectionChangesLive("), 'the one page-level button must route through the all-Collection controller');
+  const editor = extractedFunction('function categoryEditMarkup', 'function suspiciousCategoryKeys');
+  assert(!editor.includes('data-publish-category-edit') && !editor.includes('Save Changes / Save Draft'), 'individual Collection editors must not expose competing save buttons');
   const categoryPublish = extractedFunction('async function publishCategoryByKey', 'async function saveCategoryProductAssignments');
   assert(categoryPublish.includes('saveLiveChangeIds([`category:${categoryKey}`]'), 'automatic per-record saves and Admin Mode handoff must retain the normalized Category save controller');
 });

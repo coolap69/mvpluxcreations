@@ -84,7 +84,7 @@ function renderedCollectionEditor(width = 1440) {
   const render = new Function('dependencies', `
     const { effectiveCategoryDisplaySettings, categoryBackgroundPositionParts, readAdminCategories,
       categoryAssignedProducts, escapeAdminHtml, categoryPublishOperations, categoryCardDraftStatusMarkup,
-      categoryPublishButtonMarkup, categoryVisualImagePicker, categoryDisplayRangeMarkup,
+      categoryVisualImagePicker, categoryDisplayRangeMarkup,
       normalizedMainCollectionsForBatch, mainCollectionsForBackgroundBatch, categoryUsesSharedCollectionBackground,
       CATEGORY_IMAGE_SIZE_MIN, CATEGORY_IMAGE_SIZE_MAX, CATEGORY_BACKGROUND_SIZE_MIN,
       CATEGORY_BACKGROUND_SIZE_MAX } = dependencies;
@@ -101,13 +101,12 @@ function renderedCollectionEditor(width = 1440) {
     mainCollectionsForBackgroundBatch: () => [category],
     categoryUsesSharedCollectionBackground: () => false,
     categoryCardDraftStatusMarkup: () => '<section class="admin-category-draft-published-state">DRAFT PREVIEW — NOT LIVE YET</section>',
-    categoryPublishButtonMarkup: () => '<button type="button" data-publish-category-edit>Publish to Website</button>',
     categoryVisualImagePicker: (_category, kind = 'category') => `<section class="admin-category-image-picker" data-image-kind="${kind}"><img class="admin-category-current-image-reference" src="${kind === 'background' ? category.card.backgroundImage : category.card.image}"><input name="${kind === 'background' ? 'cardBackgroundImage' : 'cardImage'}" value="${kind === 'background' ? category.card.backgroundImage : category.card.image}"></section>`,
     categoryDisplayRangeMarkup: controlMarkup,
     CATEGORY_IMAGE_SIZE_MIN: 10, CATEGORY_IMAGE_SIZE_MAX: 250,
     CATEGORY_BACKGROUND_SIZE_MIN: 50, CATEGORY_BACKGROUND_SIZE_MAX: 300
   });
-  window.document.write(`<style>${styleSource}</style><section id="categories">${render(category)}</section>`);
+  window.document.write(`<style>${styleSource}</style><section id="categories" class="admin-category-workspace">${render(category)}</section>`);
   const previewSource = sourceRange(adminSource, 'function previewCategoryEdit', '\n\nfunction renderCategoryImagePickerGallery');
   const preview = new Function('window', 'dependencies', `
     const { categoryFromEditForm, effectiveAdminCategoryPresentation, adminImageReferencePresentation,
@@ -191,7 +190,8 @@ Deno.test('fresh desktop Main Collection DOM uses one sticky combined preview be
   assert(desktop.window.getComputedStyle(previewColumn).position === 'sticky', 'the large left preview must remain sticky on desktop');
   assert(styleSource.includes('max-height: none;') && styleSource.includes('overflow: visible;'), 'the sticky desktop preview must not create a nested scroll area that can move its image out of view');
   assert(desktop.window.getComputedStyle(controlsColumn.querySelector('.admin-category-editor-action-stack')).position === 'sticky', 'Save and Publish must remain sticky at the top of the right controls');
-  assert(controlsColumn.querySelector('[data-back-to-collections]') && controlsColumn.querySelector('[data-preview-category-edit]') && controlsColumn.querySelector('button[type="submit"]') && controlsColumn.querySelector('[data-publish-category-edit]'), 'the right toolbar must contain Back, Preview, Save Draft, and Publish');
+  assert(controlsColumn.querySelector('[data-back-to-collections]') && controlsColumn.querySelector('[data-preview-category-edit]'), 'the editor toolbar must retain navigation and preview controls');
+  assert(!controlsColumn.querySelector('button[type="submit"]') && !controlsColumn.querySelector('[data-publish-category-edit]'), 'the editor must not duplicate the one page-level Collection save action');
   assert(controlsColumn.querySelector('.admin-category-image-section[open]') && !controlsColumn.querySelector('.admin-category-background-section'), 'individual Main Collection editor must keep Image open and remove per-card Background controls');
   assert(!controlsColumn.querySelector('.admin-category-information[open]') && !controlsColumn.querySelector('.admin-category-settings[open]'), 'Information and Visibility sections must stay compact until opened');
   const previews = desktop.form.querySelectorAll('.admin-category-placement-preview');
@@ -333,7 +333,7 @@ Deno.test('Shared background group includes recognized legacy-only cards as norm
   assert(operations[1].patch.displaySettings.backgroundWidthPercent === 140 && operations[1].patch.displaySettings.backgroundHeightPercent === 170, 'the new normalized draft must receive the complete shared background geometry');
 });
 
-Deno.test('Save All saves every dirty open Collection editor privately and Publish All flushes them first', async () => {
+Deno.test('the Collection batch helper saves every dirty editor with the requested lifecycle state', async () => {
   const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories' });
   window.document.body.innerHTML = '<form class="admin-category-edit-form" data-category-edit="sports" data-editor-dirty="true"></form><form class="admin-category-edit-form" data-category-edit="movies" data-editor-dirty="true"></form><form data-shared-collection-background-form data-editor-dirty="true"></form>';
   const saveAllSource = sourceRange(adminSource, 'async function saveAllOpenCollectionChanges', '\n\nfunction categoryKeyForActionTarget');
@@ -348,12 +348,12 @@ Deno.test('Save All saves every dirty open Collection editor privately and Publi
     cancelCategoryLiveAutosave: () => {},
     readAdminCategories: () => ({ sports: { title: 'Sport Legends' }, movies: { title: 'Movie Characters' } }),
     saveCategoryEditForm: async (form, state, options) => { calls.push([form.dataset.categoryEdit, state, options.render]); form.dataset.editorDirty = 'false'; return true; },
-    saveSharedCollectionBackgroundChanges: async () => { calls.push(['shared-background', 'draft', false]); return true; },
+    saveSharedCollectionBackgroundChanges: async (options) => { calls.push(['shared-background', options.approvalStatus, false]); return true; },
     setStatus: (message) => { status = message; }
   });
-  assert(await saveAll(), 'Save All must succeed when every existing normalized save succeeds');
-  assert(JSON.stringify(calls) === JSON.stringify([['sports', 'draft', false], ['movies', 'draft', false], ['shared-background', 'draft', false]]), 'Save All must reuse the existing private save controllers for every dirty editor and the shared background batch');
-  assert(status.includes('saved privately') && status.includes('Nothing was published'), 'Save All must clearly remain private');
+  assert(await saveAll({ approvalStatus: 'approved' }), 'Save All must succeed when every existing normalized save succeeds');
+  assert(JSON.stringify(calls) === JSON.stringify([['sports', 'approved', false], ['movies', 'approved', false], ['shared-background', 'approved', false]]), 'the one live action must prepare every dirty editor and shared design for the same live operation');
+  assert(status.includes('Updating the customer website'), 'the live batch must not misleadingly report that it only saved privately');
 
   const publishSource = sourceRange(adminSource, 'async function publishAllSavedChanges', '\n\nasync function discardArchitecturePrivateChange');
   assert(publishSource.indexOf('saveAllOpenCollectionChanges({ quiet: true })') < publishSource.indexOf('architectureReviewItems()'), 'Publish All must flush open Collection forms before building one shared deployment');
@@ -364,25 +364,31 @@ Deno.test('Collections exposes one sticky live action that includes the shared b
   assert(adminHtml.includes('class="admin-collection-lifecycle-bar"'), 'Collections must expose one persistent lifecycle toolbar');
   assert((adminHtml.match(/id="saveAllLiveCollections"/g) || []).length === 1, 'Collections must have exactly one authoritative main live button');
   assert(adminHtml.includes('Save All Collection Changes Live'), 'the main button must clearly say that all Collection changes go live together');
+  assert(!adminHtml.includes('id="saveAllOpenCollections"'), 'Collections must not expose a competing Save All Drafts button');
   assert(adminHtml.includes('id="collectionLiveStatus"'), 'the main live operation must have a visible Collections status target');
-  const lifecycleStyles = sourceRange(styleSource, '#categories .admin-collection-lifecycle-bar {', '\n}');
+  const lifecycleStyles = sourceRange(styleSource, '.admin-category-workspace .admin-collection-lifecycle-bar {', '\n}');
   assert(lifecycleStyles.includes('position: static;'), 'the large Collections lifecycle/report box must not cover the editor while scrolling');
   assert(adminSource.includes("saveAllCollectionChangesLive(\n    document.getElementById('collectionLiveStatus')"), 'the main button must use the Collection-scoped batch Save Live controller and report into Collections');
   assert(adminSource.includes('Apply Background to All Main Collections'), 'the shared background must expose one obvious Apply-to-All action');
   assert(!adminSource.includes('Save Shared Background Draft'), 'the shared controller must not duplicate the background workflow with a second save button');
   const all = sourceRange(adminSource, 'async function saveAllCollectionChangesLive', '\n\nfunction categoryKeyForActionTarget');
-  assert(all.includes('saveAllOpenCollectionChanges') && all.includes("['category', 'category-delete', 'section-layout'].includes(item.type)") && all.includes('saveLiveChangeIds'), 'the main Collections action must flush Collection forms and publish only Collection and section-layout changes through one existing live controller');
+  assert(all.includes("saveAllOpenCollectionChanges({ quiet: true, approvalStatus: 'approved' })") && all.includes("['category', 'category-delete', 'section-layout'].includes(item.type)") && all.includes('saveLiveChangeIds'), 'the main Collections action must save every dirty Collection form in the live-ready state and publish only Collection and section-layout changes through one existing live controller');
+  const editorMarkup = sourceRange(adminSource, 'function categoryEditMarkup', '\n\nfunction suspiciousCategoryKeys');
+  assert(!editorMarkup.includes('Save Changes / Save Draft') && !editorMarkup.includes('data-save-all-open-collections') && !editorMarkup.includes('categoryPublishButtonMarkup'), 'individual Collection editors must not expose competing save buttons');
+  assert(!adminSource.includes('function categoryPublishButtonMarkup'), 'per-Collection live buttons must not compete with the one page-level Collection save action');
 });
 
 Deno.test('shared background primary action saves the batch and makes all Collection changes live once', async () => {
   const allSource = sourceRange(adminSource, 'async function saveAllCollectionChangesLive', '\n\nfunction categoryKeyForActionTarget');
   const calls = [];
-  const saveAllLive = new Function('dependencies', `
-    const { saveAllOpenCollectionChanges, loadAdminLiveSettings, architectureReviewItems, saveLiveChangeIds, setStatus } = dependencies;
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories' });
+  window.document.body.innerHTML = '<input id="holdCollectionChangesPrivate" type="checkbox">';
+  const saveAllLive = new Function('document', 'dependencies', `
+    const { saveAllOpenCollectionChanges, loadAdminLiveSettings, architectureReviewItems, saveLiveChangeIds, setStatus, collectionChangesHeldPrivate } = dependencies;
     let adminLastSaveError = '';
     ${allSource}
     return saveAllCollectionChangesLive;
-  `)({
+  `)(window.document, {
     saveAllOpenCollectionChanges: async (options) => { calls.push(['flush', options]); return true; },
     loadAdminLiveSettings: async () => { calls.push(['reload']); return true; },
     architectureReviewItems: () => [
@@ -391,14 +397,15 @@ Deno.test('shared background primary action saves the batch and makes all Collec
       { id: 'product:kobe', type: 'product' }
     ],
     saveLiveChangeIds: async (ids) => { calls.push(['live', ids]); return true; },
-    setStatus: () => {}
+    setStatus: () => {},
+    collectionChangesHeldPrivate: () => window.document.getElementById('holdCollectionChangesPrivate')?.checked
   });
   assert(await saveAllLive(), 'the Collection-wide live operation must succeed through the existing fast-live controller');
-  assert(calls[0][0] === 'flush' && calls[1][0] === 'reload', 'dirty Collection and shared-background forms must be saved before live state is built');
+  assert(calls[0][0] === 'flush' && calls[0][1].approvalStatus === 'approved' && calls[1][0] === 'reload', 'dirty Collection and shared-background forms must be saved once as live-ready before live state is built');
   assert(JSON.stringify(calls[2]) === JSON.stringify(['live', ['category:sports', 'category:small-party-packs']]), 'one live operation must include all Collection changes while excluding unrelated Product drafts');
   const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');
   assert(events.indexOf("saveSharedCollectionBackgroundChanges({ quiet: true, approvalStatus: heldPrivate ? 'draft' : 'approved' })") < events.indexOf("saveAllCollectionChangesLive(document.querySelector('[data-shared-collection-background-status]'), { workingStateCurrent: true })"), 'the primary shared-background button must persist one live-ready batch before making it live');
-  assert(events.includes("const heldPrivate = document.getElementById('holdCollectionChangesPrivate')?.checked"), 'the one shared-background action must use the single page-level Hold Private choice instead of a duplicate draft button');
+  assert(events.includes('const heldPrivate = collectionChangesHeldPrivate()'), 'shared-background actions must use the synchronized Collection/Subcollection Hold Private choice instead of a separate draft path');
 });
 
 Deno.test('per-Collection Apply Background to All saves one batch and then uses the Collection live controller', async () => {
@@ -411,7 +418,7 @@ Deno.test('per-Collection Apply Background to All saves one batch and then uses 
   const apply = new Function('window', 'document', 'dependencies', `
     const { saveAllOpenCollectionChanges, setStatus, readAdminCategories, categoryFromEditForm, normalizedMainCollectionsForBatch,
       mainCollectionsForBackgroundBatch, categoryBackgroundBatchOperations, saveAdminCollectionOperations, renderCategoryManager,
-      saveAllCollectionChangesLive } = dependencies;
+      saveAllCollectionChangesLive, collectionChangesHeldPrivate, collectionLiveStatusForForm } = dependencies;
     let adminLastSaveError = '';
     ${source}
     return applyCategoryBackgroundToAll;
@@ -425,7 +432,9 @@ Deno.test('per-Collection Apply Background to All saves one batch and then uses 
     categoryBackgroundBatchOperations: () => [{ type: 'record', collectionKey: 'categories', entryKey: 'sports', patch: {} }],
     saveAdminCollectionOperations: async () => { calls.push('batch'); return { ok: true }; },
     renderCategoryManager: () => { calls.push('render'); },
-    saveAllCollectionChangesLive: async (target) => { calls.push(['live', target.id]); return true; }
+    saveAllCollectionChangesLive: async (target) => { calls.push(['live', target.id]); return true; },
+    collectionChangesHeldPrivate: () => window.document.getElementById('holdCollectionChangesPrivate')?.checked,
+    collectionLiveStatusForForm: () => window.document.getElementById('collectionLiveStatus')
   });
   assert(await apply(window.document.querySelector('form')), 'the one-click background action must succeed');
   assert(JSON.stringify(calls) === JSON.stringify(['flush', 'batch', 'render', ['live', 'collectionLiveStatus']]), 'the per-Collection action must save its normalized batch and immediately make the Collection changes live');
@@ -436,8 +445,8 @@ Deno.test('per-Collection Apply Background to All saves one batch and then uses 
   assert(JSON.stringify(calls) === JSON.stringify(['flush', 'batch', 'render']), 'Hold Private must be the only reason the Apply action stops before live save');
 });
 
-Deno.test('ordinary Collection corrections remain unsaved previews until an explicit save action', () => {
-  assert(adminHtml.includes('id="holdCollectionChangesPrivate"') && adminHtml.includes('Hold Collection changes privately'), 'Collections must expose private hold as an unchecked exception to the normal live correction workflow');
+Deno.test('ordinary Collection corrections use one explicit page-level save action', () => {
+  assert(adminHtml.includes('id="holdCollectionChangesPrivate"') && adminHtml.includes('Keep Collection changes private (optional)'), 'Collections must expose private hold as an unchecked exception to the normal live correction workflow');
   const source = sourceRange(adminSource, 'function markCategoryEditorDirty', '\n\nfunction editorHasUnsavedChanges');
   const window = new Window({ url: 'https://mvpluxcreations.com/admin.html#categories' });
   window.document.body.innerHTML = '<input id="holdCollectionChangesPrivate" type="checkbox"><form data-category-edit="movie-characters" data-editor-dirty="false"></form>';
@@ -450,11 +459,11 @@ Deno.test('ordinary Collection corrections remain unsaved previews until an expl
     setCategoryPublishState: () => {}
   });
   markDirty(form);
-  assert(form.dataset.editorDirty === 'true', 'an ordinary edit must become dirty until the user chooses Save Draft or Save Live');
+  assert(form.dataset.editorDirty === 'true', 'an ordinary edit must become dirty until the user chooses the page-level Save All Collection Changes Live action');
   const events = sourceRange(adminSource, 'function setupCategoryManagerEvents', '\n\nfunction renderAdminProducts');
   assert(!events.includes('scheduleCategoryLiveAutosave') && !adminSource.includes('categoryLiveAutosaveTimers'), 'Collection fields must not generate repeated live writes while typing or leaving controls');
-  assert(events.includes("await saveCategoryEditForm(categoryForm, 'draft')") && events.includes('publishCategoryByKey'), 'explicit Save Draft and Save Live must remain available');
-  assert(events.includes("editorHasUnsavedChanges(form) && !document.getElementById('holdCollectionChangesPrivate')?.checked") && events.includes('await publishCategoryByKey(key, form)'), 'Back to Collections must finish the live save before closing unless private hold is checked');
+  assert(events.includes('else if (categoryForm) await saveAllCollectionChangesLive(collectionLiveStatusForForm(categoryForm))'), 'keyboard/form submission must invoke the same page-level Collection/Subcollection live controller');
+  assert(events.includes('editorHasUnsavedChanges(form) && !collectionChangesHeldPrivate()') && events.includes('await publishCategoryByKey(key, form)'), 'Back must finish the live save before closing unless the synchronized private hold is checked');
 });
 
 Deno.test('Main Collection text remains Category-owned when representative Product changes', () => {
@@ -514,7 +523,7 @@ Deno.test('Featured Categories layout controls share values and expose one eight
   assert(adminSource.includes('<legend>Outer Section</legend>') && adminSource.includes('<legend>Cards & Image Area</legend>'), 'the bottom section-size editor must group outer sizing separately from card and image-area controls');
   assert(adminSource.includes('name="featured-category-shared-design" open><summary>Image & Section Layout</summary>') && adminSource.includes('name="featured-category-shared-design"><summary>Text Area & Style</summary>'), 'image/layout and shared text controls must form one exclusive accordion in the same collective editor');
   assert(adminSource.includes('Live Section, Card Image & Text Preview · 8 cards'), 'the bottom section-size editor must identify the combined grid, image, and text preview');
-  assert(styleSource.includes('#categories .admin-featured-categories-layout-preview-column {\n  position: sticky;'), 'the eight-card preview must remain visible while editing shared text on desktop');
+  assert(styleSource.includes('.admin-category-workspace .admin-featured-categories-layout-preview-column {\n  position: sticky;'), 'the eight-card preview must remain visible while editing shared text on desktop');
   assert(!styleSource.includes('#shop .product-card h3 {\n  min-height: 48px !important;') && !styleSource.includes('#shop .product-description {\n  height: 64px !important;'), 'legacy Product text sizing must not override the shared Featured Collection text box');
   assert(!adminSource.includes('data-category-image-edit-preview'), 'the individual Main Collection editor must not receive a second image-only preview');
   assert(styleSource.includes('grid-template-columns: minmax(360px, .78fr) minmax(620px, 1.45fr)'), 'desktop Admin must place layout controls and the large section preview side by side');
@@ -576,7 +585,7 @@ Deno.test('Collection Change Report explains pending, private, live, and failed 
   assert(adminHtml.includes('id="collectionChangeReport"'), 'Collections must expose one visible automatic change report');
   assert(adminHtml.includes('<details id="collectionChangeReport"') && styleSource.includes('.admin-collection-change-report > summary::after'), 'the automatic report must use a compact expandable container instead of covering the editor');
   assert(adminHtml.includes('data-collection-change-report-items'), 'the report must list the exact changed fields');
-  assert(adminSource.includes("'UNSAVED CHANGES — review the list below, then use Save Draft or Save All Collection Changes Live.'"), 'editing must report an unsaved preview');
+  assert(adminSource.includes("'UNSAVED CHANGES — review the list below, then use Save All Collection Changes Live.'"), 'editing must report an unsaved preview and point to the one Collection save action');
   assert(adminSource.includes("'DRAFT SAVED — PRIVATE. The customer website has not changed.'"), 'private saving must be clearly reported');
   assert(adminSource.includes("'LIVE — all listed Collection changes were saved and verified on the customer website.'"), 'successful live saving must be clearly reported');
   assert(adminSource.includes("'SAVE FAILED — WEBSITE NOT CHANGED.'"), 'failed saving must be clearly reported');
