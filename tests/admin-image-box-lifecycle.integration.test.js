@@ -15,7 +15,7 @@ function sourceRange(startToken, endToken) {
 
 Deno.test('Image Box exposes one clear lifecycle toolbar and AI remains suggestion-only', () => {
   const markup = sourceRange('function renderImageDrafts()', 'function imageImportPublished');
-  for (const label of ['Undo', 'Redo', 'Save', 'Preview', 'Save Live', 'Continue in Product Editor', 'More']) {
+  for (const label of ['Undo', 'Redo', 'Save Draft — Private', 'Preview', 'Save Live — Show on Website', 'Continue in Product Editor', 'More']) {
     assert(markup.includes(`>${label}<`), `Image Box toolbar is missing ${label}`);
   }
   assert((markup.match(/>Continue in Product Editor</g) || []).length === 1, 'Image Box must have exactly one Continue in Product Editor button');
@@ -60,8 +60,22 @@ Deno.test('actual Image Box history tracks dirty state and protects the last sav
   assert(api.undoImageBoxChange(form) && title.value === 'Saved title', 'Undo must restore the previous unsaved value');
   assert(api.redoImageBoxChange(form) && title.value === 'Edited title', 'Redo must restore the undone value');
   api.markImageBoxSaved(form);
-  assert(form.dataset.imageBoxDirty === 'false' && status.textContent === 'DRAFT SAVED — PRIVATE', 'successful persistence must establish the saved safety point');
+  assert(form.dataset.imageBoxDirty === 'false' && status.textContent === 'DRAFT SAVED — PRIVATE · NOT ON WEBSITE · CLICK SAVE LIVE', 'successful persistence must establish the saved safety point and explain that customers cannot see it yet');
   assert(!api.undoImageBoxChange(form) && title.value === 'Edited title', 'Undo must not cross and destroy the last successfully saved draft');
+});
+
+Deno.test('Image Box requires the Main Collection whenever a Child Group is selected', () => {
+  const helper = sourceRange('function missingImageBoxMainCollectionAssignments', 'async function configureImageDraft');
+  const validate = new Function('readAdminCategories', `${helper}; return missingImageBoxMainCollectionAssignments;`)(() => ({
+    sports: { key: 'sports', title: 'Sport Legends', parentKey: '' },
+    basketball: { key: 'basketball', title: 'Basketball', parentKey: 'sports' },
+    music: { key: 'music', title: 'Music Artists', parentKey: '' }
+  }));
+  const missing = validate(['basketball']);
+  assert(missing.length === 1 && missing[0].child === 'Basketball' && missing[0].parent === 'Sport Legends', 'a Child Group alone must identify its missing Main Collection');
+  assert(validate(['sports', 'basketball']).length === 0, 'the Main Collection plus Child Group must be accepted');
+  const configure = sourceRange('async function configureImageDraft', 'async function saveImageBoxProductDraft');
+  assert(configure.includes('also requires its Main Collection') && configure.includes('Check both assignments so customers can find this standee'), 'the Image Box must stop an invisible child-only Product with clear guidance');
 });
 
 function imageBoxPublishHarness({ saveSucceeds = true } = {}) {

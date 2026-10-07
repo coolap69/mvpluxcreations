@@ -244,23 +244,10 @@ async function loadAdminLiveSettings(keys = ADMIN_DASHBOARD_COLLECTIONS, { repla
     const result = await callAdminPublisher({ action: 'working-state', keys: requestedKeys });
     data = Array.isArray(result.rows) ? result.rows : [];
     adminRecoveryBackupAvailable = result.recoveryBackupAvailable === true;
-  } catch (_workingStateError) {
-    const { data: fallbackRows, error } = await client
-      .from('site_edits')
-      .select('page_key, edits, revision')
-      .eq('page_key', 'admin-global');
-    if (error) {
-      adminLastSaveError = `Supabase reload failed: ${error.message || 'unknown error'}`;
-      renderAdminDiagnostics();
-      return null;
-    }
-    data = (fallbackRows || []).map((row) => {
-      const { adminPublishingMigrationBackupV1: recoveryBackup, ...workingEdits } = row.edits || {};
-      adminRecoveryBackupAvailable = Boolean(recoveryBackup);
-      return { ...row, edits: Object.fromEntries(requestedKeys
-        .filter((key) => Object.prototype.hasOwnProperty.call(workingEdits, key))
-        .map((key) => [key, workingEdits[key]])) };
-    });
+  } catch (workingStateError) {
+    adminLastSaveError = `Reduced Admin state could not be loaded. The full admin-global record was not downloaded: ${workingStateError?.message || workingStateError}`;
+    renderAdminDiagnostics();
+    return null;
   }
   adminSiteEditRows = data || [];
   const globalRow = data?.find((row) => row.page_key === 'admin-global');
@@ -529,8 +516,8 @@ async function fetchAuthoritativeAdminGlobal(keys = null) {
       const result = await callAdminPublisher({ action: 'working-state', keys: requestedKeys });
       const row = Array.isArray(result.rows) ? result.rows.find((item) => item.page_key === 'admin-global') : null;
       return { edits: row?.edits || {}, revision: Number(row?.revision) || 0 };
-    } catch (_workingStateError) {
-      // Preserve the existing direct read as a safe fallback if the deployed helper is temporarily unavailable.
+    } catch (workingStateError) {
+      throw new Error(`Reduced Admin state request failed; the full admin-global record was not downloaded. ${workingStateError?.message || workingStateError}`);
     }
   }
   const { data, error } = await client
@@ -636,7 +623,7 @@ async function saveAdminProductFieldPatch(slug, patch, baseRecord, form = null, 
   }
   setProductSaveState(form, 'Saving', 'saving');
   try {
-    const latest = await fetchAuthoritativeAdminGlobal();
+    const latest = await fetchAuthoritativeAdminGlobal(['products', 'customProducts']);
     const latestRecord = {
       ...baseAdminProductForState(slug, latest.edits),
       ...(latest.edits.products?.[slug] || {})
@@ -3462,7 +3449,7 @@ async function saveNewProductFromForm(form, approvalStatus) {
     setCreationStatus(form, 'Add the title, slug, and main image.', 'error');
     return false;
   }
-  const latest = await fetchAuthoritativeAdminGlobal();
+  const latest = await fetchAuthoritativeAdminGlobal(['products', 'customProducts']);
   if (latest.edits?.products?.[slug]) {
     setCreationStatus(form, 'That slug already belongs to an existing product.', 'error');
     return false;
@@ -3502,7 +3489,7 @@ async function saveNewCategoryFromForm(form, approvalStatus) {
     setCreationStatus(form, 'Choose a Category image before publishing.', 'error');
     return false;
   }
-  const latest = await fetchAuthoritativeAdminGlobal();
+  const latest = await fetchAuthoritativeAdminGlobal(['categories']);
   const candidateIdentity = { key, title: String(formData.get('title') || ''), page: String(formData.get('page') || '').trim() || `category.html?category=${encodeURIComponent(key)}` };
   const existingCategories = { ...(adminArchitectureState?.candidate?.categories || {}), ...(latest.edits?.categories || {}) };
   const equivalents = adminStateUtils.findEquivalentCategories(existingCategories, candidateIdentity);
@@ -6473,6 +6460,20 @@ function renderCategoryImagePickerGallery(picker, query = '', searchAll = false)
     + (searchAll ? `<p class="admin-note admin-category-image-count">Showing ${paths.length} of ${matches.length} repository images.</p>` : '');
 }
 
+function synchronizeCategoryRepresentativeWithImage(form, imagePath) {
+  if (!form || form.classList.contains('admin-child-group-edit') || !imagePath) return '';
+  const matches = categoryAssignedProducts(form.dataset.categoryEdit).filter((product) => (
+    product?.cutoutImage === imagePath
+    || normalizeImageChoices(product?.imageChoices).some((choice) => choice.image === imagePath)
+  ));
+  if (matches.length !== 1) return '';
+  const select = form.elements.namedItem('representativeProductSlug');
+  if (!select || ![...select.options].some((option) => option.value === matches[0].slug)) return '';
+  select.value = matches[0].slug;
+  select.dataset.autoSelectedFromCardImage = imagePath;
+  return matches[0].slug;
+}
+
 function updateCategoryPickerValue(picker, path) {
   const input = picker.querySelector('input[type="hidden"]');
   if (!input) return;
@@ -6496,6 +6497,7 @@ function updateCategoryPickerValue(picker, path) {
   picker.querySelectorAll('[data-category-image-choice]').forEach((choice) => choice.classList.toggle('selected', choice.dataset.categoryImageChoice === path));
   const editForm = picker.closest('[data-category-edit]');
   if (editForm) {
+    if (!isBackground) synchronizeCategoryRepresentativeWithImage(editForm, path);
     if (!isBackground && path && path !== input.defaultValue) {
       const baseCategory = readAdminCategories()[editForm.dataset.categoryEdit] || {};
       const baseDisplay = baseCategory.displaySettings || {};
@@ -8542,7 +8544,7 @@ function markImageBoxSaved(form) {
     saved: structuredClone(snapshot), current: structuredClone(snapshot), undo: [], redo: []
   });
   form.dataset.imageBoxDirty = 'false';
-  setImageDraftActionStatus(form, 'DRAFT SAVED — PRIVATE', 'success');
+  setImageDraftActionStatus(form, 'DRAFT SAVED — PRIVATE · NOT ON WEBSITE · CLICK SAVE LIVE', 'success');
   updateImageBoxHistoryButtons(form);
 }
 
@@ -8639,6 +8641,16 @@ function buildImageBoxNormalizedProduct(draft, existingProduct = null, approvalS
   };
 }
 
+function missingImageBoxMainCollectionAssignments(categoryKeys = []) {
+  const selected = new Set(categoryKeys || []);
+  const categories = readAdminCategories();
+  return [...selected].flatMap((key) => {
+    const child = categories[key];
+    if (!child?.parentKey || selected.has(child.parentKey)) return [];
+    return [{ child: child.title || child.key, parent: categories[child.parentKey]?.title || child.parentKey }];
+  });
+}
+
 async function configureImageDraft(form, approvalStatus = 'draft') {
   if (!ensureImageImportReady(form)) return false;
   const draft = collectImageDraftForm(form);
@@ -8693,6 +8705,10 @@ async function configureImageDraft(form, approvalStatus = 'draft') {
     } else if (draft.destination === 'create-product') {
       draft.slug = draft.slug || makeSlug(draft.title);
       if (!draft.title || !draft.slug) throw new Error('Add a title first. The product ID will be generated automatically.');
+      const missingParents = missingImageBoxMainCollectionAssignments(draft.categories);
+      if (missingParents.length) {
+        throw new Error(`${missingParents[0].child} also requires its Main Collection ${missingParents[0].parent}. Check both assignments so customers can find this standee.`);
+      }
       draft.originalHeight = String(parseAdminHeight(draft.originalHeight) || adminDefaultMerchandiseHeight());
       const previousSlug = String(baseDraft?.resultType === 'create-product' ? baseDraft.resultSlug || '' : '');
       const existingDraftProduct = previousSlug && previousSlug === draft.slug ? effectiveAdminProduct(previousSlug) : null;
@@ -8733,8 +8749,8 @@ async function configureImageDraft(form, approvalStatus = 'draft') {
     form.dataset.savedForLater = 'false';
     setImageDraftActionsBusy(form, false);
     renderAdminProducts();
-    setImageDraftActionStatus(form, 'DRAFT SAVED — PRIVATE', 'success');
-    setStatus('DRAFT SAVED — PRIVATE. Customers cannot see it until Save Live succeeds.');
+    setImageDraftActionStatus(form, 'DRAFT SAVED — PRIVATE · NOT ON WEBSITE · CLICK SAVE LIVE', 'success');
+    setStatus('DRAFT SAVED — PRIVATE. Customers cannot see it yet. Click Save Live to add it to its selected customer Collections.');
   } catch (error) {
     setImageDraftActionsBusy(form, false);
     setImageDraftActionStatus(form, `SAVE FAILED — ${error.message || 'Could not apply this image assignment.'}`, 'error');
@@ -8980,14 +8996,14 @@ function renderImageDrafts() {
     return `
       <form class="admin-product-card admin-image-draft" data-image-path="${escapeAdminHtml(draft.path)}" data-product-slug="${escapeAdminHtml(draft.resultSlug || '')}" data-draft-status="${escapeAdminHtml(draft.status)}" data-saved-for-later="${draft.savedForLater === true}" data-image-box-dirty="${normalizedProductSaved ? 'false' : 'true'}">
         <div class="admin-product-heading">
-          <div><h3>Image Box — Create Product From Image</h3><p class="admin-note">Image Box creates or edits Product / Standee records and product images. It does not create Main Collections or Homepage Collection Cards.</p><p class="admin-note" data-image-draft-status data-state="${normalizedProductPublished ? 'published' : normalizedProductSaved ? 'success' : 'unsaved'}">${imageImportReady ? (normalizedProductPublished ? 'LIVE' : normalizedProductSaved ? 'DRAFT SAVED — PRIVATE' : 'UNSAVED CHANGES') : 'Loading authenticated Admin state…'}</p></div>
+          <div><h3>Image Box — Create Product From Image</h3><p class="admin-note">Image Box creates or edits Product / Standee records and product images. It does not create Main Collections or Homepage Collection Cards.</p><p class="admin-note" data-image-draft-status data-state="${normalizedProductPublished ? 'published' : normalizedProductSaved ? 'success' : 'unsaved'}">${imageImportReady ? (normalizedProductPublished ? 'LIVE' : normalizedProductSaved ? 'DRAFT SAVED — PRIVATE · NOT ON WEBSITE · CLICK SAVE LIVE' : 'UNSAVED CHANGES') : 'Loading authenticated Admin state…'}</p></div>
           <div class="admin-card-actions">
             <button type="button" data-image-import-action data-back-to-image-inbox>Back to Image Inbox</button>
             <button type="button" data-image-import-action data-image-box-undo disabled>Undo</button>
             <button type="button" data-image-import-action data-image-box-redo disabled>Redo</button>
-            <button type="button" data-image-import-action data-save-image-box ${imageImportReady ? '' : 'disabled'}>Save</button>
+            <button type="button" data-image-import-action data-save-image-box ${imageImportReady ? '' : 'disabled'}>Save Draft — Private</button>
             <button type="button" data-image-import-action data-preview-image-import>Preview</button>
-            <button class="admin-button admin-button-primary" type="button" data-image-import-action data-publish-image-box ${imageImportReady ? '' : 'disabled'}>Save Live</button>
+            <button class="admin-button admin-button-primary" type="button" data-image-import-action data-publish-image-box ${imageImportReady ? '' : 'disabled'}>Save Live — Show on Website</button>
             <button type="button" data-image-import-action data-continue-product-editor ${imageImportReady ? '' : 'disabled'}>Continue in Product Editor</button>
             <details class="admin-card-more-actions"><summary>More</summary><button type="button" data-image-import-action data-ignore-image ${imageImportReady ? '' : 'disabled'}>Ignore Image</button></details>
           </div>
@@ -9024,7 +9040,7 @@ function renderImageDrafts() {
                   <option value="images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg" ${draft.backgroundImage === 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' ? 'selected' : ''}>Premium stage</option>
                 </select>
               </label>
-              <fieldset data-import-destinations="create-product"><legend>Category assignments</legend><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
+              <fieldset data-import-destinations="create-product"><legend>Where should customers find this standee?</legend><p class="admin-note">Select its Main Collection, such as Sport Legends. If you also select a Child Group such as Basketball, select both Sport Legends and Basketball.</p><div class="admin-category-options">${imageDraftCategoryMarkup(draft.categories || [])}</div></fieldset>
               <details class="admin-advanced-fields" data-import-destinations="create-product"><summary>Advanced</summary>
                 <label>Generated product ID<input name="slug" type="text" value="${escapeAdminHtml(draft.slug || '')}" placeholder="Generated from title"></label>
                 <label data-import-destinations="create-product">Price override (optional)<input name="priceOverride" type="number" min="0" step="0.01" value="${escapeAdminHtml(draft.priceOverride || '')}"></label>

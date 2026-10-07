@@ -48,7 +48,7 @@ Deno.test('non-Sports Collection pages show one clean loading stage until normal
     const html = await Deno.readTextFile(new URL(`../${filename}`, import.meta.url));
     assert((html.match(/data-category-showroom-loading/g) || []).length === 1, `${filename} must have exactly one immediate loading stage`);
     assert(html.includes('rel="preconnect" href="https://cdn.jsdelivr.net"') && html.includes('rel="preconnect" href="https://ncbddqxdinvcsoszdsxr.supabase.co"'), `${filename} must start both required network connections early`);
-    assert(html.includes('script.js?v=20260911-category-loading-stage'), `${filename} must load the matching no-flash showroom script`);
+    assert(html.includes('script.js?v=20261006-collection-representative-sync'), `${filename} must load the matching representative-sync showroom script`);
   }
   const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
   assert(initializer.indexOf('setupGenericCategoryShowroom()') < initializer.indexOf("[data-category-showroom-loading]"), 'the loader must remain until the normalized showroom is constructed');

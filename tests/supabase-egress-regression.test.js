@@ -36,6 +36,26 @@ Deno.test('normal working-state reads and saves never transfer the complete site
   assert(!saveWorking.includes('save_site_edits'));
 });
 
+Deno.test('routine Admin reads fail closed instead of downloading the full admin-global row', () => {
+  const load = between(admin, 'async function loadAdminLiveSettings', 'async function ensureAdminWorkingCollections');
+  assert(load.includes('The full admin-global record was not downloaded'));
+  assert(!load.includes(".from('site_edits')"), 'initial Admin loading must never fall back to the multi-megabyte site_edits row');
+  const authoritative = between(admin, 'async function fetchAuthoritativeAdminGlobal', 'function baseAdminProductForState');
+  const keyedBranch = authoritative.slice(authoritative.indexOf('if (requestedKeys.length)'), authoritative.indexOf("const { data, error }"));
+  assert(keyedBranch.includes('full admin-global record was not downloaded'));
+  assert(keyedBranch.includes('throw new Error'), 'a failed reduced request must stop instead of silently using the large row');
+  assert(!keyedBranch.includes(".from('site_edits')"));
+});
+
+Deno.test('routine Product and Image Box saves request only Product working-state keys', () => {
+  const productPatch = between(admin, 'async function saveAdminProductFieldPatch', 'async function saveAdminProductFieldPatches');
+  const newProduct = between(admin, 'async function saveNewProductFromForm', 'async function saveNewCategoryFromForm');
+  const newCategory = between(admin, 'async function saveNewCategoryFromForm', 'function setupAdminCreationWorkspace');
+  assert(productPatch.includes("fetchAuthoritativeAdminGlobal(['products', 'customProducts'])"));
+  assert(newProduct.includes("fetchAuthoritativeAdminGlobal(['products', 'customProducts'])"));
+  assert(newCategory.includes("fetchAuthoritativeAdminGlobal(['categories'])"));
+});
+
 Deno.test('high-frequency Collection and Product controls remain previews until explicit save', () => {
   assert(!admin.includes('scheduleCategoryLiveAutosave'));
   assert(!admin.includes('categoryLiveAutosaveTimers'));

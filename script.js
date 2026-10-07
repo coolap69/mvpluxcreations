@@ -3998,7 +3998,12 @@ function selectSportsOption(index) {
   });
 }
 
-function selectSportsStandee(key, shouldScroll = true) {
+function requestedCollectionCardImage() {
+  const value = new URLSearchParams(window.location.search).get('collectionImage') || '';
+  return /^images\/[A-Za-z0-9_.,()'&+%\- /]+\.(?:png|jpe?g|webp|gif|avif)$/i.test(value) ? value : '';
+}
+
+function selectSportsStandee(key, shouldScroll = true, preferredImage = '') {
   const managed = getManagedProductBySlug(key);
   const catalogProduct = sportsStandeeCatalog[key];
   const managedChoices = sanitizeProductImageChoices(managed?.imageChoices)
@@ -4053,7 +4058,10 @@ function selectSportsStandee(key, shouldScroll = true) {
     card.classList.toggle('active', card.dataset.sportsPlayer === key);
   });
 
-  selectSportsOption(0);
+  const preferredIndex = preferredImage
+    ? product.options.findIndex((option) => option.image === preferredImage)
+    : -1;
+  selectSportsOption(preferredIndex >= 0 ? preferredIndex : 0);
   applyInlineAdminEdits();
   updateCategoryGroupCurrentProduct(key);
   if (shouldScroll) document.querySelector('.sports-showroom')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -4092,7 +4100,7 @@ function initSportsShowroom() {
   const params = new URLSearchParams(window.location.search);
   const player = params.get('product') || params.get('player');
   const startingKey = (player && (getManagedProductBySlug(player) || sportsStandeeCatalog[player])) ? player : selectedSportsStandeeKey;
-  selectSportsStandee(startingKey, false);
+  selectSportsStandee(startingKey, false, requestedCollectionCardImage());
 }
 
 function initializeCategoryShowroomExperience() {
@@ -4180,11 +4188,34 @@ function homepageCategoryEmergencyFallbackAllowed() {
   return !Object.keys(published.categories || {}).length && !(published.deletedCategories || []).length;
 }
 
-function categoryDestinationWithRepresentative(page, representativeProductSlug = '') {
+function categoryProductImageReferences(product) {
+  const choices = typeof sanitizeProductImageChoices === 'function'
+    ? sanitizeProductImageChoices(product?.imageChoices)
+    : (Array.isArray(product?.imageChoices) ? product.imageChoices : []);
+  return new Set([
+    String(product?.cutoutImage || ''),
+    ...choices.map((choice) => String(choice.image || ''))
+  ].filter(Boolean));
+}
+
+function categoryRepresentativeProductSlug(categoryKey, cardImage = '', savedRepresentativeSlug = '') {
+  if (typeof getManagedProductCatalog !== 'function') return savedRepresentativeSlug;
+  const assigned = getManagedProductCatalog().filter((product) => (
+    product?.slug && Array.isArray(product.categories) && product.categories.includes(categoryKey)
+  ));
+  const imageMatches = cardImage
+    ? assigned.filter((product) => categoryProductImageReferences(product).has(cardImage))
+    : [];
+  if (imageMatches.length === 1) return imageMatches[0].slug;
+  return assigned.some((product) => product.slug === savedRepresentativeSlug) ? savedRepresentativeSlug : '';
+}
+
+function categoryDestinationWithRepresentative(page, representativeProductSlug = '', representativeImage = '') {
   const destination = String(page || '');
   if (!destination || !representativeProductSlug) return destination;
   const url = new URL(destination, window.location.href);
   url.searchParams.set('product', representativeProductSlug);
+  if (representativeImage) url.searchParams.set('collectionImage', representativeImage);
   return `${url.pathname.split('/').pop() || ''}${url.search}${url.hash}`;
 }
 
@@ -4208,7 +4239,18 @@ function renderNormalizedHomepageCategoryCards() {
       const slug = Object.entries(STOREFRONT_CATEGORY_CARD_MAP).find(([, key]) => key === category.key)?.[0]
         || `${category.key}-category-card`;
       const basePage = presentation.page || `category.html?category=${encodeURIComponent(category.key)}`;
-      const page = categoryDestinationWithRepresentative(basePage, presentation.representativeProductSlug);
+      const representativeProductSlug = categoryRepresentativeProductSlug(
+        category.key,
+        presentation.image,
+        presentation.representativeProductSlug
+      );
+      const representativeProduct = typeof getManagedProductBySlug === 'function'
+        ? getManagedProductBySlug(representativeProductSlug)
+        : null;
+      const representativeImage = categoryProductImageReferences(representativeProduct).has(presentation.image)
+        ? presentation.image
+        : '';
+      const page = categoryDestinationWithRepresentative(basePage, representativeProductSlug, representativeImage);
       grid.insertAdjacentHTML('beforeend', `
         <article class="product-card admin-master-category-card" data-category-key="${escapeHtml(category.key)}" data-admin-category-key="${escapeHtml(category.key)}" data-admin-slug="${escapeHtml(slug)}" data-category="${escapeHtml(category.key)}" data-name="${escapeHtml(`${presentation.title} ${presentation.description}`)}">
           <div class="homepage-collection-card-text"><h3 data-admin-category-field="title"><a href="${escapeHtml(page)}" class="product-title-link">${escapeHtml(presentation.title)}</a></h3>${presentation.funFact ? `<small class="homepage-collection-card-subtitle">${escapeHtml(presentation.funFact)}</small>` : ''}<p class="product-description" data-admin-category-field="description">${escapeHtml(presentation.description)}</p></div>
@@ -4293,8 +4335,22 @@ function renderExistingCategoryCardFromNormalized(card, categoryKey) {
     return card;
   }
   card.dataset.name = `${presentation.title} ${presentation.description}`;
+  const representativeProductSlug = typeof categoryRepresentativeProductSlug === 'function'
+    ? categoryRepresentativeProductSlug(categoryKey, presentation.image, presentation.representativeProductSlug)
+    : presentation.representativeProductSlug;
+  const representativeProduct = typeof getManagedProductBySlug === 'function'
+    ? getManagedProductBySlug(representativeProductSlug)
+    : null;
+  const representativeImage = typeof categoryProductImageReferences === 'function'
+    && categoryProductImageReferences(representativeProduct).has(presentation.image)
+    ? presentation.image
+    : '';
+  const baseDestination = presentation.page || `category.html?category=${encodeURIComponent(categoryKey)}`;
+  const destination = typeof categoryDestinationWithRepresentative === 'function'
+    ? categoryDestinationWithRepresentative(baseDestination, representativeProductSlug, representativeImage)
+    : baseDestination;
   card.querySelectorAll(':scope > .product-image-link, .homepage-collection-card-text .product-title-link, :scope > .button-link').forEach((link) => {
-    link.href = presentation.page || `category.html?category=${encodeURIComponent(categoryKey)}`;
+    link.href = destination;
   });
   const background = card.querySelector('.category-background-layer');
   if (background) {
@@ -4570,8 +4626,11 @@ function renderManagedCategoryPageProducts() {
 
   const orderKey = groupState.activeChild?.key || category;
   const products = orderedCategoryProducts(productsForCategoryGroup(getManagedProductCatalog(), category, groupState.activeChild?.key || ''), orderKey);
+  const requestedSlug = new URLSearchParams(window.location.search).get('product') || '';
   const currentBuilderSlug = page.querySelector('.showroom-size-builder')?.dataset.adminSlug || '';
-  const currentSlug = products.some((product) => product.slug === currentBuilderSlug) ? currentBuilderSlug : products[0]?.slug || '';
+  const currentSlug = products.some((product) => product.slug === requestedSlug)
+    ? requestedSlug
+    : (products.some((product) => product.slug === currentBuilderSlug) ? currentBuilderSlug : products[0]?.slug || '');
   const displayedProducts = groupState.activeChild
     ? products
     : mainCategoryDiscovery(category, currentSlug, products, 20);
@@ -4594,7 +4653,7 @@ function renderManagedCategoryPageProducts() {
     grid.querySelector('.sports-player-card')?.classList.add('active');
     renderCategoryGroupDiscovery(page, category, groupState, currentSlug);
     if (currentSlug) {
-      selectSportsStandee(currentSlug, false);
+      selectSportsStandee(currentSlug, false, requestedCollectionCardImage());
       updateCategoryGroupCurrentProduct(currentSlug);
     }
     return;
@@ -4701,6 +4760,7 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
   if (backgroundPanel) backgroundPanel.remove();
 
   const requestedSlug = selectedSlug || new URLSearchParams(window.location.search).get('product') || '';
+  const requestedImage = requestedCollectionCardImage();
   const firstCard = cards.find((card) => card.dataset.productId === requestedSlug) || cards[0];
   const firstTitle = firstCard.querySelector('h3')?.textContent.trim() || 'Standee';
   const firstImage = firstCard.querySelector('img')?.getAttribute('src') || '';
@@ -4743,7 +4803,7 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
     builder: showroom.querySelector('.showroom-size-builder')
   };
 
-  const selectCard = (card) => {
+  const selectCard = (card, preferredImage = '') => {
     const title = card.querySelector('h3')?.textContent.trim() || 'Standee';
     const productId = card.dataset.productId || title;
     const product = getKnownStandeeForCard(card);
@@ -4764,7 +4824,10 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
     renderGenericCategoryOptions(state, options);
     const choiceSection = state.optionStrip.closest('.generic-choice-section');
     if (choiceSection) choiceSection.hidden = options.length <= 1;
-    selectGenericCategoryOption(state, options, 0);
+    const preferredIndex = preferredImage
+      ? options.findIndex((option) => option.image === preferredImage)
+      : -1;
+    selectGenericCategoryOption(state, options, preferredIndex >= 0 ? preferredIndex : 0);
 
     cards.forEach((item) => item.classList.toggle('active', item === card));
     state.optionStrip.querySelectorAll('[data-generic-option-index]').forEach((button) => {
@@ -4790,7 +4853,7 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
     });
   });
 
-  selectCard(firstCard);
+  selectCard(firstCard, requestedImage);
 }
 
 function normalizeFrontPageCategoryLinks() {
