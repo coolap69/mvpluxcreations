@@ -1,5 +1,6 @@
 import { normalizeCategories } from '../admin-architecture.js';
 import { filterProductsForCategoryGroup } from '../admin-state-utils.js';
+import { Window } from 'npm:happy-dom@18.0.1';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -113,6 +114,76 @@ Deno.test('normalized Child Groups drive strict hierarchy and dormant relationsh
   };
   assert(filterProductsForCategoryGroup(products, 'sports', 'basketball').map((item) => item.slug).join(',') === 'kobe', 'Basketball results must contain only Products assigned to both Sport Legends and Basketball');
   assert(!filterProductsForCategoryGroup(products, 'sports', 'basketball').some((item) => item.slug === 'dormant'), 'a dormant Child Group assignment must not become publicly visible without its Main Collection');
+});
+
+Deno.test('Sports Subcollection cards render their saved normalized image and layout instead of static legacy artwork', () => {
+  const cardRenderer = sourceRange(storefrontSource, 'function normalizedChildGroupCardMarkup', '\n\nfunction renderCategoryGroupNavigation');
+  assert(cardRenderer.includes('getEffectiveCategoryPresentation(child.key)'), 'the customer card must read the saved normalized Subcollection presentation');
+  assert(cardRenderer.includes('resolveCategoryCardLayout(presentation)'), 'the customer card must reconstruct its image and background geometry through the shared resolver');
+  assert(cardRenderer.includes('presentation.image') && cardRenderer.includes('presentation.background'), 'the normalized Subcollection image and background must both appear in the card');
+  assert(cardRenderer.includes('presentation.title') && cardRenderer.includes('presentation.description'), 'the normalized Subcollection text must replace static legacy text');
+  assert(cardRenderer.includes("container.removeAttribute('data-category-initial-content')"), 'normalized cards must replace the legacy initial-content fallback before the page reveals its content');
+  const navigation = sourceRange(storefrontSource, 'function renderCategoryGroupNavigation', '\n\nfunction productsForCategoryGroup');
+  assert(navigation.includes('renderNormalizedSportsChildGroupCards(childCardList, state.children'), 'Sports must replace its static visual cards whenever normalized Subcollections exist');
+  assert(navigation.includes("if (childCardList && masterKey === 'sports') childCardList.hidden = false"), 'the old static Sports cards may remain only as an emergency fallback when no normalized Subcollections exist');
+
+  const window = new Window({ url: 'https://mvpluxcreations.com/sports-legends.html' });
+  const container = window.document.createElement('div');
+  container.innerHTML = '<a class="sport-type-card"><img src="images/old-static-basketball.png" alt="old"></a>';
+  container.dataset.categoryInitialContent = '';
+  container.hidden = true;
+  const presentation = {
+    title: 'Basketball',
+    description: 'Saved normalized Basketball description',
+    image: 'images/new-saved-basketball.png',
+    background: 'images/new-saved-stage.jpg'
+  };
+  const render = new Function('window', 'getEffectiveCategoryPresentation', 'escapeHtml', 'categoryGroupHref', 'getAdminGlobalDisplaySettings', `${cardRenderer}\nreturn renderNormalizedSportsChildGroupCards;`)(
+    window,
+    () => presentation,
+    (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+    (key) => `sports-legends.html?group=${key}`,
+    () => ({})
+  );
+  window.MVPLUX_CATEGORY_PRESENTATION = { resolveCategoryCardLayout: () => ({
+    backgroundPosition: '44% 62%', backgroundTransform: 'scale(1.1, 0.9)', imageSizePercent: 91,
+    imageLeftPercent: 57, imageBottomPercent: 8, imageTransform: 'translateX(-50%) rotate(3deg)'
+  }) };
+  assert(render(container, [{ key: 'basketball' }], 'basketball') === true, 'a normalized Subcollection must replace the static fallback card');
+  const renderedImage = container.querySelector('img.product-cutout');
+  assert(renderedImage?.getAttribute('src') === presentation.image, 'a fresh card DOM must use the newly saved normalized Subcollection image');
+  assert(!container.innerHTML.includes('old-static-basketball.png'), 'the old hard-coded Sports image must be removed from the reconstructed DOM');
+  assert(renderedImage?.getAttribute('style')?.includes('height:91%') && renderedImage?.getAttribute('style')?.includes('left:57%'), 'the fresh card DOM must use normalized image geometry');
+  assert(container.querySelector('.category-background-layer')?.getAttribute('style')?.includes(presentation.background), 'the fresh card DOM must use the saved normalized background');
+  assert(container.textContent.includes(presentation.description), 'the fresh card DOM must use the saved normalized description');
+  assert(!container.hidden && !container.hasAttribute('data-category-initial-content'), 'the normalized card list must be visible without being resurrected as legacy initial content');
+});
+
+Deno.test('all Main Collection pages and future Subcollections use one shared card size and background default', () => {
+  const navigation = sourceRange(storefrontSource, 'function subcollectionCardDesign', '\n\nfunction productsForCategoryGroup');
+  assert(navigation.includes('globalDisplaySettings?.subcollectionCards'), 'Subcollection cards must read their collective design from normalized global display settings');
+  assert(navigation.includes("--sport-carousel-card-width") && navigation.includes("--sport-carousel-image-height"), 'shared card width and image-stage height must control the same customer cards');
+  assert(navigation.includes("page.querySelector('[data-subcollection-card-list]')") && navigation.includes("childCardList.dataset.subcollectionCardList = masterKey"), 'non-Sports and future Main Collection pages must create the same normalized Subcollection card row');
+
+  const window = new Window();
+  window.MVPLUX_CATEGORY_PRESENTATION = {};
+  const presentationSource = Deno.readTextFileSync(new URL('../category-presentation.js', import.meta.url));
+  new Function('window', presentationSource)(window);
+  const shared = {
+    backgroundImage: 'images/shared-subcollection-stage.jpg',
+    backgroundPosition: '42% 68%', backgroundSizePercent: 115,
+    backgroundWidthPercent: 130, backgroundHeightPercent: 90,
+    cardWidthPx: 310, stageHeightPx: 360
+  };
+  const category = {
+    key: 'future-child', parentKey: 'future-main', title: 'Future Child',
+    card: { image: 'images/future-standee.png', backgroundImage: '' },
+    displaySettings: { standeeSizePercent: 88, standeeLeftPercent: 7, standeeVerticalPercent: -4, backgroundPosition: 'center bottom' }
+  };
+  const presentation = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation(category, { globalDisplaySettings: { subcollectionCards: shared } });
+  assert(presentation.background === shared.backgroundImage, 'a new Subcollection must inherit the shared background');
+  assert(presentation.display.backgroundPosition === shared.backgroundPosition && presentation.display.backgroundWidthPercent === 130 && presentation.display.backgroundHeightPercent === 90, 'shared background geometry must inherit collectively');
+  assert(presentation.display.standeeSizePercent === 88 && presentation.display.standeeLeftPercent === 7 && presentation.display.standeeVerticalPercent === -4, 'shared background and card sizing must never overwrite individual standee geometry');
 });
 
 Deno.test('legacy Sports groups have an explicit private normalization boundary and never auto-change assignments', () => {

@@ -4267,6 +4267,10 @@ body .auth-card .password-field input {
   scrollbar-color: #f4d06f rgba(255,255,255,0.12) !important;
 }
 
+.category-subcollection-carousel[hidden] {
+  display: none !important;
+}
+
 .sport-type-card {
   scroll-snap-align: start !important;
   display: grid !important;
@@ -4294,6 +4298,40 @@ body .auth-card .password-field input {
   border: 1px solid rgba(244,208,111,0.3) !important;
   border-radius: 8px !important;
   background: url("images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg") center center / cover no-repeat #050505 !important;
+}
+
+.sport-type-card-stage {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: var(--sport-carousel-image-height, 230px);
+  overflow: hidden;
+  border: 1px solid rgba(244,208,111,0.3);
+  border-radius: 8px;
+  background: #050505;
+}
+
+.sport-type-card-stage > .category-background-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.sport-type-card-stage > img.product-cutout {
+  position: absolute !important;
+  z-index: 1;
+  width: auto !important;
+  height: var(--subcollection-image-size, 80%) !important;
+  max-width: none !important;
+  object-fit: contain !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: none !important;
+  transform-origin: center bottom;
+}
+
+.sport-type-card.active {
+  border-color: #f4d06f !important;
+  box-shadow: inset 0 0 0 2px rgba(244,208,111,0.18), 0 0 20px rgba(244,208,111,0.12) !important;
 }
 
 .sport-type-card span {
@@ -6665,6 +6703,54 @@ button[aria-label="Add to cart"]::before {
 .admin-shell button:disabled { opacity: 0.48; cursor: not-allowed; }
 
 .admin-quick-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
+.admin-system-notifications {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--admin-border);
+  border-radius: 12px;
+  background: #080808;
+}
+.admin-system-notifications-header,
+.admin-system-notification {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+.admin-system-notifications-header h3,
+.admin-system-notification p { margin: 0; }
+.admin-system-notification-list { display: grid; gap: 8px; }
+.admin-system-notification {
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  padding: 11px;
+  border: 1px solid #3d3d3d;
+  border-radius: 10px;
+  background: #111;
+}
+.admin-system-notification p { margin-top: 4px; color: var(--admin-muted); overflow-wrap: anywhere; }
+.admin-system-notification-indicator { width: 10px; height: 100%; min-height: 42px; border-radius: 999px; background: #777; }
+.admin-system-notification[data-severity="healthy"] { border-color: #278a51; background: #081b10; }
+.admin-system-notification[data-severity="healthy"] .admin-system-notification-indicator { background: #42d77d; }
+.admin-system-notification[data-severity="warning"] { border-color: #d9b63b; background: #201b08; }
+.admin-system-notification[data-severity="warning"] .admin-system-notification-indicator { background: #f0ce54; }
+.admin-system-notification[data-severity="legacy"] { border-color: #dc8d2d; background: #241407; }
+.admin-system-notification[data-severity="legacy"] .admin-system-notification-indicator { background: #ff9f32; }
+.admin-system-notification[data-severity="conflict"] { border-color: #8f62d9; background: #170d25; }
+.admin-system-notification[data-severity="conflict"] .admin-system-notification-indicator { background: #b78aff; }
+.admin-system-notification[data-severity="error"] { border-color: #cf4747; background: #260b0b; }
+.admin-system-notification[data-severity="error"] .admin-system-notification-indicator { background: #ff6464; }
+.admin-weekly-diagnostic-report { padding: 11px; border: 1px solid rgba(212,175,55,.45); border-radius: 10px; background: #0d0d0d; }
+.admin-weekly-diagnostic-report > summary { cursor: pointer; color: var(--admin-gold-light); font-weight: 800; }
+.admin-weekly-diagnostic-report p,
+.admin-weekly-diagnostic-report small { color: var(--admin-muted); }
+.admin-weekly-diagnostic-report ul { display: grid; gap: 7px; padding-left: 22px; }
+.admin-weekly-diagnostic-report li[data-severity="healthy"] { color: #70e497; }
+.admin-weekly-diagnostic-report li[data-severity="warning"] { color: #f0ce54; }
+.admin-weekly-diagnostic-report li[data-severity="legacy"] { color: #ff9f32; }
+.admin-weekly-diagnostic-report li[data-severity="conflict"] { color: #c9a5ff; }
+.admin-weekly-diagnostic-report li[data-severity="error"] { color: #ff8585; }
 .admin-architecture-status {
   display: grid;
   grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
@@ -6817,6 +6903,22 @@ button[aria-label="Add to cart"]::before {
 .admin-category-workspace .admin-child-group-row > .admin-warning-message { grid-column: 1 / -1; }
 .admin-category-workspace .admin-child-group-row > .admin-card-actions { justify-content: flex-end; }
 .admin-category-workspace .admin-child-groups-workspace { margin: 14px 0; padding: 14px; border: 1px solid rgba(212,175,55,.38); border-radius: 14px; background: rgba(8,8,8,.94); }
+.admin-shared-subcollection-design { margin: 0 0 20px; padding: 18px; border: 1px solid rgba(244,208,111,.55); border-radius: 16px; background: #090909; }
+.admin-shared-subcollection-design-workspace { display: grid; grid-template-columns: minmax(280px,.8fr) minmax(420px,1.2fr); gap: 20px; align-items: start; }
+.admin-shared-subcollection-design-workspace > aside { position: sticky; top: 120px; display: grid; place-items: center; min-width: 0; padding: 14px; border: 1px solid rgba(244,208,111,.28); border-radius: 14px; background: #030303; overflow: auto; }
+.admin-shared-subcollection-design-controls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; align-items: end; }
+.admin-shared-subcollection-design-controls > :first-child,
+.admin-shared-subcollection-design-controls > .admin-panel-actions,
+.admin-shared-subcollection-design-controls > button,
+.admin-shared-subcollection-design-controls > .admin-note,
+.admin-shared-subcollection-design-controls > .admin-status { grid-column: 1 / -1; }
+.admin-subcollection-design-preview { box-sizing: border-box; }
+
+@media (max-width: 900px) {
+  .admin-shared-subcollection-design-workspace,
+  .admin-shared-subcollection-design-controls { grid-template-columns: 1fr; }
+  .admin-shared-subcollection-design-workspace > aside { position: static; }
+}
 .admin-category-workspace .admin-child-groups-workspace > summary { cursor: pointer; color: var(--admin-gold-light); font-size: 1.15rem; font-weight: 900; }
 .admin-category-workspace #adminChildGroupsWorkspaceMount { display: grid; gap: 14px; margin-top: 14px; }
 .admin-category-workspace .admin-child-group-master { padding: 12px; border: 1px solid rgba(212,175,55,.2); border-radius: 12px; background: rgba(255,255,255,.02); }
@@ -6892,6 +6994,9 @@ button[aria-label="Add to cart"]::before {
 }
 
 @media (max-width: 640px) {
+  .admin-system-notifications-header,
+  .admin-system-notification { grid-template-columns: 1fr; }
+  .admin-system-notification-indicator { width: 100%; height: 7px; min-height: 7px; }
   .admin-nav-toggle {
     position: sticky;
     top: 52px;

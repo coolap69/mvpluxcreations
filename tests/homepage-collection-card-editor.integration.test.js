@@ -340,7 +340,7 @@ Deno.test('the Collection batch helper saves every dirty editor with the request
   const calls = [];
   let status = '';
   const saveAll = new Function('document', 'dependencies', `
-    const { editorHasUnsavedChanges, cancelCategoryLiveAutosave, readAdminCategories, saveCategoryEditForm, saveSharedCollectionBackgroundChanges, setStatus } = dependencies;
+    const { editorHasUnsavedChanges, cancelCategoryLiveAutosave, readAdminCategories, saveCategoryEditForm, saveSharedCollectionBackgroundChanges, saveSharedSubcollectionCardDesignChanges, setStatus } = dependencies;
     ${saveAllSource}
     return saveAllOpenCollectionChanges;
   `)(window.document, {
@@ -349,6 +349,7 @@ Deno.test('the Collection batch helper saves every dirty editor with the request
     readAdminCategories: () => ({ sports: { title: 'Sport Legends' }, movies: { title: 'Movie Characters' } }),
     saveCategoryEditForm: async (form, state, options) => { calls.push([form.dataset.categoryEdit, state, options.render]); form.dataset.editorDirty = 'false'; return true; },
     saveSharedCollectionBackgroundChanges: async (options) => { calls.push(['shared-background', options.approvalStatus, false]); return true; },
+    saveSharedSubcollectionCardDesignChanges: async () => true,
     setStatus: (message) => { status = message; }
   });
   assert(await saveAll({ approvalStatus: 'approved' }), 'Save All must succeed when every existing normalized save succeeds');
@@ -372,7 +373,7 @@ Deno.test('Collections exposes one sticky live action that includes the shared b
   assert(adminSource.includes('Apply Background to All Main Collections'), 'the shared background must expose one obvious Apply-to-All action');
   assert(!adminSource.includes('Save Shared Background Draft'), 'the shared controller must not duplicate the background workflow with a second save button');
   const all = sourceRange(adminSource, 'async function saveAllCollectionChangesLive', '\n\nfunction categoryKeyForActionTarget');
-  assert(all.includes("saveAllOpenCollectionChanges({ quiet: true, approvalStatus: 'approved' })") && all.includes("['category', 'category-delete', 'section-layout'].includes(item.type)") && all.includes('saveLiveChangeIds'), 'the main Collections action must save every dirty Collection form in the live-ready state and publish only Collection and section-layout changes through one existing live controller');
+  assert(all.includes("saveAllOpenCollectionChanges({ quiet: true, approvalStatus: 'approved' })") && all.includes("['category', 'category-delete', 'section-layout', 'subcollection-card-design'].includes(item.type)") && all.includes('saveLiveChangeIds'), 'the main Collections action must save every dirty Collection/Subcollection form and shared design through one existing live controller');
   const editorMarkup = sourceRange(adminSource, 'function categoryEditMarkup', '\n\nfunction suspiciousCategoryKeys');
   assert(!editorMarkup.includes('Save Changes / Save Draft') && !editorMarkup.includes('data-save-all-open-collections') && !editorMarkup.includes('categoryPublishButtonMarkup'), 'individual Collection editors must not expose competing save buttons');
   assert(!adminSource.includes('function categoryPublishButtonMarkup'), 'per-Collection live buttons must not compete with the one page-level Collection save action');
@@ -533,7 +534,7 @@ Deno.test('Featured Categories layout joins the protected private batch and exis
   assert(adminHtml.indexOf('storefront-section-layout.js') < adminHtml.indexOf('admin.js?v='), 'Admin must load the shared section-layout resolver before the Collections controller');
   assert(adminSource.includes("collectionKey: 'globalDisplaySettings'") && adminSource.includes("entryKey: 'sectionLayouts'"), 'section layout must persist inside the existing normalized global display settings');
   assert(adminSource.includes("id: 'sectionLayouts:featuredCategories'") && adminSource.includes("type: 'section-layout'"), 'saved section layout must participate in the existing draft-versus-live review lifecycle');
-  assert(adminSource.includes("['category', 'category-delete', 'section-layout'].includes(item.type)"), 'Collection Save Live must publish the saved section layout through the same public snapshot operation');
+  assert(adminSource.includes("['category', 'category-delete', 'section-layout', 'subcollection-card-design'].includes(item.type)"), 'Collection Save Live must publish section layouts and the shared Subcollection design through the same public snapshot operation');
   assert(adminSource.includes('featuredCategoriesSectionLayoutOperation(sectionLayout)'), 'the shared background form must save layout and background through one protected batch request');
 });
 

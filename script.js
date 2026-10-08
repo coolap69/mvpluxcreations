@@ -4496,15 +4496,64 @@ function categoryGroupState(masterKey) {
   };
 }
 
+function normalizedChildGroupCardMarkup(child, activeKey = '') {
+  const presentation = getEffectiveCategoryPresentation(child.key);
+  const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
+  const backgroundStyle = presentation.background
+    ? `background-image:url('${escapeHtml(presentation.background)}');`
+    : 'background-image:none;';
+  return `
+    <a class="sport-type-card${activeKey === child.key ? ' active' : ''}" href="${escapeHtml(categoryGroupHref(child.key))}" data-category-group-link="${escapeHtml(child.key)}">
+      <span class="sport-type-card-stage" aria-label="${escapeHtml(presentation.title)} preview">
+        <span class="category-background-layer" style="${backgroundStyle}background-position:${escapeHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}" aria-hidden="true"></span>
+        ${presentation.image ? `<img class="product-cutout" src="${escapeHtml(presentation.image)}" alt="${escapeHtml(presentation.title)}" style="--subcollection-image-size:${layout.imageSizePercent}%;height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%;transform:${layout.imageTransform}">` : ''}
+      </span>
+      <span>${escapeHtml(presentation.title || child.key)}</span>
+      <p>${escapeHtml(presentation.description || '')}</p>
+    </a>`;
+}
+
+function subcollectionCardDesign(globalDisplaySettings = getAdminGlobalDisplaySettings()) {
+  const value = globalDisplaySettings?.subcollectionCards || {};
+  return {
+    cardWidthPx: Math.max(220, Math.min(420, Number(value.cardWidthPx) || 260)),
+    stageHeightPx: Math.max(180, Math.min(520, Number(value.stageHeightPx) || 230))
+  };
+}
+
+function renderNormalizedSportsChildGroupCards(container, children, activeKey = '') {
+  if (!container || !children.length) return false;
+  const design = subcollectionCardDesign();
+  container.classList.add('category-subcollection-carousel');
+  container.style.setProperty('--sport-carousel-card-width', `${design.cardWidthPx}px`);
+  container.style.setProperty('--sport-carousel-image-height', `${design.stageHeightPx}px`);
+  container.innerHTML = children.map((child) => normalizedChildGroupCardMarkup(child, activeKey)).join('');
+  container.dataset.normalizedSubcollections = 'true';
+  container.removeAttribute('data-category-initial-content');
+  container.hidden = false;
+  return true;
+}
+
 function renderCategoryGroupNavigation(page, masterKey, state) {
   let nav = page.querySelector('[data-category-group-nav]');
-  const legacySportsNavigation = masterKey === 'sports' ? page.querySelector('.sport-type-carousel') : null;
+  let childCardList = masterKey === 'sports' ? page.querySelector('.sport-type-carousel') : page.querySelector('[data-subcollection-card-list]');
   if (!state.children.length && !state.requestedKey) {
     nav?.remove();
-    if (legacySportsNavigation) legacySportsNavigation.hidden = false;
+    if (childCardList && masterKey === 'sports') childCardList.hidden = false;
+    else childCardList?.remove();
     return;
   }
-  if (legacySportsNavigation) legacySportsNavigation.hidden = state.children.length > 0;
+  if (state.children.length) {
+    if (!childCardList) {
+      childCardList = document.createElement('div');
+      childCardList.className = 'sport-type-carousel category-subcollection-carousel';
+      childCardList.dataset.subcollectionCardList = masterKey;
+      const hero = page.querySelector('.category-hero');
+      if (hero) hero.insertAdjacentElement('afterend', childCardList);
+      else page.prepend(childCardList);
+    }
+    renderNormalizedSportsChildGroupCards(childCardList, state.children, state.activeChild?.key || '');
+  }
   if (!nav) {
     nav = document.createElement('nav');
     nav.className = 'category-group-nav';

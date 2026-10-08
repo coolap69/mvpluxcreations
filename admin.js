@@ -1,5 +1,5 @@
 let adminStateUtils = null;
-const adminStateUtilsPromise = import('./admin-state-utils.js?v=20261007-subcollection-save');
+const adminStateUtilsPromise = import('./admin-state-utils.js?v=20261007-subcollection-key-collision');
 adminStateUtilsPromise.then((module) => {
   adminStateUtils = module;
 });
@@ -4675,6 +4675,21 @@ function architectureReviewItems() {
       page: 'products'
     });
   }
+  const baselineSubcollectionCards = structuredClone(baseline.globalDisplaySettings?.subcollectionCards || {});
+  const currentSubcollectionCards = structuredClone(adminLiveSettings?.globalDisplaySettings?.subcollectionCards || {});
+  if (!semanticValuesEqual(baselineSubcollectionCards, currentSubcollectionCards)) {
+    items.push({
+      id: 'subcollectionCards:all',
+      type: 'subcollection-card-design',
+      key: 'all',
+      group: 'Shared Subcollection Card Design',
+      title: 'Shared Subcollection card size and background',
+      approved: true,
+      before: baselineSubcollectionCards,
+      after: currentSubcollectionCards,
+      page: 'subcollections'
+    });
+  }
   return items;
 }
 
@@ -4748,6 +4763,12 @@ function buildSelectedArchitectureSnapshot(items) {
       baseline.globalDisplaySettings = {
         ...(baseline.globalDisplaySettings || {}),
         productShowrooms: structuredClone(current.globalDisplaySettings?.productShowrooms || {})
+      };
+    }
+    if (item.type === 'subcollection-card-design') {
+      baseline.globalDisplaySettings = {
+        ...(baseline.globalDisplaySettings || {}),
+        subcollectionCards: structuredClone(current.globalDisplaySettings?.subcollectionCards || {})
       };
     }
   });
@@ -5149,13 +5170,141 @@ function childGroupMarkup(masterCategory, categories) {
   </section>`;
 }
 
+function subcollectionCardDesignDefaults() {
+  return {
+    cardWidthPx: 260,
+    stageHeightPx: 230,
+    backgroundImage: IMAGE_IMPORT_DEFAULT_BACKGROUND,
+    backgroundPosition: '50% 100%',
+    backgroundSizePercent: 100,
+    backgroundWidthPercent: 100,
+    backgroundHeightPercent: 100
+  };
+}
+
+function normalizedSubcollectionCardDesign(value = {}) {
+  const defaults = subcollectionCardDesignDefaults();
+  return {
+    cardWidthPx: safeCategoryDisplayNumber(value.cardWidthPx, defaults.cardWidthPx, 220, 420),
+    stageHeightPx: safeCategoryDisplayNumber(value.stageHeightPx, defaults.stageHeightPx, 180, 520),
+    backgroundImage: String(value.backgroundImage || defaults.backgroundImage),
+    backgroundPosition: String(value.backgroundPosition || defaults.backgroundPosition),
+    backgroundSizePercent: safeCategoryDisplayNumber(value.backgroundSizePercent, defaults.backgroundSizePercent, 50, 300),
+    backgroundWidthPercent: safeCategoryDisplayNumber(value.backgroundWidthPercent, defaults.backgroundWidthPercent, 50, 300),
+    backgroundHeightPercent: safeCategoryDisplayNumber(value.backgroundHeightPercent, defaults.backgroundHeightPercent, 50, 300)
+  };
+}
+
+function currentSubcollectionCardDesign() {
+  return normalizedSubcollectionCardDesign(adminLiveSettings?.globalDisplaySettings?.subcollectionCards || adminPublishedBaseline?.globalDisplaySettings?.subcollectionCards || {});
+}
+
+function subcollectionCardDesignFromForm(form) {
+  const data = new FormData(form);
+  return normalizedSubcollectionCardDesign({
+    cardWidthPx: data.get('cardWidthPx'), stageHeightPx: data.get('stageHeightPx'),
+    backgroundImage: data.get('backgroundImage'),
+    backgroundPosition: `${data.get('backgroundPositionX') || 50}% ${data.get('backgroundPositionY') || 100}%`,
+    backgroundSizePercent: data.get('backgroundSizePercent'), backgroundWidthPercent: data.get('backgroundWidthPercent'),
+    backgroundHeightPercent: data.get('backgroundHeightPercent')
+  });
+}
+
+function sharedSubcollectionCardDesignMarkup() {
+  const design = currentSubcollectionCardDesign();
+  const position = categoryBackgroundPositionParts(design.backgroundPosition);
+  const count = normalizedChildGroupsForBackgroundBatch().length;
+  return `<section class="admin-shared-subcollection-design"><form data-shared-subcollection-design-form data-editor-dirty="false">
+    <div><h3>Shared Subcollection Card Design</h3><p class="admin-note">One default card size and background for every current and future Subcollection. Individual Subcollection images and their size/position remain independent.</p></div>
+    <div class="admin-shared-subcollection-design-workspace">
+      <aside data-shared-subcollection-design-preview></aside>
+      <div class="admin-shared-subcollection-design-controls">
+        <label>Shared Background<select name="backgroundImage">${productVisualOptionsMarkup('background', design.backgroundImage)}</select></label>
+        ${categoryDisplayRangeMarkup('cardWidthPx', 'Card Width', design.cardWidthPx, 220, 420, 'px')}
+        ${categoryDisplayRangeMarkup('stageHeightPx', 'Image Stage Height', design.stageHeightPx, 180, 520, 'px')}
+        ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background Left / Right', position.x, 0, 100, '%')}
+        ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Up / Down', position.y, 0, 100, '%')}
+        ${categoryDisplayRangeMarkup('backgroundWidthPercent', 'Background Width', design.backgroundWidthPercent, 50, 300, '%')}
+        ${categoryDisplayRangeMarkup('backgroundHeightPercent', 'Background Height', design.backgroundHeightPercent, 50, 300, '%')}
+        ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Background Zoom', design.backgroundSizePercent, 50, 300, '%')}
+        <div class="admin-panel-actions"><button type="button" data-center-shared-subcollection-background>Center Background</button><button type="button" data-reset-shared-subcollection-design>Reset Shared Design</button></div>
+        <button type="button" data-apply-shared-subcollection-design-all>Make ${count} Existing Subcollections Use This Shared Design</button>
+        <p class="admin-note">Use the single Save All Collection &amp; Subcollection Changes Live button above when ready. This never changes Subcollection standee images, standee placement, text, Products, assignments, visibility, order, or pricing.</p>
+        <p class="admin-status" data-shared-subcollection-design-status>Using the saved shared default.</p>
+      </div>
+    </div>
+  </form></section>`;
+}
+
 function childGroupsWorkspaceMarkup(mainCollections, categories) {
   if (!mainCollections.length) return '<p class="admin-note">Create a Main Collection before adding Subcollections.</p>';
-  return mainCollections.map((masterCategory) => `
+  return `${sharedSubcollectionCardDesignMarkup()}${mainCollections.map((masterCategory) => `
     <section class="admin-child-group-master" data-category-card="${escapeAdminHtml(masterCategory.key)}">
       <header><div><span class="admin-note">Main Collection</span><h3>${escapeAdminHtml(masterCategory.title || masterCategory.key)}</h3></div><code>${escapeAdminHtml(masterCategory.key)}</code></header>
       ${childGroupMarkup(masterCategory, categories)}
-    </section>`).join('');
+    </section>`).join('')}`;
+}
+
+function previewSharedSubcollectionCardDesign(form) {
+  const preview = form?.querySelector('[data-shared-subcollection-design-preview]');
+  if (!preview) return;
+  const design = subcollectionCardDesignFromForm(form);
+  const sample = normalizedChildGroupsForBackgroundBatch().find((category) => category.card?.image) || {};
+  const presentation = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation({
+    ...sample,
+    key: sample.key || '__subcollection-preview__',
+    title: sample.title || 'Subcollection',
+    description: sample.description || 'Shared card design preview',
+    card: { ...(sample.card || {}), backgroundImage: '' },
+    displaySettings: {
+      ...(sample.displaySettings || {}),
+      backgroundImage: '', backgroundPosition: undefined, backgroundSizePercent: undefined,
+      backgroundWidthPercent: undefined, backgroundHeightPercent: undefined
+    }
+  }, { mode: 'draft', globalDisplaySettings: { subcollectionCards: design }, defaultBackground: design.backgroundImage });
+  const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
+  preview.innerHTML = `<article class="sport-type-card admin-subcollection-design-preview" style="width:min(100%,${design.cardWidthPx}px)">
+    <span class="sport-type-card-stage" style="height:${design.stageHeightPx}px">
+      <span class="category-background-layer" style="background-image:url('${escapeAdminHtml(presentation.background)}');background-position:${escapeAdminHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}"></span>
+      ${presentation.image ? `<img class="product-cutout" src="${escapeAdminHtml(presentation.image)}" alt="Sample Subcollection" style="--subcollection-image-size:${layout.imageSizePercent}%;height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%;transform:${layout.imageTransform}">` : '<span class="admin-category-no-image">No sample Subcollection image</span>'}
+    </span><span>${escapeAdminHtml(presentation.title)}</span><p>${escapeAdminHtml(presentation.description)}</p>
+  </article>`;
+}
+
+function bindSharedSubcollectionCardDesignController() {
+  const form = document.querySelector('[data-shared-subcollection-design-form]');
+  if (!form || form.dataset.bound === 'true') return;
+  form.dataset.bound = 'true';
+  previewSharedSubcollectionCardDesign(form);
+  const changed = (event) => {
+    syncCategoryDisplayControl(form, event.target);
+    syncCategoryDisplayOutputs(form);
+    form.dataset.editorDirty = 'true';
+    form.querySelector('[data-shared-subcollection-design-status]').textContent = 'UNSAVED CHANGES — use Save All Collection & Subcollection Changes Live.';
+    previewSharedSubcollectionCardDesign(form);
+  };
+  form.addEventListener('input', changed);
+  form.addEventListener('change', changed);
+  form.querySelector('[data-center-shared-subcollection-background]')?.addEventListener('click', () => {
+    setCategoryDisplayControlValue(form, 'backgroundPositionX', 50);
+    setCategoryDisplayControlValue(form, 'backgroundPositionY', 50);
+    changed({ target: form.elements.namedItem('backgroundPositionX') });
+  });
+  form.querySelector('[data-reset-shared-subcollection-design]')?.addEventListener('click', () => {
+    const defaults = subcollectionCardDesignDefaults();
+    form.elements.namedItem('backgroundImage').value = defaults.backgroundImage;
+    const position = categoryBackgroundPositionParts(defaults.backgroundPosition);
+    Object.entries({ ...defaults, backgroundPositionX: position.x, backgroundPositionY: position.y })
+      .forEach(([name, value]) => setCategoryDisplayControlValue(form, name, value));
+    changed({ target: form.elements.namedItem('cardWidthPx') });
+  });
+  form.querySelector('[data-apply-shared-subcollection-design-all]')?.addEventListener('click', () => {
+    const count = normalizedChildGroupsForBackgroundBatch().length;
+    if (!window.confirm(`Make ${count} existing Subcollection${count === 1 ? '' : 's'} use this shared card/background design?\n\nTheir images, image placement, text, Products, assignments, visibility, order, and pricing will not change.`)) return;
+    form.dataset.resetExistingOverrides = 'true';
+    changed({ target: form.elements.namedItem('cardWidthPx') });
+    form.querySelector('[data-shared-subcollection-design-status]').textContent = `${count} existing Subcollections will use the shared background after Save All Live.`;
+  });
 }
 
 const CATEGORY_IMAGE_SIZE_DEFAULT = 63;
@@ -6057,6 +6206,7 @@ function renderCategoryManager() {
   container.innerHTML = `${migrationMarkup}${categoryMarkup}`;
   const childWorkspace = document.getElementById('adminChildGroupsWorkspaceMount');
   if (childWorkspace) childWorkspace.innerHTML = childGroupsWorkspaceMarkup(allMainCollections, categoriesByKey);
+  bindSharedSubcollectionCardDesignController();
   document.querySelectorAll('.admin-category-workspace .admin-category-edit-form[data-category-edit]').forEach((form) => previewCategoryEdit(form));
 
   const deleted = readDeletedCategories();
@@ -6258,7 +6408,8 @@ async function saveNewChildGroupFromForm(form) {
   const parent = readAdminCategories()[parentKey];
   const data = new FormData(form);
   const title = String(data.get('title') || '').trim();
-  const key = makeSlug(data.get('key') || title);
+  const requestedKey = String(data.get('key') || '').trim();
+  const key = adminStateUtils.availableChildCategoryKey(readAdminCategories(), parentKey, title, requestedKey);
   const status = form.querySelector('[data-child-group-status]');
   if (!parent || !title || !key) {
     if (status) status.textContent = 'Add a Subcollection title and key.';
@@ -6267,7 +6418,9 @@ async function saveNewChildGroupFromForm(form) {
   const candidate = adminStateUtils.childCategoryDefaults(parentKey, { key, title });
   const duplicates = adminStateUtils.findEquivalentCategories(readAdminCategories(), candidate);
   if (duplicates.length) {
-    if (status) status.textContent = `A similar Subcollection already exists under this Main Category: ${duplicates.map((item) => item.title || item.key).join(', ')}.`;
+    if (status) status.textContent = duplicates.some((item) => item.parentKey === parentKey)
+      ? `A Subcollection named ${title} already exists under ${parent.title || parentKey}.`
+      : `That key is already used by ${duplicates.map((item) => item.title || item.key).join(', ')}. Leave Key blank to generate a safe Subcollection key.`;
     return false;
   }
   const now = new Date().toISOString();
@@ -7040,13 +7193,56 @@ async function applyChildGroupBackgroundToAll(form) {
   return saveAllCollectionChangesLive(collectionLiveStatusForForm(form), { workingStateCurrent: true });
 }
 
+async function saveSharedSubcollectionCardDesignChanges({ approvalStatus = 'draft' } = {}) {
+  const form = document.querySelector('[data-shared-subcollection-design-form]');
+  if (!form || !editorHasUnsavedChanges(form)) return true;
+  const design = subcollectionCardDesignFromForm(form);
+  const validation = adminStateUtils.validateAdminImageReference(design.backgroundImage, { allowBlank: false });
+  if (!validation.valid) {
+    adminLastSaveError = `Shared Subcollection background is invalid: ${validation.reason}`;
+    form.querySelector('[data-shared-subcollection-design-status]').textContent = `SAVE FAILED — ${adminLastSaveError}`;
+    return false;
+  }
+  const globalDisplaySettings = adminLiveSettings?.globalDisplaySettings || {};
+  const operations = [{
+    type: 'value', collectionKey: 'globalDisplaySettings', entryKey: 'subcollectionCards',
+    baseValue: structuredClone(globalDisplaySettings.subcollectionCards || {}), value: design
+  }];
+  if (form.dataset.resetExistingOverrides === 'true') {
+    normalizedChildGroupsForBackgroundBatch().forEach((category) => operations.push({
+      type: 'record', collectionKey: 'categories', entryKey: category.key, baseRecord: category,
+      patch: {
+        card: { ...(category.card || {}), backgroundImage: '' },
+        displaySettings: {
+          ...(category.displaySettings || {}), backgroundImage: '', backgroundPosition: null,
+          backgroundSizePercent: null, backgroundWidthPercent: null, backgroundHeightPercent: null
+        },
+        updatedAt: new Date().toISOString(), draftStatus: approvalStatus === 'approved' ? 'ready' : 'draft', approvalStatus
+      }
+    }));
+  }
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) {
+    form.querySelector('[data-shared-subcollection-design-status]').textContent = `SAVE FAILED — ${adminLastSaveError || 'shared Subcollection design was not saved.'}`;
+    return false;
+  }
+  form.dataset.editorDirty = 'false';
+  form.dataset.resetExistingOverrides = 'false';
+  form.querySelector('[data-shared-subcollection-design-status]').textContent = approvalStatus === 'approved'
+    ? 'SHARED SUBCOLLECTION DESIGN SAVED. SAVING LIVE…'
+    : 'DRAFT SAVED — PRIVATE';
+  return true;
+}
+
 async function saveAllOpenCollectionChanges({ quiet = false, approvalStatus = 'draft' } = {}) {
   const reportItems = typeof pendingCollectionChangeReportItems === 'function' ? pendingCollectionChangeReportItems() : [];
   const forms = [...document.querySelectorAll('.admin-category-edit-form[data-category-edit]')]
     .filter((form) => editorHasUnsavedChanges(form));
   const sharedBackgroundForm = document.querySelector('[data-shared-collection-background-form]');
   const hasSharedBackgroundChanges = editorHasUnsavedChanges(sharedBackgroundForm);
-  if (!forms.length && !hasSharedBackgroundChanges) {
+  const sharedSubcollectionForm = document.querySelector('[data-shared-subcollection-design-form]');
+  const hasSharedSubcollectionChanges = Boolean(sharedSubcollectionForm && editorHasUnsavedChanges(sharedSubcollectionForm));
+  if (!forms.length && !hasSharedBackgroundChanges && !hasSharedSubcollectionChanges) {
     if (!quiet) setStatus('No unsaved Collection changes.');
     if (!quiet && typeof setCollectionChangeReport === 'function') setCollectionChangeReport('No unsaved open Collection changes.', typeof savedCollectionChangeReportItems === 'function' ? savedCollectionChangeReportItems() : [], 'idle');
     return true;
@@ -7059,6 +7255,11 @@ async function saveAllOpenCollectionChanges({ quiet = false, approvalStatus = 'd
       return false;
     }
   }
+  if (!await saveSharedSubcollectionCardDesignChanges({ approvalStatus })) {
+    setStatus('Save All stopped at Shared Subcollection Card Design. Nothing was published.');
+    if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', reportItems, 'failed');
+    return false;
+  }
   if (!await saveSharedCollectionBackgroundChanges({ quiet: true, approvalStatus })) {
     setStatus('Save All stopped at Shared Collection Card Background. Nothing was published.');
     if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport('SAVE FAILED — WEBSITE NOT CHANGED.', reportItems, 'failed');
@@ -7067,7 +7268,7 @@ async function saveAllOpenCollectionChanges({ quiet = false, approvalStatus = 'd
   if (!quiet) {
     const privateSave = approvalStatus !== 'approved';
     const message = privateSave
-      ? `${forms.length} open Collection editor${forms.length === 1 ? '' : 's'}${hasSharedBackgroundChanges ? ' and the Shared Collection Card Background' : ''} ${forms.length === 1 && !hasSharedBackgroundChanges ? 'was' : 'were'} saved privately. Hold is on, so the customer website was not changed.`
+      ? `${forms.length} open Collection editor${forms.length === 1 ? '' : 's'}${hasSharedBackgroundChanges ? ' and the Shared Collection Card Background' : ''}${hasSharedSubcollectionChanges ? ' and the Shared Subcollection Card Design' : ''} were saved privately. Hold is on, so the customer website was not changed.`
       : 'Collection changes saved. Updating the customer website…';
     setStatus(message);
     if (typeof setCollectionChangeReport === 'function') setCollectionChangeReport(
@@ -7108,7 +7309,7 @@ async function saveAllCollectionChangesLive(statusTarget = null, { workingStateC
   }
   const reportItems = typeof savedCollectionChangeReportItems === 'function' ? savedCollectionChangeReportItems() : pendingReportItems;
   const changeIds = architectureReviewItems()
-    .filter((item) => ['category', 'category-delete', 'section-layout'].includes(item.type))
+    .filter((item) => ['category', 'category-delete', 'section-layout', 'subcollection-card-design'].includes(item.type))
     .map((item) => item.id);
   if (!changeIds.length) {
     const message = 'LIVE — there are no saved Collection changes waiting to go live.';
@@ -9600,6 +9801,113 @@ function renderAdminDashboard() {
     { title: 'Errors', value: (adminLastSaveError ? 1 : 0) + (adminLatestPublishError ? 1 : 0) + (conflicts?.conflicts?.length || 0) + (conflicts?.unsupported?.length || 0), note: 'Save, publish, or conflict errors requiring attention.', href: '#advanced' }
   ];
   container.innerHTML = cards.map((card) => `<a class="admin-dashboard-card" href="${card.href}"><span class="admin-dashboard-card-title">${escapeAdminHtml(card.title)}</span><strong>${escapeAdminHtml(String(available(card.value)))}</strong><span>${escapeAdminHtml(card.note)}</span><em>Open</em></a>`).join('');
+  renderAdminSystemNotifications();
+}
+
+function adminSystemNotices() {
+  const notices = [];
+  const add = (severity, title, detail, href = '#advanced', action = 'Review') => notices.push({ severity, title, detail, href, action });
+  const migration = adminLiveSettings?.adminArchitectureMigrationV2?.productPageOverrides;
+  const migrationConflicts = [...(migration?.conflicts || []), ...(migration?.unsupported || [])];
+  if (adminLastSaveError) add('error', 'Save failed — website not changed', adminLastSaveError, '#dashboard');
+  if (adminLatestPublishError) add('error', 'Live update failed', adminLatestPublishError, '#advanced');
+  if (migrationConflicts.length) add('conflict', 'Architecture conflicts require review', `${migrationConflicts.length} migration or page override conflict${migrationConflicts.length === 1 ? '' : 's'} remain.`, '#advanced');
+  if (!newAdminArchitectureEnabled()) add('error', 'Normalized Admin architecture is not active', 'Old Admin readers may still control part of the editing experience.', '#advanced');
+  if (adminPublishedFileState.reachable === false) add('error', 'Published customer content is unavailable', 'Neither the Supabase live snapshot nor its static emergency fallback could be validated.', '#advanced');
+  else if (adminPublishedFileState.source === 'static-fallback') add('legacy', 'Static emergency snapshot is active', 'Supabase live content was unavailable. Customers are seeing the complete published-admin-settings.json fallback.', '#advanced');
+
+  const legacyMainCollections = Object.values(mainCollectionMigrationDrafts()).map((category) => category.title || category.key);
+  if (legacyMainCollections.length) add(
+    'legacy',
+    'Legacy Homepage Collection Cards are still active',
+    `Needs normalization: ${legacyMainCollections.join(', ')}. Their recognized compatibility cards remain visible until normalized replacements are deliberately created and published.`,
+    '#categories',
+    'Open Collections'
+  );
+
+  const sports = readAdminCategories().sports;
+  const legacySportsGroups = sports ? legacyChildGroupDraftCandidates(sports).map((category) => category.title) : [];
+  if (legacySportsGroups.length) add(
+    'legacy',
+    'Static Sport Subcollections are still acting as fallback',
+    `Not normalized yet: ${legacySportsGroups.join(', ')}. The storefront may use the old Sports page cards for these groups.`,
+    '#subcollections',
+    'Open Subcollections'
+  );
+
+  const hierarchyWarnings = adminStateUtils?.categoryHierarchyWarnings?.(
+    readAdminCategories(),
+    Object.fromEntries(effectiveAdminProducts().map((product) => [product.slug, product]))
+  ) || [];
+  if (hierarchyWarnings.length) {
+    const details = hierarchyWarnings.slice(0, 6).map((warning) => warning.productSlug
+      ? `${warning.productSlug}: ${warning.categoryKey} requires ${warning.parentKey}`
+      : `${warning.categoryKey}: ${warning.type}`).join('; ');
+    add('warning', 'Collection relationship warnings', `${details}${hierarchyWarnings.length > 6 ? `; plus ${hierarchyWarnings.length - 6} more` : ''}. Nothing was changed automatically.`, '#subcollections', 'Review Relationships');
+  }
+  if (!notices.length) add('healthy', 'No known content-source conflicts', 'Normalized records are active and no legacy fallback, save failure, or hierarchy conflict is currently detected.', '#dashboard', 'Up to date');
+  return notices;
+}
+
+const ADMIN_WEEKLY_DIAGNOSTIC_STORAGE_KEY = 'mvpluxWeeklyAdminDiagnosticV1';
+const ADMIN_WEEKLY_DIAGNOSTIC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function readWeeklyAdminDiagnosticReport() {
+  try {
+    const report = JSON.parse(localStorage.getItem(ADMIN_WEEKLY_DIAGNOSTIC_STORAGE_KEY) || 'null');
+    return report?.generatedAt && Array.isArray(report.notices) ? report : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function createWeeklyAdminDiagnosticReport(notices = adminSystemNotices()) {
+  const report = {
+    generatedAt: new Date().toISOString(),
+    notices: notices.map(({ severity, title, detail }) => ({ severity, title, detail }))
+  };
+  try { localStorage.setItem(ADMIN_WEEKLY_DIAGNOSTIC_STORAGE_KEY, JSON.stringify(report)); } catch (_error) { /* The current report can still be displayed. */ }
+  return report;
+}
+
+function ensureWeeklyAdminDiagnosticReport(notices) {
+  const existing = readWeeklyAdminDiagnosticReport();
+  const age = existing ? Date.now() - new Date(existing.generatedAt).getTime() : Infinity;
+  return existing && Number.isFinite(age) && age < ADMIN_WEEKLY_DIAGNOSTIC_INTERVAL_MS
+    ? existing
+    : createWeeklyAdminDiagnosticReport(notices);
+}
+
+function renderAdminSystemNotifications() {
+  const container = document.getElementById('adminSystemNotifications');
+  if (!container) return;
+  const notices = adminSystemNotices();
+  const weeklyReport = ensureWeeklyAdminDiagnosticReport(notices);
+  const attentionCount = notices.filter((notice) => notice.severity !== 'healthy').length;
+  const weeklyAttentionCount = weeklyReport.notices.filter((notice) => notice.severity !== 'healthy').length;
+  const nextCheck = new Date(new Date(weeklyReport.generatedAt).getTime() + ADMIN_WEEKLY_DIAGNOSTIC_INTERVAL_MS);
+  container.innerHTML = `
+    <div class="admin-system-notifications-header"><div><p class="admin-eyebrow">Admin diagnostics</p><h3>System Notifications</h3></div><strong>${attentionCount ? `${attentionCount} item${attentionCount === 1 ? '' : 's'} need attention` : 'All clear'}</strong></div>
+    <div class="admin-system-notification-list">${notices.map((notice) => `
+      <article class="admin-system-notification" data-severity="${escapeAdminHtml(notice.severity)}">
+        <span class="admin-system-notification-indicator" aria-hidden="true"></span>
+        <div><strong>${escapeAdminHtml(notice.title)}</strong><p>${escapeAdminHtml(notice.detail)}</p></div>
+        <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(notice.href)}">${escapeAdminHtml(notice.action)}</a>
+      </article>`).join('')}</div>
+    <details class="admin-weekly-diagnostic-report">
+      <summary>Weekly Check Report · ${weeklyAttentionCount ? `${weeklyAttentionCount} finding${weeklyAttentionCount === 1 ? '' : 's'}` : 'All clear'}</summary>
+      <p>Last checked: ${escapeAdminHtml(new Date(weeklyReport.generatedAt).toLocaleString())} · Next automatic check: ${escapeAdminHtml(nextCheck.toLocaleString())}</p>
+      <ul>${weeklyReport.notices.map((notice) => `<li data-severity="${escapeAdminHtml(notice.severity)}"><strong>${escapeAdminHtml(notice.title)}</strong> — ${escapeAdminHtml(notice.detail)}</li>`).join('')}</ul>
+      <button type="button" data-run-weekly-admin-check>Run Check Now</button>
+      <small>This audit uses already-loaded Admin state. It does not contact Supabase, repair, publish, delete, or alter customer content.</small>
+    </details>`;
+  if (container.dataset.weeklyCheckBound) return;
+  container.dataset.weeklyCheckBound = 'true';
+  container.addEventListener('click', (event) => {
+    if (!event.target.closest('[data-run-weekly-admin-check]')) return;
+    createWeeklyAdminDiagnosticReport(adminSystemNotices());
+    renderAdminSystemNotifications();
+  });
 }
 
 function renderAdminRecoveryTools() {

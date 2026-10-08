@@ -4,6 +4,7 @@ import {
   categoryProductCounts,
   childCategories,
   childCategoryDefaults,
+  availableChildCategoryKey,
   deleteCategoriesFromState,
   filterProductsForCategoryGroup,
   findEquivalentCategories,
@@ -93,6 +94,22 @@ Deno.test('Admin Category manager exposes products, image selection, one Collect
   assert(source.includes('collectionKey: \'deletedCategories\''), 'Category deletion must persist a tombstone');
 });
 
+Deno.test('Dashboard reports legacy fallbacks and normalized conflicts without another network request', async () => {
+  const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  assert(html.includes('id="adminSystemNotifications"'), 'Dashboard must provide one system notification center');
+  for (const token of ['Static emergency snapshot is active', 'Legacy Homepage Collection Cards are still active', 'Static Sport Subcollections are still acting as fallback', 'Collection relationship warnings']) {
+    assert(source.includes(token), `missing diagnostic: ${token}`);
+  }
+  const diagnosticSource = source.slice(source.indexOf('function adminSystemNotices'), source.indexOf('function renderAdminRecoveryTools'));
+  assert(!diagnosticSource.includes('.rpc(') && !diagnosticSource.includes('.from(') && !diagnosticSource.includes('fetch('), 'Dashboard diagnostics must use already-loaded state without additional Supabase or network traffic');
+  for (const severity of ['healthy', 'warning', 'legacy', 'conflict', 'error']) assert(source.includes(`'${severity}'`), `missing ${severity} notification state`);
+  assert(source.includes("const ADMIN_WEEKLY_DIAGNOSTIC_STORAGE_KEY = 'mvpluxWeeklyAdminDiagnosticV1'") && source.includes('7 * 24 * 60 * 60 * 1000'), 'Dashboard must retain one dated diagnostic report for seven days');
+  assert(source.includes('data-run-weekly-admin-check') && source.includes('Weekly Check Report'), 'Dashboard must expose the saved weekly report and a manual Check Now action');
+  const weeklySource = source.slice(source.indexOf('function readWeeklyAdminDiagnosticReport'), source.indexOf('function renderAdminRecoveryTools'));
+  assert(!weeklySource.includes('.rpc(') && !weeklySource.includes('.from(') && !weeklySource.includes('fetch('), 'weekly checks must not create Supabase or network traffic');
+});
+
 Deno.test('Category editor reuses authoritative AI assistance without saving or publishing', async () => {
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   const editor = source.slice(source.indexOf('function categoryEditMarkup'), source.indexOf('function suspiciousCategoryKeys'));
@@ -160,7 +177,7 @@ Deno.test('Admin preview and storefront use the same background priority and cli
   const styles = await Deno.readTextFile(new URL('../style.css', import.meta.url));
   const storefrontRenderer = storefrontSource.slice(storefrontSource.indexOf('function renderNormalizedHomepageCategoryCards'), storefrontSource.indexOf('function managedCategoryCardMarkup'));
   assert(adminSource.includes('MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation') && storefrontSource.includes('MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation'), 'Admin and storefront must use the same Category presentation resolver');
-  assert(resolverSource.includes('category.card?.backgroundImage || category.displaySettings?.backgroundImage || options.defaultBackground'), 'shared resolver must prefer explicit card background, inherited legacy background, then shared default');
+  assert(resolverSource.includes('category.card?.backgroundImage || category.displaySettings?.backgroundImage || sharedSubcollection.backgroundImage || options.defaultBackground'), 'shared resolver must prefer explicit card background, Subcollection shared background, then storefront default');
   assert(storefrontRenderer.includes('presentation.background'), 'storefront must render the background returned by the shared resolver');
   assert(styles.includes('.product-stage-preview {') && styles.includes('overflow: hidden;'), 'the shared stage must clip zoomed backgrounds');
   assert(styles.includes('.category-background-layer {') && styles.includes('z-index: 0;') && styles.includes('.product-cutout {') && styles.includes('z-index: 3;'), 'background, cutout, and text must retain safe visual layering');
@@ -285,6 +302,21 @@ Deno.test('new Child Group defaults never create a homepage card', () => {
   assert(child.homepageVisible === false && child.card.visible === false, 'Child Group homepage visibility must default off');
 });
 
+Deno.test('new Subcollection keys are scoped when their generated key belongs to the Main Collection', () => {
+  const hierarchy = {
+    'movie-characters': { key: 'movie-characters', title: 'Movie Stars' },
+    sports: { key: 'sports', title: 'Sport Legends' }
+  };
+  assert(
+    availableChildCategoryKey(hierarchy, 'movie-characters', 'Movie Characters') === 'movie-characters-subcollection',
+    'a Movie Characters child must not collide with the Movie Stars internal key'
+  );
+  assert(
+    availableChildCategoryKey(hierarchy, 'sports', 'Basketball') === 'basketball',
+    'a non-conflicting child must retain its normal readable key'
+  );
+});
+
 Deno.test('Child Group filtering requires both master and child assignments', () => {
   const fixture = {
     kobe: { slug: 'kobe', visible: true, categories: ['sports', 'basketball'] },
@@ -377,8 +409,8 @@ Deno.test('Subcollections may share their Main Collection destination page witho
 Deno.test('Admin loads the versioned Subcollection duplicate validator', async () => {
   const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
-  assert(source.includes("import('./admin-state-utils.js?v=20261007-subcollection-save')"), 'the corrected hierarchy validator must not be replaced by a stale browser-cached module');
-  assert(html.includes('admin.js?v=20261007-subcollection-save'), 'the Admin entry script must reload with the Subcollection save fix');
+  assert(source.includes("import('./admin-state-utils.js?v=20261007-subcollection-key-collision')"), 'the corrected hierarchy validator must not be replaced by a stale browser-cached module');
+  assert(html.includes('admin.js?v=20261007-system-notifications'), 'the Admin entry script must reload with the notification center and corrected Subcollection creation flow');
 });
 
 Deno.test('Admin renders Subcollections in their own area with private creation and no automatic assignments', async () => {
@@ -433,6 +465,17 @@ Deno.test('Subcollections can apply one normalized background to every Subcollec
     for (const field of ['parentKey', 'title', 'description', 'visible', 'order']) assert(saved[field] === before[index][field], `each Child Group ${field} must remain unchanged`);
     assert(operation.patch.approvalStatus === 'approved' && operation.patch.draftStatus === 'ready', 'the live action must use the existing approved lifecycle rather than another publisher');
   });
+});
+
+Deno.test('Subcollections expose one shared card-size and background controller for current and future records', async () => {
+  const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
+  assert(source.includes('function sharedSubcollectionCardDesignMarkup') && source.includes('Shared Subcollection Card Design'), 'the dedicated Subcollections area must contain one collective design controller');
+  for (const token of ['Card Width', 'Image Stage Height', 'Background Width', 'Background Height', 'Background Left / Right', 'Background Up / Down', 'Background Zoom']) {
+    assert(source.includes(token), `shared Subcollection design is missing ${token}`);
+  }
+  assert(source.includes("entryKey: 'subcollectionCards'") && source.includes("collectionKey: 'globalDisplaySettings'"), 'shared Subcollection design must extend the existing normalized global display settings');
+  assert(source.includes('saveSharedSubcollectionCardDesignChanges({ approvalStatus })'), 'the one Collection/Subcollection Save All operation must include the shared design');
+  assert(source.includes("'subcollection-card-design'"), 'the shared design must participate in the existing Save Live snapshot lifecycle');
 });
 
 Deno.test('Category bulk deletion checkboxes appear only in explicit Bulk Select mode', async () => {

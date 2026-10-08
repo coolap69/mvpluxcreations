@@ -213,6 +213,10 @@ export function normalizeDisplaySettings(value = {}) {
   }
   const sectionLayouts = asObject(source.sectionLayouts);
   if (Object.keys(sectionLayouts).length) normalized.sectionLayouts = clone(sectionLayouts);
+  const productShowrooms = asObject(source.productShowrooms);
+  if (Object.keys(productShowrooms).length) normalized.productShowrooms = clone(productShowrooms);
+  const subcollectionCards = asObject(source.subcollectionCards);
+  if (Object.keys(subcollectionCards).length) normalized.subcollectionCards = clone(subcollectionCards);
   return normalized;
 }
 

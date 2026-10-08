@@ -22,7 +22,17 @@
   function resolveCategoryPresentation(category = {}, options = {}) {
     const globalDisplay = options.globalDisplaySettings && typeof options.globalDisplaySettings === 'object'
       ? options.globalDisplaySettings : {};
-    const display = { ...globalDisplay, ...(category.displaySettings || {}) };
+    const sharedSubcollection = category.parentKey && globalDisplay.subcollectionCards && typeof globalDisplay.subcollectionCards === 'object'
+      ? globalDisplay.subcollectionCards : {};
+    const sharedSubcollectionDisplay = sharedSubcollection.displaySettings && typeof sharedSubcollection.displaySettings === 'object'
+      ? sharedSubcollection.displaySettings : sharedSubcollection;
+    const categoryDisplay = { ...(category.displaySettings || {}) };
+    const hasCustomBackground = Boolean(category.card?.backgroundImage || categoryDisplay.backgroundImage);
+    if (category.parentKey && !hasCustomBackground) {
+      ['backgroundPosition', 'backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent']
+        .forEach((field) => { delete categoryDisplay[field]; });
+    }
+    const display = { ...globalDisplay, ...sharedSubcollectionDisplay, ...categoryDisplay };
     const inheritedImageSize = clampNumber(globalDisplay.standeeSizePercent, 63, 10, 250);
     const resolvedDisplay = {
       ...display,
@@ -52,7 +62,7 @@
       image: category.card?.imageVisible === false ? '' : String(category.card?.image || ''),
       imageReference: String(category.card?.image || ''),
       imageVisible: category.card?.imageVisible !== false,
-      background: String(category.card?.backgroundImage || category.displaySettings?.backgroundImage || options.defaultBackground || ''),
+      background: String(category.card?.backgroundImage || category.displaySettings?.backgroundImage || sharedSubcollection.backgroundImage || options.defaultBackground || ''),
       representativeProductSlug: String(category.card?.representativeProductSlug || ''),
       page: String(category.page || ''),
       visible: category.visible !== false,

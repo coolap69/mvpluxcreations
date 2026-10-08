@@ -206,6 +206,18 @@ export function childCategoryDefaults(parentKey = '', value = {}) {
   };
 }
 
+export function availableChildCategoryKey(categories = {}, parentKey = '', title = '', requestedKey = '') {
+  const explicitKey = normalizeCategoryIdentity(requestedKey);
+  const baseKey = explicitKey || normalizeCategoryIdentity(title);
+  if (!baseKey || explicitKey || !categories?.[baseKey]) return baseKey;
+  const parentIdentity = normalizeCategoryIdentity(parentKey) || 'collection';
+  const scopedBase = baseKey === parentIdentity ? `${baseKey}-subcollection` : `${parentIdentity}-${baseKey}`;
+  let candidate = scopedBase;
+  let suffix = 2;
+  while (categories?.[candidate]) candidate = `${scopedBase}-${suffix++}`;
+  return candidate;
+}
+
 export function filterProductsForCategoryGroup(products = {}, masterKey = '', childKey = '') {
   const unique = new Map();
   Object.values(products || {}).forEach((product) => {
