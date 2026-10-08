@@ -46,7 +46,7 @@ Deno.test('Homepage Collection Card background and Product Showroom Background r
   assert(product.backgroundImage === 'images/product-showroom.png', 'normalizing the Main Collection must not overwrite Product Showroom Background');
 });
 
-Deno.test('Homepage Collection Card navigation carries the representative slug to the same Main Collection page', () => {
+Deno.test('Homepage Collection Card navigation uses normalized Collection state without query handoff values', () => {
   const code = sourceRange(storefrontSource, 'function categoryDestinationWithRepresentative', '\n\nfunction renderNormalizedHomepageCategoryCards');
   const runtime = new Function('window', 'shouldUsePrivateAdminState', 'isInlineAdminEditingEnabled', `${code}\nreturn { categoryDestinationWithRepresentative, optionsWithRequestedCollectionImage };`)(
     { location: { href: 'https://mvpluxcreations.com/index.html' } },
@@ -54,22 +54,33 @@ Deno.test('Homepage Collection Card navigation carries the representative slug t
     () => false
   );
   const destination = runtime.categoryDestinationWithRepresentative;
-  assert(destination('sports-legends.html', 'kobe-bryant') === 'sports-legends.html?product=kobe-bryant', 'Kobe must open on the Sport Legends page without creating another page');
-  assert(destination('sports-legends.html', 'michael-jordan') === 'sports-legends.html?product=michael-jordan', 'changing the representative must change only the clean product query');
-  assert(destination('sports-legends.html', 'tom-brady', 'images/Sport Legends/Tom Brady.png') === 'sports-legends.html?product=tom-brady&collectionImage=images%2FSport+Legends%2FTom+Brady.png', 'the exact Homepage Collection Card image must travel with its representative Product');
-  assert(destination('holiday-cutouts.html', '', 'images/Holidays/Penny.png') === 'holiday-cutouts.html?collectionImage=images%2FHolidays%2FPenny.png', 'an unmatched Homepage Collection Card image must still travel to its showroom');
+  assert(destination('sports-legends.html', 'kobe-bryant') === 'sports-legends.html', 'Sport Legends must open from its normalized record without a Product query handoff');
+  assert(destination('sports-legends.html', 'michael-jordan') === 'sports-legends.html', 'changing the representative must not create a new or stale Product URL');
+  assert(destination('sports-legends.html', 'tom-brady', 'images/Sport Legends/Tom Brady.png') === 'sports-legends.html', 'the normalized Main Collection must own its representative image without a collectionImage query');
+  assert(destination('holiday-cutouts.html', '', 'images/Holidays/Penny.png') === 'holiday-cutouts.html', 'an unmatched Homepage Collection Card image must resolve from the normalized Main Collection');
   const productOptions = [{ label: 'Main image', image: 'images/product.png', stage: 'images/stage.png' }];
   const withHomepageImage = runtime.optionsWithRequestedCollectionImage(productOptions, 'images/collection.png', 'images/shared-stage.png');
   assert(withHomepageImage[0].image === 'images/collection.png' && withHomepageImage[0].stage === 'images/shared-stage.png', 'the destination showroom must display the exact clicked Collection image first');
   assert(productOptions.length === 1 && productOptions[0].image === 'images/product.png', 'temporary Collection-image presentation must not modify Product image choices');
   const sportsStartup = sourceRange(storefrontSource, 'function initSportsShowroom', '\n\nfunction initializeCategoryShowroomExperience');
-  assert(sportsStartup.includes("params.get('product') || params.get('player')") && sportsStartup.includes('getManagedProductBySlug(player)') && sportsStartup.includes('requestedCollectionCardImage()'), 'Sport Legends must accept the representative Product and exact card image');
+  assert(sportsStartup.includes("requestedCollectionProductSlug('sports')") && sportsStartup.includes('getManagedProductBySlug(player)') && sportsStartup.includes('requestedCollectionCardImage()'), 'Sport Legends must resolve its representative Product and exact card image from normalized Collection state');
 });
 
 Deno.test('private Homepage Collection preview carries its lifecycle mode into the Main Collection page', () => {
   const destination = sourceRange(storefrontSource, 'function categoryDestinationWithRepresentative', '\n\nfunction optionsWithRequestedCollectionImage');
   assert(destination.includes('shouldUsePrivateAdminState()'), 'the Collection link must distinguish private Admin preview from customer mode');
   assert(destination.includes("url.searchParams.set('adminView', isInlineAdminEditingEnabled() ? 'edit' : 'preview')"), 'private Collection navigation must prevent the destination from painting the older published version first');
+});
+
+Deno.test('legacy Product and collectionImage links are consumed once and removed from the Collection URL', () => {
+  const source = sourceRange(storefrontSource, 'function requestedCollectionCardImage', '\n\nfunction selectSportsStandee');
+  assert(source.includes("params.get('product') || params.get('player')"), 'old Product links must remain readable for compatibility');
+  assert(source.includes("url.searchParams.delete('product')")
+    && source.includes("url.searchParams.delete('player')")
+    && source.includes("url.searchParams.delete('collectionImage')")
+    && source.includes('window.history.replaceState'), 'old handoff values must be removed after they are consumed');
+  const destination = sourceRange(storefrontSource, 'function categoryDestinationWithRepresentative', '\n\nfunction optionsWithRequestedCollectionImage');
+  assert(!destination.includes("searchParams.set('product'") && !destination.includes("searchParams.set('collectionImage'"), 'new Homepage Collection links must never generate obsolete handoff values');
 });
 
 Deno.test('Homepage Collection Card image resolves its uniquely matching assigned representative generically', () => {
@@ -89,6 +100,27 @@ Deno.test('Homepage Collection Card image resolves its uniquely matching assigne
   assert(resolve('sports', 'images/unrelated.png', 'tom-brady') === 'tom-brady', 'an unmatched image must preserve an explicit assigned representative rather than guessing');
 });
 
+Deno.test('a Collection image can never be shown under an unrelated representative Product name', () => {
+  const ownershipSource = sourceRange(storefrontSource, 'function categoryProductImageReferences', '\n\nfunction categoryRepresentativeProductSlug');
+  const ownsImage = new Function('sanitizeProductImageChoices', `${ownershipSource}\nreturn productOwnsCollectionImage;`)(
+    (choices) => Array.isArray(choices) ? choices : []
+  );
+  const michael = {
+    slug: 'michael-jordan',
+    title: 'Michael Jordan',
+    cutoutImage: 'images/Sport Legends/Basketball/MJordan/Jordan.png',
+    imageChoices: [{ image: 'images/Sport Legends/Basketball/MJordan/Jordan-layup.png' }]
+  };
+  const tomImage = 'images/Sport Legends/Football/TomBrady/TB12Nobackground.png';
+  assert(!ownsImage(michael, tomImage), 'Tom Brady artwork must not become a Michael Jordan image choice');
+  assert(ownsImage(michael, 'images/organized/MJordan/Jordan.png'), 'the same Product image may still follow the Product after a folder reorganization');
+
+  const sportsSelection = sourceRange(storefrontSource, 'function selectSportsStandee', '\n\nfunction bindSportsShowroomClicks');
+  const genericSelection = sourceRange(storefrontSource, 'function setupGenericCategoryShowroom', '\n\nfunction normalizeFrontPageCategoryLinks');
+  assert(sportsSelection.includes('productOwnsCollectionImage') && sportsSelection.includes('ownedPreferredImage'), 'Sports must validate Collection image ownership before adding it to Product choices');
+  assert(genericSelection.includes('productOwnsCollectionImage(product, preferredImage)') && genericSelection.includes('ownedPreferredImage'), 'every non-Sports Collection must enforce the same Product/image ownership rule');
+});
+
 Deno.test('Admin card-image selection synchronizes only the representative reference when the Product match is unique', () => {
   const synchronizer = sourceRange(adminSource, 'function synchronizeCategoryRepresentativeWithImage', '\n\nfunction updateCategoryPickerValue');
   const pickerUpdate = sourceRange(adminSource, 'function updateCategoryPickerValue', '\n\nfunction syncCategoryDisplayControl');
@@ -102,10 +134,73 @@ Deno.test('Admin card-image selection synchronizes only the representative refer
 Deno.test('all normalized collection showrooms honor the requested Product and exact card image on first render', () => {
   const managedRenderer = sourceRange(storefrontSource, 'function renderManagedCategoryPageProducts', '\n\nfunction renderGenericCategoryOptions');
   const genericShowroom = sourceRange(storefrontSource, 'function setupGenericCategoryShowroom', '\n\nfunction normalizeFrontPageCategoryLinks');
-  assert(managedRenderer.includes("new URLSearchParams(window.location.search).get('product')") && managedRenderer.includes('products.some((product) => product.slug === requestedSlug)'), 'every collection page must prioritize the requested representative Product before its old default');
-  assert(genericShowroom.includes('requestedCollectionCardImage()') && genericShowroom.includes('options.findIndex((option) => option.image === preferredImage)'), 'generic non-Sports collection pages must open the exact selected Homepage Collection Card image');
+  assert(managedRenderer.includes('requestedCollectionProductSlug(category)') && managedRenderer.includes('showroomProducts.some((product) => product.slug === requestedSlug)'), 'every collection page must prioritize its eligible normalized representative Product before its old default');
+  assert(genericShowroom.includes('requestedCollectionCardImage()')
+    && genericShowroom.includes('productOwnsCollectionImage(product, preferredImage)')
+    && genericShowroom.includes('options.findIndex((option) => option.image === ownedPreferredImage)'), 'generic non-Sports collection pages may open the Homepage Collection Card image only when it belongs to the selected Product');
   assert(storefrontSource.includes('function optionsWithRequestedCollectionImage')
     && storefrontSource.includes("label: 'Homepage Collection Image'"), 'every collection showroom must temporarily display an unmatched Homepage Collection Card image without changing Product data');
+});
+
+Deno.test('Subcollection navigation updates the current collection experience without retaining the Homepage representative', () => {
+  const hrefSource = sourceRange(storefrontSource, 'function categoryGroupHref', '\n\nfunction categoryGroupState');
+  const navigationSource = sourceRange(storefrontSource, 'function bindCategoryGroupNavigation', '\n\nfunction renderManagedCategoryPageProducts');
+  const window = new Window({
+    url: 'https://mvpluxcreations.com/sports-legends.html?product=tom-brady&collectionImage=images%2FSport+Legends%2FFootball%2FTomBrady.png&adminView=preview'
+  });
+  const categoryGroupHref = new Function('window', `${hrefSource}\nreturn categoryGroupHref;`)(window);
+  const soccerUrl = new URL(categoryGroupHref('soccer'), window.location.href);
+
+  assert(soccerUrl.pathname.endsWith('/sports-legends.html'), 'a Subcollection must stay inside its existing Main Collection page');
+  assert(soccerUrl.searchParams.get('group') === 'soccer', 'the selected Subcollection must become the active in-page state');
+  assert(!soccerUrl.searchParams.has('product') && !soccerUrl.searchParams.has('player'), 'the previous representative Product must not override the selected Subcollection');
+  assert(!soccerUrl.searchParams.has('collectionImage'), 'the previous Homepage Collection Card image must not override the selected Subcollection showroom');
+  assert(soccerUrl.searchParams.get('adminView') === 'preview', 'unrelated lifecycle/view state must be preserved');
+  assert(navigationSource.includes('event.preventDefault()')
+    && navigationSource.includes("window.history.pushState({}, '', link.href)")
+    && navigationSource.includes('renderManagedCategoryPageProducts()'), 'Subcollection clicks must update the current page in place instead of loading a separate HTML page');
+});
+
+Deno.test('a Subcollection card representative drives the showroom while strict assignments drive its More row', () => {
+  const representativeSource = sourceRange(storefrontSource, 'function representativeProductForCategoryGroup', '\n\nfunction orderedCategoryProducts');
+  const renderer = sourceRange(storefrontSource, 'function renderManagedCategoryPageProducts', '\n\nfunction renderGenericCategoryOptions');
+  const products = [
+    { slug: 'kobe', categories: ['sports'], cutoutImage: 'images/Sport Legends/Basketball/Kobe.png' },
+    { slug: 'messi', categories: ['sports', 'soccer'], cutoutImage: 'images/Sport Legends/Soccer/Messi.png' },
+    { slug: 'brady', categories: ['sports', 'football'], cutoutImage: 'images/Sport Legends/Football/Brady.png' }
+  ];
+  const presentation = { image: 'images/Sport Legends/Basketball/Kobe.png' };
+  const representativeProductForCategoryGroup = new Function(
+    'getManagedProductCatalog',
+    'productsForCategoryGroup',
+    'getEffectiveCategoryPresentation',
+    'categoryProductImageReferences',
+    'categoryImageFileIdentity',
+    `${representativeSource}\nreturn representativeProductForCategoryGroup;`
+  )(
+    () => products,
+    (items, masterKey) => items.filter((product) => product.categories.includes(masterKey)),
+    () => presentation,
+    (product) => new Set([product.cutoutImage]),
+    (path) => String(path).split('/').pop().toLowerCase()
+  );
+  const representative = representativeProductForCategoryGroup('sports', { key: 'basketball', card: {} }, products);
+  assert(representative?.slug === 'kobe', 'the Subcollection card image must select its uniquely matching Main Collection Product for the showroom');
+  assert(filterProductsForCategoryGroup(Object.fromEntries(products.map((product) => [product.slug, product])), 'sports', 'basketball').length === 0, 'representative presentation must not invent a Basketball assignment or place the Product in More Basketball Standees');
+  assert(renderer.includes('groupRepresentativeImage || requestedCollectionCardImage()'), 'Sports must display the selected Subcollection card image instead of the previous Homepage representative');
+  assert(renderer.includes('preferredImage: groupRepresentativeImage'), 'non-Sports Main Collections must use the same Subcollection representative-image behavior');
+});
+
+Deno.test('More and Explore Product cards update the existing Collection showroom instead of leaving the page', () => {
+  const navigation = sourceRange(storefrontSource, 'function bindCategoryGroupNavigation', '\n\nfunction renderManagedCategoryPageProducts');
+  const renderer = sourceRange(storefrontSource, 'function renderManagedCategoryPageProducts', '\n\nfunction renderGenericCategoryOptions');
+  assert(navigation.includes("event.target.closest('[data-related-product-slug]')")
+    && navigation.includes('event.preventDefault()')
+    && navigation.includes('renderManagedCategoryPageProducts(slug)'), 'discovery Product cards must update the existing showroom in place');
+  assert(navigation.includes("discoveryProduct.closest('[data-category-group-discovery]')")
+    && navigation.includes("window.history.pushState({}, '', categoryGroupHref())"), 'broader Explore More cards must return the same page to All before selecting their Product');
+  assert(renderer.includes("function renderManagedCategoryPageProducts(selectedProductSlug = '')")
+    && renderer.includes('selectedProductSlug ||'), 'the shared renderer must accept an in-page Product selection without creating an old Product URL');
 });
 
 Deno.test('normalized Child Groups drive strict hierarchy and dormant relationships remain private', () => {

@@ -117,7 +117,8 @@ Deno.test('shared scoped Category publish moves the saved normalized draft into 
     const expected = runtime.window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(resolve(runtime.drafts[categoryKey], 'published'));
     assert(image?.getAttribute('src') === runtime.drafts[categoryKey].card.image, `${categoryKey} fresh customer DOM must use published image B`);
     assert(background?.style.backgroundImage.includes(runtime.drafts[categoryKey].card.backgroundImage), `${categoryKey} fresh customer DOM must use the exact published Homepage Collection Card background`);
-    assert(grid.querySelector(`[data-admin-category-key="${categoryKey}"] .product-image-link`)?.getAttribute('href').includes(`product=${runtime.drafts[categoryKey].card.representativeProductSlug}`), `${categoryKey} customer link must open the Main Collection with its representative Product / Standee selected`);
+    const collectionHref = grid.querySelector(`[data-admin-category-key="${categoryKey}"] .product-image-link`)?.getAttribute('href') || '';
+    assert(!collectionHref.includes('product=') && !collectionHref.includes('collectionImage='), `${categoryKey} customer link must let the Main Collection resolve its normalized representative without stale query handoffs`);
     assert(image.style.height === `${expected.imageSizePercent}%` && image.style.left === `${expected.imageLeftPercent}%` && image.style.bottom === `${expected.imageBottomPercent}%`, `${categoryKey} fresh customer DOM must reconstruct published size and X/Y`);
   }
 });

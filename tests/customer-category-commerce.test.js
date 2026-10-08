@@ -5,6 +5,7 @@ const assert = (condition, message) => { if (!condition) throw new Error(message
 const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
 const sportsHtml = await Deno.readTextFile(new URL('../sports-legends.html', import.meta.url));
 const standeeHtml = await Deno.readTextFile(new URL('../standee.html', import.meta.url));
+const indexHtml = await Deno.readTextFile(new URL('../index.html', import.meta.url));
 
 function between(startToken, endToken) {
   const start = source.indexOf(startToken);
@@ -14,7 +15,7 @@ function between(startToken, endToken) {
 }
 
 Deno.test('Main and Child Group filtering preserves the existing shared Sports purchase showroom', () => {
-  const filteredRenderer = between('function renderManagedCategoryPageProducts()', 'function renderGenericCategoryOptions');
+  const filteredRenderer = between("function renderManagedCategoryPageProducts(selectedProductSlug = '')", 'function renderGenericCategoryOptions');
   const purchase = between('function showroomPurchaseMarkup', 'function updateShowroomPurchase');
   assert(filteredRenderer.includes("onclick=\"selectSportsStandee('") && filteredRenderer.includes('sports-player-card'), 'filtered Sports cards must keep the existing Sports selection path');
   for (const control of ['Buy Now', 'addSelectedToCart(this)', 'Offer Now', 'live-size-price']) assert(purchase.includes(control), `shared Sports showroom lost ${control}`);
@@ -48,7 +49,7 @@ Deno.test('non-Sports Collection pages show one clean loading stage until normal
     const html = await Deno.readTextFile(new URL(`../${filename}`, import.meta.url));
     assert((html.match(/data-category-showroom-loading/g) || []).length === 1, `${filename} must have exactly one immediate loading stage`);
     assert(html.includes('rel="preconnect" href="https://cdn.jsdelivr.net"') && html.includes('rel="preconnect" href="https://ncbddqxdinvcsoszdsxr.supabase.co"'), `${filename} must start both required network connections early`);
-    assert(html.includes('script.js?v=20261008-shared-collection-heading'), `${filename} must load the matching shared Collection heading and Subcollection card script`);
+    assert(html.includes('script.js?v=20261008-normalized-navigation'), `${filename} must load the normalized in-page navigation controller`);
   }
   const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
   assert(initializer.indexOf('setupGenericCategoryShowroom()') < initializer.indexOf("[data-category-showroom-loading]"), 'the loader must remain until the normalized showroom is constructed');
@@ -84,6 +85,34 @@ Deno.test('normal product-page purchase UI retains prices, sizes, Buy, and cart 
   for (const control of ['live-size-price', 'Original Size', 'Custom Size', 'Buy It Now', 'addSelectedToCart(this)', 'Pick Your Own Size']) assert(detail.includes(control), `product detail lost ${control}`);
   assert(standeeHtml.includes('cartPanel') && standeeHtml.includes('cartTotal'), 'normal product page must retain the cart shell');
   assert(source.includes('function openSelectedOffer') && source.includes('function openOffer'), 'existing Offer/bidding implementation must remain intact');
+});
+
+Deno.test('all customer browsing paths use normalized navigation without obsolete Product handoffs', () => {
+  const directSearch = between('function getDirectSearchItems', 'function renderSearchResults');
+  const homepageLinks = between('function normalizeFrontPageCategoryLinks', 'function scrollToSelectedStandeeHash');
+  const detailNavigation = between('function productMainCollection', 'function setStandeeBackground');
+  const detailPage = between('function renderStandeeDetailPage()', 'function bindCategoryStandeeCards');
+
+  assert(!directSearch.includes('sports-legends.html?player=')
+    && directSearch.match(/standee\.html\?item=/g)?.length === 2,
+  'general and Sports direct-search results must use the same normalized Product destination');
+  assert(homepageLinks.includes("url.searchParams.delete('product')")
+    && homepageLinks.includes("url.searchParams.delete('player')")
+    && homepageLinks.includes("url.searchParams.delete('collectionImage')")
+    && homepageLinks.includes("url.hash === '#selected-standee'"),
+  'Homepage Collection links must remove every obsolete navigation handoff and use one consistent Main Collection destination');
+  assert(detailNavigation.includes('function productMainCollectionHref')
+    && detailNavigation.includes("data-standee-detail-product=")
+    && detailNavigation.includes('renderStandeeDetailPage()')
+    && detailNavigation.includes('window.history.pushState'),
+  'standalone Product discovery must update the current Product page in place and retain a real Main Collection destination');
+  assert(detailPage.includes('Back to Main Collection')
+    && detailPage.includes('productMainCollectionHref(product)')
+    && !detailPage.includes('javascript:history.back()'),
+  'Product pages must return to their normalized Main Collection instead of depending on browser history');
+  assert(indexHtml.includes('script.js?v=20261008-normalized-navigation')
+    && standeeHtml.includes('script.js?v=20261008-normalized-navigation'),
+  'Homepage and standalone Product pages must request the same current navigation controller');
 });
 
 Deno.test('Child Group results and related discovery deduplicate products by slug', () => {

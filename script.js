@@ -1886,7 +1886,7 @@ function getDirectSearchItems() {
     category: product.sport || 'Sport Legend Standee',
     description: product.description || '',
     image: product.options?.[0]?.image || '',
-    url: `sports-legends.html?player=${encodeURIComponent(slug)}`
+    url: `standee.html?item=${encodeURIComponent(slug)}`
   })) : [];
 
   const seen = new Set();
@@ -4008,7 +4008,28 @@ function selectSportsOption(index) {
 
 function requestedCollectionCardImage() {
   const value = new URLSearchParams(window.location.search).get('collectionImage') || '';
-  return /^images\/[A-Za-z0-9_.,()'&+%\- /]+\.(?:png|jpe?g|webp|gif|avif)$/i.test(value) ? value : '';
+  if (/^images\/[A-Za-z0-9_.,()'&+%\- /]+\.(?:png|jpe?g|webp|gif|avif)$/i.test(value)) return value;
+  const categoryKey = getCurrentProductCategory();
+  return categoryKey ? getEffectiveCategoryPresentation(categoryKey)?.image || '' : '';
+}
+
+function requestedCollectionProductSlug(categoryKey = getCurrentProductCategory()) {
+  const params = new URLSearchParams(window.location.search);
+  const legacySlug = params.get('product') || params.get('player') || '';
+  if (legacySlug) return legacySlug;
+  const category = getAdminCategories()[categoryKey];
+  if (!category || category.parentKey) return '';
+  const image = getEffectiveCategoryPresentation(categoryKey)?.image || '';
+  return categoryRepresentativeProductSlug(categoryKey, image, category.card?.representativeProductSlug || '');
+}
+
+function clearLegacyCollectionHandoffFromUrl() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('product') && !url.searchParams.has('player') && !url.searchParams.has('collectionImage')) return;
+  url.searchParams.delete('product');
+  url.searchParams.delete('player');
+  url.searchParams.delete('collectionImage');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
 function selectSportsStandee(key, shouldScroll = true, preferredImage = '') {
@@ -4032,9 +4053,13 @@ function selectSportsStandee(key, shouldScroll = true, preferredImage = '') {
     sourceProduct: managed
   } : (catalogProduct ? { ...catalogProduct } : null);
   if (product) {
+    const ownedPreferredImage = productOwnsCollectionImage(product.sourceProduct || product, preferredImage)
+      || productOwnsCollectionImage(product, preferredImage)
+      ? preferredImage
+      : '';
     product.options = optionsWithRequestedCollectionImage(
       product.options,
-      preferredImage,
+      ownedPreferredImage,
       product.backgroundImage || resolveSharedProductShowroomDesign(product.sourceProduct || managed, 'sports').backgroundImage
     );
   }
@@ -4112,8 +4137,7 @@ function initSportsShowroom() {
   if (!document.getElementById('sportsOptionStrip')) return;
   const showroom = document.querySelector('.sports-showroom');
   if (showroom && !showroom.id) showroom.id = 'selected-standee';
-  const params = new URLSearchParams(window.location.search);
-  const player = params.get('product') || params.get('player');
+  const player = requestedCollectionProductSlug('sports');
   const startingKey = (player && (getManagedProductBySlug(player) || sportsStandeeCatalog[player])) ? player : selectedSportsStandeeKey;
   selectSportsStandee(startingKey, false, requestedCollectionCardImage());
 }
@@ -4124,6 +4148,7 @@ function initializeCategoryShowroomExperience() {
   applySharedCollectionPageHeadingStyle();
   setupGenericCategoryShowroom();
   initSportsShowroom();
+  clearLegacyCollectionHandoffFromUrl();
   refreshCategoryShowroomPricing();
   document.querySelectorAll('[data-category-showroom-loading]').forEach((element) => element.remove());
   document.querySelectorAll('[data-category-initial-content][hidden]').forEach((element) => { element.hidden = false; });
@@ -4220,7 +4245,9 @@ function categoryProductImageReferences(product) {
     : (Array.isArray(product?.imageChoices) ? product.imageChoices : []);
   return new Set([
     String(product?.cutoutImage || ''),
-    ...choices.map((choice) => String(choice.image || ''))
+    ...choices.map((choice) => String(choice.image || '')),
+    ...(Array.isArray(product?.options) ? product.options.map((option) => String(option?.image || '')) : []),
+    ...(Array.isArray(product?.backgrounds) ? product.backgrounds.map((option) => String(option?.image || '')) : [])
   ].filter(Boolean));
 }
 
@@ -4228,6 +4255,14 @@ function categoryImageFileIdentity(imagePath = '') {
   const filename = String(imagePath).split(/[\\/]/).pop() || '';
   try { return decodeURIComponent(filename).trim().toLowerCase(); }
   catch (_error) { return filename.trim().toLowerCase(); }
+}
+
+function productOwnsCollectionImage(product, imagePath = '') {
+  if (!product || !imagePath) return false;
+  const references = categoryProductImageReferences(product);
+  if (references.has(imagePath)) return true;
+  const identity = categoryImageFileIdentity(imagePath);
+  return Boolean(identity && [...references].some((reference) => categoryImageFileIdentity(reference) === identity));
 }
 
 function categoryRepresentativeProductSlug(categoryKey, cardImage = '', savedRepresentativeSlug = '') {
@@ -4250,10 +4285,11 @@ function categoryRepresentativeProductSlug(categoryKey, cardImage = '', savedRep
 
 function categoryDestinationWithRepresentative(page, representativeProductSlug = '', representativeImage = '') {
   const destination = String(page || '');
-  if (!destination || (!representativeProductSlug && !representativeImage)) return destination;
+  if (!destination) return destination;
   const url = new URL(destination, window.location.href);
-  if (representativeProductSlug) url.searchParams.set('product', representativeProductSlug);
-  if (representativeImage) url.searchParams.set('collectionImage', representativeImage);
+  url.searchParams.delete('product');
+  url.searchParams.delete('player');
+  url.searchParams.delete('collectionImage');
   if (shouldUsePrivateAdminState()) {
     url.searchParams.set('adminView', isInlineAdminEditingEnabled() ? 'edit' : 'preview');
   }
@@ -4489,6 +4525,13 @@ function visibleCategoryChildGroups(masterKey) {
 
 function categoryGroupHref(groupKey = '') {
   const url = new URL(window.location.href);
+  // The Homepage Collection Card may hand its representative Product/image to
+  // the collection showroom. Once a customer chooses a Subcollection, that
+  // handoff must no longer override the first eligible Product in the selected
+  // Subcollection.
+  url.searchParams.delete('product');
+  url.searchParams.delete('player');
+  url.searchParams.delete('collectionImage');
   if (groupKey) url.searchParams.set('group', groupKey);
   else url.searchParams.delete('group');
   return `${url.pathname}${url.search}${url.hash}`;
@@ -4607,6 +4650,25 @@ function productsForCategoryGroup(products, masterKey, childKey = '') {
   return [...unique.values()];
 }
 
+function representativeProductForCategoryGroup(masterKey, child, products = getManagedProductCatalog()) {
+  if (!child?.key) return null;
+  const masterProducts = productsForCategoryGroup(products, masterKey);
+  const explicitSlug = String(child.card?.representativeProductSlug || '');
+  const explicit = masterProducts.find((product) => product.slug === explicitSlug);
+  if (explicit) return explicit;
+
+  const image = getEffectiveCategoryPresentation(child.key)?.image || '';
+  if (!image) return null;
+  const exactMatches = masterProducts.filter((product) => categoryProductImageReferences(product).has(image));
+  if (exactMatches.length === 1) return exactMatches[0];
+  const identity = categoryImageFileIdentity(image);
+  const organizedMatches = identity
+    ? masterProducts.filter((product) => [...categoryProductImageReferences(product)]
+      .some((reference) => categoryImageFileIdentity(reference) === identity))
+    : [];
+  return organizedMatches.length === 1 ? organizedMatches[0] : null;
+}
+
 function orderedCategoryProducts(products, orderKey) {
   return [...products].sort((left, right) => {
     const leftOrder = Number(left.categoryOrder?.[orderKey]);
@@ -4707,6 +4769,18 @@ function bindCategoryGroupNavigation() {
   if (document.documentElement.dataset.categoryGroupNavigationBound) return;
   document.documentElement.dataset.categoryGroupNavigationBound = 'true';
   document.addEventListener('click', (event) => {
+    const discoveryProduct = event.target.closest('[data-related-product-slug]');
+    if (discoveryProduct) {
+      event.preventDefault();
+      const slug = discoveryProduct.dataset.relatedProductSlug || '';
+      if (!slug) return;
+      if (discoveryProduct.closest('[data-category-group-discovery]')) {
+        window.history.pushState({}, '', categoryGroupHref());
+      }
+      renderManagedCategoryPageProducts(slug);
+      document.getElementById('selected-standee')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     const link = event.target.closest('[data-category-group-link]');
     if (!link) return;
     event.preventDefault();
@@ -4716,7 +4790,7 @@ function bindCategoryGroupNavigation() {
   window.addEventListener('popstate', () => renderManagedCategoryPageProducts());
 }
 
-function renderManagedCategoryPageProducts() {
+function renderManagedCategoryPageProducts(selectedProductSlug = '') {
   const category = getCurrentProductCategory();
   const page = document.querySelector('.category-page');
   if (!category || !page) return;
@@ -4731,11 +4805,20 @@ function renderManagedCategoryPageProducts() {
 
   const orderKey = groupState.activeChild?.key || category;
   const products = orderedCategoryProducts(productsForCategoryGroup(getManagedProductCatalog(), category, groupState.activeChild?.key || ''), orderKey);
-  const requestedSlug = new URLSearchParams(window.location.search).get('product') || '';
+  const groupRepresentative = groupState.activeChild
+    ? representativeProductForCategoryGroup(category, groupState.activeChild)
+    : null;
+  const showroomProducts = groupRepresentative
+    ? [groupRepresentative, ...products.filter((product) => product.slug !== groupRepresentative.slug)]
+    : products;
+  const groupRepresentativeImage = groupState.activeChild
+    ? getEffectiveCategoryPresentation(groupState.activeChild.key)?.image || ''
+    : '';
+  const requestedSlug = selectedProductSlug || (groupState.activeChild ? '' : requestedCollectionProductSlug(category));
   const currentBuilderSlug = page.querySelector('.showroom-size-builder')?.dataset.adminSlug || '';
-  const currentSlug = products.some((product) => product.slug === requestedSlug)
+  const currentSlug = showroomProducts.some((product) => product.slug === requestedSlug)
     ? requestedSlug
-    : (products.some((product) => product.slug === currentBuilderSlug) ? currentBuilderSlug : products[0]?.slug || '');
+    : (showroomProducts.some((product) => product.slug === currentBuilderSlug) ? currentBuilderSlug : showroomProducts[0]?.slug || '');
   const displayedProducts = groupState.activeChild
     ? products
     : mainCategoryDiscovery(category, currentSlug, products, 20);
@@ -4758,7 +4841,7 @@ function renderManagedCategoryPageProducts() {
     grid.querySelector('.sports-player-card')?.classList.add('active');
     renderCategoryGroupDiscovery(page, category, groupState, currentSlug);
     if (currentSlug) {
-      selectSportsStandee(currentSlug, false, requestedCollectionCardImage());
+      selectSportsStandee(currentSlug, false, groupRepresentativeImage || requestedCollectionCardImage());
       updateCategoryGroupCurrentProduct(currentSlug);
     }
     return;
@@ -4772,7 +4855,11 @@ function renderManagedCategoryPageProducts() {
   }
   grid.innerHTML = displayedProducts.map(managedCategoryCardMarkup).join('');
   renderCategoryGroupDiscovery(page, category, groupState, currentSlug);
-  if (document.querySelector('.generic-showroom')) setupGenericCategoryShowroom({ rebuild: true, selectedSlug: currentSlug });
+  if (document.querySelector('.generic-showroom')) setupGenericCategoryShowroom({
+    rebuild: true,
+    selectedSlug: currentSlug,
+    preferredImage: groupRepresentativeImage
+  });
 }
 
 function renderGenericCategoryOptions(state, options) {
@@ -4838,7 +4925,7 @@ function buildGenericCategoryOptions(card, backgroundImages) {
   }];
 }
 
-function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {}) {
+function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', preferredImage = '' } = {}) {
   const page = document.querySelector('.category-page');
   const existing = document.querySelector('.generic-showroom');
   if (!page || (document.querySelector('.sports-showroom') && !existing) || (existing && !rebuild)) return;
@@ -4865,7 +4952,7 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
   if (backgroundPanel) backgroundPanel.remove();
 
   const requestedSlug = selectedSlug || new URLSearchParams(window.location.search).get('product') || '';
-  const requestedImage = requestedCollectionCardImage();
+  const requestedImage = preferredImage || requestedCollectionCardImage();
   const firstCard = cards.find((card) => card.dataset.productId === requestedSlug) || cards[0];
   const firstTitle = firstCard.querySelector('h3')?.textContent.trim() || 'Standee';
   const firstImage = firstCard.querySelector('img')?.getAttribute('src') || '';
@@ -4913,9 +5000,10 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
     const productId = card.dataset.productId || title;
     const product = getKnownStandeeForCard(card);
     state.showroomDesign = applyProductShowroomDesign(state.stage, product);
+    const ownedPreferredImage = productOwnsCollectionImage(product, preferredImage) ? preferredImage : '';
     const options = optionsWithRequestedCollectionImage(
       buildGenericCategoryOptions(card, backgroundImages),
-      preferredImage,
+      ownedPreferredImage,
       state.showroomDesign?.backgroundImage || getGenericCategoryFallbackStage()
     );
     const originalSize = product?.originalHeight ? `Original: ${formatHeight(product.originalHeight)}` : 'Original size varies';
@@ -4933,8 +5021,8 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
     renderGenericCategoryOptions(state, options);
     const choiceSection = state.optionStrip.closest('.generic-choice-section');
     if (choiceSection) choiceSection.hidden = options.length <= 1;
-    const preferredIndex = preferredImage
-      ? options.findIndex((option) => option.image === preferredImage)
+    const preferredIndex = ownedPreferredImage
+      ? options.findIndex((option) => option.image === ownedPreferredImage)
       : -1;
     selectGenericCategoryOption(state, options, preferredIndex >= 0 ? preferredIndex : 0);
 
@@ -4968,12 +5056,15 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '' } = {
 function normalizeFrontPageCategoryLinks() {
   const path = window.location.pathname.split('/').pop() || 'index.html';
   if (path !== 'index.html' && path !== '') return;
-  document.querySelectorAll('.product-image-link[href], .product-title-link[href]').forEach((link) => {
+  document.querySelectorAll('#homepageCategoryGrid .product-image-link[href], #homepageCategoryGrid .product-title-link[href], [data-homepage-category-fallback] .product-image-link[href], [data-homepage-category-fallback] .product-title-link[href]').forEach((link) => {
     const href = link.getAttribute('href') || '';
-    if (!href || href.startsWith('#') || href.includes('#selected-standee')) return;
-    if (/\.html(?:$|\?)/.test(href)) {
-      link.setAttribute('href', `${href}#selected-standee`);
-    }
+    if (!href || href.startsWith('#')) return;
+    const url = new URL(href, window.location.href);
+    url.searchParams.delete('product');
+    url.searchParams.delete('player');
+    url.searchParams.delete('collectionImage');
+    if (url.hash === '#selected-standee') url.hash = '';
+    link.setAttribute('href', `${url.pathname.split('/').pop() || ''}${url.search}${url.hash}`);
   });
 }
 
@@ -5041,6 +5132,18 @@ function getStandeeBySlug(slug) {
   };
 }
 
+function productMainCollection(product, categories = getAdminCategories()) {
+  const assignments = Array.isArray(product?.categories) ? product.categories : [];
+  return assignments
+    .map((key) => categories[key])
+    .find((category) => category && !category.parentKey && category.visible !== false) || null;
+}
+
+function productMainCollectionHref(product, categories = getAdminCategories()) {
+  const collection = productMainCollection(product, categories);
+  return collection?.page || 'index.html#shop';
+}
+
 function relatedProductGroups(product, products = getManagedProductCatalog(), categories = getAdminCategories(), limit = 4) {
   const currentSlug = String(product?.slug || '');
   const assignments = [...new Set(Array.isArray(product?.categories) ? product.categories : [])];
@@ -5067,12 +5170,32 @@ function relatedProductDiscoveryMarkup(product) {
   if (!groups.length) return '';
   return `<section class="standee-related-products" aria-label="Related products">
     ${groups.map((group) => `<div><h2>${escapeHtml(group.title)}</h2><div class="standee-related-grid">${group.products.map((related) => `
-      <a class="standee-related-card" href="standee.html?item=${encodeURIComponent(related.slug)}">
+      <a class="standee-related-card" href="standee.html?item=${encodeURIComponent(related.slug)}" data-standee-detail-product="${escapeHtml(related.slug)}">
         <img src="${escapeHtml(related.cutoutImage || related.image || '')}" alt="${escapeHtml(related.title || related.slug)}">
         <strong>${escapeHtml(related.title || related.slug)}</strong>
         <span>View Product</span>
       </a>`).join('')}</div></div>`).join('')}
   </section>`;
+}
+
+function bindStandeeDetailNavigation() {
+  if (document.documentElement.dataset.standeeDetailNavigationBound) return;
+  document.documentElement.dataset.standeeDetailNavigationBound = 'true';
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest?.('[data-standee-detail-product]');
+    if (!link || !document.getElementById('standeeDetailRoot')) return;
+    event.preventDefault();
+    const slug = link.dataset.standeeDetailProduct || '';
+    if (!slug) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('item', slug);
+    window.history.pushState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    renderStandeeDetailPage();
+    document.getElementById('standeeDetailRoot')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  window.addEventListener('popstate', () => {
+    if (document.getElementById('standeeDetailRoot')) renderStandeeDetailPage();
+  });
 }
 
 function setStandeeBackground(index) {
@@ -5117,6 +5240,7 @@ function renderStandeeDetailPage() {
   const slug = product.slug || requestedSlug;
   const originalHeight = resolveSellableProductHeight(product.originalHeight);
   const originalPrice = calculateCutoutPrice(originalHeight);
+  const collectionHref = productMainCollectionHref(product);
   window.currentStandeeProduct = product;
   document.title = `${product.title} | MVPLUXCREATIONS`;
 
@@ -5141,7 +5265,7 @@ function renderStandeeDetailPage() {
         <span class="standee-main-cutout-empty" ${product.image ? 'hidden' : ''}>No Product Image Selected</span>
       </div>
       <div class="standee-purchase-panel product-card">
-        <a class="standee-back-link" href="javascript:history.back()">Back to category</a>
+        <a class="standee-back-link" href="${escapeHtml(collectionHref)}">Back to Main Collection</a>
         <span class="category-kicker">${product.category}</span>
         <h1>${product.title}</h1>
         <p>${product.description}</p>
@@ -5186,6 +5310,7 @@ function renderStandeeDetailPage() {
   `;
 
   bindUniversalSizeBuilderEvents();
+  bindStandeeDetailNavigation();
   updateBuilderOriginalDisplay(root.querySelector('.size-builder'));
 }
 

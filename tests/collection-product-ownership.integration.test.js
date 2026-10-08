@@ -112,7 +112,7 @@ Deno.test('fresh Sport Legends showroom DOM reconstructs the selected image from
   const select = new Function('window', 'document', 'dependencies', `
     const { getManagedProductBySlug, sanitizeProductImageChoices, formatHeight, updateShowroomPurchase,
       findWhiteTriangleImage, applyInlineAdminEdits, updateCategoryGroupCurrentProduct, getShowroomStageBackground,
-      applyProductShowroomDesign } = dependencies;
+      applyProductShowroomDesign, productOwnsCollectionImage } = dependencies;
     let selectedSportsStandeeKey = 'player-one';
     const sportsStandeeCatalog = { 'player-one': { name: 'Static Old Player', options: [{ label: 'Old', image: 'images/static-old.png' }] } };
     ${requestedImageHelper}
@@ -123,6 +123,7 @@ Deno.test('fresh Sport Legends showroom DOM reconstructs the selected image from
     sanitizeProductImageChoices: (choices) => choices || [], formatHeight: (height) => `${height} inches`,
     updateShowroomPurchase: () => {}, findWhiteTriangleImage: () => '', applyInlineAdminEdits: () => {},
     updateCategoryGroupCurrentProduct: () => {}, getShowroomStageBackground: () => 'images/default.png',
+    productOwnsCollectionImage: (product, image) => !image || [product.cutoutImage, ...(product.imageChoices || []).map((choice) => choice.image)].includes(image),
     applyProductShowroomDesign: (stage, product) => {
       const backgroundImage = product.backgroundImage || 'images/default.png';
       stage.style.backgroundImage = `url('${backgroundImage}')`;
