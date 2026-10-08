@@ -4210,7 +4210,7 @@ body .auth-card .password-field input {
 /* Final category page polish. */
 .category-page {
   width: min(96%, 1280px) !important;
-  margin: 110px auto 48px !important;
+  margin: 28px auto 48px !important;
   color: #fff !important;
 }
 
@@ -4227,6 +4227,29 @@ body .auth-card .password-field input {
 
 .category-hero p {
   color: #f0e7cf !important;
+}
+
+.category-hero h1 {
+  margin: 0 !important;
+  font-family: var(--collection-page-heading-font, "Arial Black", "Helvetica Neue", Arial, sans-serif) !important;
+  font-size: clamp(2rem, 4vw, var(--collection-page-heading-size, 3.45rem)) !important;
+  font-weight: var(--collection-page-heading-weight, 900) !important;
+  line-height: 1 !important;
+  letter-spacing: 0.045em !important;
+  text-transform: uppercase !important;
+  background: none !important;
+  color: var(--collection-page-heading-color, #f4d06f) !important;
+  -webkit-text-fill-color: currentColor !important;
+  filter: drop-shadow(0 4px 12px rgba(212,175,55,0.2)) !important;
+}
+
+.category-hero p {
+  max-width: 980px !important;
+  margin: 14px 0 0 !important;
+  color: #f7edcf !important;
+  font-size: clamp(1rem, 1.45vw, 1.2rem) !important;
+  font-weight: 700 !important;
+  line-height: 1.45 !important;
 }
 
 .category-featured-stage {
@@ -4250,6 +4273,10 @@ body .auth-card .password-field input {
   gap: 22px !important;
   align-items: start !important;
   margin-top: 22px !important;
+}
+
+[data-category-initial-content][hidden] {
+  display: none !important;
 }
 
 .sport-type-carousel {
@@ -6907,6 +6934,10 @@ button[aria-label="Add to cart"]::before {
 .admin-shared-subcollection-design-workspace { display: grid; grid-template-columns: minmax(280px,.8fr) minmax(420px,1.2fr); gap: 20px; align-items: start; }
 .admin-shared-subcollection-design-workspace > aside { position: sticky; top: 120px; display: grid; place-items: center; min-width: 0; padding: 14px; border: 1px solid rgba(244,208,111,.28); border-radius: 14px; background: #030303; overflow: auto; }
 .admin-shared-subcollection-design-controls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; align-items: end; }
+.admin-shared-subcollection-heading-controls { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 14px; border: 1px solid rgba(244,208,111,.28); border-radius: 12px; background: rgba(244,208,111,.04); }
+.admin-shared-subcollection-heading-controls > h4,
+.admin-shared-subcollection-heading-controls > .admin-note { grid-column: 1 / -1; margin: 0; }
+.admin-subcollection-page-heading-preview { margin: 0 0 10px; text-align: center; line-height: 1.05; }
 .admin-shared-subcollection-design-controls > :first-child,
 .admin-shared-subcollection-design-controls > .admin-panel-actions,
 .admin-shared-subcollection-design-controls > button,

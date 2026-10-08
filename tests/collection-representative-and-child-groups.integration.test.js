@@ -48,7 +48,11 @@ Deno.test('Homepage Collection Card background and Product Showroom Background r
 
 Deno.test('Homepage Collection Card navigation carries the representative slug to the same Main Collection page', () => {
   const code = sourceRange(storefrontSource, 'function categoryDestinationWithRepresentative', '\n\nfunction renderNormalizedHomepageCategoryCards');
-  const runtime = new Function('window', `${code}\nreturn { categoryDestinationWithRepresentative, optionsWithRequestedCollectionImage };`)({ location: { href: 'https://mvpluxcreations.com/index.html' } });
+  const runtime = new Function('window', 'shouldUsePrivateAdminState', 'isInlineAdminEditingEnabled', `${code}\nreturn { categoryDestinationWithRepresentative, optionsWithRequestedCollectionImage };`)(
+    { location: { href: 'https://mvpluxcreations.com/index.html' } },
+    () => false,
+    () => false
+  );
   const destination = runtime.categoryDestinationWithRepresentative;
   assert(destination('sports-legends.html', 'kobe-bryant') === 'sports-legends.html?product=kobe-bryant', 'Kobe must open on the Sport Legends page without creating another page');
   assert(destination('sports-legends.html', 'michael-jordan') === 'sports-legends.html?product=michael-jordan', 'changing the representative must change only the clean product query');
@@ -60,6 +64,12 @@ Deno.test('Homepage Collection Card navigation carries the representative slug t
   assert(productOptions.length === 1 && productOptions[0].image === 'images/product.png', 'temporary Collection-image presentation must not modify Product image choices');
   const sportsStartup = sourceRange(storefrontSource, 'function initSportsShowroom', '\n\nfunction initializeCategoryShowroomExperience');
   assert(sportsStartup.includes("params.get('product') || params.get('player')") && sportsStartup.includes('getManagedProductBySlug(player)') && sportsStartup.includes('requestedCollectionCardImage()'), 'Sport Legends must accept the representative Product and exact card image');
+});
+
+Deno.test('private Homepage Collection preview carries its lifecycle mode into the Main Collection page', () => {
+  const destination = sourceRange(storefrontSource, 'function categoryDestinationWithRepresentative', '\n\nfunction optionsWithRequestedCollectionImage');
+  assert(destination.includes('shouldUsePrivateAdminState()'), 'the Collection link must distinguish private Admin preview from customer mode');
+  assert(destination.includes("url.searchParams.set('adminView', isInlineAdminEditingEnabled() ? 'edit' : 'preview')"), 'private Collection navigation must prevent the destination from painting the older published version first');
 });
 
 Deno.test('Homepage Collection Card image resolves its uniquely matching assigned representative generically', () => {
@@ -162,6 +172,11 @@ Deno.test('Sports Subcollection cards render their saved normalized image and la
 Deno.test('all Main Collection pages and future Subcollections use one shared card size and background default', () => {
   const navigation = sourceRange(storefrontSource, 'function subcollectionCardDesign', '\n\nfunction productsForCategoryGroup');
   assert(navigation.includes('globalDisplaySettings?.subcollectionCards'), 'Subcollection cards must read their collective design from normalized global display settings');
+  for (const field of ['pageHeadingFontFamily', 'pageHeadingColor', 'pageHeadingFontSizePx', 'pageHeadingFontWeight']) {
+    assert(adminSource.includes(field), `shared Collection page heading controls must expose ${field}`);
+    assert(navigation.includes(field), `storefront Collection page headings must read shared ${field}`);
+  }
+  assert(storefrontSource.includes('applySharedCollectionPageHeadingStyle();'), 'every Collection page must apply the shared heading style');
   assert(navigation.includes("--sport-carousel-card-width") && navigation.includes("--sport-carousel-image-height"), 'shared card width and image-stage height must control the same customer cards');
   assert(navigation.includes("page.querySelector('[data-subcollection-card-list]')") && navigation.includes("childCardList.dataset.subcollectionCardList = masterKey"), 'non-Sports and future Main Collection pages must create the same normalized Subcollection card row');
 

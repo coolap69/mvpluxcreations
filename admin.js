@@ -5174,6 +5174,10 @@ function subcollectionCardDesignDefaults() {
   return {
     cardWidthPx: 260,
     stageHeightPx: 230,
+    pageHeadingFontFamily: '"Arial Black", "Helvetica Neue", Arial, sans-serif',
+    pageHeadingColor: '#f4d06f',
+    pageHeadingFontSizePx: 52,
+    pageHeadingFontWeight: 900,
     backgroundImage: IMAGE_IMPORT_DEFAULT_BACKGROUND,
     backgroundPosition: '50% 100%',
     backgroundSizePercent: 100,
@@ -5184,9 +5188,23 @@ function subcollectionCardDesignDefaults() {
 
 function normalizedSubcollectionCardDesign(value = {}) {
   const defaults = subcollectionCardDesignDefaults();
+  const headingFonts = new Set([
+    'inherit',
+    '"Arial Black", "Helvetica Neue", Arial, sans-serif',
+    '"Helvetica Neue", Arial, sans-serif',
+    'Arial, Helvetica, sans-serif',
+    '"Trebuchet MS", Arial, sans-serif',
+    'Georgia, "Times New Roman", serif'
+  ]);
+  const requestedHeadingFont = String(value.pageHeadingFontFamily || defaults.pageHeadingFontFamily);
+  const requestedHeadingColor = String(value.pageHeadingColor || defaults.pageHeadingColor).trim();
   return {
     cardWidthPx: safeCategoryDisplayNumber(value.cardWidthPx, defaults.cardWidthPx, 220, 420),
     stageHeightPx: safeCategoryDisplayNumber(value.stageHeightPx, defaults.stageHeightPx, 180, 520),
+    pageHeadingFontFamily: headingFonts.has(requestedHeadingFont) ? requestedHeadingFont : defaults.pageHeadingFontFamily,
+    pageHeadingColor: /^#[0-9a-f]{6}$/i.test(requestedHeadingColor) ? requestedHeadingColor : defaults.pageHeadingColor,
+    pageHeadingFontSizePx: safeCategoryDisplayNumber(value.pageHeadingFontSizePx, defaults.pageHeadingFontSizePx, 26, 80),
+    pageHeadingFontWeight: safeCategoryDisplayNumber(value.pageHeadingFontWeight, defaults.pageHeadingFontWeight, 400, 900),
     backgroundImage: String(value.backgroundImage || defaults.backgroundImage),
     backgroundPosition: String(value.backgroundPosition || defaults.backgroundPosition),
     backgroundSizePercent: safeCategoryDisplayNumber(value.backgroundSizePercent, defaults.backgroundSizePercent, 50, 300),
@@ -5203,6 +5221,8 @@ function subcollectionCardDesignFromForm(form) {
   const data = new FormData(form);
   return normalizedSubcollectionCardDesign({
     cardWidthPx: data.get('cardWidthPx'), stageHeightPx: data.get('stageHeightPx'),
+    pageHeadingFontFamily: data.get('pageHeadingFontFamily'), pageHeadingColor: data.get('pageHeadingColor'),
+    pageHeadingFontSizePx: data.get('pageHeadingFontSizePx'), pageHeadingFontWeight: data.get('pageHeadingFontWeight'),
     backgroundImage: data.get('backgroundImage'),
     backgroundPosition: `${data.get('backgroundPositionX') || 50}% ${data.get('backgroundPositionY') || 100}%`,
     backgroundSizePercent: data.get('backgroundSizePercent'), backgroundWidthPercent: data.get('backgroundWidthPercent'),
@@ -5219,6 +5239,17 @@ function sharedSubcollectionCardDesignMarkup() {
     <div class="admin-shared-subcollection-design-workspace">
       <aside data-shared-subcollection-design-preview></aside>
       <div class="admin-shared-subcollection-design-controls">
+        <div class="admin-shared-subcollection-heading-controls">
+          <h4>All Collection Page Headings</h4>
+          <p class="admin-note">Each page keeps its own words. These shared controls change the heading appearance for Sport Legends, Movie Stars, every other Collection page, and future Collections.</p>
+          ${sectionLayoutSelectMarkup('pageHeadingFontFamily', 'Heading Font', design.pageHeadingFontFamily, [
+            'inherit', '"Arial Black", "Helvetica Neue", Arial, sans-serif', '"Helvetica Neue", Arial, sans-serif',
+            'Arial, Helvetica, sans-serif', '"Trebuchet MS", Arial, sans-serif', 'Georgia, "Times New Roman", serif'
+          ])}
+          <label>Heading Color<input name="pageHeadingColor" type="color" value="${escapeAdminHtml(design.pageHeadingColor)}"></label>
+          ${sectionLayoutRangeMarkup('pageHeadingFontSizePx', 'Heading Size', design.pageHeadingFontSizePx, 26, 80, 'px')}
+          ${sectionLayoutRangeMarkup('pageHeadingFontWeight', 'Heading Weight', design.pageHeadingFontWeight, 400, 900)}
+        </div>
         <label>Shared Background<select name="backgroundImage">${productVisualOptionsMarkup('background', design.backgroundImage)}</select></label>
         ${categoryDisplayRangeMarkup('cardWidthPx', 'Card Width', design.cardWidthPx, 220, 420, 'px')}
         ${categoryDisplayRangeMarkup('stageHeightPx', 'Image Stage Height', design.stageHeightPx, 180, 520, 'px')}
@@ -5264,6 +5295,7 @@ function previewSharedSubcollectionCardDesign(form) {
   }, { mode: 'draft', globalDisplaySettings: { subcollectionCards: design }, defaultBackground: design.backgroundImage });
   const layout = window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryCardLayout(presentation);
   preview.innerHTML = `<article class="sport-type-card admin-subcollection-design-preview" style="width:min(100%,${design.cardWidthPx}px)">
+    <h4 class="admin-subcollection-page-heading-preview" style="font-family:${escapeAdminHtml(design.pageHeadingFontFamily)};color:${escapeAdminHtml(design.pageHeadingColor)};font-size:${design.pageHeadingFontSizePx}px;font-weight:${design.pageHeadingFontWeight}">Sport Legends</h4>
     <span class="sport-type-card-stage" style="height:${design.stageHeightPx}px">
       <span class="category-background-layer" style="background-image:url('${escapeAdminHtml(presentation.background)}');background-position:${escapeAdminHtml(layout.backgroundPosition)};transform:${layout.backgroundTransform}"></span>
       ${presentation.image ? `<img class="product-cutout" src="${escapeAdminHtml(presentation.image)}" alt="Sample Subcollection" style="--subcollection-image-size:${layout.imageSizePercent}%;height:${layout.imageSizePercent}%;left:${layout.imageLeftPercent}%;bottom:${layout.imageBottomPercent}%;transform:${layout.imageTransform}">` : '<span class="admin-category-no-image">No sample Subcollection image</span>'}
@@ -5278,6 +5310,7 @@ function bindSharedSubcollectionCardDesignController() {
   previewSharedSubcollectionCardDesign(form);
   const changed = (event) => {
     syncCategoryDisplayControl(form, event.target);
+    syncSectionLayoutControl(form, event.target);
     syncCategoryDisplayOutputs(form);
     form.dataset.editorDirty = 'true';
     form.querySelector('[data-shared-subcollection-design-status]').textContent = 'UNSAVED CHANGES — use Save All Collection & Subcollection Changes Live.';
@@ -5293,6 +5326,15 @@ function bindSharedSubcollectionCardDesignController() {
   form.querySelector('[data-reset-shared-subcollection-design]')?.addEventListener('click', () => {
     const defaults = subcollectionCardDesignDefaults();
     form.elements.namedItem('backgroundImage').value = defaults.backgroundImage;
+    form.elements.namedItem('pageHeadingFontFamily').value = defaults.pageHeadingFontFamily;
+    form.elements.namedItem('pageHeadingColor').value = defaults.pageHeadingColor;
+    ['pageHeadingFontSizePx', 'pageHeadingFontWeight'].forEach((name) => {
+      const range = form.querySelector(`[data-section-layout-range="${name}"]`);
+      if (range) {
+        range.value = String(defaults[name]);
+        syncSectionLayoutControl(form, range);
+      }
+    });
     const position = categoryBackgroundPositionParts(defaults.backgroundPosition);
     Object.entries({ ...defaults, backgroundPositionX: position.x, backgroundPositionY: position.y })
       .forEach(([name, value]) => setCategoryDisplayControlValue(form, name, value));

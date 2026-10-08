@@ -56,7 +56,7 @@ function renderFreshHomepage(window, snapshot) {
   ].join('\n');
   const escapeHtml = (value) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
   const render = new Function('window', 'document', 'dependencies', `
-    const { getAdminCategories, inlineAdminPageKey, getEffectiveCategoryPresentation, STOREFRONT_CATEGORY_CARD_MAP, escapeHtml, applyHomepageCategorySectionLayout } = dependencies;
+    const { getAdminCategories, inlineAdminPageKey, getEffectiveCategoryPresentation, STOREFRONT_CATEGORY_CARD_MAP, escapeHtml, applyHomepageCategorySectionLayout, shouldUsePrivateAdminState, isInlineAdminEditingEnabled } = dependencies;
     ${code}
     return renderNormalizedHomepageCategoryCards;
   `)(window, window.document, {
@@ -65,7 +65,9 @@ function renderFreshHomepage(window, snapshot) {
     getEffectiveCategoryPresentation: (key) => window.MVPLUX_CATEGORY_PRESENTATION.resolveCategoryPresentation(snapshot.categories[key], { mode: 'published', defaultBackground: 'images/default.jpg' }),
     STOREFRONT_CATEGORY_CARD_MAP: { 'sport-legend-standee': 'sports', 'music-artist-standee': 'music' },
     escapeHtml,
-    applyHomepageCategorySectionLayout: () => {}
+    applyHomepageCategorySectionLayout: () => {},
+    shouldUsePrivateAdminState: () => false,
+    isInlineAdminEditingEnabled: () => false
   });
   render();
   return window.document.getElementById('homepageCategoryGrid');

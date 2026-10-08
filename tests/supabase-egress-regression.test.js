@@ -23,7 +23,8 @@ function between(source, start, end) {
 Deno.test('customer startup loads private admin-global only in explicit Admin editing context', () => {
   const startup = storefront.slice(storefront.indexOf("document.addEventListener('DOMContentLoaded'"));
   assert(startup.includes('const loadPrivateAdminState = shouldLoadPrivateAdminState()'));
-  assert(startup.includes('if (loadPrivateAdminState) await loadLiveAdminSettings()'));
+  assert(startup.includes('const privateAdminStateLoaded = loadPrivateAdminState'));
+  assert(startup.includes('? Boolean(await loadLiveAdminSettings().catch(() => null))'));
   assert(startup.includes('if (loadPrivateAdminState && isInlineAdminEditingEnabled())'));
 });
 

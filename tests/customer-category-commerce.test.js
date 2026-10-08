@@ -48,11 +48,24 @@ Deno.test('non-Sports Collection pages show one clean loading stage until normal
     const html = await Deno.readTextFile(new URL(`../${filename}`, import.meta.url));
     assert((html.match(/data-category-showroom-loading/g) || []).length === 1, `${filename} must have exactly one immediate loading stage`);
     assert(html.includes('rel="preconnect" href="https://cdn.jsdelivr.net"') && html.includes('rel="preconnect" href="https://ncbddqxdinvcsoszdsxr.supabase.co"'), `${filename} must start both required network connections early`);
-    assert(html.includes('script.js?v=20261007-shared-subcollection-design'), `${filename} must load the matching shared Subcollection card script`);
+    assert(html.includes('script.js?v=20261008-shared-collection-heading'), `${filename} must load the matching shared Collection heading and Subcollection card script`);
   }
   const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
   assert(initializer.indexOf('setupGenericCategoryShowroom()') < initializer.indexOf("[data-category-showroom-loading]"), 'the loader must remain until the normalized showroom is constructed');
   assert(initializer.includes('element.remove()'), 'the clean loader must be removed after the normalized showroom is ready');
+});
+
+Deno.test('legacy Sports Subcollection cards stay hidden until normalized rendering completes', async () => {
+  const [html, css] = await Promise.all([
+    Deno.readTextFile(new URL('../sports-legends.html', import.meta.url)),
+    Deno.readTextFile(new URL('../style.css', import.meta.url))
+  ]);
+  assert(html.includes('class="sport-type-carousel"') && html.includes('data-category-initial-content hidden'), 'Sports compatibility Subcollections must begin hidden');
+  assert(css.includes('[data-category-initial-content][hidden]') && css.includes('display: none !important;'), 'the carousel display rule must not expose old compatibility cards before normalized rendering');
+  assert(html.includes('style.css?v=20261008-shared-collection-heading'), 'Sports must request the corrected shared heading stylesheet instead of a cached pre-fix copy');
+  assert(html.includes('<body data-dynamic-category-page>') && html.includes('<h1>Sport Legends</h1>'), 'Sport Legends must initialize its page heading from the normalized Main Collection instead of retaining an old static label');
+  assert(css.includes('margin: 28px auto 48px !important;'), 'the Main Collection page must not add a second oversized offset beneath its sticky navigation');
+  assert(css.includes('font-family: var(--collection-page-heading-font') && css.includes('color: var(--collection-page-heading-color, #f4d06f)'), 'the Main Collection heading must use the shared MVPLUX heading typography');
 });
 
 Deno.test('generic and Sports showrooms resolve shared Product showroom designs without changing commerce', () => {
@@ -179,5 +192,6 @@ Deno.test('showroom pricing is correct immediately and updates synchronously whe
   assert(builder.dataset.originalHeight === '36' && builder.querySelector('.live-size-price').textContent === '$50.00', 'selecting another product must immediately replace height and price');
   assert(centralPriceCalls >= 4, 'both selection updates must use central price calculation without a timer');
   const init = source.slice(source.indexOf("document.addEventListener('DOMContentLoaded'"));
-  assert(init.indexOf('initializeCategoryShowroomExperience()') < init.indexOf('await authStatePromise'), 'showroom pricing must initialize before waiting for optional authentication and private Admin work');
+  assert(init.indexOf('if (!deferInitialStorefrontPresentation)') < init.indexOf('await authStatePromise'), 'customer storefront initialization must remain available before waiting for optional authentication');
+  assert(init.includes('if (!storefrontPresentationRendered || (privateAdminStateLoaded && shouldUsePrivateAdminState()))'), 'Admin private preview must initialize only after its private state is available');
 });

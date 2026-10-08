@@ -297,16 +297,19 @@ Deno.test('later homepage startup renderers cannot overwrite the restored approv
   assert(!header.querySelector('.sign-in-link, .sign-up-link'), 'later homepage rendering must not restore guest auth links');
 });
 
-Deno.test('homepage startup binds auth then renders the dedicated Category mount before private Admin work', async () => {
+Deno.test('homepage startup binds auth and prevents private Admin preview version flashing', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const init = source.slice(source.indexOf("document.addEventListener('DOMContentLoaded'"));
   const authForms = init.indexOf('bindAuthForms()');
   const authStart = init.indexOf('const authStatePromise = syncSupabaseAuthState()');
   const published = init.indexOf('await loadPublishedAdminSettings()');
+  const defer = init.indexOf('const deferInitialStorefrontPresentation = shouldLoadPrivateAdminState()');
   const render = init.indexOf('renderNormalizedHomepageCategoryCards()', published);
   const authWait = init.indexOf('await authStatePromise', published);
   const privateLoad = init.indexOf('await loadLiveAdminSettings()', published);
-  assert(authForms >= 0 && authForms < authStart && authStart < published && render > published, 'auth binding and session restoration must start before the published Category request');
-  assert(authWait > render && privateLoad > render, 'startup must render the published mount before waiting for Admin authorization or private state');
+  assert(authForms >= 0 && authForms < authStart && authStart < defer && defer < published && render > published, 'auth restoration and the private-preview guard must precede storefront rendering');
+  assert(init.includes('&& !requestedCollectionCardImage()'), 'an exact Collection-image handoff must render immediately while private Admin state revalidates');
+  assert(authWait > render && privateLoad > authWait, 'private state must load only after authentication resolves');
+  assert(init.includes('if (!storefrontPresentationRendered || (privateAdminStateLoaded && shouldUsePrivateAdminState()))'), 'the final storefront render must use the resolved private state when appropriate');
   assert(source.includes("document.getElementById('homepageCategoryGrid')"), 'renderer must target only the permanent dedicated mount');
 });

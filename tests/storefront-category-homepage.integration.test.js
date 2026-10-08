@@ -83,13 +83,17 @@ Deno.test('homepage cards retain authoritative published title, image, backgroun
   assert(sports.card.visible === false, 'legacy card.visible may remain for compatibility data');
 });
 
-Deno.test('homepage Category rendering begins before private Admin state reads', async () => {
+Deno.test('homepage Category rendering avoids a published-to-private Admin preview flash', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const init = source.slice(source.indexOf('document.addEventListener(\'DOMContentLoaded\''));
   const publishedLoad = init.indexOf('await loadPublishedAdminSettings()');
+  const deferGuard = init.indexOf('if (!deferInitialStorefrontPresentation)', publishedLoad);
   const firstRender = init.indexOf('renderNormalizedHomepageCategoryCards()', publishedLoad);
   const privateLoad = init.indexOf('await loadLiveAdminSettings()', publishedLoad);
-  assert(publishedLoad >= 0 && firstRender > publishedLoad && privateLoad > firstRender, 'published homepage cards must render before private Supabase/Admin reads');
+  const finalGuard = init.indexOf('if (!storefrontPresentationRendered || (privateAdminStateLoaded && shouldUsePrivateAdminState()))', privateLoad);
+  assert(publishedLoad >= 0 && deferGuard > publishedLoad && firstRender > deferGuard, 'published customer rendering must be guarded when private Admin preview is expected');
+  assert(init.includes('&& !requestedCollectionCardImage()'), 'a clicked Homepage Collection image must bypass the blank private-preview wait without using an obsolete image');
+  assert(privateLoad > firstRender && finalGuard > privateLoad, 'Admin preview must wait for private state before its authoritative render');
 });
 
 Deno.test('homepage renderer clears stale cards when no Categories remain eligible', async () => {

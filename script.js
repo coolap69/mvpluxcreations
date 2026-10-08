@@ -4121,6 +4121,7 @@ function initSportsShowroom() {
 function initializeCategoryShowroomExperience() {
   renderManagedCategoryPageProducts();
   setupDynamicCategoryPage();
+  applySharedCollectionPageHeadingStyle();
   setupGenericCategoryShowroom();
   initSportsShowroom();
   refreshCategoryShowroomPricing();
@@ -4192,6 +4193,16 @@ function setupDynamicCategoryPage() {
   document.title = `${category.title || category.key} | MVPLUXCREATIONS`;
 }
 
+function applySharedCollectionPageHeadingStyle() {
+  const page = document.querySelector('.category-page');
+  if (!page?.querySelector('.category-hero h1')) return;
+  const design = subcollectionCardDesign();
+  page.style.setProperty('--collection-page-heading-font', design.pageHeadingFontFamily);
+  page.style.setProperty('--collection-page-heading-color', design.pageHeadingColor);
+  page.style.setProperty('--collection-page-heading-size', `${design.pageHeadingFontSizePx}px`);
+  page.style.setProperty('--collection-page-heading-weight', String(design.pageHeadingFontWeight));
+}
+
 function homepageCategoryRecords(categories = getAdminCategories()) {
   return Object.values(categories || {})
     .filter((category) => category && !category.parentKey && category.visible !== false && category.homepageVisible !== false)
@@ -4243,6 +4254,9 @@ function categoryDestinationWithRepresentative(page, representativeProductSlug =
   const url = new URL(destination, window.location.href);
   if (representativeProductSlug) url.searchParams.set('product', representativeProductSlug);
   if (representativeImage) url.searchParams.set('collectionImage', representativeImage);
+  if (shouldUsePrivateAdminState()) {
+    url.searchParams.set('adminView', isInlineAdminEditingEnabled() ? 'edit' : 'preview');
+  }
   return `${url.pathname.split('/').pop() || ''}${url.search}${url.hash}`;
 }
 
@@ -4515,9 +4529,23 @@ function normalizedChildGroupCardMarkup(child, activeKey = '') {
 
 function subcollectionCardDesign(globalDisplaySettings = getAdminGlobalDisplaySettings()) {
   const value = globalDisplaySettings?.subcollectionCards || {};
+  const headingFonts = new Set([
+    'inherit',
+    '"Arial Black", "Helvetica Neue", Arial, sans-serif',
+    '"Helvetica Neue", Arial, sans-serif',
+    'Arial, Helvetica, sans-serif',
+    '"Trebuchet MS", Arial, sans-serif',
+    'Georgia, "Times New Roman", serif'
+  ]);
+  const requestedHeadingFont = String(value.pageHeadingFontFamily || '"Arial Black", "Helvetica Neue", Arial, sans-serif');
+  const requestedHeadingColor = String(value.pageHeadingColor || '#f4d06f').trim();
   return {
     cardWidthPx: Math.max(220, Math.min(420, Number(value.cardWidthPx) || 260)),
-    stageHeightPx: Math.max(180, Math.min(520, Number(value.stageHeightPx) || 230))
+    stageHeightPx: Math.max(180, Math.min(520, Number(value.stageHeightPx) || 230)),
+    pageHeadingFontFamily: headingFonts.has(requestedHeadingFont) ? requestedHeadingFont : '"Arial Black", "Helvetica Neue", Arial, sans-serif',
+    pageHeadingColor: /^#[0-9a-f]{6}$/i.test(requestedHeadingColor) ? requestedHeadingColor : '#f4d06f',
+    pageHeadingFontSizePx: Math.max(26, Math.min(80, Number(value.pageHeadingFontSizePx) || 52)),
+    pageHeadingFontWeight: Math.max(400, Math.min(900, Number(value.pageHeadingFontWeight) || 900))
   };
 }
 
@@ -9053,12 +9081,21 @@ document.addEventListener('DOMContentLoaded', async function () {
   const authStatePromise = syncSupabaseAuthState().catch((error) => {
     console.warn('Supabase session restoration failed:', error);
   });
-  // Published customer content must render before any optional auth/Admin request.
+  // Customer mode can render the published snapshot immediately. A Collection link carrying
+  // its exact selected image can also paint that correct image immediately while private Admin
+  // state revalidates in the background; otherwise private preview keeps the loading shell
+  // visible so an older published presentation never flashes first.
+  const deferInitialStorefrontPresentation = shouldLoadPrivateAdminState()
+    && !requestedCollectionCardImage();
+  let storefrontPresentationRendered = false;
   await loadPublishedAdminSettings();
-  renderNormalizedHomepageCategoryCards();
-  // Category shopping must initialize as soon as published products and pricing are available.
-  initializeCategoryShowroomExperience();
-  initializeSellableProductPricing();
+  if (!deferInitialStorefrontPresentation) {
+    renderNormalizedHomepageCategoryCards();
+    // Category shopping must initialize as soon as published products and pricing are available.
+    initializeCategoryShowroomExperience();
+    initializeSellableProductPricing();
+    storefrontPresentationRendered = true;
+  }
   await authStatePromise;
   applyRequestedAdminViewMode();
   await loadStorefrontTestMode().catch(() => {});
@@ -9067,7 +9104,9 @@ document.addEventListener('DOMContentLoaded', async function () {
   showInfoSlide(0);
   normalizeFrontPageCategoryLinks();
   const loadPrivateAdminState = shouldLoadPrivateAdminState();
-  if (loadPrivateAdminState) await loadLiveAdminSettings().catch(() => {});
+  const privateAdminStateLoaded = loadPrivateAdminState
+    ? Boolean(await loadLiveAdminSettings().catch(() => null))
+    : false;
   if (localStorage.getItem('mvpluxIsAdminApproved') === 'true') refreshAdminViewControls();
   renderAdminViewModeLabel();
   bindProductCarouselDragGuard();
@@ -9100,10 +9139,15 @@ document.addEventListener('DOMContentLoaded', async function () {
   renderAdminManagedCards();
   applyHomepageCategoryCardOrder();
   applyInlineHiddenCards();
-  renderNormalizedHomepageCategoryCards();
   renderStandeeDetailPage();
-  if (shouldUsePrivateAdminState()) initializeCategoryShowroomExperience();
-  else refreshCategoryShowroomPricing();
+  if (!storefrontPresentationRendered || (privateAdminStateLoaded && shouldUsePrivateAdminState())) {
+    renderNormalizedHomepageCategoryCards();
+    initializeCategoryShowroomExperience();
+    initializeSellableProductPricing();
+    storefrontPresentationRendered = true;
+  } else {
+    refreshCategoryShowroomPricing();
+  }
   ensureProductAdminSlugs();
   scrollToSelectedStandeeHash();
   bindSportsShowroomClicks();
