@@ -10,6 +10,7 @@ adminArchitecturePromise.then((module) => {
 });
 const adminTabId = crypto.randomUUID?.()
   || `admin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const adminSupportEmail = 'support@mvpluxcreations.com';
 
 const adminProducts = [
   {
@@ -2606,6 +2607,44 @@ function adminAddressText(address) {
   ].filter(Boolean).map(escapeAdminHtml).join(' | ') || 'No address yet';
 }
 
+function isInternationalOrderAddress(address) {
+  const country = String(address?.country || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+  return Boolean(country) && !['us', 'usa', 'unitedstates', 'unitedstatesofamerica'].includes(country);
+}
+
+function orderReferenceNumber(order = {}) {
+  return String(order.notes || '').match(/Order number:\s*([^\n]+)/i)?.[1]?.trim()
+    || String(order.id || '').slice(0, 8).toUpperCase()
+    || 'your order';
+}
+
+function rejectedOrderApologyEmail(order = {}) {
+  const customerName = String(order.customer_name || 'there').trim();
+  const reference = orderReferenceNumber(order);
+  const subject = `Important update about MVPLUXCREATIONS order ${reference}`;
+  const body = `Hi ${customerName},
+
+We are very sorry, but our production printer cannot ship your order directly to your international address, so we cannot complete the current direct website order as submitted.
+
+We can offer two alternatives:
+
+1. eBay: we can send you the matching eBay listing for this item so you can purchase it through eBay's international checkout. Please note that the eBay price may be different from our website price because eBay and marketplace fees apply.
+
+2. Customer-provided shipping label: the printer sends the finished standee to MVPLUXCREATIONS first. We provide the packaged dimensions and weight, you purchase the international shipping label yourself, and you email the label to us for printing. A $15 handling fee applies. Please allow approximately 3–5 additional business days for us to handle the international shipment before giving it to the carrier. The carrier's delivery time is additional and depends on the shipping service you purchase.
+
+Please reply and tell us whether you prefer the eBay option or the customer-provided-label option. We will send the matching eBay listing and its current price, or confirm the package measurements, $15 handling fee, label instructions, handling time, and carrier timing before proceeding. If you already sent payment, please mention that in your reply so we can confirm the appropriate refund or next step.
+
+We apologize for the inconvenience and appreciate your understanding.
+
+MVPLUXCREATIONS
+${adminSupportEmail}`;
+  return {
+    subject,
+    body,
+    href: `mailto:${encodeURIComponent(String(order.customer_email || '').trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  };
+}
+
 function commerceEmptyMarkup(text) {
   return `<div class="admin-commerce-empty">${text}</div>`;
 }
@@ -2623,7 +2662,12 @@ function orderCardMarkup(order) {
     ? { status: 'completed', label: 'Mark Completed' }
     : status === 'completed'
     ? { status: 'archived', label: 'Archive Order' }
+    : status === 'rejected'
+    ? { status: 'archived', label: 'Archive Rejected Order' }
     : null;
+  const canReject = ['new', 'in_production'].includes(status);
+  const isInternational = isInternationalOrderAddress(order.shipping_address);
+  const apologyEmail = rejectedOrderApologyEmail(order);
   return `
     <article class="admin-commerce-card ${status === 'in_production' ? 'is-production-sent' : ''} ${isTest ? 'is-test-record' : ''}">
       <div class="admin-commerce-card-head">
@@ -2635,6 +2679,7 @@ function orderCardMarkup(order) {
       <p><strong>Total:</strong> ${adminMoney(order.total)} · <strong>Pay:</strong> ${escapeAdminHtml(order.payment_method || 'Not chosen')}</p>
       <p><strong>Email:</strong> ${escapeAdminHtml(order.customer_email || 'Not provided')} · <strong>Phone:</strong> ${escapeAdminHtml(order.customer_phone || 'Not provided')}</p>
       <p><strong>Ship:</strong> ${adminAddressText(order.shipping_address)}</p>
+      ${isInternational ? '<p class="admin-order-shipping-warning"><strong>International address:</strong> International checkout is not active yet. Reject and prepare the apology email to offer either a matching eBay listing (price may differ because of marketplace fees) or the manual option: customer-purchased shipping label, $15 handling fee, 3–5 business days of handling, plus carrier delivery time.</p>' : ''}
       ${order.notes ? `<p><strong>Notes:</strong> ${escapeAdminHtml(order.notes)}</p>` : ''}
       ${customItem ? `<section class="admin-custom-order" data-custom-order-request>
         <h4>Custom Order Design Request</h4>
@@ -2646,6 +2691,8 @@ function orderCardMarkup(order) {
       </section>` : ''}
       <small>${adminDate(order.created_at)}</small>
       ${nextAction ? `<button class="admin-production-toggle" type="button" data-order-status="${nextAction.status}" data-id="${escapeAdminHtml(order.id)}">${nextAction.label}</button>` : ''}
+      ${canReject ? `<button class="admin-commerce-delete" type="button" data-order-status="rejected" data-id="${escapeAdminHtml(order.id)}" data-apology-email="${escapeAdminHtml(apologyEmail.href)}">${isInternational ? 'Reject & Prepare Apology Email' : 'Reject Order'}</button>` : ''}
+      ${status === 'rejected' && order.customer_email ? `<a class="admin-button admin-button-secondary" href="${escapeAdminHtml(apologyEmail.href)}">Open Apology Email Again</a>` : ''}
       ${isTest ? `<button class="admin-commerce-delete" type="button" data-delete-commerce="order" data-id="${escapeAdminHtml(order.id)}">Delete Test Record</button>` : ''}
     </article>
   `;
@@ -3000,6 +3047,7 @@ async function updateOrderStatus(button) {
   if (!client || !id) return;
 
   if (nextStatus === 'archived' && !window.confirm('Archive this order? The complete order record and history will be preserved.')) return;
+  if (nextStatus === 'rejected' && !window.confirm('Reject this order and prepare an apology email? The order and its history will be preserved. Your email app will open after rejection; review the message and press Send yourself. This does not issue a refund automatically.')) return;
 
   button.disabled = true;
   button.textContent = 'Saving...';
@@ -3015,7 +3063,10 @@ async function updateOrderStatus(button) {
     return;
   }
 
-  setCommerceStatus(`Order moved to ${nextStatus.replace(/_/g, ' ')}.`);
+  setCommerceStatus(nextStatus === 'rejected'
+    ? 'Order rejected and preserved in Rejected Orders. The apology was prepared in your email app; review it and press Send. No refund was issued automatically.'
+    : `Order moved to ${nextStatus.replace(/_/g, ' ')}.`);
+  if (nextStatus === 'rejected' && button.dataset.apologyEmail) window.location.href = button.dataset.apologyEmail;
   refreshCommerceAdmin();
 }
 
@@ -3033,6 +3084,7 @@ async function refreshCommerceAdmin() {
     in_production: document.getElementById('adminOrdersProduction'),
     shipped: document.getElementById('adminOrdersShipped'),
     completed: document.getElementById('adminOrdersCompleted'),
+    rejected: document.getElementById('adminOrdersRejected'),
     archived: document.getElementById('adminOrdersArchived')
   };
   const client = window.getMvpluxSupabaseClient?.();
@@ -3103,7 +3155,7 @@ async function refreshCommerceAdmin() {
       : commerceEmptyMarkup(queue === 'pending' ? 'No new offers right now.' : `No ${queue.replace(/_/g, ' ')} offers right now.`);
   });
 
-  const ordersByQueue = { new: [], in_production: [], shipped: [], completed: [], archived: [] };
+  const ordersByQueue = { new: [], in_production: [], shipped: [], completed: [], rejected: [], archived: [] };
   (ordersResponse.data || []).forEach((order) => {
     const status = order.status === 'sent_to_production' ? 'in_production' : String(order.status || 'new');
     const queue = Object.prototype.hasOwnProperty.call(ordersByQueue, status) ? status : 'new';
@@ -7952,7 +8004,10 @@ function productShowroomDesignDefaults() {
     backgroundSizePercent: 100,
     backgroundWidthPercent: 100,
     backgroundHeightPercent: 100,
-    stageHeightPx: 560
+    stageHeightPx: 560,
+    standeeSizePercent: 88,
+    standeeLeftPercent: 50,
+    standeeVerticalPercent: 5
   };
 }
 
@@ -7965,7 +8020,10 @@ function normalizedProductShowroomDesign(value = {}) {
     backgroundSizePercent: safeCategoryDisplayNumber(value.backgroundSizePercent, defaults.backgroundSizePercent, 50, 300),
     backgroundWidthPercent: safeCategoryDisplayNumber(value.backgroundWidthPercent, defaults.backgroundWidthPercent, 50, 300),
     backgroundHeightPercent: safeCategoryDisplayNumber(value.backgroundHeightPercent, defaults.backgroundHeightPercent, 50, 300),
-    stageHeightPx: safeCategoryDisplayNumber(value.stageHeightPx, defaults.stageHeightPx, 320, 820)
+    stageHeightPx: safeCategoryDisplayNumber(value.stageHeightPx, defaults.stageHeightPx, 320, 820),
+    standeeSizePercent: safeCategoryDisplayNumber(value.standeeSizePercent, defaults.standeeSizePercent, 30, 140),
+    standeeLeftPercent: safeCategoryDisplayNumber(value.standeeLeftPercent, defaults.standeeLeftPercent, 0, 100),
+    standeeVerticalPercent: safeCategoryDisplayNumber(value.standeeVerticalPercent, defaults.standeeVerticalPercent, -20, 60)
   };
 }
 
@@ -7991,7 +8049,10 @@ function productShowroomDesignFromForm(form) {
     backgroundSizePercent: data.get('backgroundSizePercent'),
     backgroundWidthPercent: data.get('backgroundWidthPercent'),
     backgroundHeightPercent: data.get('backgroundHeightPercent'),
-    stageHeightPx: data.get('stageHeightPx')
+    stageHeightPx: data.get('stageHeightPx'),
+    standeeSizePercent: data.get('standeeSizePercent'),
+    standeeLeftPercent: data.get('standeeLeftPercent'),
+    standeeVerticalPercent: data.get('standeeVerticalPercent')
   });
 }
 
@@ -7999,10 +8060,11 @@ function previewSharedProductShowroom(form) {
   const preview = form?.querySelector('[data-shared-product-showroom-preview]');
   if (!preview) return;
   const design = productShowroomDesignFromForm(form);
-  const sample = effectiveAdminProducts().find((product) => product.visible !== false && product.cutoutImage);
+  const scope = String(form.elements.namedItem('scope')?.value || 'default');
+  const sample = productsInSharedShowroomScope(scope).find((product) => product.visible !== false && product.cutoutImage);
   const width = design.backgroundWidthPercent * design.backgroundSizePercent / 100;
   const height = design.backgroundHeightPercent * design.backgroundSizePercent / 100;
-  preview.innerHTML = `<div class="admin-shared-product-showroom-stage" style="min-height:${design.stageHeightPx}px;background-image:url('${escapeAdminHtml(design.backgroundImage)}');background-position:${design.backgroundPositionX}% ${design.backgroundPositionY}%;background-size:${width}% ${height}%">
+  preview.innerHTML = `<div class="admin-shared-product-showroom-stage" style="min-height:${design.stageHeightPx}px;background-image:url('${escapeAdminHtml(design.backgroundImage)}');background-position:${design.backgroundPositionX}% ${design.backgroundPositionY}%;background-size:${width}% ${height}%;--shared-showroom-image-height:${design.standeeSizePercent}%;--shared-showroom-image-left:${design.standeeLeftPercent}%;--shared-showroom-image-bottom:${design.standeeVerticalPercent}%">
     ${sample?.cutoutImage ? `<img src="${escapeAdminHtml(sample.cutoutImage)}" alt="Sample Product / Standee">` : '<span>No sample Product image available</span>'}
   </div><strong>${escapeAdminHtml(sample?.title || 'Product / Standee Preview')}</strong>`;
 }
@@ -8054,11 +8116,14 @@ function productsInSharedShowroomScope(scope) {
 
 function sharedProductShowroomInheritancePatch(product = {}) {
   const displayOverrides = { ...(product.displayOverrides || {}) };
-  ['backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent', 'backgroundPosition', 'backgroundPositionX', 'backgroundPositionY']
+  ['backgroundSizePercent', 'backgroundWidthPercent', 'backgroundHeightPercent', 'backgroundPosition', 'backgroundPositionX', 'backgroundPositionY', 'standeeSizePercent', 'standeeLeftPercent', 'standeeVerticalPercent']
     .forEach((field) => { delete displayOverrides[field]; });
   return {
     backgroundImage: '',
     stageBackgroundPosition: '',
+    cutoutHeight: '',
+    cutoutLeft: '',
+    cutoutBottom: '',
     displayOverrides,
     draftStatus: 'ready',
     approvalStatus: 'draft',
@@ -8074,7 +8139,7 @@ async function makeProductsUseSharedShowroomDesign(form) {
     form.querySelector('[data-shared-product-showroom-status]').textContent = 'No Products are assigned to this scope.';
     return false;
   }
-  if (!window.confirm(`Make ${products.length} ${scopeName} use this shared showroom design? This removes only their custom showroom background overrides. Product images, text, prices, sizes, and assignments stay unchanged.`)) return false;
+  if (!window.confirm(`Apply this shared showroom design live to ${products.length} ${scopeName}? This removes only their custom showroom background and standee-placement overrides. Product images, text, prices, original heights, and assignments stay unchanged.`)) return false;
   if (form.dataset.editorDirty === 'true' && !await saveSharedProductShowroomDesign(form)) return false;
   const patches = Object.fromEntries(products.map((product) => [product.slug, sharedProductShowroomInheritancePatch(product)]));
   const bases = Object.fromEntries(products.map((product) => [product.slug, product]));
@@ -8084,8 +8149,13 @@ async function makeProductsUseSharedShowroomDesign(form) {
     status.textContent = 'SAVE FAILED — no shared Product relationships were changed.';
     return false;
   }
-  status.textContent = `DRAFT SAVED — PRIVATE. ${products.length} Products now use this shared design. Use Save All Live Changes when ready.`;
-  return true;
+  status.textContent = `SAVING LIVE… ${products.length} Products will use this shared design.`;
+  return saveLiveChangeIds(
+    ['productShowrooms:all', ...products.map((product) => `product:${product.slug}`)],
+    `${scopeName} Shared Showroom Design`,
+    status,
+    { workingStateCurrent: true }
+  );
 }
 
 function renderSharedProductShowroomController() {
@@ -8097,7 +8167,7 @@ function renderSharedProductShowroomController() {
     .sort((left, right) => String(left.title || left.key).localeCompare(String(right.title || right.key)));
   const affectedCount = productsInSharedShowroomScope(previousScope).length;
   mount.innerHTML = `<form data-shared-product-showroom-form>
-    <div><h3>Shared Product Showroom Design</h3><p class="admin-note">Control the background and stage used by Products that use a shared default. Homepage Collection Card backgrounds remain separate.</p></div>
+    <div><h3>Shared Product Showroom Design</h3><p class="admin-note">Choose <strong>All Products — Global Default</strong> for one standard showroom, or choose a Main Collection for a different category background and placement. Homepage Collection Card backgrounds remain separate.</p></div>
     <div class="admin-shared-product-showroom-workspace">
       <aside data-shared-product-showroom-preview></aside>
       <div class="admin-shared-product-showroom-controls">
@@ -8109,10 +8179,14 @@ function renderSharedProductShowroomController() {
         ${categoryDisplayRangeMarkup('backgroundPositionX', 'Background Left / Right', design.backgroundPositionX, 0, 100, '%')}
         ${categoryDisplayRangeMarkup('backgroundPositionY', 'Background Up / Down', design.backgroundPositionY, 0, 100, '%')}
         ${categoryDisplayRangeMarkup('backgroundSizePercent', 'Overall Background Zoom', design.backgroundSizePercent, 50, 300, '%')}
+        ${categoryDisplayRangeMarkup('standeeSizePercent', 'Standee Size', design.standeeSizePercent, 30, 140, '%')}
+        ${categoryDisplayRangeMarkup('standeeLeftPercent', 'Standee Left / Right', design.standeeLeftPercent, 0, 100, '%')}
+        ${categoryDisplayRangeMarkup('standeeVerticalPercent', 'Standee Up / Down', design.standeeVerticalPercent, -20, 60, '%')}
         <div class="admin-panel-actions"><button type="button" data-center-product-showroom>Center Background</button><button type="button" data-reset-product-showroom>Reset Design</button></div>
+        <div class="admin-panel-actions"><button type="button" data-center-product-showroom-standee>Center Standee</button></div>
         <div class="admin-panel-actions"><button type="submit">Save Draft</button><button class="admin-button admin-button-primary" type="button" data-save-live-product-showroom>Save Live</button></div>
-        <button type="button" data-make-products-use-shared-showroom>Make ${affectedCount} Products Use Shared Design</button>
-        <p class="admin-status" data-shared-product-showroom-status>Products already using the shared default follow this design automatically. Individual Product backgrounds remain custom overrides unless you deliberately use the button above.</p>
+        <button class="admin-button admin-button-primary" type="button" data-make-products-use-shared-showroom>Apply Shared Design to ${affectedCount} Products — Save Live</button>
+        <p class="admin-status" data-shared-product-showroom-status>Products already using the shared default follow this design automatically. Individual Product backgrounds remain custom overrides unless you deliberately use the button above. Other saved Product changes remain available through Save All Live Changes.</p>
       </div>
     </div>
   </form>`;
@@ -8136,6 +8210,13 @@ function renderSharedProductShowroomController() {
   form.querySelector('[data-center-product-showroom]')?.addEventListener('click', () => {
     setCategoryDisplayControlValue(form, 'backgroundPositionX', 50);
     setCategoryDisplayControlValue(form, 'backgroundPositionY', 50);
+    previewSharedProductShowroom(form);
+    form.dataset.editorDirty = 'true';
+    form.querySelector('[data-shared-product-showroom-status]').textContent = 'UNSAVED CHANGES';
+  });
+  form.querySelector('[data-center-product-showroom-standee]')?.addEventListener('click', () => {
+    setCategoryDisplayControlValue(form, 'standeeLeftPercent', 50);
+    setCategoryDisplayControlValue(form, 'standeeVerticalPercent', 5);
     previewSharedProductShowroom(form);
     form.dataset.editorDirty = 'true';
     form.querySelector('[data-shared-product-showroom-status]').textContent = 'UNSAVED CHANGES';

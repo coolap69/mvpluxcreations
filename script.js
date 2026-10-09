@@ -8,6 +8,7 @@ const storefrontAdminTabId = crypto.randomUUID?.()
   || `admin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const supportEmail = 'support@mvpluxcreations.com';
+const unitedStatesShippingCountry = 'United States';
 let currentCheckoutPaymentMethod = 'zelle';
 let currentCheckoutOrderNumber = '';
 let currentCheckoutOrderId = '';
@@ -46,6 +47,18 @@ function showSiteMessage(message, type = 'info') {
   showSiteMessage.hideTimer = window.setTimeout(() => {
     messageBox.classList.remove('show');
   }, type === 'error' ? 9000 : 5200);
+}
+
+function normalizeShippingCountry(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+}
+
+function isUnitedStatesShippingCountry(value) {
+  return ['us', 'usa', 'unitedstates', 'unitedstatesofamerica'].includes(normalizeShippingCountry(value));
+}
+
+function checkoutPaymentIsAuthorized() {
+  return Boolean(document.getElementById('checkoutSuccessNotice')?.dataset?.sent);
 }
 
 const checkoutPaymentMethods = {
@@ -111,7 +124,7 @@ function ensureCartShell() {
         <h2>Your Cart</h2>
         <div id="cartItems"></div>
         <p class="cart-total">Total: $<span id="cartTotal">0.00</span></p>
-        <p class="cart-free-shipping">Shipping: Free</p>
+        <p class="cart-free-shipping">Free shipping within the USA</p>
         <button class="checkout-btn" onclick="openCheckout()">Checkout / Pay</button>
       </aside>
     `);
@@ -582,7 +595,8 @@ function selectCheckoutPaymentMethod(key) {
     button.classList.toggle('active', button.dataset.paymentMethod === key);
   });
   updateCheckoutDisplay();
-  openPaymentOption(key);
+  if (checkoutPaymentIsAuthorized()) openPaymentOption(key);
+  else showSiteMessage('Enter a U.S. shipping address and submit the order request before opening payment instructions.', 'info');
 }
 
 function closePaymentOption() {
@@ -648,6 +662,10 @@ function openPaymentOption(key = currentCheckoutPaymentMethod) {
   const method = checkoutPaymentMethods[key] || checkoutPaymentMethods.zelle;
   if (!method.active) {
     showSiteMessage(`${method.label} can be added later.`, 'info');
+    return;
+  }
+  if (!checkoutIsTestRecord() && !checkoutPaymentIsAuthorized()) {
+    showSiteMessage('Submit the U.S. order request before opening payment instructions.', 'error');
     return;
   }
 
@@ -735,7 +753,7 @@ function checkoutModalMarkup() {
         <button class="close-modal" onclick="closeModals()">x</button>
         <h2>Checkout / Pay</h2>
         <div class="checkout-test-mode-note" data-checkout-test-warning hidden>TEST MODE — No real payment will be requested, sent, captured, or recorded.</div>
-        <p class="checkout-intro">Choose how you want to pay. Zelle is preferred because there are no processing fees. PayPal, Venmo, and Cash App are accepted for convenience.</p>
+        <p class="checkout-intro">Website checkout and free shipping are currently available for U.S. delivery addresses only. International customers may ask us for the matching eBay listing; the eBay price may be different because marketplace fees apply. Or use our manual shipping option: we provide the packaged dimensions and weight, you purchase and email us your shipping label, and a $15 handling fee applies. Please allow 3–5 additional business days for international handling before the package is given to the carrier, plus the carrier's delivery time for the shipping service you purchase.</p>
         <p class="checkout-email-note">Please include your order number in the payment note. Your order will be processed after payment is confirmed.</p>
         <div id="checkoutAcceptedOfferNotice" class="checkout-accepted-offer-notice"></div>
         <div id="checkoutSuccessNotice" class="checkout-success-notice">
@@ -762,7 +780,12 @@ function checkoutModalMarkup() {
               <input type="text" name="state" autocomplete="shipping address-level1" placeholder="State" required>
               <input type="text" name="zip" autocomplete="shipping postal-code" placeholder="ZIP" required>
             </div>
-            <input type="text" name="country" autocomplete="shipping country-name" placeholder="Country" value="United States">
+            <label class="checkout-country-label">Country
+              <select name="country" autocomplete="shipping country-name" required>
+                <option value="${unitedStatesShippingCountry}">${unitedStatesShippingCountry}</option>
+              </select>
+            </label>
+            <p class="checkout-shipping-note">Free U.S. shipping only. International customers can request the matching eBay listing, which may have a different price because of marketplace fees, or purchase and email us a shipping label for the manual option. The manual option includes a $15 handling fee, 3–5 additional business days of handling, and then the carrier's delivery time.</p>
           </fieldset>
           <textarea name="notes" placeholder="Order notes: size, deadline, special request"></textarea>
           <div class="checkout-discount-entry">
@@ -945,7 +968,7 @@ function updateCheckoutDisplay() {
     feeSummary.innerHTML = `
       <div><span>Original price</span><strong>${formatMoney(totals.subtotal)}</strong></div>
       ${displayedDiscount ? `<div><span>Discount code: ${escapeOfferText(displayedDiscount.code)}</span><strong>-${formatMoney(discountAmount)}</strong></div>` : ''}
-      <div><span>Shipping</span><strong>Free</strong></div>
+      <div><span>Shipping</span><strong>Free within the USA</strong></div>
       <div class="checkout-total-line"><span>Final price</span><strong>${formatMoney(finalTotal)}</strong></div>
       <p>${checkoutIsTestRecord() ? 'TEST MODE — no real payment will be requested.' : totals.method.note}</p>
     `;
@@ -969,16 +992,8 @@ async function submitCheckoutRequest(event) {
     return;
   }
 
-  const client = getCommerceClient();
-  if (!client) return;
-
-  const submitButton = form.querySelector('button[type="submit"]');
-  submitButton.disabled = true;
-  submitButton.textContent = 'Sending...';
-
   const methodKey = currentCheckoutPaymentMethod || 'zelle';
   const totals = calculateCustomerPaidTotal(getCheckoutSubtotal(), methodKey);
-  const user = await getCommerceUser(client);
   const orderNumber = createOrderNumber();
   const customerNotes = formValue(form, 'notes');
 
@@ -990,6 +1005,17 @@ async function submitCheckoutRequest(event) {
       zip: formValue(form, 'zip'),
       country: formValue(form, 'country') || 'United States'
   };
+  if (!isUnitedStatesShippingCountry(shippingAddress.country)) {
+    showSiteMessage("International website checkout is not available yet. Ask us for the matching eBay listing (pricing may differ because of marketplace fees), or use the manual option with a customer-purchased shipping label, a $15 handling fee, 3–5 business days of handling, plus the carrier's delivery time.", 'error');
+    return;
+  }
+
+  const client = getCommerceClient();
+  if (!client) return;
+  const user = await getCommerceUser(client);
+  const submitButton = form.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
+  submitButton.textContent = 'Sending...';
   const orderItems = items.map((item) => ({
       name: item.name,
       price: Number(item.price) || 0,
@@ -2691,8 +2717,10 @@ function ensureFinishChoices(root = document) {
 }
 
 function formatHeight(inches) {
-  const feet = Math.floor(inches / 12);
-  const remainder = inches % 12;
+  const normalized = parseHeightToInches(String(inches ?? '')) || Number(inches);
+  if (!Number.isFinite(normalized) || normalized <= 0) return 'Size unavailable';
+  const feet = Math.floor(normalized / 12);
+  const remainder = normalized % 12;
   return remainder ? `${feet}'${remainder}"` : `${feet}'`;
 }
 
@@ -3824,7 +3852,10 @@ function productShowroomDesignDefaults() {
     backgroundSizePercent: 100,
     backgroundWidthPercent: 100,
     backgroundHeightPercent: 100,
-    stageHeightPx: 560
+    stageHeightPx: 560,
+    standeeSizePercent: 88,
+    standeeLeftPercent: 50,
+    standeeVerticalPercent: 5
   };
 }
 
@@ -3841,7 +3872,10 @@ function normalizedProductShowroomDesign(value = {}) {
     backgroundSizePercent: number('backgroundSizePercent', 50, 300),
     backgroundWidthPercent: number('backgroundWidthPercent', 50, 300),
     backgroundHeightPercent: number('backgroundHeightPercent', 50, 300),
-    stageHeightPx: number('stageHeightPx', 320, 820)
+    stageHeightPx: number('stageHeightPx', 320, 820),
+    standeeSizePercent: number('standeeSizePercent', 30, 140),
+    standeeLeftPercent: number('standeeLeftPercent', 0, 100),
+    standeeVerticalPercent: number('standeeVerticalPercent', -20, 60)
   };
 }
 
@@ -3858,7 +3892,10 @@ function resolveSharedProductShowroomDesign(product = {}, categoryKey = getCurre
     ...(productBackground ? { backgroundImage: productBackground } : {}),
     ...(display.backgroundSizePercent != null ? { backgroundSizePercent: display.backgroundSizePercent } : {}),
     ...(display.backgroundWidthPercent != null ? { backgroundWidthPercent: display.backgroundWidthPercent } : {}),
-    ...(display.backgroundHeightPercent != null ? { backgroundHeightPercent: display.backgroundHeightPercent } : {})
+    ...(display.backgroundHeightPercent != null ? { backgroundHeightPercent: display.backgroundHeightPercent } : {}),
+    ...(String(display.standeeSizePercent ?? product.cutoutHeight ?? '').trim() ? { standeeSizePercent: display.standeeSizePercent ?? product.cutoutHeight } : {}),
+    ...(String(display.standeeLeftPercent ?? product.cutoutLeft ?? '').trim() ? { standeeLeftPercent: display.standeeLeftPercent ?? product.cutoutLeft } : {}),
+    ...(String(display.standeeVerticalPercent ?? product.cutoutBottom ?? '').trim() ? { standeeVerticalPercent: display.standeeVerticalPercent ?? product.cutoutBottom } : {})
   });
 }
 
@@ -3871,6 +3908,10 @@ function applyProductShowroomDesign(stage, product = {}, categoryKey = getCurren
   stage.style.backgroundPosition = product.stageBackgroundPosition || `${design.backgroundPositionX}% ${design.backgroundPositionY}%`;
   stage.style.backgroundSize = `${width}% ${height}%`;
   stage.style.minHeight = `${design.stageHeightPx}px`;
+  stage.style.setProperty('--showroom-stage-height', `${design.stageHeightPx}px`);
+  stage.style.setProperty('--showroom-image-height', `${design.standeeSizePercent}%`);
+  stage.style.setProperty('--showroom-image-left', `${design.standeeLeftPercent}%`);
+  stage.style.setProperty('--showroom-image-bottom', `${design.standeeVerticalPercent}%`);
   return design;
 }
 
@@ -3986,7 +4027,6 @@ function selectSportsOption(index) {
 
   const design = applyProductShowroomDesign(mainStage, product.sourceProduct || product, 'sports');
   mainStage.style.backgroundImage = `url('${option.stage || product.backgroundImage || design.backgroundImage}')`;
-  mainStage.style.setProperty('--showroom-image-height', product.displayFit?.imageHeight || '80%');
   if (option.image) {
     mainImage.src = option.image;
     mainImage.hidden = false;

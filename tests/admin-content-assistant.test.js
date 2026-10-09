@@ -104,9 +104,12 @@ Deno.test('function prompt covers supported actions and safe content rules', asy
   for (const action of ['title', 'description', 'funFact', 'fillAll', 'improve']) assert(source.includes(`'${action}'`), `missing ${action} action`);
   assert(source.includes('For fillAll requests, create a coordinated title, description, fun fact, and original height'), 'Fill All must request one coordinated Product detail response');
   assert(source.includes('return an empty string') && source.includes('Never estimate height from image pixels.'), 'uncertain Product heights must remain blank instead of being guessed from the image');
+  assert(source.includes("feetAndInches") && source.includes("Number(feetAndInches[1]) * 12"), 'AI height normalization must accept familiar feet-and-inches responses');
+  assert(source.includes('named performer as a character') && source.includes('well-supported canonical height'), 'AI height guidance must distinguish real performers from fictional characters');
   assert(source.includes('originalHeight: cleanOriginalHeight(suggestion.originalHeight)'), 'AI height output must be bounded and normalized before reaching Admin');
   assert(source.includes('Do not describe the item as official merchandise.'), 'official-merchandise claims must be prohibited');
   assert(source.includes('do not invent a fact'), 'fun facts must not be invented');
+  assert(source.includes('broad but recognizable identity') && source.includes('Ask for more information only when no meaningful identity'), 'recognizable broad identities must produce a safe general fun fact instead of an unnecessary clarification');
   assert(source.includes('preserve the meaning'), 'Improve Existing Text must preserve meaning');
   assert(source.includes('Authoritative identity/context supplied by the Admin'), 'prompt must include the Admin-supplied identity');
   assert(source.includes('Never replace, contradict, or override it based on the image.'), 'image analysis must not override Admin-supplied identity');

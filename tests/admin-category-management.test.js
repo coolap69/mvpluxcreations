@@ -410,7 +410,7 @@ Deno.test('Admin loads the versioned Subcollection duplicate validator', async (
   const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   assert(source.includes("import('./admin-state-utils.js?v=20261007-subcollection-key-collision')"), 'the corrected hierarchy validator must not be replaced by a stale browser-cached module');
-  assert(html.includes('admin.js?v=20261008-shared-collection-heading'), 'the Admin entry script must reload with the shared Collection heading controls and corrected Subcollection creation flow');
+  assert(html.includes('admin.js?v=20261008-us-shipping'), 'the Admin entry script must reload with the shared Collection heading controls, corrected Subcollection flow, and order shipping controls');
 });
 
 Deno.test('Admin renders Subcollections in their own area with private creation and no automatic assignments', async () => {

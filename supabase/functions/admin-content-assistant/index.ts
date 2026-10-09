@@ -54,7 +54,11 @@ function cleanText(value: unknown, max: number) {
 }
 
 function cleanOriginalHeight(value: unknown) {
-  const height = Number(value);
+  const text = String(value ?? '').trim();
+  const feetAndInches = text.match(/^(\d+)\s*(?:'|ft|feet)\s*(\d{1,2})?\s*(?:\"|in|inches)?$/i);
+  const height = feetAndInches
+    ? (Number(feetAndInches[1]) * 12) + Number(feetAndInches[2] || 0)
+    : Number(text.replace(/\s*(?:in|inches)\s*$/i, ''));
   return Number.isFinite(height) && height >= 12 && height <= 120 ? String(Math.round(height)) : '';
 }
 
@@ -103,9 +107,9 @@ Deno.serve(async (request) => {
       `Current original height: ${currentOriginalHeight || 'blank'}.`,
       'For title requests, provide a concise customer-friendly title.',
       'For description requests, describe only details supported by the supplied context or visible image.',
-      'For fun facts, do not invent a fact. If the subject cannot be identified reliably, explain briefly that more information is needed.',
+      'For fun facts, do not invent a fact. When the Admin supplies a broad but recognizable identity such as Terminator, Batman, basketball, or dinosaurs, provide a safe, broadly accurate fact about that named character, franchise, sport, or topic. Ask for more information only when no meaningful identity or subject context was supplied.',
       'For fillAll requests, create a coordinated title, description, fun fact, and original height using only the supplied context.',
-      'For originalHeight, return only the commonly listed full-size real-world height as a whole number of inches. If it is unknown, uncertain, not applicable, or cannot be supported by the supplied identity/context, return an empty string. Never estimate height from image pixels.',
+      'For originalHeight, return the commonly listed full-size height as a whole number of inches. For a named real person or a named performer as a character, use that person’s commonly listed height. For a specifically named fictional character, use a well-supported canonical height only when one exists. If the subject is only a broad franchise or the intended person/character is ambiguous, return an empty string. Never estimate height from image pixels.',
       'For improve requests, preserve the meaning and useful details of the existing text.',
       'For designBrief requests, put the complete editable brief in description. Organize only supplied facts into subject, composition, size, reference notes, customer preferences, open questions, and production checks. Never claim artwork is approved or ready to publish.',
       'When the Admin supplies identity/context, treat it as authoritative. Never replace, contradict, or override it based on the image.',

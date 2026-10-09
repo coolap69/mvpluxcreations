@@ -3381,6 +3381,22 @@ footer {
   gap: 8px;
 }
 
+.checkout-country-label {
+  display: grid;
+  gap: 6px;
+  color: #ffd96a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.checkout-shipping-note {
+  margin: 0;
+  color: #f7efd8;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
 .policy-check {
   display: grid;
   grid-template-columns: 22px 1fr;
@@ -4435,7 +4451,7 @@ body .auth-card .password-field input {
 
 .category-featured-art img {
   position: absolute !important;
-  left: 50% !important;
+  left: var(--showroom-image-left, 50%) !important;
   bottom: var(--showroom-image-bottom, 5%) !important;
   width: auto !important;
   height: var(--showroom-image-height, 88%) !important;
@@ -6151,6 +6167,14 @@ button[aria-label="Add to cart"]::before {
 
 .admin-commerce-card small {
   color: rgba(240,231,207,0.72);
+}
+
+.admin-order-shipping-warning {
+  padding: 10px 12px;
+  border: 1px solid #d91f32;
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(217, 31, 50, 0.18);
 }
 
 .admin-commerce-delete {
@@ -8824,10 +8848,10 @@ button[aria-label="Add to cart"]::before {
 
 .admin-shared-product-showroom-stage img {
   position: absolute;
-  left: 50%;
-  bottom: 3%;
+  left: var(--shared-showroom-image-left, 50%);
+  bottom: var(--shared-showroom-image-bottom, 5%);
   width: auto;
-  height: 82%;
+  height: var(--shared-showroom-image-height, 88%);
   max-width: 92%;
   object-fit: contain;
   transform: translateX(-50%);

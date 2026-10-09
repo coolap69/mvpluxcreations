@@ -49,7 +49,7 @@ Deno.test('non-Sports Collection pages show one clean loading stage until normal
     const html = await Deno.readTextFile(new URL(`../${filename}`, import.meta.url));
     assert((html.match(/data-category-showroom-loading/g) || []).length === 1, `${filename} must have exactly one immediate loading stage`);
     assert(html.includes('rel="preconnect" href="https://cdn.jsdelivr.net"') && html.includes('rel="preconnect" href="https://ncbddqxdinvcsoszdsxr.supabase.co"'), `${filename} must start both required network connections early`);
-    assert(html.includes('script.js?v=20261008-normalized-navigation'), `${filename} must load the normalized in-page navigation controller`);
+    assert(html.includes('script.js?v=20261008-us-shipping'), `${filename} must load the normalized in-page navigation controller`);
   }
   const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
   assert(initializer.indexOf('setupGenericCategoryShowroom()') < initializer.indexOf("[data-category-showroom-loading]"), 'the loader must remain until the normalized showroom is constructed');
@@ -110,8 +110,8 @@ Deno.test('all customer browsing paths use normalized navigation without obsolet
     && detailPage.includes('productMainCollectionHref(product)')
     && !detailPage.includes('javascript:history.back()'),
   'Product pages must return to their normalized Main Collection instead of depending on browser history');
-  assert(indexHtml.includes('script.js?v=20261008-normalized-navigation')
-    && standeeHtml.includes('script.js?v=20261008-normalized-navigation'),
+  assert(indexHtml.includes('script.js?v=20261008-us-shipping')
+    && standeeHtml.includes('script.js?v=20261008-us-shipping'),
   'Homepage and standalone Product pages must request the same current navigation controller');
 });
 
