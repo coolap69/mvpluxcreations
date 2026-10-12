@@ -1995,10 +1995,7 @@ async function callAdminPublisher(payload) {
   const client = getAdminClient();
   const projectUrl = window.MVPLUX_SUPABASE?.url;
   if (!client?.auth || !projectUrl) throw new Error('Supabase is unavailable.');
-  const { data } = await client.auth.getSession();
-  const token = data?.session?.access_token;
-  if (!token) throw new Error('Sign in as admin before publishing.');
-  const response = await fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
+  const request = (token) => fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -2007,10 +2004,24 @@ async function callAdminPublisher(payload) {
     },
     body: JSON.stringify(payload)
   });
-  const result = await response.json().catch(() => ({}));
+  const { data } = await client.auth.getSession();
+  let token = data?.session?.access_token;
+  if (!token) throw new Error('Your Admin session expired. Sign in again before saving.');
+  let response = await request(token);
+  let result = await response.json().catch(() => ({}));
+  if (response.status === 401 && result?.code === 'INVALID_ADMIN_SESSION' && typeof client.auth.refreshSession === 'function') {
+    const refreshed = await client.auth.refreshSession();
+    token = refreshed?.data?.session?.access_token;
+    if (token) {
+      response = await request(token);
+      result = await response.json().catch(() => ({}));
+    }
+  }
   if (!response.ok) {
     const stage = result.stage ? ` at ${result.stage}` : '';
-    const detail = result.error || result.message || result.code || 'Unknown publisher error.';
+    const detail = response.status === 401 && result?.code === 'INVALID_ADMIN_SESSION'
+      ? 'Your Admin session expired. Sign out, sign in again, and retry. Your website was not changed.'
+      : result.error || result.message || result.code || 'Unknown publisher error.';
     const error = new Error(`Publish failed${stage} (HTTP ${response.status}): ${detail}`);
     error.httpStatus = response.status;
     error.code = result.code || '';
@@ -4262,9 +4273,22 @@ async function moveProductInSelectedSection(form, offset) {
 function effectiveAdminProducts() {
   const saved = readAdminProducts();
   const deleted = new Set(readDeletedProducts());
+  const resolveImagePath = window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH || ((path) => String(path || ''));
   return allAdminProducts()
     .filter((product) => !product.categoryCard && !deleted.has(product.slug))
-    .map((product) => ({ ...product, ...(saved[product.slug] || {}) }));
+    .map((product) => {
+      const merged = { ...product, ...(saved[product.slug] || {}) };
+      return {
+        ...merged,
+        cutoutImage: resolveImagePath(merged.cutoutImage),
+        backgroundImage: resolveImagePath(merged.backgroundImage),
+        imageChoices: normalizeImageChoices(merged.imageChoices).map((choice) => ({
+          ...choice,
+          image: resolveImagePath(choice.image),
+          ...(choice.stage ? { stage: resolveImagePath(choice.stage) } : {})
+        }))
+      };
+    });
 }
 
 function effectiveAdminProduct(slug) {
@@ -8086,14 +8110,18 @@ async function saveSharedProductShowroomDesign(form, { live = false } = {}) {
   }
   const latestGlobalDisplay = latest.edits?.globalDisplaySettings || {};
   const baseProductShowrooms = structuredClone(latestGlobalDisplay.productShowrooms || {});
-  const current = productShowroomDesignState(latestGlobalDisplay);
-  const next = structuredClone(current);
   const design = productShowroomDesignFromForm(form);
-  if (scope === 'default') next.default = design;
-  else next.collections[scope] = design;
+  const patch = scope === 'default'
+    ? { default: design }
+    : {
+        collections: {
+          ...(baseProductShowrooms.collections || {}),
+          [scope]: design
+        }
+      };
   const result = await saveAdminCollectionOperations([{
-    type: 'value', collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms',
-    baseValue: baseProductShowrooms, value: next
+    type: 'record', collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms',
+    baseRecord: baseProductShowrooms, patch
   }]);
   if (!result.ok) {
     if (status) status.textContent = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'The Product showroom design could not be saved.'}`;

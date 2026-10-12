@@ -114,17 +114,25 @@ Deno.test('Shared Product Showroom controller uses normalized global settings an
   for (const text of ['Shared Product Showroom Design', 'All Products — Global Default', 'Stage Height', 'Background Width', 'Background Height', 'Background Left / Right', 'Background Up / Down', 'Overall Background Zoom', 'Standee Size', 'Standee Left / Right', 'Standee Up / Down', 'Center Standee', 'Save Draft', 'Save Live', 'Apply Shared Design']) {
     assert(controller.includes(text), `missing Shared Product Showroom control ${text}`);
   }
-  assert(controller.includes("collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms'"), 'shared showroom design must extend the existing normalized globalDisplaySettings record');
+  assert(controller.includes("type: 'record', collectionKey: 'globalDisplaySettings', entryKey: 'productShowrooms'") && controller.includes("? { default: design }") && controller.includes("[scope]: design"), 'shared showroom design must narrowly patch the selected normalized scope instead of replacing every Product showroom scope');
   assert(controller.includes("await fetchAuthoritativeAdminGlobal(['globalDisplaySettings'])")
-    && controller.includes('productShowroomDesignState(latestGlobalDisplay)'), 'Product showroom saves must rebase the selected design on the latest authoritative server settings');
+    && controller.includes('latestGlobalDisplay.productShowrooms || {}'), 'Product showroom saves must rebase the selected design on the latest authoritative server settings');
   assert(controller.includes('baseProductShowrooms = structuredClone(latestGlobalDisplay.productShowrooms || {})')
-    && controller.includes('baseValue: baseProductShowrooms, value: next'), 'shared showroom conflict detection must compare the raw server value instead of normalized defaults that cause false overlap');
+    && controller.includes('baseRecord: baseProductShowrooms, patch'), 'shared showroom conflict detection must compare and patch the selected fields of the raw server record instead of replacing every scope');
   assert(controller.includes("adminLastSaveError || 'The Product showroom design could not be saved.'"), 'Product showroom save failures must expose the real conflict or persistence error instead of a generic failure');
   assert(adminSource.includes("id: 'productShowrooms:all'") && adminSource.includes("type: 'product-showroom-design'"), 'shared showroom draft must participate in the existing Save Live snapshot lifecycle');
   assert(!controller.includes('categoryDisplayCards') && !controller.includes('product.backgroundImage ='), 'shared showroom editor must not write Homepage Collection Cards or individual Product backgrounds');
   assert(styleSource.includes('.admin-shared-product-showroom-workspace') && styleSource.includes('grid-template-columns: minmax(420px,.95fr) minmax(500px,1.05fr)'), 'shared Product Showroom editor must use a desktop preview-and-controls workspace');
   assert(adminHtml.indexOf('id="sharedProductShowroomController"') < adminHtml.indexOf('id="approvedProducts"'), 'shared Product Showroom controls must appear before the long Product list');
   assert(controller.includes('productsInSharedShowroomScope(scope).find'), 'a Main Collection showroom preview must use a sample Product from that selected Main Collection');
+});
+
+Deno.test('Product Admin previews resolve organized repository image paths like the storefront', () => {
+  const products = sourceRange(adminSource, 'function effectiveAdminProducts', '\n\nfunction effectiveAdminProduct');
+  assert(products.includes('MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH'), 'Admin Product previews must use the shared repository path resolver');
+  for (const field of ['merged.cutoutImage', 'merged.backgroundImage', 'choice.image', 'choice.stage']) {
+    assert(products.includes(`resolveImagePath(${field})`), `Admin Product previews must resolve ${field}`);
+  }
 });
 
 Deno.test('Product image placement exposes buttons, sliders, drag, and wheel over the same saved fields', () => {
