@@ -532,6 +532,43 @@ button[aria-label="Add to cart"]::before {
 .custom-order-status[data-state="error"] { color: #ff9e9e; }
 .custom-order-status[data-state="success"] { color: #a9f4b0; }
 
+.custom-order-mode { grid-template-columns: 1fr !important; }
+.custom-order-choice { grid-template-columns: auto 1fr !important; align-items: center; }
+.custom-order-choice input { width: auto; }
+.custom-order-payment-total { grid-column: 1 / -1; }
+.custom-order-underpayment-warning,
+.admin-custom-order-payment {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #d4af37;
+  border-radius: 10px;
+  background: rgba(212,175,55,.1);
+  color: #f8e7aa;
+}
+.custom-order-payment-actions {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid rgba(169,244,176,.72);
+  border-radius: 14px;
+  background: rgba(49,133,66,.12);
+}
+.custom-order-payment-actions[hidden] { display: none; }
+.custom-order-payment-actions h2,
+.custom-order-payment-actions p { margin: 0; }
+.custom-order-payment-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+.custom-order-payment-buttons button {
+  padding: 11px 14px;
+  border: 1px solid #d4af37;
+  border-radius: 9px;
+  background: #111;
+  color: #f4d06f;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .admin-custom-order {
   display: grid;
   gap: 10px;
@@ -9496,3 +9533,4 @@ button[aria-label="Add to cart"]::before {
     grid-template-columns: minmax(360px, .78fr) minmax(480px, 1.22fr);
   }
 }
+.admin-repository-file-picker{display:grid;gap:8px;margin-top:8px}.admin-repository-file-picker code{display:block;max-width:100%;overflow-wrap:anywhere;color:#f5d66f}.admin-repository-file-browser{position:fixed;inset:0;z-index:10020;background:rgba(0,0,0,.82);padding:clamp(16px,4vw,56px);overflow:auto}.admin-repository-file-window{width:min(980px,100%);max-height:calc(100vh - 64px);margin:auto;overflow:auto;border:1px solid #d6ad2f;border-radius:22px;background:#0b0b0d;color:#fff;padding:22px;box-shadow:0 24px 80px rgba(0,0,0,.7)}.admin-repository-file-header{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}.admin-repository-file-header strong{font-size:1.35rem;color:#f5d66f}.admin-repository-file-header p{margin:4px 0 0;color:#ddd}.admin-repository-breadcrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:18px 0;padding:10px;border:1px solid rgba(214,173,47,.45);border-radius:12px}.admin-repository-breadcrumbs button{padding:7px 10px}.admin-repository-breadcrumbs button[aria-current="page"]{background:#d6ad2f;color:#080808}.admin-repository-folder-contents section+section{margin-top:20px}.admin-repository-folder-contents h4{margin:0 0 10px;color:#f5d66f}.admin-repository-folder-list,.admin-repository-file-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}.admin-repository-folder,.admin-repository-file{display:flex;align-items:center;gap:10px;min-height:52px;text-align:left;overflow-wrap:anywhere}.admin-repository-folder span{font-size:1.35rem}.admin-repository-file em{margin-left:auto;color:#f5d66f;font-style:normal}.admin-repository-file.selected{background:#d6ad2f;color:#080808}.admin-repository-file.selected em{color:#080808}.admin-repository-file-actions{display:flex;justify-content:flex-end;margin-top:22px}@media(max-width:700px){.admin-repository-file-browser{padding:10px}.admin-repository-file-window{max-height:calc(100vh - 20px);padding:15px}.admin-repository-file-header{align-items:stretch;flex-direction:column}.admin-repository-folder-list,.admin-repository-file-list{grid-template-columns:1fr}}

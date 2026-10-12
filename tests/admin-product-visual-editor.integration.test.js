@@ -92,11 +92,73 @@ Deno.test('Remove Image Choice changes only the selected normalized image-choice
 });
 
 Deno.test('Product Editor exposes every actual visual layer with accurate ownership', () => {
-  for (const label of ['Product / Standee Image', 'Change / Replace Product Image', 'Remove Product Image', 'Product Showroom Background', 'Change / Replace Background', 'Remove Background', 'Use Default / Clean Showroom Background', 'Alternate Image Choices', 'Remove Image Choice', 'Shared Storefront Logo Overlay', 'Reset Logo Overlay to Normal']) {
+  for (const label of ['Product / Standee Image', 'Change / Replace Product Image', 'Remove Product Image', 'Product Showroom Background', 'Change / Replace Background', 'Remove Background', 'Use Default / Clean Showroom Background', 'Alternate Image Choices', 'Remove Image Choice', 'Shared Storefront Logo Overlay', 'Remove Logo Overlay from Product', 'Reset Logo Overlay to Normal']) {
     assert(adminSource.includes(label), `missing Product visual control ${label}`);
   }
-  assert(adminSource.includes('There is no separate Product logo image, horizontal position, or removable Product reference.'), 'shared wordmark controls must not pretend a per-Product logo image store exists');
+  assert(adminSource.includes('never deletes the shared image file'), 'shared wordmark removal must be described as a Product reference change, not physical file deletion');
   assert(styleSource.includes('.admin-product-current-visual') && styleSource.includes('height: 96px'), 'visual references must remain compact instead of duplicating the large sticky Product preview');
+});
+
+Deno.test('Product logo overlay can be disabled without changing the background, Product, or physical asset', () => {
+  const window = new Window({ url: 'https://mvpluxcreations.com/admin.html' });
+  window.document.body.innerHTML = `<form data-slug="performer"><input name="title" value="Performer"><input name="description" value="Description"><input name="funFact" value="Fact"><input name="cutoutImage" value="images/main.png"><input name="backgroundImage" value="images/background-with-logo.png"><input name="originalHeight" value="70"><input name="priceOverride" value="99"><input name="cutoutHeight" value="63"><input name="cutoutLeft" value="50"><input name="cutoutBottom" value="21"><input name="logoWidth" value="82"><input name="logoTop" value="-4"><input name="logoVisible" type="checkbox"><input name="stageBackgroundPosition" value="center center"></form>`;
+  const form = window.document.querySelector('form');
+  form._adminDirtyFields = new Set(['logoVisible']);
+  const collectSource = sourceRange(adminSource, 'function collectProductFormData', '\n\nasync function saveProductForm');
+  const collect = new Function('FormData', 'allAdminProducts', 'readAdminProducts', 'parseAdminHeight', 'adminDefaultMerchandiseHeight', `${collectSource}\nreturn collectProductFormData;`)(
+    window.FormData,
+    () => [{ slug: 'performer', cutoutImage: 'images/main.png', backgroundImage: 'images/background-with-logo.png', categories: ['music'], logoVisible: true }],
+    () => ({}),
+    Number,
+    () => 72
+  );
+  assert(JSON.stringify(collect(form)) === JSON.stringify({ logoVisible: false }), 'removing the overlay must save only logoVisible=false');
+  assert(adminSource.includes('Show separate MVPLUX logo overlay') && adminHtml.includes('Show separate MVPLUX logo overlay'), 'existing and new Product editors must expose the same overlay choice');
+  assert(adminHtml.includes('<input name="logoVisible" type="checkbox">'), 'new Products must default the optional separate logo overlay to off');
+  assert(adminSource.includes('logoVisible = false'), 'the normalized new Product builder must default the optional separate logo overlay to off');
+  assert(!/Deno\.(remove|removeSync)|unlink|rmSync/.test(sourceRange(adminSource, "form.querySelector('[data-toggle-product-logo]')", "form.querySelectorAll('[data-product-image-adjust]')")), 'logo toggle must never delete its physical asset');
+
+  const sanitizerSource = sourceRange(storefrontSource, 'function sanitizeProductImageChoices', '\n\nfunction validatePublishedAdminSettings');
+  const sanitize = new Function(`${sanitizerSource}\nreturn sanitizePublishedProduct;`)();
+  const published = sanitize('performer', { title: 'Performer', cutoutImage: 'images/main.png', backgroundImage: 'images/background-with-logo.png', logoVisible: false, visible: true });
+  assert(published.logoVisible === false && published.backgroundImage === 'images/background-with-logo.png', 'published state must preserve both the background and explicit hidden overlay');
+  assert(storefrontSource.includes("if (logo) logo.hidden = override.logoVisible === false"), 'fresh/static storefront cards must honor the normalized logoVisible field');
+  assert(storefrontSource.includes("product.logoVisible === false ? ''"), 'newly generated storefront cards must omit the overlay when disabled');
+});
+
+Deno.test('new Product image pickers load the full organized repository inventory', () => {
+  const library = sourceRange(adminSource, 'function creationImageLibrary', '\n\nfunction productVisualOptionsMarkup');
+  const inventory = sourceRange(adminSource, 'async function loadImageDraftInventory', '\n\nfunction downloadAdminJson');
+  const setup = sourceRange(adminSource, 'function setupAdminCreationWorkspace', '\n\nfunction makeSlug');
+  assert(library.includes('repositoryImagePaths.forEach(add)') && library.includes('imageDraftInventory.forEach'), 'Product creation must include deployed and local repository image inventory');
+  assert(library.includes('preferOrganizedRepositoryImagePaths'), 'organized image paths must win over recognized legacy duplicates');
+  assert(inventory.includes("populateCreationImagePickers(document.getElementById('createProductForm'))"), 'Product image dropdowns must refresh after repository inventory finishes loading');
+  assert(setup.includes('loadImageDraftInventory({ renderInbox: false })'), 'opening Products must load the full repository inventory without requiring a visit to Image Inbox');
+});
+
+Deno.test('Product image inventory is a lightweight folder-grouped text selector', () => {
+  const grouping = sourceRange(adminSource, 'function creationImageFolder', '\n\nfunction creationImageLibrary');
+  const options = new Function('escapeAdminHtml', 'creationImageLabel', `${grouping}\nreturn creationImageOptionsByFolder;`)(
+    (value) => String(value),
+    (path) => String(path).split('/').pop().replace(/\.[^.]+$/, '')
+  );
+  const markup = options([
+    'images/Movie Stars/Actors/Arnold/main.png',
+    'images/Sport Legends/Football/TomBrady/main.png',
+    'images/Movie Stars/Actors/Arnold/alternate.png'
+  ], new Set(['images/Sport Legends/Football/TomBrady/main.png']));
+  assert(markup.includes('<optgroup label="Movie Stars / Actors / Arnold">'), 'Movie images must be grouped under their exact repository folder');
+  assert(markup.includes('<optgroup label="Sport Legends / Football / TomBrady">'), 'Sports images must be grouped under their exact repository folder');
+  assert(markup.includes('value="images/Sport Legends/Football/TomBrady/main.png" selected'), 'folder grouping must preserve the selected normalized image path');
+  assert(!markup.includes('<img'), 'the inventory selector must remain text-only and must not load image previews');
+  const picker = sourceRange(adminSource, 'function productVisualOptionsMarkup', '\n\nfunction populateCreationImagePickers');
+  const createPicker = sourceRange(adminSource, 'function populateCreationImagePickers', '\n\nfunction creationSelectedImageChoices');
+  assert(picker.includes('creationImageOptionsByFolder') && createPicker.includes('creationImageOptionsByFolder'), 'new and existing Product selectors must reuse the same folder grouping');
+  assert(grouping.includes('Open Image Folders'), 'the visible control must open a folder browser instead of exposing the long select');
+  assert(grouping.includes('select.hidden = true'), 'the huge native image select must stay out of the visible editor');
+  assert(grouping.includes('data-repository-folder') && grouping.includes('activeRepositoryFolder'), 'the browser must drill through repository folders one level at a time');
+  assert(grouping.includes('Images in This Folder'), 'only files in the current folder must appear as selectable images');
+  assert(!sourceRange(adminSource, 'function repositoryFileBrowserDialog', '\n\nfunction creationImageLibrary').includes('<img'), 'the folder browser must remain text-only and avoid loading every image preview');
 });
 
 Deno.test('Product Editor exposes direct alternate-image attachment without creating another Product', () => {

@@ -563,6 +563,10 @@ function refreshUntouchedProductFormFields(form, latestRecord, dirtyFields = for
     const visible = form.elements.namedItem('visible');
     if (visible) visible.checked = latestRecord.visible !== false;
   }
+  if (!dirtyFields.has('logoVisible')) {
+    const logoVisible = form.elements.namedItem('logoVisible');
+    if (logoVisible) logoVisible.checked = latestRecord.logoVisible !== false;
+  }
   form._adminRemoteRecord = structuredClone(latestRecord);
   syncPreviewFromFields(form);
 }
@@ -1291,6 +1295,7 @@ function publishableProduct(product = {}, archived = false) {
     cutoutBottom: String(product.cutoutBottom || ''),
     logoWidth: String(product.logoWidth || ''),
     logoTop: String(product.logoTop || ''),
+    logoVisible: product.logoVisible !== false,
     stageBackgroundPosition: String(product.stageBackgroundPosition || ''),
     categories: [...new Set(product.categories || [])].sort(),
     visible: !archived && product.visible !== false,
@@ -2695,6 +2700,7 @@ function orderCardMarkup(order) {
       ${customItem ? `<section class="admin-custom-order" data-custom-order-request>
         <h4>Custom Order Design Request</h4>
         <p data-custom-order-source><strong>Description:</strong> ${escapeAdminHtml(customItem.description || '')}<br><strong>Desired height:</strong> ${escapeAdminHtml(formatPublishedHeight(customItem.selected_height || ''))}<br><strong>Preferred contact:</strong> ${escapeAdminHtml(customItem.contact_preference || 'email')}</p>
+        ${customItem.already_discussed ? `<p class="admin-custom-order-payment"><strong>Pre-discussed order — verify payment manually before production.</strong><br>Agreed price: ${adminMoney(customItem.agreed_price)}<br>Optional extra / tip: ${adminMoney(customItem.optional_tip)}<br>Expected total: ${adminMoney(order.total)}<br>Status: Awaiting manual payment verification. If the full agreed amount was not received, reject the order or contact the customer for the balance before starting production.</p>` : '<p><strong>Quote requested — no payment is expected yet.</strong></p>'}
         <div class="admin-custom-order-references">${referencePaths.map((path) => `<a data-custom-reference-path="${escapeAdminHtml(path)}"><span>Loading private reference…</span></a>`).join('')}</div>
         <label>Editable design brief<textarea data-custom-order-design-brief rows="8" placeholder="Generate a draft brief, then edit it here."></textarea></label>
         <div class="admin-card-actions"><button type="button" data-generate-custom-order-brief>Generate Design Brief with AI</button></div>
@@ -3268,6 +3274,170 @@ function creationImageLabel(path = '') {
   return fileName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function creationImageFolder(path = '') {
+  const parts = String(path).replace(/^images\//i, '').split('/').filter(Boolean);
+  parts.pop();
+  return parts.join(' / ') || 'Other Images';
+}
+
+function creationImageOptionsByFolder(paths = [], selectedPaths = new Set()) {
+  const selected = selectedPaths instanceof Set ? selectedPaths : new Set([String(selectedPaths || '')]);
+  const folders = new Map();
+  paths.forEach((path) => {
+    const folder = creationImageFolder(path);
+    if (!folders.has(folder)) folders.set(folder, []);
+    folders.get(folder).push(path);
+  });
+  return [...folders.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([folder, folderPaths]) => `<optgroup label="${escapeAdminHtml(folder)}">${folderPaths
+      .sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)))
+      .map((path) => `<option value="${escapeAdminHtml(path)}" ${selected.has(path) ? 'selected' : ''}>${escapeAdminHtml(creationImageLabel(path))}</option>`)
+      .join('')}</optgroup>`)
+    .join('');
+}
+
+let activeRepositoryFileSelect = null;
+let activeRepositoryFolder = '';
+
+function repositoryFilePickerKind(select) {
+  return select?.dataset.repositoryFileKind
+    || (select?.dataset.adminImagePicker === 'background' || select?.name === 'backgroundImage' ? 'background' : 'product');
+}
+
+function repositoryFilePickerSelectionLabel(select) {
+  const values = [...(select?.selectedOptions || [])].map((option) => option.value).filter(Boolean);
+  if (!values.length) return select?.multiple ? 'No images selected' : 'No image selected';
+  if (select?.multiple) return `${values.length} image${values.length === 1 ? '' : 's'} selected`;
+  return values[0].replace(/^images\//i, '');
+}
+
+function refreshRepositoryFilePicker(select) {
+  const output = select?.parentElement?.querySelector('[data-repository-file-selection]');
+  if (output) output.textContent = repositoryFilePickerSelectionLabel(select);
+}
+
+function repositoryFileBrowserDialog() {
+  let dialog = document.getElementById('adminRepositoryFileBrowser');
+  if (dialog) return dialog;
+  dialog = document.createElement('div');
+  dialog.id = 'adminRepositoryFileBrowser';
+  dialog.className = 'admin-repository-file-browser';
+  dialog.hidden = true;
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-label', 'Choose repository image');
+  dialog.innerHTML = `
+    <div class="admin-repository-file-window">
+      <div class="admin-repository-file-header">
+        <div><strong>Choose Repository Image</strong><p>Open folders until you reach the images you want.</p></div>
+        <button type="button" data-close-repository-browser>Close</button>
+      </div>
+      <nav class="admin-repository-breadcrumbs" data-repository-breadcrumbs aria-label="Current image folder"></nav>
+      <div class="admin-repository-folder-contents" data-repository-folder-contents></div>
+      <div class="admin-repository-file-actions"><button type="button" data-close-repository-browser>Done</button></div>
+    </div>`;
+  document.body.appendChild(dialog);
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog || event.target.closest('[data-close-repository-browser]')) {
+      dialog.hidden = true;
+      activeRepositoryFileSelect = null;
+      return;
+    }
+    const folderButton = event.target.closest('[data-repository-folder]');
+    if (folderButton) {
+      activeRepositoryFolder = folderButton.dataset.repositoryFolder || '';
+      renderRepositoryFileBrowser();
+      return;
+    }
+    const fileButton = event.target.closest('[data-repository-file]');
+    if (!fileButton || !activeRepositoryFileSelect) return;
+    const path = fileButton.dataset.repositoryFile;
+    const option = [...activeRepositoryFileSelect.options].find((item) => item.value === path);
+    if (!option) return;
+    if (activeRepositoryFileSelect.multiple) {
+      option.selected = !option.selected;
+      activeRepositoryFileSelect.dispatchEvent(new Event('input', { bubbles: true }));
+      activeRepositoryFileSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      renderRepositoryFileBrowser();
+    } else {
+      activeRepositoryFileSelect.value = path;
+      activeRepositoryFileSelect.dispatchEvent(new Event('input', { bubbles: true }));
+      activeRepositoryFileSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      refreshRepositoryFilePicker(activeRepositoryFileSelect);
+      dialog.hidden = true;
+      activeRepositoryFileSelect = null;
+    }
+  });
+  return dialog;
+}
+
+function renderRepositoryFileBrowser() {
+  const dialog = repositoryFileBrowserDialog();
+  const select = activeRepositoryFileSelect;
+  if (!select) return;
+  const paths = creationImageLibrary(repositoryFilePickerKind(select));
+  const folderParts = activeRepositoryFolder ? activeRepositoryFolder.split('/') : [];
+  const prefix = activeRepositoryFolder ? `${activeRepositoryFolder}/` : '';
+  const childFolders = new Set();
+  const files = [];
+  paths.forEach((path) => {
+    const relative = path.replace(/^images\//i, '');
+    if (!relative.startsWith(prefix)) return;
+    const remaining = relative.slice(prefix.length);
+    if (remaining.includes('/')) childFolders.add(remaining.split('/')[0]);
+    else files.push(path);
+  });
+  const breadcrumbs = [{ label: 'All Image Folders', path: '' }];
+  folderParts.forEach((part, index) => breadcrumbs.push({ label: part, path: folderParts.slice(0, index + 1).join('/') }));
+  dialog.querySelector('[data-repository-breadcrumbs]').innerHTML = breadcrumbs.map((crumb, index) => (
+    `<button type="button" data-repository-folder="${escapeAdminHtml(crumb.path)}" ${index === breadcrumbs.length - 1 ? 'aria-current="page"' : ''}>${escapeAdminHtml(crumb.label)}</button>`
+  )).join('<span aria-hidden="true">›</span>');
+  const selected = new Set([...(select.selectedOptions || [])].map((option) => option.value));
+  const folderMarkup = [...childFolders].sort((left, right) => left.localeCompare(right)).map((folder) => {
+    const path = activeRepositoryFolder ? `${activeRepositoryFolder}/${folder}` : folder;
+    return `<button type="button" class="admin-repository-folder" data-repository-folder="${escapeAdminHtml(path)}"><span aria-hidden="true">📁</span><strong>${escapeAdminHtml(folder)}</strong></button>`;
+  }).join('');
+  const fileMarkup = files.sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right))).map((path) => (
+    `<button type="button" class="admin-repository-file ${selected.has(path) ? 'selected' : ''}" data-repository-file="${escapeAdminHtml(path)}"><span aria-hidden="true">▧</span><strong>${escapeAdminHtml(creationImageLabel(path))}</strong>${selected.has(path) ? '<em>Selected</em>' : ''}</button>`
+  )).join('');
+  dialog.querySelector('[data-repository-folder-contents]').innerHTML = `
+    ${childFolders.size ? `<section><h4>Folders</h4><div class="admin-repository-folder-list">${folderMarkup}</div></section>` : ''}
+    ${files.length ? `<section><h4>Images in This Folder</h4><div class="admin-repository-file-list">${fileMarkup}</div></section>` : ''}
+    ${!childFolders.size && !files.length ? '<p class="admin-note">This folder does not contain any available images.</p>' : ''}`;
+  refreshRepositoryFilePicker(select);
+}
+
+async function openRepositoryFileBrowser(select) {
+  if (!select) return;
+  if (!imageInventoryLoaded) await loadImageDraftInventory({ renderInbox: false });
+  activeRepositoryFileSelect = select;
+  activeRepositoryFolder = '';
+  const dialog = repositoryFileBrowserDialog();
+  dialog.hidden = false;
+  renderRepositoryFileBrowser();
+}
+
+function attachRepositoryFilePicker(select, kind = '') {
+  if (!select || select.dataset.repositoryFilePickerBound === 'true') return;
+  select.dataset.repositoryFilePickerBound = 'true';
+  if (kind) select.dataset.repositoryFileKind = kind;
+  select.hidden = true;
+  const controls = document.createElement('div');
+  controls.className = 'admin-repository-file-picker';
+  controls.innerHTML = `<button type="button" data-open-repository-browser>Open Image Folders</button><code data-repository-file-selection></code>`;
+  select.insertAdjacentElement('afterend', controls);
+  controls.querySelector('[data-open-repository-browser]').addEventListener('click', () => openRepositoryFileBrowser(select));
+  select.addEventListener('change', () => refreshRepositoryFilePicker(select));
+  refreshRepositoryFilePicker(select);
+}
+
+function attachRepositoryFilePickers(root = document) {
+  root?.querySelectorAll?.('[data-admin-image-picker], .admin-product-visual-picker, [data-new-image-choice-path], [data-replace-image-choice-target], [data-product-showroom-background-picker]').forEach((select) => {
+    attachRepositoryFilePicker(select, repositoryFilePickerKind(select));
+  });
+}
+
 function creationImageLibrary(kind = 'product') {
   const values = new Set();
   const add = (path) => { if (validatePublishImagePath(String(path || ''))) values.add(String(path)); };
@@ -3286,7 +3456,10 @@ function creationImageLibrary(kind = 'product') {
     } else add(category.card?.image);
   });
   if (kind !== 'background') imageDraftInventory.forEach((draft) => add(draft?.path));
-  return [...values].sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
+  repositoryImagePaths.forEach(add);
+  imageDraftInventory.forEach((draft) => add(draft?.path));
+  return preferOrganizedRepositoryImagePaths([...values])
+    .sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
 }
 
 function productVisualOptionsMarkup(kind, selected = '') {
@@ -3296,7 +3469,7 @@ function productVisualOptionsMarkup(kind, selected = '') {
   const prompt = kind === 'background'
     ? '<option value="">Use Default / Clean Showroom Background</option>'
     : '<option value="">Choose a Product / Standee Image</option>';
-  return prompt + paths.map((path) => `<option value="${escapeAdminHtml(path)}" ${path === selectedPath ? 'selected' : ''}>${escapeAdminHtml(creationImageLabel(path))}</option>`).join('');
+  return prompt + creationImageOptionsByFolder(paths, new Set(selectedPath ? [selectedPath] : []));
 }
 
 function populateCreationImagePickers(form) {
@@ -3307,9 +3480,8 @@ function populateCreationImagePickers(form) {
     const prompt = select.dataset.adminImagePicker === 'background'
       ? '<option value="">Use the clean showroom background</option>'
       : multiple ? '' : '<option value="">Choose an image…</option>';
-    select.innerHTML = prompt + creationImageLibrary(kind).map((path) => (
-      `<option value="${escapeAdminHtml(path)}" ${selected.has(path) ? 'selected' : ''}>${escapeAdminHtml(creationImageLabel(path))}</option>`
-    )).join('');
+    select.innerHTML = prompt + creationImageOptionsByFolder(creationImageLibrary(kind), selected);
+    refreshRepositoryFilePicker(select);
   });
 }
 
@@ -3319,7 +3491,7 @@ function creationSelectedImageChoices(formData) {
     .filter((choice, index, items) => choice.image && items.findIndex((item) => item.image === choice.image) === index);
 }
 
-function buildNewProductRecord({ slug, title, description = '', funFact = '', originalHeight = '', priceOverride, cutoutImage, backgroundImage = IMAGE_IMPORT_DEFAULT_BACKGROUND, imageChoices = [], categories = [], visible = true, displayOverrides = {}, approvalStatus = 'draft', createdAt = new Date().toISOString() } = {}) {
+function buildNewProductRecord({ slug, title, description = '', funFact = '', originalHeight = '', priceOverride, cutoutImage, backgroundImage = IMAGE_IMPORT_DEFAULT_BACKGROUND, imageChoices = [], categories = [], visible = true, logoVisible = false, displayOverrides = {}, approvalStatus = 'draft', createdAt = new Date().toISOString() } = {}) {
   const productSlug = makeSlug(slug || title);
   const price = priceOverride === '' || priceOverride === undefined ? undefined : Number(priceOverride);
   return {
@@ -3335,6 +3507,7 @@ function buildNewProductRecord({ slug, title, description = '', funFact = '', or
     imageChoices: normalizeImageChoices(imageChoices).filter((choice) => choice.image !== String(cutoutImage || '').trim()),
     categories: [...new Set((categories || []).filter(Boolean))],
     visible: Boolean(visible),
+    logoVisible: Boolean(logoVisible),
     categoryOrder: Object.fromEntries((categories || []).filter(Boolean).map((category) => [category, 999])),
     productOrder: 999,
     displayOverrides,
@@ -3371,12 +3544,13 @@ function renderNewProductPreview(form) {
   const vertical = 18 - Number(form.elements.namedItem('standeeVerticalPercent')?.value || 0);
   const logoSize = Number(form.elements.namedItem('logoSizePercent')?.value || 82);
   const logoVertical = Number(form.elements.namedItem('logoVerticalPercent')?.value || -4);
+  const logoVisible = Boolean(form.elements.namedItem('logoVisible')?.checked);
   const backgroundPosition = form.elements.namedItem('backgroundPosition')?.value || 'center center';
   preview.innerHTML = `<article class="admin-builder-product-card">
     <p class="admin-builder-category">${escapeAdminHtml(selectedCategory)}</p>
     <h4>${escapeAdminHtml(title)}</h4><p>${escapeAdminHtml(description)}</p>
     <div class="admin-preview-stage" style="background-image:url('${escapeAdminHtml(background)}');background-position:${escapeAdminHtml(backgroundPosition)}">
-      <img class="admin-preview-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="" style="width:${logoSize}%;top:${logoVertical}%">
+      ${logoVisible ? `<img class="admin-preview-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="" style="width:${logoSize}%;top:${logoVertical}%">` : ''}
       <img class="admin-preview-cutout" src="${escapeAdminHtml(image)}" alt="Product preview" style="height:${size}%;left:${left}%;bottom:${vertical}%">
       <div class="admin-preview-choice-row"><span>Original</span><span>Custom Size</span></div>
     </div>
@@ -3531,7 +3705,7 @@ async function saveNewProductFromForm(form, approvalStatus) {
     slug, title: formData.get('title'), description: formData.get('description'), funFact: formData.get('funFact'),
     originalHeight: formData.get('originalHeight'), priceOverride: formData.get('priceOverride'), cutoutImage: formData.get('cutoutImage'),
     backgroundImage: formData.get('backgroundImage'), imageChoices: creationSelectedImageChoices(formData), categories,
-    visible: formData.has('visible'), displayOverrides: createFormDisplaySettings(form), approvalStatus
+    visible: formData.has('visible'), logoVisible: formData.has('logoVisible'), displayOverrides: createFormDisplaySettings(form), approvalStatus
   });
   setCreationStatus(form, 'Saving…', 'saving');
   const result = await saveAdminCollectionOperations([newProductRecordOperation(product)]);
@@ -3627,6 +3801,10 @@ function setupAdminCreationWorkspace() {
   if (categoryMount && categoryForm.parentElement !== categoryMount) categoryMount.appendChild(categoryForm);
   productForm.querySelector('[data-create-product-categories]').innerHTML = creationCategoryMarkup();
   populateCreationImagePickers(productForm);
+  attachRepositoryFilePickers(productForm);
+  if (!imageInventoryLoaded) loadImageDraftInventory({ renderInbox: false }).catch((error) => {
+    setCreationStatus(productForm, `The full repository image list could not be loaded. ${error?.message || error}`, 'error');
+  });
   populateNewCategoryVisualPickers(categoryForm);
   [productForm, categoryForm].forEach((form) => {
     const enabled = normalizedAdminStateAvailable();
@@ -3802,6 +3980,7 @@ function productPreviewMarkup(value) {
   const cutoutBottom = value.cutoutBottom || '21';
   const logoWidth = value.logoWidth || '82';
   const logoTop = value.logoTop || '-4';
+  const logoVisible = value.logoVisible !== false;
   const backgroundPosition = value.stageBackgroundPosition || 'center center';
 
   return `
@@ -3809,9 +3988,9 @@ function productPreviewMarkup(value) {
       <h4>${title}</h4>
       <p>${description}</p>
       <div class="admin-preview-stage" style="background-image: url('${backgroundImage}'); background-position: ${backgroundPosition};">
-        <img class="admin-preview-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="" style="width: ${logoWidth}%; top: ${logoTop}%;">
+        ${logoVisible ? `<img class="admin-preview-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="" style="width: ${logoWidth}%; top: ${logoTop}%;">` : ''}
         ${cutoutImage ? `<img class="admin-preview-cutout" src="${cutoutImage}" alt="" style="height: ${cutoutHeight}%; left: ${cutoutLeft}%; bottom: ${cutoutBottom}%;"><button class="admin-resize-handle admin-cutout-resize" type="button" aria-label="Resize standee"></button>` : '<span class="admin-preview-no-product-image">No Product Image Selected</span>'}
-        <button class="admin-resize-handle admin-logo-resize" type="button" aria-label="Resize logo"></button>
+        ${logoVisible ? '<button class="admin-resize-handle admin-logo-resize" type="button" aria-label="Resize logo"></button>' : ''}
         <div class="admin-preview-choice-row">
           <span>Original</span>
           <span>Custom Size</span>
@@ -3836,6 +4015,7 @@ function updateProductPreview(form) {
     cutoutBottom: formData.get('cutoutBottom').trim(),
     logoWidth: formData.get('logoWidth').trim(),
     logoTop: formData.get('logoTop').trim(),
+    logoVisible: formData.has('logoVisible'),
     stageBackgroundPosition: formData.get('stageBackgroundPosition').trim()
   });
   attachPreviewControls(form);
@@ -3862,6 +4042,7 @@ function syncPreviewFromFields(form) {
   const cutoutBottom = form.querySelector('[name="cutoutBottom"]')?.value || '21';
   const logoWidth = form.querySelector('[name="logoWidth"]')?.value || '82';
   const logoTop = form.querySelector('[name="logoTop"]')?.value || '-4';
+  const logoVisible = form.querySelector('[name="logoVisible"]')?.checked !== false;
 
   form.querySelectorAll('[data-product-visual-value]').forEach((output) => {
     const field = form.querySelector(`[name="${CSS.escape(output.dataset.productVisualValue)}"]`);
@@ -3881,6 +4062,7 @@ function syncPreviewFromFields(form) {
   }
 
   if (logo) {
+    logo.hidden = !logoVisible;
     logo.style.width = `${logoWidth}%`;
     logo.style.top = `${logoTop}%`;
   }
@@ -3891,6 +4073,7 @@ function syncPreviewFromFields(form) {
   }
 
   if (logoHandle) {
+    logoHandle.hidden = !logoVisible;
     logoHandle.style.left = `${clamp(50 + Number(logoWidth) / 2 - 4, 12, 94)}%`;
     logoHandle.style.top = `${clamp(Number(logoTop) + 7, 2, 40)}%`;
   }
@@ -3994,6 +4177,7 @@ function collectProductFormData(form, dirtyFields = form?._adminDirtyFields || n
   }
   if (dirtyFields.has('categories')) patch.categories = current.categoryCard ? [] : formData.getAll('categories');
   if (dirtyFields.has('visible')) patch.visible = current.categoryCard ? current.visible !== false : formData.has('visible');
+  if (dirtyFields.has('logoVisible')) patch.logoVisible = formData.has('logoVisible');
   return patch;
 }
 
@@ -8200,7 +8384,7 @@ function renderSharedProductShowroomController() {
       <aside data-shared-product-showroom-preview></aside>
       <div class="admin-shared-product-showroom-controls">
         <label>Apply design to<select name="scope"><option value="default">All Products — Global Default</option>${mainCollections.map((category) => `<option value="${escapeAdminHtml(category.key)}" ${category.key === previousScope ? 'selected' : ''}>${escapeAdminHtml(category.title)} Products</option>`).join('')}</select></label>
-        <label>Shared Showroom Background<select name="backgroundImage">${productVisualOptionsMarkup('background', design.backgroundImage)}</select></label>
+        <label>Shared Showroom Background<select name="backgroundImage" data-product-showroom-background-picker data-repository-file-kind="background">${productVisualOptionsMarkup('background', design.backgroundImage)}</select></label>
         ${categoryDisplayRangeMarkup('stageHeightPx', 'Stage Height', design.stageHeightPx, 320, 820, 'px')}
         ${categoryDisplayRangeMarkup('backgroundWidthPercent', 'Background Width', design.backgroundWidthPercent, 50, 300, '%')}
         ${categoryDisplayRangeMarkup('backgroundHeightPercent', 'Background Height', design.backgroundHeightPercent, 50, 300, '%')}
@@ -8219,6 +8403,7 @@ function renderSharedProductShowroomController() {
     </div>
   </form>`;
   const form = mount.querySelector('[data-shared-product-showroom-form]');
+  attachRepositoryFilePickers(form);
   previewSharedProductShowroom(form);
   form.addEventListener('input', (event) => {
     syncCategoryDisplayControl(form, event.target);
@@ -8365,13 +8550,14 @@ function renderAdminProducts() {
             </fieldset>
             <fieldset class="admin-product-visual-section admin-product-logo-section">
               <legend>Shared Storefront Logo Overlay</legend>
-              <p class="admin-note">This is the website's shared MVPLUX wordmark overlay—not a Product-owned image. This Product stores only its existing logo size and vertical placement. There is no separate Product logo image, horizontal position, or removable Product reference.</p>
-              <div class="admin-product-current-visual"><img src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="Shared storefront logo overlay"><code>Shared storefront asset</code></div>
+              <p class="admin-note">This is a separate MVPLUX wordmark placed over the Product background. Turn it off when the selected background already contains the logo. This changes only this Product's overlay setting and never deletes the shared image file.</p>
+              <div class="admin-product-current-visual"><img src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="Shared storefront logo overlay"><code>Shared storefront asset — physical file is preserved</code></div>
+              <label class="admin-visible-toggle"><input name="logoVisible" type="checkbox" ${value.logoVisible !== false ? 'checked' : ''}> Show separate MVPLUX logo overlay</label>
               <div class="admin-form-row admin-placement-row">
                 <label>Logo size %<input name="logoWidth" type="range" min="30" max="100" step="1" value="${value.logoWidth || '82'}"></label>
                 <label>Logo up / down %<input name="logoTop" type="range" min="-20" max="40" step="1" value="${value.logoTop || '-4'}"></label>
               </div>
-              <button type="button" data-reset-product-visual="logo">Reset Logo Overlay to Normal</button>
+              <div class="admin-panel-actions"><button type="button" data-toggle-product-logo>${value.logoVisible !== false ? 'Remove Logo Overlay from Product' : 'Show Logo Overlay on Product'}</button><button type="button" data-reset-product-visual="logo">Reset Logo Overlay to Normal</button></div>
             </fieldset>
             ${product.categoryCard ? '' : productImageChoicesMarkup(value)}
             ${value.custom === true ? `
@@ -8449,6 +8635,7 @@ function renderAdminProducts() {
     form._adminBaseRecord = structuredClone({ ...baseProduct, ...(saved[form.dataset.slug] || {}) });
     form._adminDirtyFields = new Set();
     form._adminDirtyVersions = new Map();
+    attachRepositoryFilePickers(form);
     bindParentProductPicker(form);
     updateAdminOriginalPrice(form);
     form.querySelectorAll('input, textarea').forEach((field) => {
@@ -8468,7 +8655,7 @@ function renderAdminProducts() {
     form.querySelectorAll('select, input[type="checkbox"]').forEach((field) => {
       field.addEventListener('change', () => {
         markProductFieldDirty(form, productDirtyFieldForControl(field));
-        if (field.matches('.admin-product-visual-picker')) updateProductPreview(form);
+        if (field.matches('.admin-product-visual-picker, [name="logoVisible"]')) updateProductPreview(form);
       });
     });
     attachPreviewControls(form);
@@ -8515,6 +8702,15 @@ function renderAdminProducts() {
     });
 
     form.querySelector('[data-remove-product-image]')?.addEventListener('click', () => removeProductMainImage(form));
+    form.querySelector('[data-toggle-product-logo]')?.addEventListener('click', () => {
+      const field = form.elements.namedItem('logoVisible');
+      if (!field) return;
+      field.checked = !field.checked;
+      markProductFieldDirty(form, 'logoVisible');
+      updateProductPreview(form);
+      const button = form.querySelector('[data-toggle-product-logo]');
+      if (button) button.textContent = field.checked ? 'Remove Logo Overlay from Product' : 'Show Logo Overlay on Product';
+    });
     form.querySelectorAll('[data-product-image-adjust]').forEach((button) => {
       button.addEventListener('click', () => {
         const action = button.dataset.productImageAdjust;
@@ -9851,6 +10047,7 @@ async function loadImageDraftInventory({ renderInbox = true } = {}) {
     }
   }
   if (renderInbox) renderImageDrafts();
+  populateCreationImagePickers(document.getElementById('createProductForm'));
   imageInventoryLoaded = true;
 }
 

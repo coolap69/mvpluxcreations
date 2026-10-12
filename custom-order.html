@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Custom Standee Order | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20260911-image-library-reorg">
+  <link rel="stylesheet" href="style.css?v=20261012-discussed-custom-order">
 </head>
 <body>
   <header class="top-nav">
@@ -30,11 +30,16 @@
     </section>
 
     <form id="customOrderForm" class="custom-order-form">
+      <fieldset class="custom-order-mode">
+        <legend>Where are you in the process?</legend>
+        <label class="custom-order-choice"><input name="orderMode" type="radio" value="new" checked> I need a new custom-order quote</label>
+        <label class="custom-order-choice"><input name="orderMode" type="radio" value="discussed"> I already discussed the design and price with MVPLUXCREATIONS</label>
+      </fieldset>
       <fieldset>
         <legend>Your design</legend>
         <label class="custom-order-wide">Reference images
-          <input id="customOrderImages" name="referenceImages" type="file" accept="image/png,image/jpeg,image/webp" multiple required>
-          <small>PNG, JPG, or WebP. Up to 5 images, 6 MB each.</small>
+          <input id="customOrderImages" name="referenceImages" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+          <small data-custom-image-help>Required for a new request. PNG, JPG, or WebP. Up to 5 images, 6 MB each.</small>
         </label>
         <label class="custom-order-wide">Describe the standee you want
           <textarea name="description" rows="6" maxlength="3000" required placeholder="Who or what should the standee show? Include pose, outfit, colors, event theme, or other important details."></textarea>
@@ -47,6 +52,23 @@
           <strong id="customOrderPrice">Enter a size</strong>
           <small>Final approval may change if the artwork or construction needs special handling.</small>
         </div>
+      </fieldset>
+
+      <fieldset data-discussed-payment hidden>
+        <legend>Agreed price and optional extra</legend>
+        <label>Price agreed with MVPLUXCREATIONS
+          <input name="agreedPrice" type="number" min="1" max="20000" step="0.01" inputmode="decimal" placeholder="Example: 129.99">
+        </label>
+        <label>Optional extra / tip
+          <input name="tipAmount" type="number" min="0" max="5000" step="0.01" inputmode="decimal" value="0">
+        </label>
+        <div class="custom-order-price custom-order-payment-total">
+          <span>Total payment</span>
+          <strong id="customOrderPaymentTotal">$0.00</strong>
+          <small>The optional extra is added above the agreed price.</small>
+        </div>
+        <p class="custom-order-underpayment-warning">Enter the full price you agreed with MVPLUXCREATIONS. Paying less does not confirm the order or begin production. Any unpaid balance must be completed before production and may include an additional $20 underpayment processing fee.</p>
+        <label class="custom-order-consent"><input name="agreedPriceConfirmed" type="checkbox"> I confirm that the agreed price entered above is the complete price discussed with MVPLUXCREATIONS.</label>
       </fieldset>
 
       <fieldset>
@@ -66,6 +88,17 @@
       <label class="custom-order-consent"><input name="permission" type="checkbox" required> I have permission to submit these reference images for this custom-order request.</label>
       <button id="customOrderSubmit" class="button-link" type="submit">Send Custom Order Request</button>
       <p id="customOrderStatus" class="custom-order-status" aria-live="polite"></p>
+      <section id="customOrderPaymentActions" class="custom-order-payment-actions" hidden>
+        <h2>Request received — complete payment</h2>
+        <p><strong id="customOrderPaymentReference"></strong></p>
+        <p>Use one of the existing payment options below and include the Custom Order reference in the payment note. Payment remains subject to Admin verification before production begins.</p>
+        <div class="custom-order-payment-buttons">
+          <button type="button" data-custom-payment-method="zelle">Zelle Instructions</button>
+          <button type="button" data-custom-payment-method="paypal">Pay with PayPal</button>
+          <button type="button" data-custom-payment-method="venmo">Pay with Venmo</button>
+          <button type="button" data-custom-payment-method="cashapp">Pay with Cash App</button>
+        </div>
+      </section>
     </form>
   </main>
 
@@ -73,7 +106,7 @@
   <script src="supabase-config.js?v=20261006-usage-levels"></script>
   <script src="pricing.js?v=20260823-merchandise-height"></script>
   <script src="category-presentation.js?v=20260824-collection-representative"></script>
-  <script src="script.js?v=20260911-image-library-reorg"></script>
-  <script src="custom-order.js?v=20260823-custom-order"></script>
+  <script src="script.js?v=20261012-discussed-custom-order"></script>
+  <script src="custom-order.js?v=20261012-discussed-custom-order"></script>
 </body>
 </html>

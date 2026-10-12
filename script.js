@@ -17,6 +17,7 @@ let checkoutDiscountState = null;
 let checkoutReceiptState = null;
 let storefrontTestMode = { enabled: false, customerType: 'guest' };
 let currentCheckoutIsTest = false;
+let currentCustomOrderPayment = null;
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -58,7 +59,8 @@ function isUnitedStatesShippingCountry(value) {
 }
 
 function checkoutPaymentIsAuthorized() {
-  return Boolean(document.getElementById('checkoutSuccessNotice')?.dataset?.sent);
+  return Boolean(document.getElementById('checkoutSuccessNotice')?.dataset?.sent)
+    || Boolean(currentCustomOrderPayment?.orderNumber && currentCustomOrderPayment?.total > 0);
 }
 
 const checkoutPaymentMethods = {
@@ -203,6 +205,7 @@ function resetCheckoutSubmissionState() {
   checkoutDiscountState = null;
   checkoutReceiptState = null;
   currentCheckoutIsTest = false;
+  currentCustomOrderPayment = null;
   const successNotice = document.getElementById('checkoutSuccessNotice');
   const orderNumberEl = document.getElementById('checkoutOrderNumber');
   if (successNotice) {
@@ -620,6 +623,11 @@ async function copyZellePhoneNumber() {
 
 async function markPaymentCompleted() {
   const orderNumber = currentCheckoutOrderNumber || 'your order number';
+  if (currentCustomOrderPayment) {
+    showSiteMessage(`Payment reported for ${orderNumber}. MVPLUXCREATIONS will verify the full amount before production begins.`, 'success');
+    closePaymentOption();
+    return;
+  }
   if (currentCheckoutOfferId) {
     const client = getCommerceClient();
     if (!client) return;
@@ -678,6 +686,7 @@ function openPaymentOption(key = currentCheckoutPaymentMethod) {
   const link = document.getElementById('paymentOptionLink');
   const disclaimer = document.getElementById('paymentOptionDisclaimer');
   const orderNumber = currentCheckoutOrderNumber || '';
+  const customPaymentTotal = Number(currentCustomOrderPayment?.total || 0);
 
   if (checkoutIsTestRecord()) {
     if (title) title.textContent = 'TEST Payment Simulation';
@@ -718,7 +727,7 @@ function openPaymentOption(key = currentCheckoutPaymentMethod) {
   }
   if (note) {
     note.textContent = orderNumber
-      ? `Please include order number ${orderNumber} in the payment note. Your order will be processed after payment is confirmed.`
+      ? `Please include order number ${orderNumber} in the payment note${customPaymentTotal > 0 ? ` and send exactly ${formatMoney(customPaymentTotal)}` : ''}. Production begins only after MVPLUXCREATIONS manually verifies the full payment.`
       : 'Please include your order number in the payment note. Submit the order request first if you do not have one yet.';
   }
   if (link) {
@@ -733,12 +742,29 @@ function openPaymentOption(key = currentCheckoutPaymentMethod) {
         showSiteMessage(`${method.label} payment link is a placeholder for now.`, 'info');
         return;
       }
-      window.open(method.payUrl, '_blank', 'noopener,noreferrer');
+      const paymentUrl = key === 'paypal' && customPaymentTotal > 0
+        ? `${method.payUrl}/${customPaymentTotal.toFixed(2)}`
+        : method.payUrl;
+      window.open(paymentUrl, '_blank', 'noopener,noreferrer');
     };
   }
 
   if (modal) modal.style.display = 'flex';
 }
+
+window.openMvpluxCustomOrderPayment = ({ method = 'zelle', orderNumber = '', total = 0 } = {}) => {
+  const normalizedTotal = Number(total);
+  if (!orderNumber || !Number.isFinite(normalizedTotal) || normalizedTotal <= 0) {
+    showSiteMessage('Submit the discussed custom order before opening payment instructions.', 'error');
+    return;
+  }
+  currentCustomOrderPayment = { orderNumber: String(orderNumber), total: normalizedTotal };
+  currentCheckoutOrderNumber = String(orderNumber);
+  currentCheckoutOrderId = '';
+  currentCheckoutOfferId = '';
+  currentCheckoutIsTest = false;
+  openPaymentOption(method);
+};
 
 function checkoutModalMarkup() {
   const paymentMethods = Object.entries(checkoutPaymentMethods)
@@ -2845,6 +2871,7 @@ function sanitizePublishedProduct(slug, value) {
       product[field] = value[field];
     }
   });
+  if (typeof value.logoVisible === 'boolean') product.logoVisible = value.logoVisible;
   if (typeof value.visible === 'boolean') product.visible = value.visible;
   if (value.custom === true) product.custom = true;
   if (Array.isArray(value.categories)) {
@@ -2966,16 +2993,79 @@ async function loadPublicLiveAdminSettings({ timeoutMs = 3500 } = {}) {
   }
 }
 
+const PUBLIC_LIVE_NAVIGATION_CACHE_KEY = 'mvpluxPublicLiveNavigationSnapshot';
+const PUBLIC_LIVE_NAVIGATION_CACHE_FRESH_MS = 30 * 1000;
+const PUBLIC_LIVE_NAVIGATION_CACHE_MAX_MS = 5 * 60 * 1000;
+
+function readPublicLiveNavigationCache() {
+  try {
+    const raw = window.sessionStorage?.getItem(PUBLIC_LIVE_NAVIGATION_CACHE_KEY);
+    if (!raw) return null;
+    const cached = JSON.parse(raw);
+    const savedAt = Number(cached?.savedAt) || 0;
+    const age = Date.now() - savedAt;
+    const snapshot = validatePublishedAdminSettings({ snapshot: cached?.snapshot });
+    if (!snapshot || age < 0 || age > PUBLIC_LIVE_NAVIGATION_CACHE_MAX_MS) {
+      window.sessionStorage?.removeItem(PUBLIC_LIVE_NAVIGATION_CACHE_KEY);
+      return null;
+    }
+    return {
+      snapshot,
+      liveRevision: Number(cached?.liveRevision) || 0,
+      publishedAt: String(cached?.publishedAt || ''),
+      savedAt,
+      fresh: age <= PUBLIC_LIVE_NAVIGATION_CACHE_FRESH_MS
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writePublicLiveNavigationCache(live) {
+  try {
+    window.sessionStorage?.setItem(PUBLIC_LIVE_NAVIGATION_CACHE_KEY, JSON.stringify({
+      snapshot: live.snapshot,
+      liveRevision: Number(live.liveRevision) || 0,
+      publishedAt: String(live.publishedAt || ''),
+      savedAt: Date.now()
+    }));
+  } catch (_error) {
+    // A disabled/full browser cache must never block the storefront.
+  }
+}
+
+function usePublishedAdminSettings(live, source = live.source || 'supabase-live') {
+  window.mvpluxPublishedAdminSettings = live.snapshot;
+  window.mvpluxPublishedAdminSettingsSource = source;
+  window.mvpluxPublishedAdminSettingsRevision = Number(live.liveRevision) || 0;
+  return live.snapshot;
+}
+
 async function loadPublishedAdminSettings() {
   window.mvpluxPublishedAdminSettings = null;
   window.mvpluxPublishedAdminSettingsSource = '';
   window.mvpluxPublishedAdminSettingsRevision = 0;
+  window.mvpluxPublishedAdminSettingsRevalidation = null;
+
+  const cached = readPublicLiveNavigationCache();
+  if (cached) {
+    usePublishedAdminSettings(cached, 'supabase-live-navigation-cache');
+    if (!cached.fresh) {
+      window.mvpluxPublishedAdminSettingsRevalidation = loadPublicLiveAdminSettings()
+        .then((live) => {
+          writePublicLiveNavigationCache(live);
+          usePublishedAdminSettings(live);
+          return live;
+        })
+        .catch(() => null);
+    }
+    return cached.snapshot;
+  }
+
   try {
     const live = await loadPublicLiveAdminSettings();
-    window.mvpluxPublishedAdminSettings = live.snapshot;
-    window.mvpluxPublishedAdminSettingsSource = live.source;
-    window.mvpluxPublishedAdminSettingsRevision = live.liveRevision;
-    return live.snapshot;
+    writePublicLiveNavigationCache(live);
+    return usePublishedAdminSettings(live);
   } catch (_liveError) {
     try {
       const response = await fetch('published-admin-settings.json', { cache: 'no-store' });
@@ -5392,7 +5482,7 @@ function productCardMarkup(product) {
       <a href="${product.href || '#shop'}" class="product-image-link">
         <div class="product-stage-preview" style="background-image: url('${product.backgroundImage || 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'}');">
           <img class="product-stage-bg" src="${product.backgroundImage || 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg'}" alt="">
-          <img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">
+          ${product.logoVisible === false ? '' : '<img class="product-stage-logo" src="images/FrontPageWeb/Herobackgroundparts-logowords.png" alt="">'}
           ${productImage ? `<img class="product-cutout" src="${productImage}" alt="">` : '<span class="product-cutout-empty" aria-label="No Product Image Selected"></span>'}
         </div>
       </a>
@@ -5459,6 +5549,8 @@ function applyAdminProductOverrides(builder) {
   const stageImage = card.querySelector('.product-stage-bg');
   const logo = card.querySelector('.product-stage-logo');
   const display = resolveStorefrontProductDisplay(override);
+
+  if (logo) logo.hidden = override.logoVisible === false;
 
   if (override.title && titleLink) titleLink.textContent = override.title;
   if (override.description && description) description.textContent = override.description;

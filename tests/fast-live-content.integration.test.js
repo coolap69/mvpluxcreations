@@ -42,6 +42,37 @@ Deno.test('storefront uses one Supabase live snapshot and falls back atomically 
   assert(staticFetches === 1 && !fallback.products.live, 'fallback must never merge with a failed Supabase response');
 });
 
+Deno.test('same-tab Collection navigation reuses the validated live snapshot without another blocking Supabase read', async () => {
+  const code = sourceRange(storefrontSource, 'async function loadPublicLiveAdminSettings', '\n\nfunction getPublishedProducts');
+  const liveSnapshot = { version: 1, products: { live: {} }, categoryDisplayCards: {}, categories: {} };
+  const memory = new Map();
+  let rpcReads = 0;
+  const window = {
+    setTimeout, clearTimeout,
+    sessionStorage: {
+      getItem: (key) => memory.get(key) || null,
+      setItem: (key, value) => memory.set(key, value),
+      removeItem: (key) => memory.delete(key)
+    },
+    mvpluxPublishedAdminSettings: null,
+    mvpluxPublishedAdminSettingsSource: '',
+    mvpluxPublishedAdminSettingsRevision: 0
+  };
+  const factory = new Function('window', 'getSupabaseClient', 'validatePublishedAdminSettings', 'fetch', `${code}; return { loadPublishedAdminSettings };`);
+  const runtime = factory(
+    window,
+    () => ({ rpc: async () => { rpcReads += 1; return { data: { snapshot: liveSnapshot, liveRevision: 12, publishedAt: 'now' }, error: null }; } }),
+    (document) => document?.snapshot || null,
+    async () => { throw new Error('static fallback should not load'); }
+  );
+
+  const first = await runtime.loadPublishedAdminSettings();
+  assert(first.products.live && rpcReads === 1, 'the first page must read the authoritative live snapshot once');
+  const second = await runtime.loadPublishedAdminSettings();
+  assert(second.products.live && rpcReads === 1, 'the next Collection page must render from the same validated session snapshot without a second blocking read');
+  assert(window.mvpluxPublishedAdminSettingsSource === 'supabase-live-navigation-cache', 'the reused state must remain identified as the Supabase live snapshot, not a static merge');
+});
+
 Deno.test('public RPC exposes only activated live snapshot while drafts and table stay private', () => {
   assert(migrationSource.includes("coalesce(state_row.edits->>'liveContentEnabled', 'false') = 'true'"), 'public read must remain disabled until exact-baseline activation');
   assert(migrationSource.includes("'snapshot', state_row.edits->'lastPublishedSnapshot'"), 'public read may expose only lastPublishedSnapshot');

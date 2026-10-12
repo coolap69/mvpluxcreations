@@ -31,15 +31,20 @@ Deno.test('product creation and publishing require an effective merchandise heig
   assert(publisher.includes("collectionName === 'products' && !isValidMerchandiseHeight(product.originalHeight)"), 'publisher must reject a sellable product without a valid height');
 });
 
-Deno.test('Custom Order page supports multiple private references, description, size, contact, and immediate estimate', async () => {
+Deno.test('Custom Order supports a new quote or a pre-discussed order using the same request record', async () => {
   const html = await Deno.readTextFile(new URL('../custom-order.html', import.meta.url));
   const source = await Deno.readTextFile(new URL('../custom-order.js', import.meta.url));
-  assert(html.includes('name="referenceImages"') && html.includes('multiple required'), 'Custom Order must accept multiple reference images');
+  assert(html.includes('name="referenceImages"') && html.includes('multiple'), 'Custom Order must accept multiple reference images');
+  assert(html.includes('name="orderMode"') && html.includes('value="discussed"'), 'customer must be able to identify a pre-discussed order');
+  assert(html.includes('name="agreedPrice"') && html.includes('name="tipAmount"'), 'pre-discussed order must capture the complete agreed price and optional extra');
+  assert(html.includes('additional $20 underpayment processing fee'), 'underpayment consequences must be explicit before submission');
   for (const field of ['description', 'desiredHeight', 'name', 'email', 'phone', 'contactPreference']) {
     assert(html.includes(`name="${field}"`), `Custom Order must include ${field}`);
   }
   assert(source.includes('MVPLUX_PRICING.calculateHeightPrice') && source.includes('MVPLUX_PRICING.parseHeight'), 'desired size estimate must use the central pricing engine');
   assert(source.includes('/functions/v1/submit-custom-order') && source.includes('new FormData(form)'), 'the form must submit references through the secure endpoint');
+  assert(source.includes('required: !discussed') && source.includes('form.elements.referenceImages.required = !discussed'), 'references must remain required for new quotes but optional after a design was already discussed');
+  assert(source.includes('openMvpluxCustomOrderPayment') && html.includes('data-custom-payment-method="paypal"'), 'a recorded pre-discussed order must continue into the existing payment UI');
 });
 
 Deno.test('Custom Order upload endpoint validates files and stores only private reference paths', async () => {
@@ -48,8 +53,25 @@ Deno.test('Custom Order upload endpoint validates files and stores only private 
   assert(source.includes('files.length > 5') && source.includes('file.size > 6_000_000'), 'endpoint must bound file count and size');
   assert(source.includes("['image/png', 'png']") && source.includes("['image/jpeg', 'jpg']") && source.includes("['image/webp', 'webp']"), 'endpoint must allow only supported image types');
   assert(source.includes("type: 'custom-order'") && source.includes('reference_images: uploaded'), 'Admin order data must store private object paths rather than embedded images');
+  assert(source.includes("orderMode === 'discussed'") && source.includes('awaiting_manual_verification'), 'pre-discussed requests must remain pending manual payment verification');
+  assert(source.includes('original_amount: agreedPrice') && source.includes('total: paymentTotal'), 'agreed price and optional extra must be stored in the existing order totals');
+  assert(source.includes("!alreadyDiscussed && !files.length"), 'the endpoint must allow no new reference only for a pre-discussed order');
   assert(migration.includes("'custom-order-references'") && migration.includes('public = false'), 'reference bucket must remain private');
   assert(migration.includes('Admins view custom order references'), 'only approved Admins may read stored references');
+});
+
+Deno.test('pre-discussed Custom Order payment never auto-approves or starts production', async () => {
+  const [storefront, admin] = await Promise.all([
+    Deno.readTextFile(new URL('../script.js', import.meta.url)),
+    Deno.readTextFile(new URL('../admin.js', import.meta.url))
+  ]);
+  const customPaymentStart = storefront.indexOf('window.openMvpluxCustomOrderPayment');
+  const customPayment = storefront.slice(customPaymentStart, customPaymentStart + 1200);
+  assert(customPayment.includes('openPaymentOption(method)') && !customPayment.includes("p_status: 'in_production'"), 'custom payment must reuse payment instructions without starting production');
+  assert(storefront.includes('manually verifies the full payment'), 'customer payment instructions must explain manual verification');
+  assert(admin.includes('Pre-discussed order — verify payment manually before production.'), 'Admin must show the verification requirement');
+  assert(admin.includes("status === 'new'") && admin.includes("status: 'in_production', label: 'Start Production'"), 'Admin must retain the explicit manual Start Production action');
+  assert(admin.includes("data-order-status=\"rejected\""), 'Admin must retain the explicit Reject Order action');
 });
 
 Deno.test('Admin Custom Order AI helper is editable and never saves, approves, or publishes', async () => {

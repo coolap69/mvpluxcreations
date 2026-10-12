@@ -93,10 +93,18 @@ Deno.serve(async (request) => {
     const description = clean(form.get('description'), 3000);
     const contactPreference = clean(form.get('contactPreference'), 20) || 'email';
     const desiredHeight = Number(clean(form.get('desiredHeight'), 6));
+    const orderMode = clean(form.get('orderMode'), 20) === 'discussed' ? 'discussed' : 'new';
+    const alreadyDiscussed = orderMode === 'discussed';
+    const agreedPrice = alreadyDiscussed ? Number(clean(form.get('agreedPrice'), 20)) : 0;
+    const tipAmount = alreadyDiscussed ? Number(clean(form.get('tipAmount'), 20) || 0) : 0;
+    const agreedPriceConfirmed = clean(form.get('agreedPriceConfirmed'), 10) === 'on';
     const files = form.getAll('referenceImages').filter((entry): entry is File => entry instanceof File && entry.size > 0);
     if (!name || !validEmail(email) || !description) return json(request, { error: 'Name, a valid email, and a design description are required.' }, 400);
     if (!Number.isFinite(desiredHeight) || desiredHeight < 24 || desiredHeight > 120) return json(request, { error: 'Desired height must be between 24 and 120 inches.' }, 400);
-    if (!files.length || files.length > 5) return json(request, { error: 'Choose between one and five reference images.' }, 400);
+    if ((!alreadyDiscussed && !files.length) || files.length > 5) return json(request, { error: 'Choose between one and five reference images for a new request.' }, 400);
+    if (alreadyDiscussed && (!Number.isFinite(agreedPrice) || agreedPrice < 1 || agreedPrice > 20000)) return json(request, { error: 'Enter the complete price agreed with MVPLUXCREATIONS.' }, 400);
+    if (alreadyDiscussed && (!Number.isFinite(tipAmount) || tipAmount < 0 || tipAmount > 5000)) return json(request, { error: 'Enter a valid optional extra amount.' }, 400);
+    if (alreadyDiscussed && !agreedPriceConfirmed) return json(request, { error: 'Confirm that the complete agreed price was entered.' }, 400);
     for (const file of files) {
       if (!allowedTypes.has(file.type) || file.size > 6_000_000) return json(request, { error: 'Each reference must be PNG, JPG, or WebP and no larger than 6 MB.' }, 400);
     }
@@ -115,15 +123,21 @@ Deno.serve(async (request) => {
       uploaded.push(path);
     }
 
+    const paymentTotal = alreadyDiscussed ? Number((agreedPrice + tipAmount).toFixed(2)) : 0;
     const item = {
       type: 'custom-order',
-      name: 'Custom Standee Design Request',
+      name: alreadyDiscussed ? 'Pre-Discussed Custom Standee Order' : 'Custom Standee Design Request',
       product_slug: 'custom-order',
       selected_height: desiredHeight,
-      price: 0,
+      price: paymentTotal,
       description,
       contact_preference: contactPreference,
-      reference_images: uploaded
+      reference_images: uploaded,
+      already_discussed: alreadyDiscussed,
+      agreed_price: agreedPrice,
+      optional_tip: tipAmount,
+      payment_status: alreadyDiscussed ? 'awaiting_manual_verification' : 'quote_required',
+      underpayment_fee_notice: alreadyDiscussed ? 20 : 0
     };
     const insert = await fetch(`${url}/rest/v1/order_requests`, {
       method: 'POST',
@@ -138,20 +152,26 @@ Deno.serve(async (request) => {
         customer_email: email,
         customer_phone: phone || null,
         items: [item],
-        payment_method: 'Quote required',
-        original_amount: 0,
-        subtotal: 0,
+        payment_method: alreadyDiscussed ? 'Customer chooses after request — manual verification required' : 'Quote required',
+        original_amount: agreedPrice,
+        subtotal: agreedPrice,
         customer_fee: 0,
-        total: 0,
+        total: paymentTotal,
         status: 'new',
-        notes: `Order number: ${orderNumber}\nCustom design description: ${description}\nDesired height: ${desiredHeight} inches\nPreferred contact: ${contactPreference}`
+        notes: `Order number: ${orderNumber}\nCustom order mode: ${alreadyDiscussed ? 'Design and price already discussed' : 'New quote requested'}\nCustom design description: ${description}\nDesired height: ${desiredHeight} inches\nPreferred contact: ${contactPreference}${alreadyDiscussed ? `\nAgreed price: $${agreedPrice.toFixed(2)}\nOptional extra / tip: $${tipAmount.toFixed(2)}\nExpected payment total: $${paymentTotal.toFixed(2)}\nPayment must be manually verified before production. Underpayment does not begin production and may require an additional $20 processing fee.` : ''}`
       })
     });
     if (!insert.ok) {
       await removeReferences(uploaded, url, serviceKey);
       throw new Error('The request could not be recorded. No reference images were retained.');
     }
-    return json(request, { orderNumber }, 201);
+    return json(request, {
+      orderNumber,
+      paymentRequired: alreadyDiscussed,
+      agreedPrice,
+      tipAmount,
+      paymentTotal
+    }, 201);
   } catch (error) {
     if (uploaded.length && storageUrl && storageServiceKey) await removeReferences(uploaded, storageUrl, storageServiceKey);
     const message = error instanceof Error ? error.message : 'The custom-order request could not be sent.';
