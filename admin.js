@@ -8460,7 +8460,18 @@ function renderAdminProducts() {
   const deleted = new Set(readDeletedProducts());
   const availableProducts = allAdminProducts().filter((product) => !archived.has(product.slug) && !deleted.has(product.slug));
   const productMarkup = (products, lifecycleLabel = '') => products.map((product) => {
-    const storedValue = { ...product, ...(saved[product.slug] || {}) };
+    const resolveImagePath = window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH || ((path) => String(path || ''));
+    const storedProduct = { ...product, ...(saved[product.slug] || {}) };
+    const storedValue = {
+      ...storedProduct,
+      cutoutImage: resolveImagePath(storedProduct.cutoutImage),
+      backgroundImage: resolveImagePath(storedProduct.backgroundImage),
+      imageChoices: normalizeImageChoices(storedProduct.imageChoices).map((choice) => ({
+        ...choice,
+        image: resolveImagePath(choice.image),
+        ...(choice.stage ? { stage: resolveImagePath(choice.stage) } : {})
+      }))
+    };
     const cutoutPresentation = adminImageReferencePresentation(storedValue.cutoutImage);
     const backgroundPresentation = adminImageReferencePresentation(storedValue.backgroundImage, { background: true });
     const invalidLegacyImages = [cutoutPresentation, backgroundPresentation].filter((item) => !item.valid);
@@ -8596,7 +8607,18 @@ function renderAdminProducts() {
   }).join('');
 
   const productSummaryMarkup = (products) => products.map((product) => {
-    const value = { ...product, ...(saved[product.slug] || {}) };
+    const resolveImagePath = window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH || ((path) => String(path || ''));
+    const storedValue = { ...product, ...(saved[product.slug] || {}) };
+    const value = {
+      ...storedValue,
+      cutoutImage: resolveImagePath(storedValue.cutoutImage),
+      backgroundImage: resolveImagePath(storedValue.backgroundImage),
+      imageChoices: normalizeImageChoices(storedValue.imageChoices).map((choice) => ({
+        ...choice,
+        image: resolveImagePath(choice.image),
+        ...(choice.stage ? { stage: resolveImagePath(choice.stage) } : {})
+      }))
+    };
     const lifecycle = productLifecycleState(product, saved, archived).label;
     const previewPage = readAdminCategories()[value.categories?.[0]]?.page || 'index.html#shop';
     const editorOpen = openedProductEditors.has(product.slug);

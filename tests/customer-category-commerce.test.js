@@ -50,7 +50,7 @@ Deno.test('non-Sports Collection pages show one clean loading stage until normal
     assert((html.match(/data-category-showroom-loading/g) || []).length === 1, `${filename} must have exactly one immediate loading stage`);
     assert(html.includes('<body data-dynamic-category-page>'), `${filename} must replace its static compatibility heading with the normalized Main Collection title and description`);
     assert(html.includes('rel="preconnect" href="https://cdn.jsdelivr.net"') && html.includes('rel="preconnect" href="https://ncbddqxdinvcsoszdsxr.supabase.co"'), `${filename} must start both required network connections early`);
-    assert(html.includes('script.js?v=20261011-fast-collection-navigation'), `${filename} must load the normalized in-page navigation controller with the same-tab live snapshot cache`);
+    assert(html.includes('script.js?v=20261013-current-collection-links'), `${filename} must load the normalized in-page navigation controller with the same-tab live snapshot cache`);
   }
   const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
   assert(initializer.indexOf('setupGenericCategoryShowroom()') < initializer.indexOf("[data-category-showroom-loading]"), 'the loader must remain until the normalized showroom is constructed');
@@ -102,6 +102,10 @@ Deno.test('all customer browsing paths use normalized navigation without obsolet
     && homepageLinks.includes("url.searchParams.delete('collectionImage')")
     && homepageLinks.includes("url.hash === '#selected-standee'"),
   'Homepage Collection links must remove every obsolete navigation handoff and use one consistent Main Collection destination');
+  assert(homepageLinks.includes('writePublicLiveNavigationCache({')
+    && homepageLinks.includes('window.mvpluxPublishedAdminSettings')
+    && homepageLinks.includes("source: window.mvpluxPublishedAdminSettingsSource || 'navigation-handoff'"),
+  'Homepage Collection clicks must hand the already-loaded public snapshot to the destination page instead of waiting for Supabase again');
   assert(detailNavigation.includes('function productMainCollectionHref')
     && detailNavigation.includes("data-standee-detail-product=")
     && detailNavigation.includes('renderStandeeDetailPage()')
@@ -111,9 +115,28 @@ Deno.test('all customer browsing paths use normalized navigation without obsolet
     && detailPage.includes('productMainCollectionHref(product)')
     && !detailPage.includes('javascript:history.back()'),
   'Product pages must return to their normalized Main Collection instead of depending on browser history');
-  assert(indexHtml.includes('script.js?v=20261011-fast-collection-navigation')
-    && standeeHtml.includes('script.js?v=20261011-fast-collection-navigation'),
+  assert(indexHtml.includes('script.js?v=20261013-current-collection-links')
+    && standeeHtml.includes('script.js?v=20261013-current-collection-links'),
   'Homepage and standalone Product pages must request the same current navigation controller');
+});
+
+Deno.test('the current View Collection button hands the loaded snapshot to the destination page', () => {
+  const window = new Window({ url: 'http://localhost:3000/index.html' });
+  window.document.body.innerHTML = '<div id="homepageCategoryGrid"><a class="button-link" href="sports-legends.html?product=old&collectionImage=old.png">View Collection</a></div>';
+  window.mvpluxPublishedAdminSettings = { products: {}, categories: { sports: { key: 'sports' } } };
+  window.mvpluxPublishedAdminSettingsRevision = 7;
+  window.mvpluxPublishedAdminSettingsSource = 'supabase-live';
+  const writes = [];
+  const normalize = new Function('window', 'document', 'writePublicLiveNavigationCache', `${between('function normalizeFrontPageCategoryLinks', 'function scrollToSelectedStandeeHash')}\nreturn normalizeFrontPageCategoryLinks;`)(
+    window,
+    window.document,
+    (value) => writes.push(value)
+  );
+  normalize();
+  const link = window.document.querySelector('.button-link');
+  link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert(link.getAttribute('href') === 'sports-legends.html', 'the current View Collection link must remove obsolete Product and image query handoffs');
+  assert(writes.length === 1 && writes[0].snapshot === window.mvpluxPublishedAdminSettings && writes[0].liveRevision === 7, 'clicking the current View Collection button must cache the already-loaded snapshot before navigation');
 });
 
 Deno.test('Child Group results and related discovery deduplicate products by slug', () => {

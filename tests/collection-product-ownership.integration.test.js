@@ -23,7 +23,11 @@ Deno.test('moved repository images resolve to their organized paths without chan
   const cases = {
     'images/SportLegendStandees/Messi/Messi2nobackground.png': 'images/Sport Legends/Soccer/Messi/Messi2nobackground.png',
     'images/SportLegendStandees/TomBrady/TB12Nobackground.png': 'images/Sport Legends/Football/TomBrady/TB12Nobackground.png',
-    'images/MovieCharacterStandees/Captain America/CAPTAINAnobackgroundpng.png': 'images/Movie Stars/Movie Characters/Captain America/CAPTAINAnobackgroundpng.png'
+    'images/MovieCharacterStandees/Captain America/CAPTAINAnobackgroundpng.png': 'images/Movie Stars/Movie Characters/Captain America/CAPTAINAnobackgroundpng.png',
+    'images/FaithCelebrationStandees/Jesus1/J13DN.png': 'images/Faith Celebration/Jesus1/J13DN.png',
+    'images/HolidayStandees/Halloween/mEgan.png': 'images/Holidays/Halloween/mEgan/mEgan.png',
+    'images/MusicArtistStandees/DollyP/DollyP.png': 'images/Music Artists/DollyParton/Pinkdress/DollyP.png',
+    'images/FrontPageWeb/FanBackgrounds-gallery-poster-premium.jpg': 'images/CardBackgrounds/FanBackgrounds-gallery-poster-premium.jpg'
   };
   for (const [oldPath, organizedPath] of Object.entries(cases)) {
     assert(resolve(oldPath) === organizedPath, `obsolete image path must resolve to ${organizedPath}`);
@@ -36,6 +40,17 @@ Deno.test('moved repository images resolve to their organized paths without chan
     && catalog.includes('image: resolveImagePath(choice.image)'), 'primary images, backgrounds, and alternate image choices must use the same exact relocation resolver');
   const publisher = sourceRange(adminSource, 'function publishImageReference', 'function publishableNumber');
   assert(publisher.includes('MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH'), 'the next Save Live must persist organized paths into the normalized public snapshot');
+});
+
+Deno.test('Admin Product cards resolve private legacy image references before rendering', () => {
+  const renderer = sourceRange(adminSource, 'function renderAdminProducts', '\n\nfunction filterAdminProductLibrary');
+  assert((renderer.match(/MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH/g) || []).length >= 2, 'both the Product editor and collapsed Product list must use the repository path resolver');
+  for (const field of ['storedProduct.cutoutImage', 'storedProduct.backgroundImage', 'choice.image', 'choice.stage']) {
+    assert(renderer.includes(`resolveImagePath(${field})`), `the open Product editor must resolve ${field}`);
+  }
+  for (const field of ['storedValue.cutoutImage', 'storedValue.backgroundImage']) {
+    assert(renderer.includes(`resolveImagePath(${field})`), `the collapsed Product list must resolve ${field}`);
+  }
 });
 
 Deno.test('published Product records never become Homepage Collection Cards', () => {

@@ -5186,7 +5186,7 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', pref
 function normalizeFrontPageCategoryLinks() {
   const path = window.location.pathname.split('/').pop() || 'index.html';
   if (path !== 'index.html' && path !== '') return;
-  document.querySelectorAll('#homepageCategoryGrid .product-image-link[href], #homepageCategoryGrid .product-title-link[href], [data-homepage-category-fallback] .product-image-link[href], [data-homepage-category-fallback] .product-title-link[href]').forEach((link) => {
+  document.querySelectorAll('#homepageCategoryGrid a[href], [data-homepage-category-fallback] a[href]').forEach((link) => {
     const href = link.getAttribute('href') || '';
     if (!href || href.startsWith('#')) return;
     const url = new URL(href, window.location.href);
@@ -5195,6 +5195,16 @@ function normalizeFrontPageCategoryLinks() {
     url.searchParams.delete('collectionImage');
     if (url.hash === '#selected-standee') url.hash = '';
     link.setAttribute('href', `${url.pathname.split('/').pop() || ''}${url.search}${url.hash}`);
+    link.addEventListener('click', () => {
+      const snapshot = window.mvpluxPublishedAdminSettings;
+      if (!snapshot) return;
+      writePublicLiveNavigationCache({
+        snapshot,
+        liveRevision: Number(window.mvpluxPublishedAdminSettingsRevision) || 0,
+        publishedAt: '',
+        source: window.mvpluxPublishedAdminSettingsSource || 'navigation-handoff'
+      });
+    });
   });
 }
 

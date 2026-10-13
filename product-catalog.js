@@ -39,10 +39,60 @@
     'images/MovieCharacterStandees/Captain America/CAPTAINAnobackgroundpng.png': 'images/Movie Stars/Movie Characters/Captain America/CAPTAINAnobackgroundpng.png',
     'images/FrontPageWeb/Herobackgroundparts-backgroundforimages.jpg': 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg',
     'images/MusicArtistStandees/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png': 'images/Music Artists/MichaelJackson/SmoothCriminal/MJSmoothCriminalnobackground.png',
-    'images/FrontPageWeb/Herobackgroundparts-hero7T.png': 'images/FrontPageWeb/Herobackgroundparts/Herobackgroundparts-hero7T.png'
+    'images/FrontPageWeb/Herobackgroundparts-hero7T.png': 'images/FrontPageWeb/Herobackgroundparts/Herobackgroundparts-hero7T.png',
+    'images/Business/logogold.png': 'images/FrontPageWeb/Herobackgroundparts/logogold.png',
+    'images/DinosaurCreatureStandees/notorch.jpg': 'images/Fans/notorch.jpg',
+    'images/DinosaurCreatureStandees/size.jpg': 'images/Fans/size.jpg',
+    'images/FrontPageWeb/FanBackgrounds-gallery-poster-adventure.jpg': 'images/CardBackgrounds/FanBackgrounds-gallery-poster-adventure.jpg',
+    'images/FrontPageWeb/FanBackgrounds-gallery-poster-concert.jpg': 'images/CardBackgrounds/FanBackgrounds-gallery-poster-concert.jpg',
+    'images/FrontPageWeb/FanBackgrounds-gallery-poster-heroic.jpg': 'images/CardBackgrounds/FanBackgrounds-gallery-poster-heroic.jpg',
+    'images/FrontPageWeb/FanBackgrounds-gallery-poster-premium.jpg': 'images/CardBackgrounds/FanBackgrounds-gallery-poster-premium.jpg',
+    'images/FrontPageWeb/FanBackgrounds-top-favorite-stage-premium.jpg': 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg',
+    'images/FrontPageWeb/Herobackgroundparts-hero10E.png': 'images/FrontPageWeb/Herobackgroundparts/Herobackgroundparts-hero10E.png',
+    'images/GameFantasyStandees/Lego/LEgonormal.png': 'images/Game-Fantasy/Lego/Legoman/LEgonormal.png',
+    'images/GameFantasyStandees/yoshikart.png': 'images/Game-Fantasy/MarioKart/yoshikart.png',
+    'images/HolidayStandees/Halloween/mEgan.png': 'images/Holidays/Halloween/mEgan/mEgan.png',
+    'images/HolidayStandees/Halloween/mEganwhitebackground.png': 'images/Holidays/Halloween/mEgan/mEganwhitebackground.png',
+    'images/Movie Stars/Movie Characters/Comando/comandoHighResnobackground.png': 'images/Movie Stars/Movie Characters/Comando/comandoHighRes.png',
+    'images/MovieCharacterStandees/Comando/comandoHighResnobackground.png': 'images/Movie Stars/Movie Characters/Comando/comandoHighRes.png',
+    'images/MusicArtistStandees/DollyP/2025/DollyP25.png': 'images/Music Artists/DollyParton/2025/DollyP25.png',
+    'images/MusicArtistStandees/DollyP/2025/DollyP25Nobackground.png': 'images/Music Artists/DollyParton/2025/DollyP25Nobackground.png',
+    'images/MusicArtistStandees/DollyP/DollyP.png': 'images/Music Artists/DollyParton/Pinkdress/DollyP.png',
+    "images/MusicArtistStandees/DollyP/DollyP70'styleblacjfeet.png": "images/Music Artists/DollyParton/Pinkdress/DollyP70'styleblacjfeet.png",
+    'images/MusicArtistStandees/DollyP/DollyPupdated.png': 'images/Music Artists/DollyParton/Pinkdress/DollyPupdated.png',
+    'images/MusicArtistStandees/DollyP/Yellowdress/dollyNobackgeoundyellow.png': 'images/Music Artists/DollyParton/Yellowdress/dollyNobackgeoundyellow.png',
+    'images/MusicArtistStandees/DollyP/Yellowdress/dollynobackgroundpinknails.png': 'images/Music Artists/DollyParton/Yellowdress/dollynobackgroundpinknails.png',
+    'images/MusicArtistStandees/DollyP/Yellowdress/dollywhitebackgeoundyellow.png': 'images/Music Artists/DollyParton/Yellowdress/dollywhitebackgeoundyellow.png',
+    'images/MusicArtistStandees/DollyP/Yellowdress/dollywhitebackgroundpinknails.png': 'images/Music Artists/DollyParton/Yellowdress/dollywhitebackgroundpinknails.png',
+    'images/MusicArtistStandees/JB/JB.png': 'images/Music Artists/JustinB/JB.png',
+    'images/MusicArtistStandees/JB/JBNew.png': 'images/Music Artists/JustinB/JBNew.png'
   });
 
-  window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH = (path) => relocatedImagePaths[String(path || '')] || String(path || '');
+  const relocatedImagePrefixes = Object.freeze([
+    ['images/Business/', 'images/FrontPageWeb/'],
+    ['images/FaithCelebrationStandees/', 'images/Faith Celebration/'],
+    ['images/FanRequestStandees/', 'images/Fan Request/'],
+    ['images/GameFantasyStandees/', 'images/Game-Fantasy/'],
+    ['images/Herobackgroundparts/', 'images/FrontPageWeb/Herobackgroundparts/'],
+    ['images/HolidayStandees/', 'images/Holidays/'],
+    ['images/MovieCharacterStandees/', 'images/Movie Stars/Movie Characters/'],
+    ['images/Moviestars/', 'images/Movie Stars/Actors-Actresses/'],
+    ['images/MusicArtistStandees/', 'images/Music Artists/'],
+    ['images/PeoplePublicFigureStandees/', 'images/People-PublicFigure/'],
+    ['images/SportLegendStandees/Kobe/', 'images/Sport Legends/Basketball/Kobe/'],
+    ['images/SportLegendStandees/MJordan/', 'images/Sport Legends/Basketball/MJordan/'],
+    ['images/SportLegendStandees/Shaq/', 'images/Sport Legends/Basketball/Shaq/'],
+    ['images/SportLegendStandees/Messi/', 'images/Sport Legends/Soccer/Messi/'],
+    ['images/SportLegendStandees/TomBrady/', 'images/Sport Legends/Football/TomBrady/'],
+    ['images/SportLegendStandees/ArnoldS/', 'images/Sport Legends/Body Builder/ArnoldS/']
+  ]);
+
+  window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH = (path) => {
+    const reference = String(path || '');
+    if (relocatedImagePaths[reference]) return relocatedImagePaths[reference];
+    const prefix = relocatedImagePrefixes.find(([legacyPrefix]) => reference.startsWith(legacyPrefix));
+    return prefix ? `${prefix[1]}${reference.slice(prefix[0].length)}` : reference;
+  };
 
   window.MVPLUX_PRODUCT_CATEGORIES = [
     { key: 'sports', label: 'Sports', page: 'sports-legends.html' },
