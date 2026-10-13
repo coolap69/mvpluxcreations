@@ -6434,8 +6434,48 @@ button[aria-label="Add to cart"]::before {
   font-size: 13px;
 }
 
+.admin-customer-history-search {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.admin-customer-history-search label {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-customer-history-search input {
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid rgba(244,208,111,0.42);
+  border-radius: 9px;
+  color: #fff;
+  background: #080808;
+}
+
+.admin-offer-deadline,
+.member-offer-deadline {
+  padding: 10px 12px;
+  border: 1px solid rgba(244,208,111,0.48);
+  border-radius: 9px;
+  background: rgba(244,208,111,0.1);
+}
+
+.member-offer-deadline time {
+  display: inline-block;
+  margin-top: 5px;
+  color: #f4d06f;
+  font-size: 1.08em;
+  font-weight: 900;
+}
+
 @media (max-width: 820px) {
   .admin-commerce-grid {
+    grid-template-columns: 1fr;
+  }
+  .admin-customer-history-search {
     grid-template-columns: 1fr;
   }
 }

@@ -2784,6 +2784,18 @@ function parseOfferDetails(message) {
 }
 
 let adminOfferHistoryById = new Map();
+let adminCustomerHistoryLoaded = false;
+
+function adminOfferEffectiveStatus(offer) {
+  const status = String(offer?.status || 'pending').toLowerCase();
+  if (status === 'countered' && offer?.expires_at && new Date(offer.expires_at).getTime() <= Date.now()) return 'expired';
+  return status;
+}
+
+function adminOfferDeadlineMarkup(offer) {
+  if (adminOfferEffectiveStatus(offer) !== 'countered' || !offer?.expires_at) return '';
+  return `<p class="admin-offer-deadline"><strong>Customer response deadline:</strong> ${escapeAdminHtml(adminDate(offer.expires_at))} (48 hours after your counteroffer).</p>`;
+}
 
 function adminOfferHistoryMarkup(offerId) {
   const history = adminOfferHistoryById.get(offerId) || [];
@@ -2804,7 +2816,7 @@ function adminOfferHistoryMarkup(offerId) {
 
 function offerCardMarkup(offer) {
   const details = parseOfferDetails(offer.message);
-  const status = String(offer.status || 'pending').toLowerCase();
+  const status = adminOfferEffectiveStatus(offer);
   const isMember = Boolean(offer.customer_id);
   const canDecide = ['pending', 'buyer_countered'].includes(status);
   const canCounter = isMember && status === 'pending';
@@ -2840,6 +2852,7 @@ function offerCardMarkup(offer) {
       ${offer.seller_counter_amount ? `<p><strong>Admin counteroffer:</strong> ${adminMoney(offer.seller_counter_amount)}${offer.seller_counter_message ? ` · ${escapeAdminHtml(offer.seller_counter_message)}` : ''}</p>` : ''}
       ${offer.buyer_final_amount ? `<p><strong>Member counteroffer:</strong> ${adminMoney(offer.buyer_final_amount)}${offer.buyer_final_message ? ` · ${escapeAdminHtml(offer.buyer_final_message)}` : ''}</p>` : ''}
       ${responseOwner ? `<p><strong>Next:</strong> ${escapeAdminHtml(responseOwner)}</p>` : ''}
+      ${adminOfferDeadlineMarkup(offer)}
       <small>${adminDate(offer.created_at)}</small>
       ${adminOfferHistoryMarkup(offer.id)}
       ${canDecide ? `
@@ -2858,10 +2871,91 @@ function offerCardMarkup(offer) {
       ` : ''}
       ${offer.is_test && ['accepted', 'accepted_awaiting_payment'].includes(status) ? `<a class="admin-production-toggle" href="index.html?resumeOffer=${encodeURIComponent(offer.id)}">Continue Test Payment</a>` : ''}
       ${status === 'payment_submitted' ? `<button class="admin-production-toggle" type="button" data-confirm-offer-payment data-id="${escapeAdminHtml(offer.id)}">Mark Payment Confirmed</button>` : ''}
-      ${['paid', 'declined'].includes(status) ? `<button type="button" data-offer-action="archive" data-id="${escapeAdminHtml(offer.id)}">Archive Offer</button>` : ''}
+      ${['paid', 'declined', 'expired'].includes(status) ? `<button type="button" data-offer-action="archive" data-id="${escapeAdminHtml(offer.id)}">Archive Offer</button>` : ''}
       ${offer.is_test ? `<button class="admin-commerce-delete" type="button" data-delete-test-offer data-id="${escapeAdminHtml(offer.id)}">Delete Test Offer</button>` : ''}
     </article>
   `;
+}
+
+function customerHistoryOfferMarkup(offer) {
+  const status = adminOfferEffectiveStatus(offer);
+  return `
+    <article class="admin-commerce-card">
+      <div class="admin-commerce-card-head">
+        <strong>${escapeAdminHtml(offer.customer_name || 'Customer')}</strong>
+        <span>${escapeAdminHtml(status.replace(/_/g, ' '))}</span>
+      </div>
+      <p><strong>Email:</strong> ${escapeAdminHtml(offer.customer_email || 'Not provided')}</p>
+      <p><strong>Product:</strong> ${escapeAdminHtml(offer.product_name || 'Selected item')}</p>
+      <p><strong>Customer offered:</strong> ${adminMoney(offer.amount)}</p>
+      <p><strong>Your counteroffer:</strong> ${adminMoney(offer.seller_counter_amount)}</p>
+      <p><strong>Customer's last counter:</strong> ${adminMoney(offer.buyer_final_amount)}</p>
+      <small>${escapeAdminHtml(adminDate(offer.created_at))}</small>
+    </article>`;
+}
+
+function customerHistoryOrderMarkup(order) {
+  const status = String(order.status || 'new').replace(/_/g, ' ');
+  return `
+    <article class="admin-commerce-card">
+      <div class="admin-commerce-card-head">
+        <strong>${escapeAdminHtml(order.customer_name || 'Customer')}</strong>
+        <span>${escapeAdminHtml(status)}</span>
+      </div>
+      <p><strong>Email:</strong> ${escapeAdminHtml(order.customer_email || 'Not provided')}</p>
+      <p><strong>Total:</strong> ${adminMoney(order.total)}</p>
+      <p><strong>Record:</strong> ${['completed', 'paid', 'shipped', 'in_production', 'sent_to_production'].includes(String(order.status || '')) ? 'Purchased / order history' : 'Order request history'}</p>
+      <small>${escapeAdminHtml(adminDate(order.created_at))}</small>
+    </article>`;
+}
+
+function customerHistorySearchTerm(value) {
+  return String(value || '').trim().replace(/[,%()]/g, ' ').replace(/\s+/g, ' ').slice(0, 120);
+}
+
+async function loadAdminCustomerHistory(searchValue = '') {
+  const client = getAdminClient();
+  const status = document.getElementById('adminCustomerHistoryStatus');
+  const offerList = document.getElementById('adminCustomerOfferHistory');
+  const orderList = document.getElementById('adminCustomerOrderHistory');
+  if (!client || !status || !offerList || !orderList) return;
+  const term = customerHistorySearchTerm(searchValue);
+  status.textContent = term ? `Searching preserved history for “${term}”…` : 'Loading the latest rejected and expired history…';
+  offerList.innerHTML = commerceEmptyMarkup('Loading offer history...');
+  orderList.innerHTML = commerceEmptyMarkup('Loading order history...');
+
+  let offerQuery = client.from('offers')
+    .select('id,product_name,customer_name,customer_email,amount,status,seller_counter_amount,buyer_final_amount,created_at,updated_at,expires_at,is_test')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  let orderQuery = client.from('order_requests')
+    .select('id,customer_name,customer_email,total,status,created_at,updated_at,source_offer_id,is_test')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (term) {
+    const pattern = `*${term}*`;
+    offerQuery = offerQuery.or(`customer_name.ilike.${pattern},customer_email.ilike.${pattern},product_name.ilike.${pattern}`);
+    orderQuery = orderQuery.or(`customer_name.ilike.${pattern},customer_email.ilike.${pattern}`);
+  } else {
+    offerQuery = offerQuery.in('status', ['declined', 'expired']);
+    orderQuery = orderQuery.eq('status', 'rejected');
+  }
+
+  const [offersResponse, ordersResponse] = await Promise.all([offerQuery, orderQuery]);
+  if (offersResponse.error || ordersResponse.error) {
+    status.textContent = `History could not be loaded. ${offersResponse.error?.message || ordersResponse.error?.message || ''}`.trim();
+    offerList.innerHTML = commerceEmptyMarkup('Offer history unavailable.');
+    orderList.innerHTML = commerceEmptyMarkup('Order history unavailable.');
+    return;
+  }
+  const offers = offersResponse.data || [];
+  const orders = ordersResponse.data || [];
+  offerList.innerHTML = offers.length ? offers.map(customerHistoryOfferMarkup).join('') : commerceEmptyMarkup('No matching offers.');
+  orderList.innerHTML = orders.length ? orders.map(customerHistoryOrderMarkup).join('') : commerceEmptyMarkup('No matching orders or purchases.');
+  status.textContent = term
+    ? `Found ${offers.length} offer record${offers.length === 1 ? '' : 's'} and ${orders.length} order record${orders.length === 1 ? '' : 's'}.`
+    : `Showing ${offers.length} recent declined/expired offer${offers.length === 1 ? '' : 's'} and ${orders.length} rejected order${orders.length === 1 ? '' : 's'}.`;
+  adminCustomerHistoryLoaded = true;
 }
 
 async function updateAdminOffer(button) {
@@ -2901,7 +2995,7 @@ async function updateAdminOffer(button) {
   const message = action === 'counter'
     ? card.querySelector('[data-offer-counter-message]')?.value?.trim() || null
     : null;
-  const { error } = await client.rpc('respond_to_member_offer', {
+  const { data, error } = await client.rpc('respond_to_member_offer', {
     p_offer_id: id,
     p_action: action,
     p_amount: amount,
@@ -2911,6 +3005,11 @@ async function updateAdminOffer(button) {
     button.disabled = false;
     button.textContent = originalText;
     setCommerceStatus(`Could not update the offer. ${error.message || error}`);
+    return;
+  }
+  if (data?.status === 'expired') {
+    await refreshCommerceAdmin();
+    setCommerceStatus('The customer response period had already ended. The offer moved to Expired history.');
     return;
   }
   await refreshCommerceAdmin();
@@ -3094,6 +3193,7 @@ async function refreshCommerceAdmin() {
     accepted: document.getElementById('adminOffersAccepted'),
     paid: document.getElementById('adminOffersPaid'),
     declined: document.getElementById('adminOffersDeclined'),
+    expired: document.getElementById('adminOffersExpired'),
     archived: document.getElementById('adminOffersArchived')
   };
   const orderLists = {
@@ -3117,6 +3217,12 @@ async function refreshCommerceAdmin() {
   setCommerceStatus('Loading orders and offers...');
   Object.values(orderLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup('Loading orders...'); });
   Object.values(offerLists).forEach((list) => { list.innerHTML = commerceEmptyMarkup('Loading offers...'); });
+
+  try {
+    await client.rpc('expire_stale_member_offers');
+  } catch (_) {
+    // The Orders page remains usable until the offer-expiration migration is applied.
+  }
 
   const [ordersResponse, offersResponse] = await Promise.all([
     client.from('order_requests').select('*').order('created_at', { ascending: false }).limit(25),
@@ -3150,9 +3256,9 @@ async function refreshCommerceAdmin() {
     });
   }
 
-  const offersByQueue = { pending: [], countered: [], accepted: [], paid: [], declined: [], archived: [] };
+  const offersByQueue = { pending: [], countered: [], accepted: [], paid: [], declined: [], expired: [], archived: [] };
   (offersResponse.data || []).forEach((offer) => {
-    const status = String(offer.status || 'pending');
+    const status = adminOfferEffectiveStatus(offer);
     const queue = status === 'pending'
       ? 'pending'
       : ['countered', 'buyer_countered'].includes(status)
@@ -3163,6 +3269,8 @@ async function refreshCommerceAdmin() {
       ? 'paid'
       : status === 'declined'
       ? 'declined'
+      : status === 'expired'
+      ? 'expired'
       : 'archived';
     offersByQueue[queue].push(offer);
   });
@@ -10468,6 +10576,7 @@ function setupCommerceTabs() {
     if (!button) return;
     tabs.querySelectorAll('[data-commerce-tab]').forEach((item) => item.classList.toggle('active', item === button));
     document.querySelectorAll('[data-commerce-panel]').forEach((panel) => { panel.hidden = panel.dataset.commercePanel !== button.dataset.commerceTab; });
+    if (button.dataset.commerceTab === 'customer-history' && !adminCustomerHistoryLoaded) void loadAdminCustomerHistory();
   });
 }
 
@@ -10643,6 +10752,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('refreshCommerceAdmin')?.addEventListener('click', refreshCommerceAdmin);
   document.getElementById('checkCommerceConnection')?.addEventListener('click', refreshCommerceAdmin);
+  document.getElementById('adminCustomerHistorySearchForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void loadAdminCustomerHistory(document.getElementById('adminCustomerHistorySearch')?.value || '');
+  });
+  document.getElementById('adminCustomerHistoryRecent')?.addEventListener('click', () => {
+    const input = document.getElementById('adminCustomerHistorySearch');
+    if (input) input.value = '';
+    void loadAdminCustomerHistory();
+  });
   document.getElementById('deleteAllTestOffers')?.addEventListener('click', deleteAllTestOffers);
 
   document.getElementById('exportAdminChanges')?.addEventListener('click', downloadAdminChanges);

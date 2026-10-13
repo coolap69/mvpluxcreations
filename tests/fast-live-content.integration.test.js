@@ -1,3 +1,5 @@
+import { Window } from 'npm:happy-dom@18.0.1';
+
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 
 const storefrontSource = await Deno.readTextFile(new URL('../script.js', import.meta.url));
@@ -71,6 +73,55 @@ Deno.test('same-tab Collection navigation reuses the validated live snapshot wit
   const second = await runtime.loadPublishedAdminSettings();
   assert(second.products.live && rpcReads === 1, 'the next Collection page must render from the same validated session snapshot without a second blocking read');
   assert(window.mvpluxPublishedAdminSettingsSource === 'supabase-live-navigation-cache', 'the reused state must remain identified as the Supabase live snapshot, not a static merge');
+});
+
+Deno.test('signed-in homepage rerenders keep the fast Collection navigation handoff', () => {
+  const code = sourceRange(storefrontSource, 'function normalizeFrontPageCategoryLinks()', '\n\nfunction scrollToSelectedStandeeHash');
+  const window = new Window({ url: 'http://localhost:3000/index.html' });
+  window.document.body.innerHTML = '<div id="homepageCategoryGrid"><a href="sports-legends.html?product=old">Sport Legends</a></div>';
+  window.mvpluxPublishedAdminSettings = { version: 1, products: {}, categories: {} };
+  window.mvpluxPublishedAdminSettingsRevision = 19;
+  window.mvpluxPublishedAdminSettingsSource = 'supabase-live';
+  let handoffs = 0;
+  window.mvpluxLiveAdminSettings = { categories: { sports: { key: 'sports' } }, recoveryBackup: { mustNotBeCopied: true } };
+  window.mvpluxLiveAdminRevision = 31;
+  window.mvpluxLiveAdminStateLoaded = true;
+  let privateHandoffs = 0;
+  const factory = new Function(
+    'window', 'document', 'writePublicLiveNavigationCache', 'shouldUsePrivateAdminState', 'writePrivateAdminNavigationCache',
+    `${code}; return normalizeFrontPageCategoryLinks;`
+  );
+  const normalize = factory(
+    window,
+    window.document,
+    () => { handoffs += 1; },
+    () => true,
+    () => { privateHandoffs += 1; }
+  );
+
+  normalize();
+  window.document.querySelector('#homepageCategoryGrid a').click();
+  assert(handoffs === 1, 'the initially rendered Collection link must hand off the already-loaded snapshot');
+
+  window.document.getElementById('homepageCategoryGrid').innerHTML = '<a href="movie-inspired.html">Movie Stars</a>';
+  window.document.querySelector('#homepageCategoryGrid a').click();
+  assert(handoffs === 2, 'a signed-in Admin/private-state rerender must not remove the fast navigation handoff');
+  assert(privateHandoffs === 2, 'signed-in private preview navigation must hand off the already-loaded normalized Admin state');
+});
+
+Deno.test('signed-in Collection navigation paints cached private state before authenticated revalidation', () => {
+  const cacheCode = sourceRange(storefrontSource, "const PUBLIC_LIVE_NAVIGATION_CACHE_KEY", '\n\nfunction usePublishedAdminSettings');
+  const startup = sourceRange(storefrontSource, "document.addEventListener('DOMContentLoaded'", '\n});');
+  assert(cacheCode.includes("const PRIVATE_ADMIN_NAVIGATION_KEYS = [")
+    && cacheCode.includes("'categories'") && cacheCode.includes("'products'")
+    && !cacheCode.includes("'adminArchitectureBackupVerificationV1'"),
+  'the tab-only Admin handoff must contain storefront presentation records without recovery data');
+  assert(startup.includes('const cachedPrivateAdminState = shouldLoadPrivateAdminState()')
+    && startup.includes('window.mvpluxLiveAdminSettings = cachedPrivateAdminState.settings')
+    && startup.indexOf('initializeCategoryShowroomExperience()') < startup.indexOf('await authStatePromise'),
+  'cached private presentation must render before authentication and server revalidation can delay the page');
+  assert(!startup.includes('deferInitialStorefrontPresentation'),
+    'signed-in browsing must never deliberately keep the showroom behind a private-state loading shell');
 });
 
 Deno.test('public RPC exposes only activated live snapshot while drafts and table stay private', () => {

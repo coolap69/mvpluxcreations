@@ -50,7 +50,7 @@ Deno.test('non-Sports Collection pages show one clean loading stage until normal
     assert((html.match(/data-category-showroom-loading/g) || []).length === 1, `${filename} must have exactly one immediate loading stage`);
     assert(html.includes('<body data-dynamic-category-page>'), `${filename} must replace its static compatibility heading with the normalized Main Collection title and description`);
     assert(html.includes('rel="preconnect" href="https://cdn.jsdelivr.net"') && html.includes('rel="preconnect" href="https://ncbddqxdinvcsoszdsxr.supabase.co"'), `${filename} must start both required network connections early`);
-    assert(html.includes('script.js?v=20261013-current-collection-links'), `${filename} must load the normalized in-page navigation controller with the same-tab live snapshot cache`);
+    assert(html.includes('script.js?v=20261013-signed-in-instant'), `${filename} must load the nonblocking signed-in navigation controller and current offer lifecycle`);
   }
   const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
   assert(initializer.indexOf('setupGenericCategoryShowroom()') < initializer.indexOf("[data-category-showroom-loading]"), 'the loader must remain until the normalized showroom is constructed');
@@ -115,8 +115,8 @@ Deno.test('all customer browsing paths use normalized navigation without obsolet
     && detailPage.includes('productMainCollectionHref(product)')
     && !detailPage.includes('javascript:history.back()'),
   'Product pages must return to their normalized Main Collection instead of depending on browser history');
-  assert(indexHtml.includes('script.js?v=20261013-current-collection-links')
-    && standeeHtml.includes('script.js?v=20261013-current-collection-links'),
+  assert(indexHtml.includes('script.js?v=20261013-signed-in-instant')
+    && standeeHtml.includes('script.js?v=20261013-signed-in-instant'),
   'Homepage and standalone Product pages must request the same current navigation controller');
 });
 
@@ -245,6 +245,6 @@ Deno.test('showroom pricing is correct immediately and updates synchronously whe
   assert(builder.dataset.originalHeight === '36' && builder.querySelector('.live-size-price').textContent === '$50.00', 'selecting another product must immediately replace height and price');
   assert(centralPriceCalls >= 4, 'both selection updates must use central price calculation without a timer');
   const init = source.slice(source.indexOf("document.addEventListener('DOMContentLoaded'"));
-  assert(init.indexOf('if (!deferInitialStorefrontPresentation)') < init.indexOf('await authStatePromise'), 'customer storefront initialization must remain available before waiting for optional authentication');
+  assert(init.indexOf('initializeCategoryShowroomExperience()') < init.indexOf('await authStatePromise'), 'customer storefront initialization must remain available before waiting for optional authentication');
   assert(init.includes('if (!storefrontPresentationRendered || (privateAdminStateLoaded && shouldUsePrivateAdminState()))'), 'Admin private preview must initialize only after its private state is available');
 });

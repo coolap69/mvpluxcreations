@@ -99,15 +99,15 @@ Deno.test('homepage Category cards remain browse-only with full-width bottom-anc
   assert(renderer.includes('layout.imageBottomPercent') && presentationSource.includes('2 - clampNumber(display.standeeVerticalPercent') && presentationSource.includes("'center bottom'"), 'shared card layout must anchor the standee and fallback background near the stage bottom');
 });
 
-Deno.test('auth restoration keeps public startup fast while private preview waits for its data', async () => {
+Deno.test('auth restoration keeps public and signed-in startup visible while private state revalidates', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const init = source.slice(source.indexOf("document.addEventListener('DOMContentLoaded'"));
   const start = init.indexOf('const authStatePromise = syncSupabaseAuthState()');
-  const defer = init.indexOf('const deferInitialStorefrontPresentation = shouldLoadPrivateAdminState()');
+  const cachedPrivate = init.indexOf('const cachedPrivateAdminState = shouldLoadPrivateAdminState()');
   const published = init.indexOf('await loadPublishedAdminSettings()');
   const render = init.indexOf('renderNormalizedHomepageCategoryCards()', published);
   const wait = init.indexOf('await authStatePromise');
   assert(start >= 0 && start < published, 'persisted Supabase session restoration must start immediately');
-  assert(defer > start && defer < published && render > published && wait > render, 'customer rendering must remain fast while the guard suppresses an obsolete Admin-preview paint');
-  assert(init.includes('&& !requestedCollectionCardImage()'), 'an exact clicked Collection image must render immediately instead of leaving the showroom blank during private-state revalidation');
+  assert(cachedPrivate > start && cachedPrivate < published && render > published && wait > render, 'storefront rendering must remain fast while private Admin state revalidates after paint');
+  assert(!init.includes('deferInitialStorefrontPresentation'), 'signed-in browsing must never wait behind a private-preview loading shell');
 });

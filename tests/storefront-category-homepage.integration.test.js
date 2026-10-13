@@ -83,17 +83,17 @@ Deno.test('homepage cards retain authoritative published title, image, backgroun
   assert(sports.card.visible === false, 'legacy card.visible may remain for compatibility data');
 });
 
-Deno.test('homepage Category rendering avoids a published-to-private Admin preview flash', async () => {
+Deno.test('homepage Category rendering never waits on signed-in private state', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const init = source.slice(source.indexOf('document.addEventListener(\'DOMContentLoaded\''));
   const publishedLoad = init.indexOf('await loadPublishedAdminSettings()');
-  const deferGuard = init.indexOf('if (!deferInitialStorefrontPresentation)', publishedLoad);
   const firstRender = init.indexOf('renderNormalizedHomepageCategoryCards()', publishedLoad);
+  const authWait = init.indexOf('await authStatePromise', publishedLoad);
   const privateLoad = init.indexOf('await loadLiveAdminSettings()', publishedLoad);
   const finalGuard = init.indexOf('if (!storefrontPresentationRendered || (privateAdminStateLoaded && shouldUsePrivateAdminState()))', privateLoad);
-  assert(publishedLoad >= 0 && deferGuard > publishedLoad && firstRender > deferGuard, 'published customer rendering must be guarded when private Admin preview is expected');
-  assert(init.includes('&& !requestedCollectionCardImage()'), 'a clicked Homepage Collection image must bypass the blank private-preview wait without using an obsolete image');
-  assert(privateLoad > firstRender && finalGuard > privateLoad, 'Admin preview must wait for private state before its authoritative render');
+  assert(publishedLoad >= 0 && firstRender > publishedLoad && authWait > firstRender, 'published or cached presentation must render before optional authentication can delay the page');
+  assert(!init.includes('deferInitialStorefrontPresentation'), 'signed-in browsing must not intentionally show a blank private-preview loader');
+  assert(privateLoad > firstRender && finalGuard > privateLoad, 'resolved private state must still replace the initial presentation when appropriate');
 });
 
 Deno.test('homepage renderer clears stale cards when no Categories remain eligible', async () => {

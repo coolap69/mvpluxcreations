@@ -154,6 +154,7 @@ alter table public.offers add column if not exists payment_items jsonb;
 alter table public.offers add column if not exists payment_notes text;
 alter table public.offers add column if not exists payment_submitted_at timestamptz;
 alter table public.offers add column if not exists archived_at timestamptz;
+alter table public.offers add column if not exists expires_at timestamptz;
 alter table public.order_requests add column if not exists source_offer_id uuid references public.offers(id) on delete restrict;
 create unique index if not exists order_requests_source_offer_unique
 on public.order_requests (source_offer_id) where source_offer_id is not null;
@@ -352,6 +353,11 @@ begin
     raise exception 'Offer not found.';
   end if;
 
+  if current_offer.status = 'countered' and current_offer.expires_at is not null and current_offer.expires_at <= now() then
+    update public.offers set status = 'expired' where id = p_offer_id returning * into current_offer;
+    return to_jsonb(current_offer);
+  end if;
+
   -- An Admin Test Mode member offer is owned by the signed-in Admin. Process
   -- its pending member response before applying the caller's Admin role.
   if current_offer.customer_id = auth.uid()
@@ -361,12 +367,13 @@ begin
       update public.offers
       set status = 'accepted_awaiting_payment',
           buyer_final_amount = current_offer.seller_counter_amount,
-          buyer_final_message = 'Accepted admin counteroffer'
+          buyer_final_message = 'Accepted admin counteroffer',
+          expires_at = null
       where id = p_offer_id
       returning * into current_offer;
     elsif p_action = 'decline' then
       update public.offers
-      set status = 'declined'
+      set status = 'declined', expires_at = null
       where id = p_offer_id
       returning * into current_offer;
     else
@@ -376,7 +383,8 @@ begin
       update public.offers
       set status = 'buyer_countered',
           buyer_final_amount = round(p_amount, 2),
-          buyer_final_message = nullif(trim(coalesce(p_message, '')), '')
+          buyer_final_message = nullif(trim(coalesce(p_message, '')), ''),
+          expires_at = null
       where id = p_offer_id
       returning * into current_offer;
     end if;
@@ -388,18 +396,18 @@ begin
       raise exception 'This offer is not awaiting an Admin decision.';
     end if;
     if p_action = 'accept' then
-      update public.offers set status = 'accepted_awaiting_payment' where id = p_offer_id returning * into current_offer;
+      update public.offers set status = 'accepted_awaiting_payment', expires_at = null where id = p_offer_id returning * into current_offer;
     elsif p_action = 'decline' then
-      update public.offers set status = 'declined' where id = p_offer_id returning * into current_offer;
+      update public.offers set status = 'declined', expires_at = null where id = p_offer_id returning * into current_offer;
     elsif p_action = 'counter' then
       if current_offer.status <> 'pending' then raise exception 'Only a pending offer can receive an Admin counteroffer.'; end if;
       if current_offer.customer_id is null then raise exception 'Only a signed-in member offer can receive a counteroffer.'; end if;
       if p_amount is null or p_amount <= 0 then raise exception 'Enter a valid counteroffer amount.'; end if;
       update public.offers
-      set status = 'countered', seller_counter_amount = round(p_amount, 2), seller_counter_message = nullif(trim(coalesce(p_message, '')), '')
+      set status = 'countered', seller_counter_amount = round(p_amount, 2), seller_counter_message = nullif(trim(coalesce(p_message, '')), ''), expires_at = now() + interval '48 hours'
       where id = p_offer_id returning * into current_offer;
     elsif p_action = 'archive' then
-      if current_offer.status not in ('paid', 'completed', 'declined') then raise exception 'Only a completed or declined offer can be archived.'; end if;
+      if current_offer.status not in ('paid', 'completed', 'declined', 'expired') then raise exception 'Only a completed, declined, or expired offer can be archived.'; end if;
       update public.offers set status = 'archived', archived_at = now() where id = p_offer_id returning * into current_offer;
     else
       raise exception 'Unsupported Admin offer response.';
@@ -413,12 +421,13 @@ begin
     update public.offers
     set status = 'accepted_awaiting_payment',
         buyer_final_amount = current_offer.seller_counter_amount,
-        buyer_final_message = 'Accepted admin counteroffer'
+        buyer_final_message = 'Accepted admin counteroffer',
+        expires_at = null
     where id = p_offer_id
     returning * into current_offer;
   elsif p_action = 'decline' then
     update public.offers
-    set status = 'declined'
+    set status = 'declined', expires_at = null
     where id = p_offer_id
     returning * into current_offer;
   elsif p_action = 'counter' then
@@ -428,7 +437,8 @@ begin
     update public.offers
     set status = 'buyer_countered',
         buyer_final_amount = round(p_amount, 2),
-        buyer_final_message = nullif(trim(coalesce(p_message, '')), '')
+        buyer_final_message = nullif(trim(coalesce(p_message, '')), ''),
+        expires_at = null
     where id = p_offer_id
     returning * into current_offer;
   else
@@ -492,6 +502,7 @@ begin
         or nullif(trim(split_part(split_part(coalesce(existing.message, ''), E'Background: ', 2), E'\n', 1)), '') is not distinct from selected_background
       )
       and existing.status in ('pending', 'countered', 'buyer_countered', 'accepted', 'accepted_awaiting_payment', 'payment_submitted')
+      and not (existing.status = 'countered' and existing.expires_at is not null and existing.expires_at <= now())
   ) then
     raise exception 'An active offer already exists for this product and size.';
   end if;
@@ -579,7 +590,7 @@ begin
     history_type := 'member_counteroffer';
     history_amount := new.buyer_final_amount;
     history_message := new.buyer_final_message;
-  elsif new.status in ('accepted', 'accepted_awaiting_payment', 'declined', 'payment_pending', 'payment_submitted', 'paid', 'archived')
+  elsif new.status in ('accepted', 'accepted_awaiting_payment', 'declined', 'expired', 'payment_pending', 'payment_submitted', 'paid', 'archived')
     and old.status is distinct from new.status then
     history_type := new.status;
     history_amount := case when new.status in ('accepted', 'accepted_awaiting_payment', 'payment_submitted', 'paid') then coalesce(new.buyer_final_amount, new.seller_counter_amount, new.amount) else null end;
@@ -607,6 +618,27 @@ drop trigger if exists record_offer_update_history on public.offers;
 create trigger record_offer_update_history
 after update on public.offers
 for each row execute function public.record_offer_update_history();
+
+create or replace function public.expire_stale_member_offers()
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare expired_count integer := 0;
+begin
+  if auth.uid() is null then raise exception 'Sign in is required.'; end if;
+  if public.is_current_user_admin() then
+    update public.offers set status = 'expired'
+    where status = 'countered' and expires_at is not null and expires_at <= now();
+  else
+    update public.offers set status = 'expired'
+    where customer_id = auth.uid() and status = 'countered' and expires_at is not null and expires_at <= now();
+  end if;
+  get diagnostics expired_count = row_count;
+  return expired_count;
+end;
+$$;
 
 grant usage on schema public to anon, authenticated;
 grant select on public.categories, public.products, public.product_images to anon, authenticated;
@@ -1511,6 +1543,7 @@ revoke all on function public.enforce_us_offer_payment_shipping() from public;
 revoke all on function public.list_eligible_discounts() from public;
 revoke all on function public.delete_test_offer(uuid) from public;
 revoke all on function public.delete_all_test_offers() from public;
+revoke all on function public.expire_stale_member_offers() from public;
 
 grant execute on function public.get_admin_test_mode() to authenticated;
 grant execute on function public.save_site_edits(text,jsonb,bigint,boolean) to authenticated;
@@ -1527,5 +1560,6 @@ grant execute on function public.admin_update_order_status(uuid, text) to authen
 grant execute on function public.list_eligible_discounts() to authenticated;
 grant execute on function public.delete_test_offer(uuid) to authenticated;
 grant execute on function public.delete_all_test_offers() to authenticated;
+grant execute on function public.expire_stale_member_offers() to authenticated;
 grant select, insert, update on public.discount_codes to authenticated;
 grant select on public.discount_redemptions, public.order_events to authenticated;

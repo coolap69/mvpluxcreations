@@ -1291,7 +1291,8 @@ function offerExistingStateMarkup() {
     payment_submitted: 'Payment submitted — awaiting confirmation',
     paid: 'Completed / paid',
     archived: 'Archived',
-    declined: 'Declined'
+    declined: 'Declined',
+    expired: 'Expired — response period ended'
   };
   return `
     <div class="offer-existing-state">
@@ -1302,9 +1303,32 @@ function offerExistingStateMarkup() {
       ${activeOfferState.sellerCounter?.message ? `<div><span>Admin message</span><strong>${escapeOfferText(activeOfferState.sellerCounter.message)}</strong></div>` : ''}
       ${activeOfferState.buyerFinalCounter ? `<div><span>Your latest counteroffer</span><strong>${escapeOfferText(formatMoney(activeOfferState.buyerFinalCounter.amount))}</strong></div>` : ''}
       <div><span>Status</span><strong>${escapeOfferText(statusLabels[activeOfferState.status] || activeOfferState.status || 'Pending review')}</strong></div>
+      ${activeOfferState.status === 'countered' && activeOfferState.expiresAt ? `<div><span>Time to respond</span><strong data-storefront-offer-countdown="${escapeOfferText(activeOfferState.expiresAt)}">${escapeOfferText(storefrontOfferCountdownText(activeOfferState.expiresAt))}</strong></div>` : ''}
       <div><span>Last updated</span><strong>${escapeOfferText(activeOfferState.lastUpdated ? new Date(activeOfferState.lastUpdated).toLocaleString() : 'Not recorded')}</strong></div>
     </div>
   `;
+}
+
+function storefrontOfferCountdownText(expiresAt) {
+  const remaining = new Date(expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(remaining) || remaining <= 0) return 'Expired';
+  const hours = Math.floor(remaining / 3600000);
+  const minutes = Math.floor((remaining % 3600000) / 60000);
+  const seconds = Math.floor((remaining % 60000) / 1000);
+  return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+function updateStorefrontOfferCountdowns() {
+  let expired = false;
+  document.querySelectorAll('[data-storefront-offer-countdown]').forEach((clock) => {
+    const text = storefrontOfferCountdownText(clock.dataset.storefrontOfferCountdown);
+    clock.textContent = text;
+    if (text === 'Expired') expired = true;
+  });
+  if (expired && activeOfferState?.status === 'countered') {
+    activeOfferState.status = 'expired';
+    updateOfferBoard();
+  }
 }
 
 function updateOfferBoard(productName = activeOfferState?.productName || '', signedInName = getSignedInName()) {
@@ -1488,6 +1512,23 @@ async function submitOfferRequest(event) {
   updateOfferBoard();
 }
 
+let memberOfferExpirationRefresh = null;
+
+function storefrontOfferEffectiveStatus(offer) {
+  const status = String(offer?.status || 'pending');
+  if (status === 'countered' && offer?.expires_at && new Date(offer.expires_at).getTime() <= Date.now()) return 'expired';
+  return status;
+}
+
+async function refreshMemberOfferExpirations(client) {
+  if (!client) return;
+  if (!memberOfferExpirationRefresh) {
+    memberOfferExpirationRefresh = Promise.resolve(client.rpc('expire_stale_member_offers'))
+      .catch(() => null);
+  }
+  await memberOfferExpirationRefresh;
+}
+
 async function loadLatestMemberOffer(productName) {
   const client = window.getMvpluxSupabaseClient?.();
   const user = await getCommerceUser(client);
@@ -1500,6 +1541,7 @@ async function loadLatestMemberOffer(productName) {
   activeOfferState.memberUser = user;
   renderMemberOfferConfigurator();
   updateOfferBoard(productName, true);
+  await refreshMemberOfferExpirations(client);
   const { data, error } = await client
     .from('offers')
     .select('*')
@@ -1510,7 +1552,7 @@ async function loadLatestMemberOffer(productName) {
   if (error || !activeOfferState || activeOfferState.productName !== productName) return;
   const activeStatuses = new Set(['pending', 'countered', 'buyer_countered', 'accepted', 'accepted_awaiting_payment', 'payment_submitted']);
   const existing = (data || []).find((offer) => {
-    if (!activeStatuses.has(offer.status)) return false;
+    if (!activeStatuses.has(storefrontOfferEffectiveStatus(offer))) return false;
     const details = offerDetailsFromMessage(offer.message);
     return (!details['selected size'] || details['selected size'] === activeOfferState.sizeLabel)
       && (!details.design || details.design === activeOfferState.designLabel)
@@ -1549,6 +1591,7 @@ function offerDetailsFromMessage(message) {
 }
 
 async function findMemberOfferForSelection(client, userId, productName, sizeLabel, designLabel, backgroundLabel) {
+  await refreshMemberOfferExpirations(client);
   const { data, error } = await client
     .from('offers')
     .select('*')
@@ -1559,7 +1602,7 @@ async function findMemberOfferForSelection(client, userId, productName, sizeLabe
   if (error) throw error;
   const activeStatuses = new Set(['pending', 'countered', 'buyer_countered', 'accepted', 'accepted_awaiting_payment', 'payment_submitted']);
   return (data || []).find((offer) => {
-    if (!activeStatuses.has(offer.status)) return false;
+    if (!activeStatuses.has(storefrontOfferEffectiveStatus(offer))) return false;
     const details = offerDetailsFromMessage(offer.message);
     return details['selected size'] === sizeLabel
       && (!details.design || details.design === (designLabel || ''))
@@ -1579,6 +1622,7 @@ function applyExistingMemberOffer(offer) {
     ? { amount: Number(offer.buyer_final_amount), message: offer.buyer_final_message || '' }
     : null;
   activeOfferState.status = offer.status || 'pending';
+  activeOfferState.expiresAt = offer.expires_at || null;
   activeOfferState.isTest = Boolean(offer.is_test);
   activeOfferState.lastUpdated = offer.updated_at || offer.created_at;
   activeOfferState.originalAskingPrice = moneyFromText(details['asking price']) || activeOfferState.askingPrice;
@@ -1609,6 +1653,7 @@ async function resumeAcceptedOfferFromUrl() {
     window.location.assign('signin.html');
     return;
   }
+  await refreshMemberOfferExpirations(client);
   const { data: offer, error } = await client.from('offers').select('*').eq('id', offerId).maybeSingle();
   if (error || !offer) {
     showSiteMessage(error?.message || 'The accepted offer could not be loaded.', 'error');
@@ -1626,6 +1671,7 @@ async function resumeAcceptedOfferFromUrl() {
     sellerCounter: offer.seller_counter_amount ? { amount: Number(offer.seller_counter_amount), message: offer.seller_counter_message || '' } : null,
     buyerFinalCounter: offer.buyer_final_amount ? { amount: Number(offer.buyer_final_amount), message: offer.buyer_final_message || '' } : null,
     status: offer.status,
+    expiresAt: offer.expires_at || null,
     isTest: Boolean(offer.is_test),
     memberUser: user
   };
@@ -1638,7 +1684,7 @@ async function respondToSellerCounter(action, amount = null, message = '') {
     showSiteMessage('This member offer cannot be updated yet. Please reopen the offer and try again.', 'error');
     return false;
   }
-  const { error } = await client.rpc('respond_to_member_offer', {
+  const { data, error } = await client.rpc('respond_to_member_offer', {
     p_offer_id: activeOfferState.id,
     p_action: action,
     p_amount: amount,
@@ -1646,6 +1692,12 @@ async function respondToSellerCounter(action, amount = null, message = '') {
   });
   if (error) {
     showSiteMessage(`Could not update the offer. ${error.message || error}`, 'error');
+    return false;
+  }
+  if (data?.status === 'expired') {
+    activeOfferState.status = 'expired';
+    showSiteMessage('This counteroffer expired after 48 hours. You can submit a new offer.', 'error');
+    updateOfferBoard();
     return false;
   }
   activeOfferState.status = action === 'counter' ? 'buyer_countered' : action === 'accept' ? 'accepted_awaiting_payment' : 'declined';
@@ -2996,6 +3048,12 @@ async function loadPublicLiveAdminSettings({ timeoutMs = 3500 } = {}) {
 const PUBLIC_LIVE_NAVIGATION_CACHE_KEY = 'mvpluxPublicLiveNavigationSnapshot';
 const PUBLIC_LIVE_NAVIGATION_CACHE_FRESH_MS = 30 * 1000;
 const PUBLIC_LIVE_NAVIGATION_CACHE_MAX_MS = 5 * 60 * 1000;
+const PRIVATE_ADMIN_NAVIGATION_CACHE_KEY = 'mvpluxPrivateAdminNavigationState';
+const PRIVATE_ADMIN_NAVIGATION_CACHE_MAX_MS = 2 * 60 * 1000;
+const PRIVATE_ADMIN_NAVIGATION_KEYS = [
+  'adminArchitectureV2', 'categories', 'categorySettings', 'customProducts',
+  'deletedCategories', 'deletedProducts', 'globalDisplaySettings', 'priceSettings', 'products'
+];
 
 function readPublicLiveNavigationCache() {
   try {
@@ -3031,6 +3089,37 @@ function writePublicLiveNavigationCache(live) {
     }));
   } catch (_error) {
     // A disabled/full browser cache must never block the storefront.
+  }
+}
+
+function readPrivateAdminNavigationCache() {
+  try {
+    const raw = window.sessionStorage?.getItem(PRIVATE_ADMIN_NAVIGATION_CACHE_KEY);
+    if (!raw) return null;
+    const cached = JSON.parse(raw);
+    const age = Date.now() - (Number(cached?.savedAt) || 0);
+    if (!cached?.settings || typeof cached.settings !== 'object' || age < 0 || age > PRIVATE_ADMIN_NAVIGATION_CACHE_MAX_MS) {
+      window.sessionStorage?.removeItem(PRIVATE_ADMIN_NAVIGATION_CACHE_KEY);
+      return null;
+    }
+    return { settings: cached.settings, revision: Number(cached.revision) || 0 };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writePrivateAdminNavigationCache(settings, revision = 0) {
+  try {
+    const navigationSettings = Object.fromEntries(PRIVATE_ADMIN_NAVIGATION_KEYS.flatMap((key) => (
+      Object.prototype.hasOwnProperty.call(settings || {}, key) ? [[key, settings[key]]] : []
+    )));
+    window.sessionStorage?.setItem(PRIVATE_ADMIN_NAVIGATION_CACHE_KEY, JSON.stringify({
+      settings: navigationSettings,
+      revision: Number(revision) || 0,
+      savedAt: Date.now()
+    }));
+  } catch (_error) {
+    // Private preview can still use the normal authenticated load when tab storage is unavailable.
   }
 }
 
@@ -5186,7 +5275,7 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', pref
 function normalizeFrontPageCategoryLinks() {
   const path = window.location.pathname.split('/').pop() || 'index.html';
   if (path !== 'index.html' && path !== '') return;
-  document.querySelectorAll('#homepageCategoryGrid a[href], [data-homepage-category-fallback] a[href]').forEach((link) => {
+  const normalizeLinks = () => document.querySelectorAll('#homepageCategoryGrid a[href], [data-homepage-category-fallback] a[href]').forEach((link) => {
     const href = link.getAttribute('href') || '';
     if (!href || href.startsWith('#')) return;
     const url = new URL(href, window.location.href);
@@ -5195,7 +5284,13 @@ function normalizeFrontPageCategoryLinks() {
     url.searchParams.delete('collectionImage');
     if (url.hash === '#selected-standee') url.hash = '';
     link.setAttribute('href', `${url.pathname.split('/').pop() || ''}${url.search}${url.hash}`);
-    link.addEventListener('click', () => {
+  });
+  const bindSnapshotHandoff = (root) => {
+    if (!root || root.dataset.liveNavigationCacheReady === 'true') return;
+    root.dataset.liveNavigationCacheReady = 'true';
+    root.addEventListener('click', (event) => {
+      const link = event.target.closest?.('a[href]');
+      if (!link || !root.contains(link)) return;
       const snapshot = window.mvpluxPublishedAdminSettings;
       if (!snapshot) return;
       writePublicLiveNavigationCache({
@@ -5204,8 +5299,14 @@ function normalizeFrontPageCategoryLinks() {
         publishedAt: '',
         source: window.mvpluxPublishedAdminSettingsSource || 'navigation-handoff'
       });
+      if (shouldUsePrivateAdminState() && window.mvpluxLiveAdminStateLoaded && window.mvpluxLiveAdminSettings) {
+        writePrivateAdminNavigationCache(window.mvpluxLiveAdminSettings, window.mvpluxLiveAdminRevision);
+      }
     });
-  });
+  };
+  normalizeLinks();
+  bindSnapshotHandoff(document.getElementById('homepageCategoryGrid'));
+  bindSnapshotHandoff(document.querySelector('[data-homepage-category-fallback]'));
 }
 
 function scrollToSelectedStandeeHash() {
@@ -9339,6 +9440,7 @@ function bindBuyerImagePurchaseJumps() {
 /* ---------------- PAGE INIT ---------------- */
 document.addEventListener('DOMContentLoaded', async function () {
   console.log('[ADMIN] DOMContentLoaded');
+  window.setInterval(updateStorefrontOfferCountdowns, 1000);
   try {
   // Authentication forms must work immediately, without waiting for unrelated storefront data.
   bindAuthForms();
@@ -9348,21 +9450,24 @@ document.addEventListener('DOMContentLoaded', async function () {
   const authStatePromise = syncSupabaseAuthState().catch((error) => {
     console.warn('Supabase session restoration failed:', error);
   });
-  // Customer mode can render the published snapshot immediately. A Collection link carrying
-  // its exact selected image can also paint that correct image immediately while private Admin
-  // state revalidates in the background; otherwise private preview keeps the loading shell
-  // visible so an older published presentation never flashes first.
-  const deferInitialStorefrontPresentation = shouldLoadPrivateAdminState()
-    && !requestedCollectionCardImage();
+  // Always paint the storefront from the already available published or tab-cached private
+  // snapshot before optional authentication/private-state revalidation. Signed-in browsing
+  // must never leave a Collection page behind a network-dependent loading shell.
+  const cachedPrivateAdminState = shouldLoadPrivateAdminState()
+    ? readPrivateAdminNavigationCache()
+    : null;
+  if (cachedPrivateAdminState) {
+    window.mvpluxLiveAdminSettings = cachedPrivateAdminState.settings;
+    window.mvpluxLiveAdminRevision = cachedPrivateAdminState.revision;
+    window.mvpluxLiveAdminStateLoaded = true;
+  }
   let storefrontPresentationRendered = false;
   await loadPublishedAdminSettings();
-  if (!deferInitialStorefrontPresentation) {
-    renderNormalizedHomepageCategoryCards();
-    // Category shopping must initialize as soon as published products and pricing are available.
-    initializeCategoryShowroomExperience();
-    initializeSellableProductPricing();
-    storefrontPresentationRendered = true;
-  }
+  renderNormalizedHomepageCategoryCards();
+  // Category shopping must initialize as soon as published products and pricing are available.
+  initializeCategoryShowroomExperience();
+  initializeSellableProductPricing();
+  storefrontPresentationRendered = true;
   await authStatePromise;
   applyRequestedAdminViewMode();
   await loadStorefrontTestMode().catch(() => {});

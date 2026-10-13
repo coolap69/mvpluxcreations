@@ -27,6 +27,39 @@ function memberDate(value) {
   });
 }
 
+function memberOfferEffectiveStatus(offer) {
+  const status = String(offer?.status || 'pending');
+  if (status === 'countered' && offer?.expires_at && new Date(offer.expires_at).getTime() <= Date.now()) return 'expired';
+  return status;
+}
+
+function memberOfferDeadline(offer) {
+  if (memberOfferEffectiveStatus(offer) !== 'countered' || !offer?.expires_at) return '';
+  return `Respond by ${memberDate(offer.expires_at)}. After that, this offer moves to Past Offers.`;
+}
+
+function memberOfferCountdownText(expiresAt) {
+  const remaining = new Date(expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(remaining) || remaining <= 0) return 'Expired';
+  const hours = Math.floor(remaining / 3600000);
+  const minutes = Math.floor((remaining % 3600000) / 60000);
+  const seconds = Math.floor((remaining % 60000) / 1000);
+  return `${hours}h ${minutes}m ${seconds}s remaining`;
+}
+
+function updateMemberOfferCountdowns() {
+  let foundExpired = false;
+  document.querySelectorAll('[data-member-offer-countdown]').forEach((clock) => {
+    const text = memberOfferCountdownText(clock.dataset.memberOfferCountdown);
+    clock.textContent = text;
+    if (text === 'Expired' && clock.dataset.expirationHandled !== 'true') {
+      clock.dataset.expirationHandled = 'true';
+      foundExpired = true;
+    }
+  });
+  if (foundExpired) window.setTimeout(loadMemberAccount, 500);
+}
+
 function memberOfferDetails(message) {
   const details = {};
   String(message || '').split('\n').forEach((line) => {
@@ -61,7 +94,7 @@ function memberTimelineMarkup(history, offer) {
 
 function memberOfferMarkup(offer, history) {
   const details = memberOfferDetails(offer.message);
-  const status = String(offer.status || 'pending');
+  const status = memberOfferEffectiveStatus(offer);
   const awaitingResponse = status === 'countered';
   const awaitingPayment = ['accepted', 'accepted_awaiting_payment'].includes(status);
   const paymentSubmitted = status === 'payment_submitted';
@@ -74,6 +107,7 @@ function memberOfferMarkup(offer, history) {
     payment_submitted: 'Payment submitted / awaiting confirmation',
     paid: 'Completed / paid',
     declined: 'Declined',
+    expired: 'Expired — response period ended',
     archived: 'Archived'
   };
   return `
@@ -95,6 +129,7 @@ function memberOfferMarkup(offer, history) {
         <div><dt>Created</dt><dd>${memberDate(offer.created_at)}</dd></div>
         <div><dt>Last updated</dt><dd>${memberDate(offer.updated_at || offer.created_at)}</dd></div>
       </dl>
+      ${memberOfferDeadline(offer) ? `<p class="member-offer-deadline"><strong>48-hour response deadline:</strong> ${memberEscape(memberOfferDeadline(offer))}<br><time data-member-offer-countdown="${memberEscape(offer.expires_at)}">${memberEscape(memberOfferCountdownText(offer.expires_at))}</time></p>` : ''}
       ${awaitingPayment ? `
         <div class="member-accepted-offer">
           ${details.image ? `<img src="${memberEscape(details.image)}" alt="${memberEscape(offer.product_name || 'Selected product')} preview">` : ''}
@@ -146,6 +181,11 @@ async function loadMemberAccount() {
     document.body.insertAdjacentHTML('afterbegin', '<div id="memberTestModeWarning" class="admin-test-mode-warning storefront-test-warning">TEST MODE — No real payment will be requested, sent, captured, or recorded.</div>');
   }
 
+  try {
+    await client.rpc('expire_stale_member_offers');
+  } catch (_) {
+    // Older deployments remain readable until the offer-expiration migration is applied.
+  }
   const [offersResponse, ordersResponse, discountsResponse] = await Promise.all([
     client.from('offers').select('*').order('created_at', { ascending: false }),
     client.from('order_requests').select('*').order('created_at', { ascending: false }),
@@ -202,6 +242,7 @@ async function loadMemberAccount() {
     ? 'Account loaded. Offer history becomes available after the offer-history database migration is applied.'
     : 'Your private account is up to date.';
   content.hidden = false;
+  updateMemberOfferCountdowns();
 }
 
 async function handleMemberOfferAction(event) {
@@ -230,7 +271,7 @@ async function handleMemberOfferAction(event) {
 
   button.disabled = true;
   const client = memberAccountClient();
-  const { error } = await client.rpc('respond_to_member_offer', {
+  const { data, error } = await client.rpc('respond_to_member_offer', {
     p_offer_id: card.dataset.memberOffer,
     p_action: action,
     p_amount: amount,
@@ -240,6 +281,9 @@ async function handleMemberOfferAction(event) {
     button.disabled = false;
     document.getElementById('memberAccountStatus').textContent = error.message || 'Could not update the offer.';
     return;
+  }
+  if (data?.status === 'expired') {
+    document.getElementById('memberAccountStatus').textContent = 'This counteroffer expired after 48 hours and moved to Past Offers.';
   }
   await loadMemberAccount();
 }
@@ -254,4 +298,5 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('click', handleMemberOfferAction);
   document.getElementById('accountSignOut')?.addEventListener('click', signOutMemberAccount);
   loadMemberAccount();
+  window.setInterval(updateMemberOfferCountdowns, 1000);
 });
