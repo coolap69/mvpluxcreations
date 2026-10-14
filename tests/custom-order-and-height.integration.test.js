@@ -44,7 +44,7 @@ Deno.test('Custom Order supports a new quote or a pre-discussed order using the 
   assert(source.includes('MVPLUX_PRICING.calculateHeightPrice') && source.includes('MVPLUX_PRICING.parseHeight'), 'desired size estimate must use the central pricing engine');
   assert(source.includes('/functions/v1/submit-custom-order') && source.includes('new FormData(form)'), 'the form must submit references through the secure endpoint');
   assert(source.includes('required: !discussed') && source.includes('form.elements.referenceImages.required = !discussed'), 'references must remain required for new quotes but optional after a design was already discussed');
-  assert(source.includes('openMvpluxCustomOrderPayment') && html.includes('data-custom-payment-method="paypal"'), 'a recorded pre-discussed order must continue into the existing payment UI');
+  assert(source.includes('openMvpluxCustomOrderPayment') && source.includes('getMvpluxCheckoutPaymentMethods') && html.includes('data-custom-order-payment-methods'), 'a recorded pre-discussed order must continue into the shared Admin-managed payment UI');
 });
 
 Deno.test('Custom Order upload endpoint validates files and stores only private reference paths', async () => {

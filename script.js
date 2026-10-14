@@ -63,8 +63,7 @@ function checkoutPaymentIsAuthorized() {
     || Boolean(currentCustomOrderPayment?.orderNumber && currentCustomOrderPayment?.total > 0);
 }
 
-const checkoutPaymentMethods = {
-  // ADMIN: Edit payment details here. Stripe / Apple Pay / Google Pay can be added later.
+const defaultCheckoutPaymentMethods = {
   zelle: {
     label: 'Zelle',
     buttonLabel: 'Zelle Instructions',
@@ -103,9 +102,53 @@ const checkoutPaymentMethods = {
     note: 'Placeholder for Stripe, Apple Pay, and Google Pay later.',
     payUrl: '#STRIPE_APPLE_GOOGLE_PAY_LATER',
     qrImage: '',
-    active: false
+    active: false,
+    futureCardIntegration: true
   }
 };
+
+function normalizeCheckoutPaymentMethods(value = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const methods = {};
+  Object.entries({ ...defaultCheckoutPaymentMethods, ...source }).forEach(([rawKey, rawMethod]) => {
+    const key = String(rawKey || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!key || !rawMethod || typeof rawMethod !== 'object' || Array.isArray(rawMethod)) return;
+    const defaults = defaultCheckoutPaymentMethods[key] || {};
+    const candidateUrl = String(rawMethod.payUrl ?? defaults.payUrl ?? '').trim();
+    const payUrl = /^https:\/\//i.test(candidateUrl) ? candidateUrl : '';
+    const futureCardIntegration = rawMethod.futureCardIntegration === true || key === 'stripe';
+    methods[key] = {
+      label: String(rawMethod.label ?? defaults.label ?? key).trim().slice(0, 80) || key,
+      buttonLabel: String(rawMethod.buttonLabel ?? defaults.buttonLabel ?? `Open ${rawMethod.label || key}`).trim().slice(0, 100),
+      note: String(rawMethod.note ?? defaults.note ?? '').trim().slice(0, 500),
+      instructions: String(rawMethod.instructions ?? defaults.instructions ?? '').trim().slice(0, 1000),
+      phone: String(rawMethod.phone ?? defaults.phone ?? '').trim().slice(0, 80),
+      payUrl,
+      qrImage: String(rawMethod.qrImage ?? defaults.qrImage ?? '').trim(),
+      active: futureCardIntegration ? false : rawMethod.active !== false,
+      preferred: futureCardIntegration ? false : rawMethod.preferred === true,
+      futureCardIntegration,
+      order: Number.isFinite(Number(rawMethod.order)) ? Number(rawMethod.order) : Number(defaults.order) || 999
+    };
+  });
+  if (!methods.stripe) methods.stripe = { ...defaultCheckoutPaymentMethods.stripe, active: false, futureCardIntegration: true, order: 999 };
+  return Object.fromEntries(Object.entries(methods).sort(([, left], [, right]) => (left.order || 999) - (right.order || 999)));
+}
+
+function checkoutPaymentMethods() {
+  return normalizeCheckoutPaymentMethods(getAdminGlobalDisplaySettings()?.paymentMethods || defaultCheckoutPaymentMethods);
+}
+
+window.getMvpluxCheckoutPaymentMethods = () => structuredClone(checkoutPaymentMethods());
+
+function resolvedCheckoutPaymentMethod(key = currentCheckoutPaymentMethod) {
+  const methods = checkoutPaymentMethods();
+  const selected = methods[key];
+  if (selected?.active) return { key, method: selected, methods };
+  const fallback = Object.entries(methods).find(([, method]) => method.active && method.preferred)
+    || Object.entries(methods).find(([, method]) => method.active);
+  return { key: fallback?.[0] || '', method: fallback?.[1] || null, methods };
+}
 
 /* ---------------- CART ---------------- */
 function ensureCartShell() {
@@ -412,7 +455,7 @@ function closeModals() {
 
 /* ---------------- CHECKOUT / PAYMENT ---------------- */
 function calculateCustomerPaidTotal(subtotal, methodKey) {
-  const method = checkoutPaymentMethods[methodKey] || checkoutPaymentMethods.zelle;
+  const { method } = resolvedCheckoutPaymentMethod(methodKey);
   const amount = Number(subtotal) || 0;
   return {
     subtotal: amount,
@@ -560,7 +603,7 @@ function paymentMethodButtonMarkup(key, method) {
 }
 
 function paymentActionButtonsMarkup() {
-  return Object.entries(checkoutPaymentMethods)
+  return Object.entries(checkoutPaymentMethods())
     .filter(([, method]) => method.active)
     .map(([key, method]) => `<button type="button" class="payment-action-btn" onclick="openPaymentOption('${key}')">${method.buttonLabel || method.label}</button>`)
     .join('');
@@ -579,14 +622,14 @@ function paymentModalMarkup() {
           <span id="paymentOrderNoteText">Please include your order number in the payment note. Your order will be processed after payment is confirmed.</span>
         </div>
         <button id="paymentOptionLink" type="button" class="submit-btn">Open Secure Payment Page</button>
-        <p id="paymentOptionDisclaimer" class="payment-option-disclaimer">Zelle is preferred because there are no processing fees. PayPal, Venmo, and Cash App are accepted for convenience.</p>
+        <p id="paymentOptionDisclaimer" class="payment-option-disclaimer">Use one of the active payment options shown here. MVPLUXCREATIONS verifies every payment before production begins.</p>
       </div>
     </div>
   `;
 }
 
 function selectCheckoutPaymentMethod(key) {
-  const method = checkoutPaymentMethods[key];
+  const method = checkoutPaymentMethods()[key];
   if (!method) return;
   if (!method.active) {
     showSiteMessage(`${method.label} can be added later.`, 'info');
@@ -612,12 +655,13 @@ function isPlaceholderPaymentLink(url) {
 }
 
 async function copyZellePhoneNumber() {
-  const phone = checkoutPaymentMethods.zelle.phone;
+  const { method } = resolvedCheckoutPaymentMethod();
+  const phone = method?.phone || '';
   try {
     await navigator.clipboard.writeText(phone);
-    showSiteMessage('Zelle phone number copied.', 'success');
+    showSiteMessage(`${method?.label || 'Payment'} contact copied.`, 'success');
   } catch (error) {
-    showSiteMessage(`Zelle phone number: ${phone}`, 'info');
+    showSiteMessage(`${method?.label || 'Payment'} contact: ${phone}`, 'info');
   }
 }
 
@@ -667,7 +711,13 @@ async function markPaymentCompleted() {
 
 function openPaymentOption(key = currentCheckoutPaymentMethod) {
   ensureCommerceModals();
-  const method = checkoutPaymentMethods[key] || checkoutPaymentMethods.zelle;
+  const resolved = resolvedCheckoutPaymentMethod(key);
+  key = resolved.key;
+  const method = resolved.method;
+  if (!method) {
+    showSiteMessage('No payment method is currently available. Please contact MVPLUXCREATIONS.', 'error');
+    return;
+  }
   if (!method.active) {
     showSiteMessage(`${method.label} can be added later.`, 'info');
     return;
@@ -717,10 +767,10 @@ function openPaymentOption(key = currentCheckoutPaymentMethod) {
   if (disclaimer) disclaimer.hidden = false;
 
   if (title) title.textContent = method.label;
-  if (intro) intro.textContent = method.note;
+  if (intro) intro.textContent = method.instructions || method.note;
   if (qr) {
     qr.innerHTML = method.phone
-      ? `<strong>${method.phone}</strong><span>Use this phone number for Zelle.</span>`
+      ? `<strong>${method.phone}</strong><span>Use this payment contact with your order number.</span>`
       : method.qrImage
       ? `<img src="${method.qrImage}" alt="${method.label} QR code placeholder"><span>QR code placeholder</span>`
       : '<span>You may be redirected to complete payment securely.</span>';
@@ -731,7 +781,7 @@ function openPaymentOption(key = currentCheckoutPaymentMethod) {
       : 'Please include your order number in the payment note. Submit the order request first if you do not have one yet.';
   }
   if (link) {
-    link.textContent = method.phone ? 'Copy Zelle Phone Number' : `Open ${method.label}`;
+    link.textContent = method.phone ? `Copy ${method.label} Payment Contact` : `Open ${method.label}`;
     link.disabled = !method.phone && isPlaceholderPaymentLink(method.payUrl);
     link.onclick = () => {
       if (method.phone) {
@@ -767,7 +817,10 @@ window.openMvpluxCustomOrderPayment = ({ method = 'zelle', orderNumber = '', tot
 };
 
 function checkoutModalMarkup() {
-  const paymentMethods = Object.entries(checkoutPaymentMethods)
+  const methods = checkoutPaymentMethods();
+  const resolved = resolvedCheckoutPaymentMethod();
+  currentCheckoutPaymentMethod = resolved.key;
+  const paymentMethods = Object.entries(methods)
     .filter(([, method]) => method.active)
     .map(([key, method]) => paymentMethodButtonMarkup(key, method))
     .join('');
@@ -3123,10 +3176,17 @@ function writePrivateAdminNavigationCache(settings, revision = 0) {
   }
 }
 
+function announcePublishedAdminSettingsReady() {
+  if (typeof window.dispatchEvent === 'function' && typeof window.CustomEvent === 'function') {
+    window.dispatchEvent(new window.CustomEvent('mvplux:published-settings-ready'));
+  }
+}
+
 function usePublishedAdminSettings(live, source = live.source || 'supabase-live') {
   window.mvpluxPublishedAdminSettings = live.snapshot;
   window.mvpluxPublishedAdminSettingsSource = source;
   window.mvpluxPublishedAdminSettingsRevision = Number(live.liveRevision) || 0;
+  announcePublishedAdminSettingsReady();
   return live.snapshot;
 }
 
@@ -3163,6 +3223,7 @@ async function loadPublishedAdminSettings() {
       if (!snapshot) return null;
       window.mvpluxPublishedAdminSettings = snapshot;
       window.mvpluxPublishedAdminSettingsSource = 'static-fallback';
+      announcePublishedAdminSettingsReady();
       return snapshot;
     } catch (_staticError) {
       window.mvpluxPublishedAdminSettings = null;
@@ -4044,6 +4105,14 @@ function normalizedProductShowroomDesign(value = {}) {
     const parsed = Number(value[field]);
     return Number.isFinite(parsed) ? Math.min(maximum, Math.max(minimum, parsed)) : defaults[field];
   };
+  const requestedStandeeLeft = Number(value.standeeLeftPercent);
+  // Older visual editors stored horizontal placement as an offset from center
+  // (-2 meant 2% left of center). Product showrooms now store the absolute
+  // stage position (48 means 48% from the left). Preserve those saved legacy
+  // offsets instead of clamping every negative value against the left edge.
+  const normalizedStandeeLeft = Number.isFinite(requestedStandeeLeft)
+    ? Math.min(100, Math.max(0, requestedStandeeLeft < 0 ? 50 + requestedStandeeLeft : requestedStandeeLeft))
+    : defaults.standeeLeftPercent;
   return {
     backgroundImage: String(value.backgroundImage || defaults.backgroundImage),
     backgroundPositionX: number('backgroundPositionX', 0, 100),
@@ -4053,7 +4122,7 @@ function normalizedProductShowroomDesign(value = {}) {
     backgroundHeightPercent: number('backgroundHeightPercent', 50, 300),
     stageHeightPx: number('stageHeightPx', 320, 820),
     standeeSizePercent: number('standeeSizePercent', 30, 140),
-    standeeLeftPercent: number('standeeLeftPercent', 0, 100),
+    standeeLeftPercent: normalizedStandeeLeft,
     standeeVerticalPercent: number('standeeVerticalPercent', -20, 60)
   };
 }
@@ -4509,6 +4578,10 @@ function categoryDestinationWithRepresentative(page, representativeProductSlug =
   url.searchParams.delete('product');
   url.searchParams.delete('player');
   url.searchParams.delete('collectionImage');
+  // A Homepage Collection Card always opens the Main Collection. A stale
+  // Child Group query must not make the customer skip directly into a
+  // Subcollection when they clicked the Main Collection on the homepage.
+  url.searchParams.delete('group');
   if (shouldUsePrivateAdminState()) {
     url.searchParams.set('adminView', isInlineAdminEditingEnabled() ? 'edit' : 'preview');
   }
@@ -5074,10 +5147,11 @@ function renderManagedCategoryPageProducts(selectedProductSlug = '') {
   }
   grid.innerHTML = displayedProducts.map(managedCategoryCardMarkup).join('');
   renderCategoryGroupDiscovery(page, category, groupState, currentSlug);
-  if (document.querySelector('.generic-showroom')) setupGenericCategoryShowroom({
-    rebuild: true,
+  setupGenericCategoryShowroom({
+    rebuild: Boolean(document.querySelector('.generic-showroom')),
     selectedSlug: currentSlug,
-    preferredImage: groupRepresentativeImage
+    preferredImage: groupRepresentativeImage,
+    selectedProduct: showroomProducts.find((product) => product.slug === currentSlug) || null
   });
 }
 
@@ -5144,7 +5218,7 @@ function buildGenericCategoryOptions(card, backgroundImages) {
   }];
 }
 
-function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', preferredImage = '' } = {}) {
+function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', preferredImage = '', selectedProduct = null } = {}) {
   const page = document.querySelector('.category-page');
   const existing = document.querySelector('.generic-showroom');
   if (!page || (document.querySelector('.sports-showroom') && !existing) || (existing && !rebuild)) return;
@@ -5160,6 +5234,16 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', pref
   }
 
   const cards = [...page.querySelectorAll('.category-card')];
+  // The selected Subcollection representative is allowed to introduce the
+  // showroom without being listed in the strict "More [Subcollection]" row.
+  // Sport Legends already behaves this way. Create a detached controller card
+  // for the generic showroom instead of weakening Product assignment filters.
+  if (selectedProduct?.slug && !cards.some((card) => card.dataset.productId === selectedProduct.slug)) {
+    const holder = document.createElement('div');
+    holder.innerHTML = managedCategoryCardMarkup(selectedProduct).trim();
+    const representativeCard = holder.firstElementChild;
+    if (representativeCard) cards.unshift(representativeCard);
+  }
   if (!cards.length) return;
 
   const backgroundPanel = [...page.querySelectorAll('.category-panel')].find((panel) => {
@@ -5170,7 +5254,10 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', pref
     : storedBackgroundImages.map((src) => ({ getAttribute: (name) => name === 'src' ? src : '' }));
   if (backgroundPanel) backgroundPanel.remove();
 
-  const requestedSlug = selectedSlug || new URLSearchParams(window.location.search).get('product') || '';
+  const requestedSlug = selectedSlug
+    || new URLSearchParams(window.location.search).get('product')
+    || requestedCollectionProductSlug(getCurrentProductCategory())
+    || '';
   const requestedImage = preferredImage || requestedCollectionCardImage();
   const firstCard = cards.find((card) => card.dataset.productId === requestedSlug) || cards[0];
   const firstTitle = firstCard.querySelector('h3')?.textContent.trim() || 'Standee';
@@ -5202,7 +5289,12 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', pref
     </div>
   `;
 
-  page.querySelector('.category-hero')?.insertAdjacentElement('afterend', showroom);
+  const subcollectionCards = page.querySelector('[data-subcollection-card-list]');
+  const subcollectionNavigation = page.querySelector('[data-category-group-nav]');
+  const categoryHero = page.querySelector('.category-hero');
+  if (subcollectionCards) subcollectionCards.insertAdjacentElement('afterend', showroom);
+  else if (subcollectionNavigation) subcollectionNavigation.insertAdjacentElement('afterend', showroom);
+  else categoryHero?.insertAdjacentElement('afterend', showroom);
 
   const state = {
     stage: showroom.querySelector('.generic-main-stage'),
@@ -5282,6 +5374,7 @@ function normalizeFrontPageCategoryLinks() {
     url.searchParams.delete('product');
     url.searchParams.delete('player');
     url.searchParams.delete('collectionImage');
+    url.searchParams.delete('group');
     if (url.hash === '#selected-standee') url.hash = '';
     link.setAttribute('href', `${url.pathname.split('/').pop() || ''}${url.search}${url.hash}`);
   });

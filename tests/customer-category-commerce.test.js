@@ -50,7 +50,7 @@ Deno.test('non-Sports Collection pages show one clean loading stage until normal
     assert((html.match(/data-category-showroom-loading/g) || []).length === 1, `${filename} must have exactly one immediate loading stage`);
     assert(html.includes('<body data-dynamic-category-page>'), `${filename} must replace its static compatibility heading with the normalized Main Collection title and description`);
     assert(html.includes('rel="preconnect" href="https://cdn.jsdelivr.net"') && html.includes('rel="preconnect" href="https://ncbddqxdinvcsoszdsxr.supabase.co"'), `${filename} must start both required network connections early`);
-    assert(html.includes('script.js?v=20261013-signed-in-instant'), `${filename} must load the nonblocking signed-in navigation controller and current offer lifecycle`);
+    assert(html.includes('script.js?v=20261014-unified-collection-showrooms'), `${filename} must load the nonblocking signed-in navigation controller, current showroom compatibility fix, and Admin-managed manual payments`);
   }
   const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
   assert(initializer.indexOf('setupGenericCategoryShowroom()') < initializer.indexOf("[data-category-showroom-loading]"), 'the loader must remain until the normalized showroom is constructed');
@@ -115,8 +115,8 @@ Deno.test('all customer browsing paths use normalized navigation without obsolet
     && detailPage.includes('productMainCollectionHref(product)')
     && !detailPage.includes('javascript:history.back()'),
   'Product pages must return to their normalized Main Collection instead of depending on browser history');
-  assert(indexHtml.includes('script.js?v=20261013-signed-in-instant')
-    && standeeHtml.includes('script.js?v=20261013-signed-in-instant'),
+  assert(indexHtml.includes('script.js?v=20261014-unified-collection-showrooms')
+    && standeeHtml.includes('script.js?v=20261014-unified-collection-showrooms'),
   'Homepage and standalone Product pages must request the same current navigation controller');
 });
 

@@ -99,6 +99,19 @@ Deno.test('Product Editor exposes every actual visual layer with accurate owners
   assert(styleSource.includes('.admin-product-current-visual') && styleSource.includes('height: 96px'), 'visual references must remain compact instead of duplicating the large sticky Product preview');
 });
 
+Deno.test('existing Product Editor uses the shared text-only AI helper for all Product details', () => {
+  const productEditor = sourceRange(adminSource, 'function renderAdminProducts', '\n\nfunction filterAdminProductLibrary');
+  for (const token of ['Who or what is this?', 'Fill Title, Description, Fun Fact &amp; Height with AI', 'data-ai-suggest="fillAll"', 'data-ai-status']) {
+    assert(productEditor.includes(token), `existing Product Editor is missing AI control ${token}`);
+  }
+  const assistant = sourceRange(adminSource, 'async function requestAdminContentSuggestion', '\n\nfunction bindAdminAiAssistance');
+  assert(assistant.includes("formData.get('productSlug')") && assistant.includes('form.dataset.slug'), 'AI must resolve the exact existing normalized Product being edited');
+  assert(assistant.includes("imagePath: ''"), 'routine Product AI must remain text-only to avoid sending repository images through Supabase');
+  assert(assistant.includes("['title', 'description', 'funFact'"), 'Fill All must populate title, description, and fun fact');
+  assert(assistant.includes("['originalHeight']"), 'Fill All must include original height when the Product editor exposes that field');
+  assert(!assistant.includes('saveAdminCollectionOperations') && !assistant.includes('saveLiveChangeIds'), 'AI suggestions must never save or publish automatically');
+});
+
 Deno.test('Product logo overlay can be disabled without changing the background, Product, or physical asset', () => {
   const window = new Window({ url: 'https://mvpluxcreations.com/admin.html' });
   window.document.body.innerHTML = `<form data-slug="performer"><input name="title" value="Performer"><input name="description" value="Description"><input name="funFact" value="Fact"><input name="cutoutImage" value="images/main.png"><input name="backgroundImage" value="images/background-with-logo.png"><input name="originalHeight" value="70"><input name="priceOverride" value="99"><input name="cutoutHeight" value="63"><input name="cutoutLeft" value="50"><input name="cutoutBottom" value="21"><input name="logoWidth" value="82"><input name="logoTop" value="-4"><input name="logoVisible" type="checkbox"><input name="stageBackgroundPosition" value="center center"></form>`;
@@ -243,6 +256,8 @@ Deno.test('Product showroom inheritance is Product override then Main Collection
   const runtime = new Function('getCurrentProductCategory', 'getAdminGlobalDisplaySettings', `${helpers}\nreturn { resolveSharedProductShowroomDesign, applyProductShowroomDesign };`)(() => 'movie-characters', () => settings);
   const inherited = runtime.resolveSharedProductShowroomDesign({ categories: ['movie-characters'] }, 'movie-characters', settings);
   assert(inherited.backgroundImage === 'images/movies.jpg' && inherited.backgroundWidthPercent === 110 && inherited.backgroundHeightPercent === 145 && inherited.stageHeightPx === 620 && inherited.standeeSizePercent === 92 && inherited.standeeLeftPercent === 48, 'Main Collection shared design must inherit unspecified global values including standee placement');
+  const legacyCenteredOffset = runtime.resolveSharedProductShowroomDesign({ displayOverrides: { standeeLeftPercent: -2 } }, 'movie-characters', settings);
+  assert(legacyCenteredOffset.standeeLeftPercent === 48, 'legacy negative center offsets must become absolute showroom positions instead of being clamped to the far-left edge');
   const custom = runtime.resolveSharedProductShowroomDesign({ backgroundImage: 'images/captain-custom.jpg' }, 'movie-characters', settings);
   assert(custom.backgroundImage === 'images/captain-custom.jpg' && custom.backgroundHeightPercent === 145, 'Product-specific background must remain an override without losing shared geometry');
   const style = { setProperty(name, value) { this[name] = value; } };

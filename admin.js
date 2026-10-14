@@ -2169,6 +2169,11 @@ async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', status
 
 async function saveAllOpenAdminChanges({ quiet = false } = {}) {
   if (!await saveAllOpenCollectionChanges({ quiet: true })) return false;
+  const paymentMethodsForm = document.getElementById('adminPaymentMethodsForm');
+  if (paymentMethodsForm?.dataset.editorDirty === 'true' && !await saveAdminPaymentMethods()) {
+    if (!quiet) setStatus('Save All stopped at Customer Payment Methods.');
+    return false;
+  }
   const sharedShowroomForm = document.querySelector('[data-shared-product-showroom-form][data-editor-dirty="true"]');
   if (sharedShowroomForm && !await saveSharedProductShowroomDesign(sharedShowroomForm)) {
     if (!quiet) setStatus('Save All stopped at Shared Product Showroom Design.');
@@ -3570,6 +3575,247 @@ function creationImageLibrary(kind = 'product') {
     .sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
 }
 
+function movieProductFolderGroups(paths = []) {
+  const prefix = 'images/Movie Stars/';
+  const groups = new Map();
+  (paths || []).forEach((path) => {
+    const reference = String(path || '');
+    if (!reference.startsWith(prefix) || !validatePublishImagePath(reference)) return;
+    const separator = reference.lastIndexOf('/');
+    if (separator <= prefix.length) return;
+    const folder = reference.slice(0, separator);
+    if (!groups.has(folder)) groups.set(folder, []);
+    groups.get(folder).push(reference);
+  });
+  return [...groups.entries()]
+    .map(([folder, images]) => ({
+      folder,
+      title: folder.split('/').pop().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim(),
+      images: [...new Set(images)].sort((left, right) => left.localeCompare(right))
+    }))
+    .sort((left, right) => left.folder.localeCompare(right.folder));
+}
+
+function preferredMovieFolderMainImage(images = []) {
+  const score = (path) => {
+    const name = String(path || '').split('/').pop().toLowerCase();
+    let value = 0;
+    if (/no[\s_-]*background|nobackground|cutout|transparent/.test(name)) value += 100;
+    if (/final|regular|highres|updated/.test(name)) value += 20;
+    if (/white[\s_-]*background|whitebackground/.test(name)) value -= 35;
+    else if (/background/.test(name)) value -= 20;
+    if (/print|reference|mockup/.test(name)) value -= 60;
+    return value;
+  };
+  return [...images].sort((left, right) => score(right) - score(left) || left.localeCompare(right))[0] || '';
+}
+
+function normalizedProductImageReferences(product = {}) {
+  const resolveImagePath = window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH || ((path) => String(path || ''));
+  return [product.cutoutImage, ...normalizeImageChoices(product.imageChoices).flatMap((choice) => [choice.image, choice.stage])]
+    .filter(Boolean)
+    .map((path) => resolveImagePath(path));
+}
+
+function normalizedMovieProductFolder(folder = '') {
+  return String(folder || '').trim().replace(/\/+$/, '');
+}
+
+function movieFolderMatchingProductSlugs(folder, products = {}) {
+  const normalizedFolder = normalizedMovieProductFolder(folder);
+  const explicitOwners = Object.entries(products || {})
+    .filter(([, product]) => normalizedMovieProductFolder(product?.repositoryImageFolder) === normalizedFolder)
+    .map(([slug]) => slug);
+  if (explicitOwners.length) return explicitOwners;
+
+  const prefix = `${normalizedFolder}/`;
+  const folderIdentity = makeSlug(normalizedFolder.split('/').pop() || '');
+  return [...new Set(Object.entries(products || {})
+    .filter(([slug, product]) => (
+      normalizedProductImageReferences(product).some((path) => path.startsWith(prefix))
+      || makeSlug(slug) === folderIdentity
+      || makeSlug(product?.title || '') === folderIdentity
+    ))
+    .map(([slug]) => slug))];
+}
+
+function movieFolderCategoryAssignments(folder, categories = readAdminCategories()) {
+  const assigned = ['movie-characters'];
+  const segment = folder.split('/')[2] || '';
+  const identity = makeSlug(segment).replace(/s$/, '');
+  const child = Object.values(categories || {}).find((category) => (
+    category?.parentKey === 'movie-characters'
+    && [category.key, category.title].some((value) => makeSlug(value).replace(/s$/, '') === identity)
+  ));
+  if (child?.key) assigned.push(child.key);
+  return [...new Set(assigned)];
+}
+
+function movieFolderProductImportRows() {
+  const products = readAdminProducts();
+  return movieProductFolderGroups(creationImageLibrary('product')).map((group) => {
+    const matches = movieFolderMatchingProductSlugs(group.folder, products);
+    const existing = matches.length === 1 ? products[matches[0]] : null;
+    const currentMain = existing && normalizedProductImageReferences({ cutoutImage: existing.cutoutImage })[0];
+    return {
+      ...group,
+      matches,
+      existing,
+      matchingProducts: Object.fromEntries(matches.map((slug) => [slug, products[slug]])),
+      mainImage: currentMain && group.images.includes(currentMain) ? currentMain : preferredMovieFolderMainImage(group.images)
+    };
+  });
+}
+
+function setMovieFolderImportStatus(message, state = '') {
+  const status = document.querySelector('[data-movie-folder-import-status]');
+  if (!status) return;
+  status.textContent = message;
+  status.dataset.state = state;
+}
+
+function renderMovieFolderProductImporter() {
+  const container = document.querySelector('[data-movie-folder-product-list]');
+  if (!container) return;
+  if (!imageInventoryLoaded) {
+    container.innerHTML = '<p class="admin-note">Loading repository image folders…</p>';
+    return;
+  }
+  const rows = movieFolderProductImportRows();
+  container.innerHTML = rows.map((row) => {
+    const conflict = row.matches.length > 1;
+    const destination = conflict
+      ? `Conflict: ${row.matches.join(', ')}`
+      : row.existing
+        ? `Update existing Product: ${row.existing.title || row.matches[0]}`
+        : 'Create one new private Product draft';
+    const integrationChoice = conflict
+      ? `<label>Integrate folder into existing Product<select data-movie-folder-existing-product><option value="">Choose the Product that owns this folder…</option>${row.matches.map((slug) => `<option value="${escapeAdminHtml(slug)}">${escapeAdminHtml(row.matchingProducts?.[slug]?.title || slug)} (${escapeAdminHtml(slug)})</option>`).join('')}</select></label>`
+      : '';
+    return `<article class="admin-movie-folder-row" data-movie-product-folder="${escapeAdminHtml(row.folder)}" data-existing-product="${escapeAdminHtml(row.matches.length === 1 ? row.matches[0] : '')}" data-folder-conflict="${conflict}">
+      <label class="admin-review-select"><input type="checkbox" data-select-movie-product-folder ${conflict ? 'disabled' : ''}> Import / integrate</label>
+      <img src="${escapeAdminHtml(row.mainImage)}" alt="" data-movie-folder-preview loading="lazy">
+      <div class="admin-review-summary"><strong>${escapeAdminHtml(row.title)}</strong><code>${escapeAdminHtml(row.folder)}</code><span>${row.images.length} image${row.images.length === 1 ? '' : 's'}</span><span class="${conflict ? 'admin-warning-message' : ''}">${escapeAdminHtml(destination)}</span></div>
+      <label>Draft title<input type="text" data-movie-folder-title value="${escapeAdminHtml(row.existing?.title || row.title)}" ${row.existing ? 'readonly' : ''}></label>
+      <label>Main Product image<select data-movie-folder-main-image>${row.images.map((image) => `<option value="${escapeAdminHtml(image)}" ${image === row.mainImage ? 'selected' : ''}>${escapeAdminHtml(creationImageLabel(image))}</option>`).join('')}</select></label>
+      ${integrationChoice}
+    </article>`;
+  }).join('') || '<p class="admin-empty-state">No Movie Stars image folders were found.</p>';
+  setMovieFolderImportStatus(`${rows.length} Movie Stars folders found. Existing Products will be updated, not duplicated. Conflicts require you to choose the Product that owns the folder.`, 'loaded');
+}
+
+async function importSelectedMovieFolderProducts() {
+  const selectedRows = [...document.querySelectorAll('[data-movie-product-folder]')]
+    .filter((row) => row.querySelector('[data-select-movie-product-folder]')?.checked && row.dataset.folderConflict !== 'true');
+  if (!selectedRows.length) {
+    setMovieFolderImportStatus('Select at least one safe Movie Stars folder first.', 'error');
+    return false;
+  }
+  setMovieFolderImportStatus('Saving selected Movie Product drafts privately…', 'saving');
+  const latest = await fetchAuthoritativeAdminGlobal(['products', 'categories']);
+  const products = latest.edits?.products || {};
+  const categories = latest.edits?.categories || readAdminCategories();
+  const groups = new Map(movieProductFolderGroups(creationImageLibrary('product')).map((group) => [group.folder, group]));
+  const now = new Date().toISOString();
+  const operations = [];
+  const failures = [];
+  selectedRows.forEach((row) => {
+    const group = groups.get(row.dataset.movieProductFolder);
+    const mainImage = row.querySelector('[data-movie-folder-main-image]')?.value || '';
+    const latestMatches = group ? movieFolderMatchingProductSlugs(group.folder, products) : [];
+    const selectedExistingSlug = row.querySelector('[data-movie-folder-existing-product]')?.value || row.dataset.existingProduct || '';
+    const existingSlug = selectedExistingSlug || (latestMatches.length === 1 ? latestMatches[0] : '');
+    const existing = existingSlug ? products[existingSlug] : null;
+    if (!group || !group.images.includes(mainImage)) {
+      failures.push(row.dataset.movieProductFolder || 'Unknown Movie folder');
+      return;
+    }
+    if (selectedExistingSlug && !products[selectedExistingSlug]) {
+      failures.push(`${group.title} (the selected Product no longer exists; refresh and try again)`);
+      return;
+    }
+    if (selectedExistingSlug && latestMatches.length && !latestMatches.includes(selectedExistingSlug)) {
+      failures.push(`${group.title} (folder ownership changed on the server; refresh before importing)`);
+      return;
+    }
+    if (!selectedExistingSlug && latestMatches.length > 1) {
+      failures.push(`${group.title} (choose which existing Product owns this folder)`);
+      return;
+    }
+    const folderChoices = group.images.filter((image) => image !== mainImage).map((image) => ({ label: creationImageLabel(image), image }));
+    if (existing) {
+      const retainedChoices = normalizeImageChoices(existing.imageChoices).filter((choice) => !group.images.includes((window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH || ((path) => path))(choice.image)));
+      operations.push({
+        type: 'record', collectionKey: 'products', entryKey: existingSlug, baseRecord: existing,
+        patch: {
+          repositoryImageFolder: normalizedMovieProductFolder(group.folder),
+          cutoutImage: mainImage,
+          imageChoices: normalizeImageChoices([...retainedChoices, ...folderChoices]),
+          updatedAt: now, draftStatus: 'draft', approvalStatus: 'draft'
+        }
+      });
+      return;
+    }
+    const title = row.querySelector('[data-movie-folder-title]')?.value.trim() || group.title;
+    let slug = makeSlug(title);
+    if (products[slug] || operations.some((operation) => operation.entryKey === slug)) {
+      failures.push(`${title} (the Product slug ${slug} already exists)`);
+      return;
+    }
+    const product = buildNewProductRecord({
+      slug, title, cutoutImage: mainImage, imageChoices: folderChoices,
+      categories: movieFolderCategoryAssignments(group.folder, categories), visible: false,
+      approvalStatus: 'draft', createdAt: now
+    });
+    product.repositoryImageFolder = normalizedMovieProductFolder(group.folder);
+    operations.push(newProductRecordOperation(product));
+  });
+  if (failures.length) {
+    setMovieFolderImportStatus(`Nothing was saved. Review: ${failures.join('; ')}.`, 'error');
+    return false;
+  }
+  const result = await saveAdminCollectionOperations(operations);
+  if (!result.ok) {
+    setMovieFolderImportStatus(adminLastSaveError || 'Movie Product folder import failed. Nothing was published.', 'error');
+    return false;
+  }
+  setMovieFolderImportStatus(`DRAFT SAVED — PRIVATE. ${operations.length} Movie Product folder${operations.length === 1 ? '' : 's'} imported. Customers cannot see these changes until you use Save Live.`, 'saved');
+  renderAdminProducts();
+  renderMovieFolderProductImporter();
+  return true;
+}
+
+function setupMovieFolderProductImporter() {
+  const importer = document.getElementById('movieFolderProductImporter');
+  if (!importer || importer.dataset.bound === 'true') return;
+  importer.dataset.bound = 'true';
+  importer.addEventListener('toggle', () => { if (importer.open) renderMovieFolderProductImporter(); });
+  importer.querySelector('[data-refresh-movie-folder-products]')?.addEventListener('click', async () => {
+    await loadImageDraftInventory({ renderInbox: false });
+    renderMovieFolderProductImporter();
+  });
+  importer.querySelector('[data-select-safe-movie-folders]')?.addEventListener('click', () => {
+    importer.querySelectorAll('[data-select-movie-product-folder]:not(:disabled)').forEach((input) => { input.checked = true; });
+  });
+  importer.querySelector('[data-import-movie-folder-products]')?.addEventListener('click', importSelectedMovieFolderProducts);
+  importer.addEventListener('change', (event) => {
+    if (event.target.matches('[data-movie-folder-existing-product]')) {
+      const row = event.target.closest('[data-movie-product-folder]');
+      const checkbox = row?.querySelector('[data-select-movie-product-folder]');
+      if (row && checkbox) {
+        row.dataset.existingProduct = event.target.value;
+        checkbox.disabled = !event.target.value;
+        checkbox.checked = Boolean(event.target.value);
+      }
+      return;
+    }
+    if (!event.target.matches('[data-movie-folder-main-image]')) return;
+    const row = event.target.closest('[data-movie-product-folder]');
+    const preview = row?.querySelector('[data-movie-folder-preview]');
+    if (preview) preview.src = event.target.value;
+  });
+}
+
 function productVisualOptionsMarkup(kind, selected = '') {
   const selectedPath = String(selected || '').trim();
   const paths = creationImageLibrary(kind);
@@ -3717,7 +3963,8 @@ async function requestAdminContentSuggestion(form, action, button) {
     const token = data?.session?.access_token;
     if (!token) throw new Error('Sign in as Admin to use optional AI suggestions.');
     const formData = new FormData(form);
-    const existingProduct = effectiveAdminProduct(String(formData.get('parentProductSlug') || ''));
+    const existingProductSlug = String(formData.get('parentProductSlug') || formData.get('productSlug') || form.dataset.slug || '');
+    const existingProduct = effectiveAdminProduct(existingProductSlug);
     const existingCategory = readAdminCategories()[String(form.dataset.categoryEdit || '')];
     const controller = new AbortController();
     timeout = window.setTimeout(() => controller.abort(), 45_000);
@@ -3910,6 +4157,7 @@ function setupAdminCreationWorkspace() {
   productForm.querySelector('[data-create-product-categories]').innerHTML = creationCategoryMarkup();
   populateCreationImagePickers(productForm);
   attachRepositoryFilePickers(productForm);
+  setupMovieFolderProductImporter();
   if (!imageInventoryLoaded) loadImageDraftInventory({ renderInbox: false }).catch((error) => {
     setCreationStatus(productForm, `The full repository image list could not be loaded. ${error?.message || error}`, 'error');
   });
@@ -5058,6 +5306,21 @@ function architectureReviewItems() {
       page: 'subcollections'
     });
   }
+  const baselinePaymentMethods = normalizeAdminPaymentMethods(baseline.globalDisplaySettings?.paymentMethods || ADMIN_DEFAULT_PAYMENT_METHODS);
+  const currentPaymentMethods = normalizeAdminPaymentMethods(adminLiveSettings?.globalDisplaySettings?.paymentMethods || ADMIN_DEFAULT_PAYMENT_METHODS);
+  if (!semanticValuesEqual(baselinePaymentMethods, currentPaymentMethods)) {
+    items.push({
+      id: 'paymentMethods:all',
+      type: 'payment-methods',
+      key: 'all',
+      group: 'Customer Payment Methods',
+      title: 'Customer manual payment methods',
+      approved: true,
+      before: baselinePaymentMethods,
+      after: currentPaymentMethods,
+      page: 'checkout'
+    });
+  }
   return items;
 }
 
@@ -5137,6 +5400,12 @@ function buildSelectedArchitectureSnapshot(items) {
       baseline.globalDisplaySettings = {
         ...(baseline.globalDisplaySettings || {}),
         subcollectionCards: structuredClone(current.globalDisplaySettings?.subcollectionCards || {})
+      };
+    }
+    if (item.type === 'payment-methods') {
+      baseline.globalDisplaySettings = {
+        ...(baseline.globalDisplaySettings || {}),
+        paymentMethods: structuredClone(current.globalDisplaySettings?.paymentMethods || {})
       };
     }
   });
@@ -8634,6 +8903,15 @@ function renderAdminProducts() {
                 Fun fact
                 <textarea name="funFact" rows="2">${value.funFact || ''}</textarea>
               </label>
+              <label>
+                Who or what is this? <span>(AI guidance only)</span>
+                <input name="subjectIdentity" type="text" value="${escapeAdminHtml(value.title || '')}" placeholder="Example: Arnold Schwarzenegger as the Terminator">
+              </label>
+              <div class="admin-ai-actions" aria-label="Optional AI assistance">
+                <button type="button" data-ai-suggest="fillAll">Fill Title, Description, Fun Fact &amp; Height with AI</button>
+              </div>
+              <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
+              <p class="admin-note">AI fills these Product fields for review. It sends text only and never saves or publishes automatically.</p>
             </fieldset>
             ${product.categoryCard ? '' : categoryAssignmentMarkup(value)}
             <fieldset class="admin-product-visual-section admin-product-main-image-section">
@@ -9005,6 +9283,186 @@ function setupPriceRules() {
     fillPriceSettingsForm();
     document.querySelectorAll('.admin-product-card').forEach((productForm) => updateAdminOriginalPrice(productForm, settings));
     setStatus('Prices saved live.');
+  });
+}
+
+const ADMIN_DEFAULT_PAYMENT_METHODS = {
+  zelle: { label: 'Zelle', buttonLabel: 'Zelle Instructions', note: 'Preferred - No Processing Fee', phone: '(508) 463-5910', payUrl: '', active: true, preferred: true, order: 10 },
+  paypal: { label: 'PayPal', buttonLabel: 'Pay with PayPal', note: 'Accepted for convenience. Opens PayPal in a secure new tab.', phone: '', payUrl: 'https://paypal.me/louispazos', active: true, preferred: false, order: 20 },
+  venmo: { label: 'Venmo', buttonLabel: 'Pay with Venmo', note: 'Accepted for convenience. Opens Venmo in a secure new tab.', phone: '', payUrl: 'https://venmo.com/u/Lap27', active: true, preferred: false, order: 30 },
+  cashapp: { label: 'Cash App', buttonLabel: 'Pay with Cash App', note: 'Accepted for convenience. Opens Cash App in a secure new tab.', phone: '', payUrl: 'https://cash.app/$Watawonderfulworld', active: true, preferred: false, order: 40 },
+  stripe: { label: 'Card / Apple Pay / Google Pay', buttonLabel: 'Card Pay Later', note: 'Future secure payment-processor integration.', phone: '', payUrl: '', active: false, preferred: false, order: 999, futureCardIntegration: true }
+};
+
+function normalizeAdminPaymentMethods(value = {}) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const methods = {};
+  Object.entries({ ...ADMIN_DEFAULT_PAYMENT_METHODS, ...source }).forEach(([rawKey, rawMethod]) => {
+    const key = makeSlug(rawKey);
+    if (!key || !rawMethod || typeof rawMethod !== 'object' || Array.isArray(rawMethod)) return;
+    const defaults = ADMIN_DEFAULT_PAYMENT_METHODS[key] || {};
+    const futureCardIntegration = rawMethod.futureCardIntegration === true || key === 'stripe';
+    const candidateUrl = String(rawMethod.payUrl ?? defaults.payUrl ?? '').trim();
+    methods[key] = {
+      label: String(rawMethod.label ?? defaults.label ?? key).trim().slice(0, 80) || key,
+      buttonLabel: String(rawMethod.buttonLabel ?? defaults.buttonLabel ?? '').trim().slice(0, 100),
+      note: String(rawMethod.note ?? defaults.note ?? '').trim().slice(0, 500),
+      instructions: String(rawMethod.instructions ?? defaults.instructions ?? '').trim().slice(0, 1000),
+      phone: String(rawMethod.phone ?? defaults.phone ?? '').trim().slice(0, 80),
+      payUrl: /^https:\/\//i.test(candidateUrl) ? candidateUrl : '',
+      active: futureCardIntegration ? false : rawMethod.active !== false,
+      preferred: futureCardIntegration ? false : rawMethod.preferred === true,
+      order: Number.isFinite(Number(rawMethod.order)) ? Number(rawMethod.order) : Number(defaults.order) || 999,
+      ...(futureCardIntegration ? { futureCardIntegration: true } : {})
+    };
+  });
+  return Object.fromEntries(Object.entries(methods).sort(([, left], [, right]) => left.order - right.order));
+}
+
+function currentAdminPaymentMethods() {
+  return normalizeAdminPaymentMethods(adminLiveSettings?.globalDisplaySettings?.paymentMethods || ADMIN_DEFAULT_PAYMENT_METHODS);
+}
+
+function adminPaymentMethodRowMarkup(key, method) {
+  const locked = method.futureCardIntegration === true;
+  const builtIn = Object.prototype.hasOwnProperty.call(ADMIN_DEFAULT_PAYMENT_METHODS, key);
+  return `<fieldset class="admin-payment-method-row" data-payment-method-row="${escapeAdminHtml(key)}">
+    <legend>${escapeAdminHtml(method.label || key)}${locked ? ' — Future' : ''}</legend>
+    <input type="hidden" name="paymentMethodKey" value="${escapeAdminHtml(key)}">
+    <label>Customer name<input name="paymentMethodLabel" value="${escapeAdminHtml(method.label)}" maxlength="80" ${locked ? 'readonly' : 'required'}></label>
+    <label>Button label<input name="paymentMethodButtonLabel" value="${escapeAdminHtml(method.buttonLabel)}" maxlength="100" ${locked ? 'readonly' : ''}></label>
+    <label class="admin-payment-method-wide">Short note<input name="paymentMethodNote" value="${escapeAdminHtml(method.note)}" maxlength="500" ${locked ? 'readonly' : ''}></label>
+    <label class="admin-payment-method-wide">Customer instructions<textarea name="paymentMethodInstructions" rows="2" maxlength="1000" ${locked ? 'readonly' : ''}>${escapeAdminHtml(method.instructions)}</textarea></label>
+    <label>Secure payment link<input name="paymentMethodUrl" type="url" inputmode="url" placeholder="https://…" value="${escapeAdminHtml(method.payUrl)}" ${locked ? 'readonly' : ''}></label>
+    <label>Payment phone/contact<input name="paymentMethodPhone" value="${escapeAdminHtml(method.phone)}" maxlength="80" ${locked ? 'readonly' : ''}></label>
+    <label>Order<input name="paymentMethodOrder" type="number" min="1" step="1" value="${Number(method.order) || 999}" ${locked ? 'readonly' : ''}></label>
+    <label><input name="paymentMethodActive" type="checkbox" ${method.active ? 'checked' : ''} ${locked ? 'disabled' : ''}> Enabled for customers</label>
+    <label><input name="paymentMethodPreferred" type="checkbox" ${method.preferred ? 'checked' : ''} ${locked ? 'disabled' : ''}> Preferred</label>
+    ${locked
+      ? '<p class="admin-note admin-payment-method-wide">This placeholder stays disabled until a secure card processor is implemented.</p>'
+      : builtIn
+      ? '<p class="admin-note admin-payment-method-wide">Built-in method — turn off Enabled for customers if you do not want to offer it.</p>'
+      : `<button type="button" data-remove-payment-method="${escapeAdminHtml(key)}">Remove Method</button>`}
+  </fieldset>`;
+}
+
+function renderAdminPaymentMethods(methods = currentAdminPaymentMethods()) {
+  const list = document.getElementById('adminPaymentMethodsList');
+  if (!list) return;
+  list.innerHTML = Object.entries(normalizeAdminPaymentMethods(methods)).map(([key, method]) => adminPaymentMethodRowMarkup(key, method)).join('');
+  renderAdminPaymentMethodsPreview(normalizeAdminPaymentMethods(methods));
+  const form = document.getElementById('adminPaymentMethodsForm');
+  if (form) form.dataset.editorDirty = 'false';
+}
+
+function renderAdminPaymentMethodsPreview(methods = collectAdminPaymentMethods()) {
+  const preview = document.getElementById('adminPaymentMethodsPreview');
+  if (!preview) return;
+  const active = Object.entries(normalizeAdminPaymentMethods(methods)).filter(([, method]) => method.active);
+  if (!active.length) {
+    preview.innerHTML = '<p class="admin-warning-message">No customer payment methods are currently enabled.</p>';
+    return;
+  }
+  preview.innerHTML = `<div class="admin-payment-preview-choices">
+    ${active.map(([key, method], index) => `<div class="payment-method-card ${method.preferred || index === 0 ? 'active' : ''}" data-preview-payment-method="${escapeAdminHtml(key)}">
+      <span>${escapeAdminHtml(method.label)}${method.preferred ? ' <b>Preferred</b>' : ''}</span>
+      <small>${escapeAdminHtml(method.note)}</small>
+      <em>Open payment instructions</em>
+    </div>`).join('')}
+  </div>
+  <div class="admin-payment-preview-actions">
+    ${active.map(([, method]) => `<span class="payment-action-btn">${escapeAdminHtml(method.buttonLabel || method.label)}</span>`).join('')}
+  </div>`;
+}
+
+function collectAdminPaymentMethods() {
+  const methods = {};
+  document.querySelectorAll('[data-payment-method-row]').forEach((row, index) => {
+    const get = (name) => row.querySelector(`[name="${name}"]`);
+    const key = makeSlug(get('paymentMethodKey')?.value || get('paymentMethodLabel')?.value || `payment-${index + 1}`);
+    if (!key) return;
+    const futureCardIntegration = key === 'stripe';
+    const url = String(get('paymentMethodUrl')?.value || '').trim();
+    methods[key] = {
+      label: String(get('paymentMethodLabel')?.value || key).trim(),
+      buttonLabel: String(get('paymentMethodButtonLabel')?.value || '').trim(),
+      note: String(get('paymentMethodNote')?.value || '').trim(),
+      instructions: String(get('paymentMethodInstructions')?.value || '').trim(),
+      phone: String(get('paymentMethodPhone')?.value || '').trim(),
+      payUrl: /^https:\/\//i.test(url) ? url : '',
+      active: !futureCardIntegration && Boolean(get('paymentMethodActive')?.checked),
+      preferred: !futureCardIntegration && Boolean(get('paymentMethodPreferred')?.checked),
+      order: Math.max(1, Number(get('paymentMethodOrder')?.value) || ((index + 1) * 10)),
+      ...(futureCardIntegration ? { futureCardIntegration: true } : {})
+    };
+  });
+  const preferred = Object.entries(methods).filter(([, method]) => method.active && method.preferred).sort(([, left], [, right]) => left.order - right.order);
+  preferred.slice(1).forEach(([, method]) => { method.preferred = false; });
+  return normalizeAdminPaymentMethods(methods);
+}
+
+async function saveAdminPaymentMethods({ live = false } = {}) {
+  const form = document.getElementById('adminPaymentMethodsForm');
+  const status = document.getElementById('adminPaymentMethodsStatus');
+  const methods = collectAdminPaymentMethods();
+  if (!Object.values(methods).some((method) => method.active)) {
+    if (status) status.textContent = 'SAVE FAILED — enable at least one manual payment method.';
+    return false;
+  }
+  if (status) status.textContent = live ? 'SAVING LIVE…' : 'SAVING DRAFT…';
+  const globalDisplaySettings = structuredClone(adminLiveSettings?.globalDisplaySettings || {});
+  const result = await saveAdminCollectionOperations([{
+    type: 'value', collectionKey: 'globalDisplaySettings', entryKey: 'paymentMethods',
+    baseValue: structuredClone(globalDisplaySettings.paymentMethods || {}), value: methods
+  }]);
+  if (!result.ok) {
+    if (status) status.textContent = `SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'Payment methods could not be saved.'}`;
+    return false;
+  }
+  form.dataset.editorDirty = 'false';
+  renderAdminPaymentMethods(methods);
+  if (!live) {
+    if (status) status.textContent = 'DRAFT SAVED — PRIVATE';
+    return true;
+  }
+  return saveLiveChangeIds(['paymentMethods:all'], 'Customer Payment Methods', status, { workingStateCurrent: true });
+}
+
+function setupAdminPaymentMethods() {
+  const form = document.getElementById('adminPaymentMethodsForm');
+  if (!form || form.dataset.paymentMethodsBound === 'true') return;
+  form.dataset.paymentMethodsBound = 'true';
+  renderAdminPaymentMethods();
+  form.addEventListener('input', () => {
+    form.dataset.editorDirty = 'true';
+    renderAdminPaymentMethodsPreview();
+    const status = document.getElementById('adminPaymentMethodsStatus');
+    if (status) status.textContent = 'UNSAVED CHANGES';
+  });
+  form.addEventListener('change', () => {
+    form.dataset.editorDirty = 'true';
+    renderAdminPaymentMethodsPreview();
+    const status = document.getElementById('adminPaymentMethodsStatus');
+    if (status) status.textContent = 'UNSAVED CHANGES';
+  });
+  form.addEventListener('click', (event) => {
+    const remove = event.target.closest('[data-remove-payment-method]');
+    if (!remove) return;
+    remove.closest('[data-payment-method-row]')?.remove();
+    form.dataset.editorDirty = 'true';
+    renderAdminPaymentMethodsPreview();
+    document.getElementById('adminPaymentMethodsStatus').textContent = 'UNSAVED CHANGES';
+  });
+  form.addEventListener('submit', async (event) => { event.preventDefault(); await saveAdminPaymentMethods(); });
+  document.getElementById('saveAdminPaymentMethodsLive')?.addEventListener('click', () => saveAdminPaymentMethods({ live: true }));
+  document.getElementById('addAdminPaymentMethod')?.addEventListener('click', () => {
+    const list = document.getElementById('adminPaymentMethodsList');
+    const key = `manual-${Date.now()}`;
+    list?.insertAdjacentHTML('beforeend', adminPaymentMethodRowMarkup(key, { label: 'New Payment Method', buttonLabel: 'Open Payment Instructions', note: '', instructions: '', phone: '', payUrl: '', active: false, preferred: false, order: list.children.length * 10 + 10 }));
+    form.dataset.editorDirty = 'true';
+    renderAdminPaymentMethodsPreview();
+    document.getElementById('adminPaymentMethodsStatus').textContent = 'UNSAVED CHANGES';
+    list?.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
 }
 
@@ -10179,6 +10637,7 @@ async function loadImageDraftInventory({ renderInbox = true } = {}) {
   if (renderInbox) renderImageDrafts();
   populateCreationImagePickers(document.getElementById('createProductForm'));
   imageInventoryLoaded = true;
+  if (document.getElementById('movieFolderProductImporter')?.open) renderMovieFolderProductImporter();
 }
 
 function downloadAdminJson(filename, value) {
@@ -10503,8 +10962,9 @@ async function ensureAdminAreaLoaded(area, { force = false } = {}) {
     }
     if (area === 'orders' && !adminCommerceLoaded) await refreshCommerceAdmin();
     if (area === 'settings') {
-      await ensureAdminWorkingCollections(['coupons', 'extraImages', 'priceSettings']);
+      await ensureAdminWorkingCollections(['coupons', 'extraImages', 'globalDisplaySettings', 'priceSettings']);
       setupPriceRules();
+      setupAdminPaymentMethods();
       renderExtraImages();
       setupCoupons();
       if (!adminTestModeLoaded) await loadAdminTestMode();

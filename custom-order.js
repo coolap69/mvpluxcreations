@@ -102,6 +102,16 @@
     panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
+  function renderPaymentMethods() {
+    const mount = document.querySelector('[data-custom-order-payment-methods]');
+    if (!mount) return;
+    const methods = window.getMvpluxCheckoutPaymentMethods?.() || {};
+    mount.innerHTML = Object.entries(methods)
+      .filter(([, method]) => method.active)
+      .map(([key, method]) => `<button type="button" data-custom-payment-method="${key.replace(/[^a-z0-9_-]/gi, '')}">${String(method.buttonLabel || method.label || key).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]))}</button>`)
+      .join('');
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('customOrderForm');
     if (!form) return;
@@ -113,14 +123,18 @@
       const error = validateFiles([...form.elements.referenceImages.files], { required: orderMode(form) !== 'discussed' });
       status(error || `${form.elements.referenceImages.files.length} reference image${form.elements.referenceImages.files.length === 1 ? '' : 's'} selected.`, error ? 'error' : 'ready');
     });
-    document.querySelectorAll('[data-custom-payment-method]').forEach((button) => button.addEventListener('click', () => {
+    renderPaymentMethods();
+    window.addEventListener('mvplux:published-settings-ready', renderPaymentMethods);
+    document.querySelector('[data-custom-order-payment-methods]')?.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-custom-payment-method]');
+      if (!button) return;
       const panel = document.getElementById('customOrderPaymentActions');
       window.openMvpluxCustomOrderPayment?.({
         method: button.dataset.customPaymentMethod,
         orderNumber: panel?.dataset.orderNumber || '',
         total: Number(panel?.dataset.paymentTotal || 0)
       });
-    }));
+    });
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const button = document.getElementById('customOrderSubmit');

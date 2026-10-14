@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20261013-offer-history" />
+  <link rel="stylesheet" href="style.css?v=20261014-movie-folder-products" />
 </head>
 <body class="admin-shell">
   <header class="top-nav">
@@ -144,6 +144,22 @@
           <p class="admin-note">Create or edit a Product / Standee, keep unfinished work private with Save Draft, or use Save Live for customer-visible updates within seconds.</p>
         </div>
       </div>
+      <details class="admin-movie-folder-importer admin-technical-details" id="movieFolderProductImporter">
+        <summary>Create Products From Movie Image Folders</summary>
+        <div class="admin-panel-header">
+          <div>
+            <h3>Movie Stars Folder Import</h3>
+            <p class="admin-note">One image folder belongs to one normalized Product. Existing Products are integrated and updated; only unmatched folders create a private Product draft. The other files become alternate image choices. Nothing is published automatically.</p>
+          </div>
+          <div class="admin-panel-actions">
+            <button type="button" data-refresh-movie-folder-products>Refresh Movie Folders</button>
+            <button type="button" data-select-safe-movie-folders>Select Safe Folders</button>
+            <button class="admin-button admin-button-primary" type="button" data-import-movie-folder-products>Import Selected as Private Drafts</button>
+          </div>
+        </div>
+        <p class="admin-status" data-movie-folder-import-status aria-live="polite">Open this section to review Movie Stars folders before importing.</p>
+        <div class="admin-movie-folder-list" data-movie-folder-product-list></div>
+      </details>
       <div class="admin-create-workspaces">
         <form id="createProductForm" class="admin-create-form admin-visual-builder" data-builder="product">
           <div class="admin-builder-preview-panel">
@@ -410,6 +426,30 @@
       </form>
     </section>
 
+    <section class="admin-panel" id="admin-payment-methods" data-admin-area="settings" hidden>
+      <div class="admin-panel-header">
+        <div>
+          <h2>Customer Payment Methods</h2>
+          <p class="admin-note">Manage the manual payment choices customers see after submitting an order. These settings never collect or store card numbers.</p>
+        </div>
+        <button id="addAdminPaymentMethod" type="button">+ Add Manual Payment Method</button>
+      </div>
+      <div class="admin-warning-message"><strong>Credit/debit cards, Apple Pay, and Google Pay are future integrations.</strong> They remain disabled until a real secure payment processor is connected.</div>
+      <form id="adminPaymentMethodsForm">
+        <section class="admin-payment-method-preview" aria-labelledby="adminPaymentMethodsPreviewTitle">
+          <h3 id="adminPaymentMethodsPreviewTitle">Live Customer Preview</h3>
+          <p class="admin-note">This is how the enabled choices and payment buttons will appear to customers. Previewing never saves or publishes.</p>
+          <div id="adminPaymentMethodsPreview" aria-live="polite"></div>
+        </section>
+        <div id="adminPaymentMethodsList" class="admin-payment-method-list"></div>
+        <div class="admin-panel-actions">
+          <button type="submit">Save Draft</button>
+          <button id="saveAdminPaymentMethodsLive" class="admin-button admin-button-primary" type="button">Save Live</button>
+        </div>
+        <p id="adminPaymentMethodsStatus" class="admin-status" aria-live="polite">Changes stay private until you choose Save Live.</p>
+      </form>
+    </section>
+
     <section class="admin-panel" id="admin-testing-tools" data-admin-area="settings" hidden>
       <details>
         <summary><strong>Testing</strong></summary>
@@ -546,6 +586,6 @@
   <script src="category-presentation.js?v=20261007-shared-subcollection-design"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
   <script src="storefront-section-layout.js?v=20260911-featured-stage-balance"></script>
-  <script src="admin.js?v=20261013-offer-expiration-history"></script>
+  <script src="admin.js?v=20261014-product-ai-folder-integration"></script>
 </body>
 </html>
