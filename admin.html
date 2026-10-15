@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20261014-movie-folder-products" />
+  <link rel="stylesheet" href="style.css?v=20261014-choice-text-collection-folders" />
 </head>
 <body class="admin-shell">
   <header class="top-nav">
@@ -144,21 +144,22 @@
           <p class="admin-note">Create or edit a Product / Standee, keep unfinished work private with Save Draft, or use Save Live for customer-visible updates within seconds.</p>
         </div>
       </div>
-      <details class="admin-movie-folder-importer admin-technical-details" id="movieFolderProductImporter">
-        <summary>Create Products From Movie Image Folders</summary>
+      <details class="admin-movie-folder-importer admin-technical-details" id="collectionFolderProductImporter">
+        <summary>Create Products From Organized Image Folders</summary>
         <div class="admin-panel-header">
           <div>
-            <h3>Movie Stars Folder Import</h3>
-            <p class="admin-note">One image folder belongs to one normalized Product. Existing Products are integrated and updated; only unmatched folders create a private Product draft. The other files become alternate image choices. Nothing is published automatically.</p>
+            <h3>Collection Product Folder Import</h3>
+            <p class="admin-note">Choose a Main Collection. One final image folder becomes one normalized Product; its other files become alternate image choices. Existing Products are integrated instead of duplicated. Nothing is published automatically.</p>
           </div>
           <div class="admin-panel-actions">
-            <button type="button" data-refresh-movie-folder-products>Refresh Movie Folders</button>
-            <button type="button" data-select-safe-movie-folders>Select Safe Folders</button>
-            <button class="admin-button admin-button-primary" type="button" data-import-movie-folder-products>Import Selected as Private Drafts</button>
+            <label>Main Collection<select data-folder-import-collection></select></label>
+            <button type="button" data-refresh-collection-folder-products>Refresh Folders</button>
+            <button type="button" data-select-safe-collection-folders>Select Safe Folders</button>
+            <button class="admin-button admin-button-primary" type="button" data-import-collection-folder-products>Import Selected as Private Drafts</button>
           </div>
         </div>
-        <p class="admin-status" data-movie-folder-import-status aria-live="polite">Open this section to review Movie Stars folders before importing.</p>
-        <div class="admin-movie-folder-list" data-movie-folder-product-list></div>
+        <p class="admin-status" data-collection-folder-import-status aria-live="polite">Choose a Main Collection to review its organized image folders.</p>
+        <div class="admin-movie-folder-list" data-collection-folder-product-list></div>
       </details>
       <div class="admin-create-workspaces">
         <form id="createProductForm" class="admin-create-form admin-visual-builder" data-builder="product">
@@ -586,6 +587,6 @@
   <script src="category-presentation.js?v=20261007-shared-subcollection-design"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
   <script src="storefront-section-layout.js?v=20260911-featured-stage-balance"></script>
-  <script src="admin.js?v=20261014-product-ai-folder-integration"></script>
+  <script src="admin.js?v=20261014-all-collection-folders"></script>
 </body>
 </html>

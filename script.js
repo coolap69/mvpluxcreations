@@ -2943,11 +2943,15 @@ function sanitizeProductImageChoices(choices = []) {
     if (!image || seen.has(identity)) return [];
     seen.add(identity);
     const role = typeof choice?.role === 'string' ? choice.role.trim() : '';
+    const title = typeof choice?.title === 'string' ? choice.title.trim() : '';
+    const description = typeof choice?.description === 'string' ? choice.description.trim() : '';
     return [{
       label: typeof choice?.label === 'string' && choice.label.trim() ? choice.label.trim() : 'Alternate image',
       image,
       ...(stage ? { stage } : {}),
-      ...(role ? { role } : {})
+      ...(role ? { role } : {}),
+      ...(title ? { title } : {}),
+      ...(description ? { description } : {})
     }];
   });
 }
@@ -4179,6 +4183,32 @@ function findWhiteTriangleImage(options = []) {
   return match?.image || '';
 }
 
+function setupShowroomChoiceCarousel(root = document) {
+  root.querySelectorAll?.('[data-showroom-choice-carousel]').forEach((carousel) => {
+    if (carousel.dataset.carouselReady === 'true') return;
+    const strip = carousel.querySelector('.category-option-strip');
+    if (!strip) return;
+    carousel.dataset.carouselReady = 'true';
+    carousel.querySelectorAll('[data-showroom-choice-scroll]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const direction = Number(button.dataset.showroomChoiceScroll) || 1;
+        const distance = Math.max(220, Math.round(strip.clientWidth * 0.78));
+        strip.scrollBy({ left: direction * distance, behavior: 'smooth' });
+      });
+    });
+  });
+}
+
+function showroomChoiceSupportMarkup(label = 'standee') {
+  return `
+    <p class="showroom-choice-note"><strong>Background note:</strong> “No Background” normally means a clean white printed background. The rear support/stand is normally white when the artwork does not include its own white base.</p>
+    <div class="showroom-background-request">
+      <span>Need a different background or color for this ${escapeHtml(label)}?</span>
+      <a class="button-link" href="custom-order.html">Request Another Background or Color</a>
+    </div>
+  `;
+}
+
 function showroomPurchaseMarkup(productName = 'Selected Standee', originalHeight = 78, slug = '') {
   const height = resolveSellableProductHeight(originalHeight);
   const price = getShowroomOriginalPrice(height);
@@ -4272,6 +4302,11 @@ function selectSportsOption(index) {
   const mainImage = document.getElementById('sportsMainImage');
 
   if (!product || !option || !mainStage || !mainImage) return;
+
+  const selectedName = document.getElementById('sportsSelectedName');
+  const selectedDescription = document.getElementById('sportsSelectedDescription');
+  if (selectedName) selectedName.textContent = option.title || product.name;
+  if (selectedDescription) selectedDescription.textContent = option.description || product.description;
 
   const design = applyProductShowroomDesign(mainStage, product.sourceProduct || product, 'sports');
   mainStage.style.backgroundImage = `url('${option.stage || product.backgroundImage || design.backgroundImage}')`;
@@ -4427,6 +4462,7 @@ function initSportsShowroom() {
   if (showroom && !showroom.id) showroom.id = 'selected-standee';
   const player = requestedCollectionProductSlug('sports');
   const startingKey = (player && (getManagedProductBySlug(player) || sportsStandeeCatalog[player])) ? player : selectedSportsStandeeKey;
+  setupShowroomChoiceCarousel(document);
   selectSportsStandee(startingKey, false, requestedCollectionCardImage());
 }
 
@@ -5168,6 +5204,9 @@ function selectGenericCategoryOption(state, options, index) {
   const option = options[index];
   if (!option) return;
 
+  if (state.name) state.name.textContent = option.title || state.productTitle || 'Standee';
+  if (state.description) state.description.textContent = option.description || state.productDescription || '';
+
   state.stage.style.backgroundImage = `url('${option.stage || state.showroomDesign?.backgroundImage || getGenericCategoryFallbackStage()}')`;
   if (option.image) {
     state.image.src = option.image;
@@ -5176,7 +5215,7 @@ function selectGenericCategoryOption(state, options, index) {
     state.image.removeAttribute('src');
     state.image.hidden = true;
   }
-  state.image.alt = `${state.name.textContent} ${option.label} preview`;
+  state.image.alt = `${state.name?.textContent || state.productTitle || 'Standee'} ${option.label} preview`;
 
   state.optionStrip.querySelectorAll('[data-generic-option-index]').forEach((button) => {
     button.classList.toggle('active', Number(button.dataset.genericOptionIndex) === index);
@@ -5282,8 +5321,13 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', pref
         <span>Options update by card</span>
       </div>
       <div class="generic-choice-section">
-        <h3 class="sports-choice-title">Image Choices For Selected Standee</h3>
-        <div class="category-option-strip sports-option-strip generic-option-strip" aria-label="Selected standee image choices"></div>
+        <h3 class="sports-choice-title">Available Image &amp; Background Choices</h3>
+        <div class="showroom-choice-carousel" data-showroom-choice-carousel>
+          <button type="button" class="showroom-choice-arrow" data-showroom-choice-scroll="-1" aria-label="Previous image choices">‹</button>
+          <div class="category-option-strip sports-option-strip generic-option-strip" aria-label="Selected standee image choices"></div>
+          <button type="button" class="showroom-choice-arrow" data-showroom-choice-scroll="1" aria-label="Next image choices">›</button>
+        </div>
+        ${showroomChoiceSupportMarkup('standee')}
       </div>
       ${showroomPurchaseMarkup(firstTitle, 78, firstTitle)}
     </div>
@@ -5305,6 +5349,7 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', pref
     facts: showroom.querySelector('.generic-selected-facts'),
     builder: showroom.querySelector('.showroom-size-builder')
   };
+  setupShowroomChoiceCarousel(showroom);
 
   const selectCard = (card, preferredImage = '') => {
     const title = card.querySelector('h3')?.textContent.trim() || 'Standee';
@@ -5319,6 +5364,8 @@ function setupGenericCategoryShowroom({ rebuild = false, selectedSlug = '', pref
     );
     const originalSize = product?.originalHeight ? `Original: ${formatHeight(product.originalHeight)}` : 'Original size varies';
     const description = product?.description || `Preview ${title} with the available image choices for this category.`;
+    state.productTitle = product?.title || title;
+    state.productDescription = description;
     state.name.textContent = title;
     if (state.description) state.description.textContent = description;
     state.facts.innerHTML = `
@@ -5440,7 +5487,9 @@ function getStandeeBySlug(slug) {
           ...managedChoices.map((choice) => ({
             name: choice.label,
             image: choice.image,
-            stage: choice.stage || managed?.backgroundImage || getShowroomStageBackground()
+            stage: choice.stage || managed?.backgroundImage || getShowroomStageBackground(),
+            ...(choice.title ? { title: choice.title } : {}),
+            ...(choice.description ? { description: choice.description } : {})
           }))
         ]
       : !managedImageIsAuthoritative && detailed?.backgrounds?.length

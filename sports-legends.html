@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sport Legend Standees | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20261008-shared-collection-heading" />
+  <link rel="stylesheet" href="style.css?v=20261014-showroom-choice-carousel" />
 </head>
 <body data-dynamic-category-page>
   <header class="top-nav">
@@ -57,8 +57,10 @@
           <span>Options: 4 images</span>
         </div>
         <div class="sports-choice-section">
-          <h3 class="sports-choice-title">Image Choices For Selected Standee</h3>
-          <div id="sportsOptionStrip" class="category-option-strip sports-option-strip" aria-label="Selected sports standee image choices">
+          <h3 class="sports-choice-title">Available Image &amp; Background Choices</h3>
+          <div class="showroom-choice-carousel" data-showroom-choice-carousel>
+            <button type="button" class="showroom-choice-arrow" data-showroom-choice-scroll="-1" aria-label="Previous image choices">‹</button>
+            <div id="sportsOptionStrip" class="category-option-strip sports-option-strip" aria-label="Selected sports standee image choices">
             <button type="button" class="active" onclick="selectSportsOption(0)">
               <img src="images/Sport Legends/Basketball/Kobe/KB1nobackground.png" alt="Kobe Bryant original cutout">
               <span>No Background</span>
@@ -75,6 +77,13 @@
               <img src="images/Sport Legends/Basketball/Kobe/KB1smallcourtbackground.png" alt="Kobe Bryant small court background">
               <span>Small Court</span>
             </button>
+            </div>
+            <button type="button" class="showroom-choice-arrow" data-showroom-choice-scroll="1" aria-label="Next image choices">›</button>
+          </div>
+          <p class="showroom-choice-note"><strong>Background note:</strong> “No Background” normally means a clean white printed background. The rear support/stand is normally white when the artwork does not include its own white base.</p>
+          <div class="showroom-background-request">
+            <span>Need a different background or color for this standee?</span>
+            <a class="button-link" href="custom-order.html">Request Another Background or Color</a>
           </div>
         </div>
         <div id="sportsSizeBuilder" class="showroom-size-builder size-builder" data-product-name="Kobe Bryant" data-admin-slug="kobe-bryant" data-original-height="78">
@@ -111,6 +120,6 @@
   <script src="pricing.js?v=20260823-merchandise-height"></script>
   <script src="product-catalog.js?v=20261013-complete-image-paths"></script>
   <script src="category-presentation.js?v=20261007-shared-subcollection-design"></script>
-  <script src="script.js?v=20261014-unified-collection-showrooms"></script>
+  <script src="script.js?v=20261014-showroom-choice-carousel"></script>
 </body>
 </html>

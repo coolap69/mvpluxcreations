@@ -4593,6 +4593,78 @@ body .auth-card .password-field input {
   gap: 10px !important;
 }
 
+.showroom-choice-carousel {
+  display: grid !important;
+  grid-template-columns: 38px minmax(0, 1fr) 38px !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+}
+
+.showroom-choice-carousel .category-option-strip {
+  grid-template-columns: none !important;
+  grid-auto-flow: column !important;
+  grid-auto-columns: minmax(104px, 1fr) !important;
+  overflow-x: auto !important;
+  overscroll-behavior-inline: contain !important;
+  scroll-behavior: smooth !important;
+  scroll-snap-type: inline mandatory !important;
+  scrollbar-width: thin !important;
+  padding: 0 0 6px !important;
+}
+
+.showroom-choice-carousel .category-option-strip > button {
+  scroll-snap-align: start !important;
+}
+
+.showroom-choice-arrow {
+  min-width: 0 !important;
+  padding: 6px !important;
+  border: 1px solid rgba(244,208,111,0.55) !important;
+  border-radius: 8px !important;
+  color: #f4d06f !important;
+  background: rgba(244,208,111,0.08) !important;
+  font-size: 28px !important;
+  font-weight: 900 !important;
+  cursor: pointer !important;
+}
+
+.showroom-choice-arrow:hover,
+.showroom-choice-arrow:focus-visible {
+  background: rgba(244,208,111,0.18) !important;
+  outline: 2px solid rgba(244,208,111,0.45) !important;
+  outline-offset: 1px !important;
+}
+
+.showroom-choice-note {
+  margin: 9px 0 0 !important;
+  color: #d8cfba !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+}
+
+.showroom-background-request {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  margin-top: 8px !important;
+  padding: 9px 10px !important;
+  border: 1px solid rgba(244,208,111,0.3) !important;
+  border-radius: 8px !important;
+  background: rgba(244,208,111,0.055) !important;
+  color: #f0e7cf !important;
+  font-size: 12px !important;
+  line-height: 1.3 !important;
+}
+
+.showroom-background-request .button-link {
+  flex: 0 0 auto !important;
+  min-height: 0 !important;
+  padding: 7px 10px !important;
+  font-size: 11px !important;
+  text-decoration: none !important;
+}
+
 .sports-choice-title {
   margin: 0 0 10px !important;
   color: #f4d06f !important;
@@ -5183,9 +5255,22 @@ body .auth-card .password-field input {
 
   .standee-action-row,
   .standee-background-picker,
-  .sports-option-strip,
   .category-fact-grid {
     grid-template-columns: 1fr !important;
+  }
+
+  .showroom-choice-carousel {
+    grid-template-columns: 32px minmax(0, 1fr) 32px !important;
+  }
+
+  .showroom-choice-carousel .category-option-strip {
+    grid-template-columns: none !important;
+    grid-auto-columns: minmax(96px, 44%) !important;
+  }
+
+  .showroom-background-request {
+    align-items: stretch !important;
+    flex-direction: column !important;
   }
 }
 

@@ -179,7 +179,9 @@ function normalizeImageChoices(values) {
       label: String(choice?.label || '').trim() || 'Alternate image',
       image,
       ...(stage ? { stage } : {}),
-      ...(choice?.role ? { role: String(choice.role) } : {})
+      ...(choice?.role ? { role: String(choice.role) } : {}),
+      ...(String(choice?.title || '').trim() ? { title: String(choice.title).trim() } : {}),
+      ...(String(choice?.description || '').trim() ? { description: String(choice.description).trim() } : {})
     }];
   });
 }

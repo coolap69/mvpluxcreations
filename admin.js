@@ -1131,11 +1131,15 @@ function normalizeImageChoices(choices = []) {
     if (!image || seen.has(identity)) return [];
     seen.add(identity);
     const role = String(choice?.role || '').trim();
+    const title = String(choice?.title || '').trim();
+    const description = String(choice?.description || '').trim();
     return [{
       label: String(choice?.label || '').trim() || 'Alternate image',
       image,
       ...(stage ? { stage } : {}),
-      ...(role ? { role } : {})
+      ...(role ? { role } : {}),
+      ...(title ? { title } : {}),
+      ...(description ? { description } : {})
     }];
   });
 }
@@ -1284,7 +1288,9 @@ function publishableProduct(product = {}, archived = false) {
       label: choice.label,
       image: publishImageReference(choice.image),
       ...(choice.stage ? { stage: publishImageReference(choice.stage) } : {}),
-      ...(choice.role ? { role: choice.role } : {})
+      ...(choice.role ? { role: choice.role } : {}),
+      ...(choice.title ? { title: choice.title } : {}),
+      ...(choice.description ? { description: choice.description } : {})
     })),
     originalHeight: String(product.originalHeight || ''),
     ...(Number.isFinite(Number(product.priceOverride)) && product.priceOverride !== '' && product.priceOverride !== null
@@ -3575,8 +3581,49 @@ function creationImageLibrary(kind = 'product') {
     .sort((left, right) => creationImageLabel(left).localeCompare(creationImageLabel(right)));
 }
 
-function movieProductFolderGroups(paths = []) {
-  const prefix = 'images/Movie Stars/';
+const COLLECTION_PRODUCT_IMAGE_FOLDERS = Object.freeze({
+  sports: 'Sport Legends',
+  'movie-characters': 'Movie Stars',
+  'people-public-figures': 'People-PublicFigure',
+  'music-artists': 'Music Artists',
+  'faith-celebration': 'Faith Celebration',
+  holiday: 'Holidays',
+  'dinosaur-animal': 'Dinosaurs-Animals',
+  'fan-requests': 'Fan Request',
+  'video-game-fantasy': 'Game-Fantasy',
+  'custom-other': 'Custom Request',
+  'custom-photo': 'Custom Request',
+  'small-party-packs': 'Party Packs'
+});
+
+function collectionFolderImportDefinitions() {
+  const normalized = new Map([
+    ...Object.values(adminArchitectureState?.candidate?.categories || {}),
+    ...Object.values(readAdminCategories())
+  ].filter((category) => category?.key && !category.parentKey).map((category) => [category.key, category]));
+  const compatibility = new Map(adminProducts.map((product) => {
+    const key = ADMIN_CATEGORY_CARD_MAP[product.slug];
+    return [key, product];
+  }).filter(([key]) => key));
+  return Object.keys(COLLECTION_PRODUCT_IMAGE_FOLDERS).map((key, order) => {
+    const category = normalized.get(key);
+    const fallback = compatibility.get(key);
+    return {
+      key,
+      title: category?.title || category?.label || fallback?.title || key,
+      order: Number.isFinite(Number(category?.order)) ? Number(category.order) : order
+    };
+  }).sort((left, right) => left.order - right.order || left.title.localeCompare(right.title));
+}
+
+function selectedCollectionFolderImportKey() {
+  return document.querySelector('[data-folder-import-collection]')?.value || 'movie-characters';
+}
+
+function collectionProductFolderGroups(paths = [], categoryKey = selectedCollectionFolderImportKey()) {
+  const rootFolder = COLLECTION_PRODUCT_IMAGE_FOLDERS[categoryKey];
+  if (!rootFolder) return [];
+  const prefix = `images/${rootFolder}/`;
   const groups = new Map();
   (paths || []).forEach((path) => {
     const reference = String(path || '');
@@ -3596,7 +3643,7 @@ function movieProductFolderGroups(paths = []) {
     .sort((left, right) => left.folder.localeCompare(right.folder));
 }
 
-function preferredMovieFolderMainImage(images = []) {
+function preferredCollectionFolderMainImage(images = []) {
   const score = (path) => {
     const name = String(path || '').split('/').pop().toLowerCase();
     let value = 0;
@@ -3617,14 +3664,14 @@ function normalizedProductImageReferences(product = {}) {
     .map((path) => resolveImagePath(path));
 }
 
-function normalizedMovieProductFolder(folder = '') {
+function normalizedProductFolder(folder = '') {
   return String(folder || '').trim().replace(/\/+$/, '');
 }
 
-function movieFolderMatchingProductSlugs(folder, products = {}) {
-  const normalizedFolder = normalizedMovieProductFolder(folder);
+function collectionFolderMatchingProductSlugs(folder, products = {}) {
+  const normalizedFolder = normalizedProductFolder(folder);
   const explicitOwners = Object.entries(products || {})
-    .filter(([, product]) => normalizedMovieProductFolder(product?.repositoryImageFolder) === normalizedFolder)
+    .filter(([, product]) => normalizedProductFolder(product?.repositoryImageFolder) === normalizedFolder)
     .map(([slug]) => slug);
   if (explicitOwners.length) return explicitOwners;
 
@@ -3639,22 +3686,22 @@ function movieFolderMatchingProductSlugs(folder, products = {}) {
     .map(([slug]) => slug))];
 }
 
-function movieFolderCategoryAssignments(folder, categories = readAdminCategories()) {
-  const assigned = ['movie-characters'];
+function collectionFolderCategoryAssignments(folder, categoryKey, categories = readAdminCategories()) {
+  const assigned = [categoryKey];
   const segment = folder.split('/')[2] || '';
   const identity = makeSlug(segment).replace(/s$/, '');
   const child = Object.values(categories || {}).find((category) => (
-    category?.parentKey === 'movie-characters'
+    category?.parentKey === categoryKey
     && [category.key, category.title].some((value) => makeSlug(value).replace(/s$/, '') === identity)
   ));
   if (child?.key) assigned.push(child.key);
   return [...new Set(assigned)];
 }
 
-function movieFolderProductImportRows() {
+function collectionFolderProductImportRows(categoryKey = selectedCollectionFolderImportKey()) {
   const products = readAdminProducts();
-  return movieProductFolderGroups(creationImageLibrary('product')).map((group) => {
-    const matches = movieFolderMatchingProductSlugs(group.folder, products);
+  return collectionProductFolderGroups(creationImageLibrary('product'), categoryKey).map((group) => {
+    const matches = collectionFolderMatchingProductSlugs(group.folder, products);
     const existing = matches.length === 1 ? products[matches[0]] : null;
     const currentMain = existing && normalizedProductImageReferences({ cutoutImage: existing.cutoutImage })[0];
     return {
@@ -3662,26 +3709,29 @@ function movieFolderProductImportRows() {
       matches,
       existing,
       matchingProducts: Object.fromEntries(matches.map((slug) => [slug, products[slug]])),
-      mainImage: currentMain && group.images.includes(currentMain) ? currentMain : preferredMovieFolderMainImage(group.images)
+      mainImage: currentMain && group.images.includes(currentMain) ? currentMain : preferredCollectionFolderMainImage(group.images)
     };
   });
 }
 
-function setMovieFolderImportStatus(message, state = '') {
-  const status = document.querySelector('[data-movie-folder-import-status]');
+function setCollectionFolderImportStatus(message, state = '') {
+  const status = document.querySelector('[data-collection-folder-import-status]');
   if (!status) return;
   status.textContent = message;
   status.dataset.state = state;
 }
 
-function renderMovieFolderProductImporter() {
-  const container = document.querySelector('[data-movie-folder-product-list]');
+function renderCollectionFolderProductImporter() {
+  const container = document.querySelector('[data-collection-folder-product-list]');
   if (!container) return;
   if (!imageInventoryLoaded) {
     container.innerHTML = '<p class="admin-note">Loading repository image folders…</p>';
     return;
   }
-  const rows = movieFolderProductImportRows();
+  const categoryKey = selectedCollectionFolderImportKey();
+  const category = categoryDefinitionsForAdmin().find((entry) => entry.key === categoryKey);
+  const collectionTitle = category?.title || category?.label || categoryKey;
+  const rows = collectionFolderProductImportRows(categoryKey);
   container.innerHTML = rows.map((row) => {
     const conflict = row.matches.length > 1;
     const destination = conflict
@@ -3690,44 +3740,45 @@ function renderMovieFolderProductImporter() {
         ? `Update existing Product: ${row.existing.title || row.matches[0]}`
         : 'Create one new private Product draft';
     const integrationChoice = conflict
-      ? `<label>Integrate folder into existing Product<select data-movie-folder-existing-product><option value="">Choose the Product that owns this folder…</option>${row.matches.map((slug) => `<option value="${escapeAdminHtml(slug)}">${escapeAdminHtml(row.matchingProducts?.[slug]?.title || slug)} (${escapeAdminHtml(slug)})</option>`).join('')}</select></label>`
+      ? `<label>Integrate folder into existing Product<select data-collection-folder-existing-product><option value="">Choose the Product that owns this folder…</option>${row.matches.map((slug) => `<option value="${escapeAdminHtml(slug)}">${escapeAdminHtml(row.matchingProducts?.[slug]?.title || slug)} (${escapeAdminHtml(slug)})</option>`).join('')}</select></label>`
       : '';
-    return `<article class="admin-movie-folder-row" data-movie-product-folder="${escapeAdminHtml(row.folder)}" data-existing-product="${escapeAdminHtml(row.matches.length === 1 ? row.matches[0] : '')}" data-folder-conflict="${conflict}">
-      <label class="admin-review-select"><input type="checkbox" data-select-movie-product-folder ${conflict ? 'disabled' : ''}> Import / integrate</label>
-      <img src="${escapeAdminHtml(row.mainImage)}" alt="" data-movie-folder-preview loading="lazy">
+    return `<article class="admin-movie-folder-row" data-collection-product-folder="${escapeAdminHtml(row.folder)}" data-existing-product="${escapeAdminHtml(row.matches.length === 1 ? row.matches[0] : '')}" data-folder-conflict="${conflict}">
+      <label class="admin-review-select"><input type="checkbox" data-select-collection-product-folder ${conflict ? 'disabled' : ''}> Import / integrate</label>
+      <img src="${escapeAdminHtml(row.mainImage)}" alt="" data-collection-folder-preview loading="lazy">
       <div class="admin-review-summary"><strong>${escapeAdminHtml(row.title)}</strong><code>${escapeAdminHtml(row.folder)}</code><span>${row.images.length} image${row.images.length === 1 ? '' : 's'}</span><span class="${conflict ? 'admin-warning-message' : ''}">${escapeAdminHtml(destination)}</span></div>
-      <label>Draft title<input type="text" data-movie-folder-title value="${escapeAdminHtml(row.existing?.title || row.title)}" ${row.existing ? 'readonly' : ''}></label>
-      <label>Main Product image<select data-movie-folder-main-image>${row.images.map((image) => `<option value="${escapeAdminHtml(image)}" ${image === row.mainImage ? 'selected' : ''}>${escapeAdminHtml(creationImageLabel(image))}</option>`).join('')}</select></label>
+      <label>Draft title<input type="text" data-collection-folder-title value="${escapeAdminHtml(row.existing?.title || row.title)}" ${row.existing ? 'readonly' : ''}></label>
+      <label>Main Product image<select data-collection-folder-main-image>${row.images.map((image) => `<option value="${escapeAdminHtml(image)}" ${image === row.mainImage ? 'selected' : ''}>${escapeAdminHtml(creationImageLabel(image))}</option>`).join('')}</select></label>
       ${integrationChoice}
     </article>`;
-  }).join('') || '<p class="admin-empty-state">No Movie Stars image folders were found.</p>';
-  setMovieFolderImportStatus(`${rows.length} Movie Stars folders found. Existing Products will be updated, not duplicated. Conflicts require you to choose the Product that owns the folder.`, 'loaded');
+  }).join('') || `<p class="admin-empty-state">No organized image folders were found for ${escapeAdminHtml(collectionTitle)}.</p>`;
+  setCollectionFolderImportStatus(`${rows.length} ${collectionTitle} folders found. Existing Products will be updated, not duplicated. Conflicts require you to choose the Product that owns the folder.`, 'loaded');
 }
 
-async function importSelectedMovieFolderProducts() {
-  const selectedRows = [...document.querySelectorAll('[data-movie-product-folder]')]
-    .filter((row) => row.querySelector('[data-select-movie-product-folder]')?.checked && row.dataset.folderConflict !== 'true');
+async function importSelectedCollectionFolderProducts() {
+  const categoryKey = selectedCollectionFolderImportKey();
+  const selectedRows = [...document.querySelectorAll('[data-collection-product-folder]')]
+    .filter((row) => row.querySelector('[data-select-collection-product-folder]')?.checked && row.dataset.folderConflict !== 'true');
   if (!selectedRows.length) {
-    setMovieFolderImportStatus('Select at least one safe Movie Stars folder first.', 'error');
+    setCollectionFolderImportStatus('Select at least one safe Product folder first.', 'error');
     return false;
   }
-  setMovieFolderImportStatus('Saving selected Movie Product drafts privately…', 'saving');
+  setCollectionFolderImportStatus('Saving selected Product drafts privately…', 'saving');
   const latest = await fetchAuthoritativeAdminGlobal(['products', 'categories']);
   const products = latest.edits?.products || {};
   const categories = latest.edits?.categories || readAdminCategories();
-  const groups = new Map(movieProductFolderGroups(creationImageLibrary('product')).map((group) => [group.folder, group]));
+  const groups = new Map(collectionProductFolderGroups(creationImageLibrary('product'), categoryKey).map((group) => [group.folder, group]));
   const now = new Date().toISOString();
   const operations = [];
   const failures = [];
   selectedRows.forEach((row) => {
-    const group = groups.get(row.dataset.movieProductFolder);
-    const mainImage = row.querySelector('[data-movie-folder-main-image]')?.value || '';
-    const latestMatches = group ? movieFolderMatchingProductSlugs(group.folder, products) : [];
-    const selectedExistingSlug = row.querySelector('[data-movie-folder-existing-product]')?.value || row.dataset.existingProduct || '';
+    const group = groups.get(row.dataset.collectionProductFolder);
+    const mainImage = row.querySelector('[data-collection-folder-main-image]')?.value || '';
+    const latestMatches = group ? collectionFolderMatchingProductSlugs(group.folder, products) : [];
+    const selectedExistingSlug = row.querySelector('[data-collection-folder-existing-product]')?.value || row.dataset.existingProduct || '';
     const existingSlug = selectedExistingSlug || (latestMatches.length === 1 ? latestMatches[0] : '');
     const existing = existingSlug ? products[existingSlug] : null;
     if (!group || !group.images.includes(mainImage)) {
-      failures.push(row.dataset.movieProductFolder || 'Unknown Movie folder');
+      failures.push(row.dataset.collectionProductFolder || 'Unknown Product folder');
       return;
     }
     if (selectedExistingSlug && !products[selectedExistingSlug]) {
@@ -3743,20 +3794,22 @@ async function importSelectedMovieFolderProducts() {
       return;
     }
     const folderChoices = group.images.filter((image) => image !== mainImage).map((image) => ({ label: creationImageLabel(image), image }));
+    const folderAssignments = collectionFolderCategoryAssignments(group.folder, categoryKey, categories);
     if (existing) {
       const retainedChoices = normalizeImageChoices(existing.imageChoices).filter((choice) => !group.images.includes((window.MVPLUX_RESOLVE_REPOSITORY_IMAGE_PATH || ((path) => path))(choice.image)));
       operations.push({
         type: 'record', collectionKey: 'products', entryKey: existingSlug, baseRecord: existing,
         patch: {
-          repositoryImageFolder: normalizedMovieProductFolder(group.folder),
+          repositoryImageFolder: normalizedProductFolder(group.folder),
           cutoutImage: mainImage,
           imageChoices: normalizeImageChoices([...retainedChoices, ...folderChoices]),
+          categories: [...new Set([...(existing.categories || []), ...folderAssignments])],
           updatedAt: now, draftStatus: 'draft', approvalStatus: 'draft'
         }
       });
       return;
     }
-    const title = row.querySelector('[data-movie-folder-title]')?.value.trim() || group.title;
+    const title = row.querySelector('[data-collection-folder-title]')?.value.trim() || group.title;
     let slug = makeSlug(title);
     if (products[slug] || operations.some((operation) => operation.entryKey === slug)) {
       failures.push(`${title} (the Product slug ${slug} already exists)`);
@@ -3764,44 +3817,48 @@ async function importSelectedMovieFolderProducts() {
     }
     const product = buildNewProductRecord({
       slug, title, cutoutImage: mainImage, imageChoices: folderChoices,
-      categories: movieFolderCategoryAssignments(group.folder, categories), visible: false,
+      categories: folderAssignments, visible: false,
       approvalStatus: 'draft', createdAt: now
     });
-    product.repositoryImageFolder = normalizedMovieProductFolder(group.folder);
+    product.repositoryImageFolder = normalizedProductFolder(group.folder);
     operations.push(newProductRecordOperation(product));
   });
   if (failures.length) {
-    setMovieFolderImportStatus(`Nothing was saved. Review: ${failures.join('; ')}.`, 'error');
+    setCollectionFolderImportStatus(`Nothing was saved. Review: ${failures.join('; ')}.`, 'error');
     return false;
   }
   const result = await saveAdminCollectionOperations(operations);
   if (!result.ok) {
-    setMovieFolderImportStatus(adminLastSaveError || 'Movie Product folder import failed. Nothing was published.', 'error');
+    setCollectionFolderImportStatus(adminLastSaveError || 'Product folder import failed. Nothing was published.', 'error');
     return false;
   }
-  setMovieFolderImportStatus(`DRAFT SAVED — PRIVATE. ${operations.length} Movie Product folder${operations.length === 1 ? '' : 's'} imported. Customers cannot see these changes until you use Save Live.`, 'saved');
+  setCollectionFolderImportStatus(`DRAFT SAVED — PRIVATE. ${operations.length} Product folder${operations.length === 1 ? '' : 's'} imported into ${categoryKey}. Customers cannot see these changes until you use Save Live.`, 'saved');
   renderAdminProducts();
-  renderMovieFolderProductImporter();
+  renderCollectionFolderProductImporter();
   return true;
 }
 
-function setupMovieFolderProductImporter() {
-  const importer = document.getElementById('movieFolderProductImporter');
+function setupCollectionFolderProductImporter() {
+  const importer = document.getElementById('collectionFolderProductImporter');
   if (!importer || importer.dataset.bound === 'true') return;
   importer.dataset.bound = 'true';
-  importer.addEventListener('toggle', () => { if (importer.open) renderMovieFolderProductImporter(); });
-  importer.querySelector('[data-refresh-movie-folder-products]')?.addEventListener('click', async () => {
+  const collectionSelect = importer.querySelector('[data-folder-import-collection]');
+  const definitions = collectionFolderImportDefinitions();
+  collectionSelect.innerHTML = definitions.map((category) => `<option value="${escapeAdminHtml(category.key)}" ${category.key === 'movie-characters' ? 'selected' : ''}>${escapeAdminHtml(category.title || category.label || category.key)}</option>`).join('');
+  importer.addEventListener('toggle', () => { if (importer.open) renderCollectionFolderProductImporter(); });
+  collectionSelect.addEventListener('change', renderCollectionFolderProductImporter);
+  importer.querySelector('[data-refresh-collection-folder-products]')?.addEventListener('click', async () => {
     await loadImageDraftInventory({ renderInbox: false });
-    renderMovieFolderProductImporter();
+    renderCollectionFolderProductImporter();
   });
-  importer.querySelector('[data-select-safe-movie-folders]')?.addEventListener('click', () => {
-    importer.querySelectorAll('[data-select-movie-product-folder]:not(:disabled)').forEach((input) => { input.checked = true; });
+  importer.querySelector('[data-select-safe-collection-folders]')?.addEventListener('click', () => {
+    importer.querySelectorAll('[data-select-collection-product-folder]:not(:disabled)').forEach((input) => { input.checked = true; });
   });
-  importer.querySelector('[data-import-movie-folder-products]')?.addEventListener('click', importSelectedMovieFolderProducts);
+  importer.querySelector('[data-import-collection-folder-products]')?.addEventListener('click', importSelectedCollectionFolderProducts);
   importer.addEventListener('change', (event) => {
-    if (event.target.matches('[data-movie-folder-existing-product]')) {
-      const row = event.target.closest('[data-movie-product-folder]');
-      const checkbox = row?.querySelector('[data-select-movie-product-folder]');
+    if (event.target.matches('[data-collection-folder-existing-product]')) {
+      const row = event.target.closest('[data-collection-product-folder]');
+      const checkbox = row?.querySelector('[data-select-collection-product-folder]');
       if (row && checkbox) {
         row.dataset.existingProduct = event.target.value;
         checkbox.disabled = !event.target.value;
@@ -3809,9 +3866,9 @@ function setupMovieFolderProductImporter() {
       }
       return;
     }
-    if (!event.target.matches('[data-movie-folder-main-image]')) return;
-    const row = event.target.closest('[data-movie-product-folder]');
-    const preview = row?.querySelector('[data-movie-folder-preview]');
+    if (!event.target.matches('[data-collection-folder-main-image]')) return;
+    const row = event.target.closest('[data-collection-product-folder]');
+    const preview = row?.querySelector('[data-collection-folder-preview]');
     if (preview) preview.src = event.target.value;
   });
 }
@@ -4157,7 +4214,7 @@ function setupAdminCreationWorkspace() {
   productForm.querySelector('[data-create-product-categories]').innerHTML = creationCategoryMarkup();
   populateCreationImagePickers(productForm);
   attachRepositoryFilePickers(productForm);
-  setupMovieFolderProductImporter();
+  setupCollectionFolderProductImporter();
   if (!imageInventoryLoaded) loadImageDraftInventory({ renderInbox: false }).catch((error) => {
     setCreationStatus(productForm, `The full repository image list could not be loaded. ${error?.message || error}`, 'error');
   });
@@ -5023,19 +5080,26 @@ async function replaceProductImageChoice(parentSlug, imagePath, replacementPath)
   setStatus('DRAFT SAVED — PRIVATE. Alternate image choice changed; no physical image file was changed.');
 }
 
-async function renameProductImageChoice(parentSlug, imagePath, label) {
+async function updateProductImageChoiceText(parentSlug, imagePath, label, title = '', description = '') {
   const parent = effectiveAdminProduct(parentSlug);
   const nextLabel = String(label || '').trim();
   if (!parent || !nextLabel) {
     setStatus('Enter an image-choice label before saving.');
     return;
   }
+  const nextTitle = String(title || '').trim();
+  const nextDescription = String(description || '').trim();
   const choices = normalizeImageChoices(parent.imageChoices).map((choice) => (
-    choice.image === imagePath ? { ...choice, label: nextLabel } : choice
+    choice.image === imagePath ? {
+      ...choice,
+      label: nextLabel,
+      ...(nextTitle ? { title: nextTitle } : { title: undefined }),
+      ...(nextDescription ? { description: nextDescription } : { description: undefined })
+    } : choice
   ));
   if (!await writeProductImageChoices(parentSlug, choices)) return;
   renderAdminProducts();
-  setStatus('Image-choice label saved.');
+  setStatus('DRAFT SAVED — PRIVATE. Image-choice label and optional customer text saved. Blank text continues using the main Product title and description.');
 }
 
 async function moveProductImageChoice(sourceSlug, imagePath, targetSlug) {
@@ -5143,7 +5207,9 @@ function productImageChoicesMarkup(value) {
           <img src="${escapeAdminHtml(choice.image)}" alt="">
           <span><strong>${escapeAdminHtml(choice.label)}</strong><br>${escapeAdminHtml(choice.image)}</span>
           <label>Rename choice<input type="text" value="${escapeAdminHtml(choice.label)}" data-image-choice-label="${escapeAdminHtml(choice.image)}"></label>
-          <button type="button" data-rename-image-choice="${escapeAdminHtml(choice.image)}">Save label</button>
+          <label>Choice title <span>(optional)</span><input type="text" value="${escapeAdminHtml(choice.title || '')}" data-image-choice-title="${escapeAdminHtml(choice.image)}" placeholder="Blank uses the main Product title"></label>
+          <label>Choice description <span>(optional)</span><textarea rows="2" data-image-choice-description="${escapeAdminHtml(choice.image)}" placeholder="Blank uses the main Product description">${escapeAdminHtml(choice.description || '')}</textarea></label>
+          <button type="button" data-rename-image-choice="${escapeAdminHtml(choice.image)}">Save Choice Text</button>
           <label>Change image
             <select data-replace-image-choice-target="${escapeAdminHtml(choice.image)}">${productVisualOptionsMarkup('product', choice.image)}</select>
           </label>
@@ -9186,8 +9252,11 @@ function renderAdminProducts() {
     form.querySelectorAll('[data-rename-image-choice]').forEach((button) => {
       button.addEventListener('click', () => {
         const imagePath = button.dataset.renameImageChoice;
-        const label = button.closest('.admin-image-choice-row')?.querySelector('[data-image-choice-label]')?.value;
-        renameProductImageChoice(form.dataset.slug, imagePath, label);
+        const row = button.closest('.admin-image-choice-row');
+        const label = row?.querySelector('[data-image-choice-label]')?.value;
+        const title = row?.querySelector('[data-image-choice-title]')?.value;
+        const description = row?.querySelector('[data-image-choice-description]')?.value;
+        updateProductImageChoiceText(form.dataset.slug, imagePath, label, title, description);
       });
     });
 
@@ -10637,7 +10706,7 @@ async function loadImageDraftInventory({ renderInbox = true } = {}) {
   if (renderInbox) renderImageDrafts();
   populateCreationImagePickers(document.getElementById('createProductForm'));
   imageInventoryLoaded = true;
-  if (document.getElementById('movieFolderProductImporter')?.open) renderMovieFolderProductImporter();
+  if (document.getElementById('collectionFolderProductImporter')?.open) renderCollectionFolderProductImporter();
 }
 
 function downloadAdminJson(filename, value) {

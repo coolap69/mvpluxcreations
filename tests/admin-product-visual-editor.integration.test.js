@@ -1,5 +1,5 @@
 import { Window } from 'npm:happy-dom@18.0.1';
-import { mergeProductSources } from '../admin-architecture.js';
+import { mergeProductSources, normalizeProductRecord } from '../admin-architecture.js';
 
 const adminSource = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
 const adminHtml = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
@@ -354,4 +354,25 @@ Deno.test('Product Save remains private and Publish saves latest state before th
   assert(publish.indexOf('await saveProductForm') < publish.indexOf('publishSavedProductBySlug'), 'Publish Product / Standee must save the newest Product Editor state before using the shared publisher');
   assert(adminSource.includes('PUBLISHED VERSION EXISTS · DRAFT HAS UNPUBLISHED CHANGES'), 'published Product with newer private edits must have an unmistakable lifecycle state');
   for (const preserved of ['DRAFT PREVIEW — NOT LIVE YET', 'Reset Card Layout', 'admin-category-editor-actions']) assert(adminSource.includes(preserved), `existing Homepage Collection Card editor feature was lost: ${preserved}`);
+});
+
+Deno.test('alternate Product images keep optional customer title and description with main Product fallback', () => {
+  const record = normalizeProductRecord({
+    slug: 'arnold', title: 'Arnold Schwarzenegger', description: 'Main description', cutoutImage: 'images/main.png',
+    imageChoices: [
+      { label: 'Mr. Olympia', image: 'images/olympia.png', title: 'Mr. Olympia', description: 'Competition-era pose.' },
+      { label: 'Pumping Iron', image: 'images/pumping.png', title: '', description: '' }
+    ]
+  }, 'arnold');
+  assert(record.imageChoices[0].title === 'Mr. Olympia' && record.imageChoices[0].description === 'Competition-era pose.', 'normalized Product must preserve optional per-choice customer text');
+  assert(!('title' in record.imageChoices[1]) && !('description' in record.imageChoices[1]), 'blank choice text must remain an explicit inheritance choice, not duplicated Product text');
+
+  const editor = sourceRange(adminSource, 'function productImageChoicesMarkup', '\n\nfunction populateProductImageChoiceBrowser');
+  assert(editor.includes('data-image-choice-title') && editor.includes('data-image-choice-description'), 'Product editor must expose optional title and description for every alternate image');
+  assert(editor.includes('Blank uses the main Product title') && editor.includes('Blank uses the main Product description'), 'inheritance behavior must be clear in the editor');
+
+  const genericSelection = sourceRange(storefrontSource, 'function selectGenericCategoryOption', '\n\nfunction buildGenericCategoryOptions');
+  const sportsSelection = sourceRange(storefrontSource, 'function selectSportsOption', '\n\nfunction requestedCollectionCardImage');
+  assert(genericSelection.includes('option.title || state.productTitle') && genericSelection.includes('option.description || state.productDescription'), 'generic Collection showroom must use choice text and fall back to the Product');
+  assert(sportsSelection.includes('option.title || product.name') && sportsSelection.includes('option.description || product.description'), 'Sport Legends must use the same choice-text behavior');
 });

@@ -6,6 +6,7 @@ const source = await Deno.readTextFile(new URL('../script.js', import.meta.url))
 const sportsHtml = await Deno.readTextFile(new URL('../sports-legends.html', import.meta.url));
 const standeeHtml = await Deno.readTextFile(new URL('../standee.html', import.meta.url));
 const indexHtml = await Deno.readTextFile(new URL('../index.html', import.meta.url));
+const styleSource = await Deno.readTextFile(new URL('../style.css', import.meta.url));
 
 function between(startToken, endToken) {
   const start = source.indexOf(startToken);
@@ -50,7 +51,7 @@ Deno.test('non-Sports Collection pages show one clean loading stage until normal
     assert((html.match(/data-category-showroom-loading/g) || []).length === 1, `${filename} must have exactly one immediate loading stage`);
     assert(html.includes('<body data-dynamic-category-page>'), `${filename} must replace its static compatibility heading with the normalized Main Collection title and description`);
     assert(html.includes('rel="preconnect" href="https://cdn.jsdelivr.net"') && html.includes('rel="preconnect" href="https://ncbddqxdinvcsoszdsxr.supabase.co"'), `${filename} must start both required network connections early`);
-    assert(html.includes('script.js?v=20261014-unified-collection-showrooms'), `${filename} must load the nonblocking signed-in navigation controller, current showroom compatibility fix, and Admin-managed manual payments`);
+    assert(html.includes('script.js?v=20261014-showroom-choice-carousel'), `${filename} must load the current shared showroom choice carousel`);
   }
   const initializer = between('function initializeCategoryShowroomExperience', 'function getGenericCategoryFallbackStage');
   assert(initializer.indexOf('setupGenericCategoryShowroom()') < initializer.indexOf("[data-category-showroom-loading]"), 'the loader must remain until the normalized showroom is constructed');
@@ -64,7 +65,7 @@ Deno.test('legacy Sports Subcollection cards stay hidden until normalized render
   ]);
   assert(html.includes('class="sport-type-carousel"') && html.includes('data-category-initial-content hidden'), 'Sports compatibility Subcollections must begin hidden');
   assert(css.includes('[data-category-initial-content][hidden]') && css.includes('display: none !important;'), 'the carousel display rule must not expose old compatibility cards before normalized rendering');
-  assert(html.includes('style.css?v=20261008-shared-collection-heading'), 'Sports must request the corrected shared heading stylesheet instead of a cached pre-fix copy');
+  assert(html.includes('style.css?v=20261014-showroom-choice-carousel'), 'Sports must request the current shared showroom carousel stylesheet');
   assert(html.includes('<body data-dynamic-category-page>') && html.includes('<h1>Sport Legends</h1>'), 'Sport Legends must initialize its page heading from the normalized Main Collection instead of retaining an old static label');
   assert(css.includes('margin: 28px auto 48px !important;'), 'the Main Collection page must not add a second oversized offset beneath its sticky navigation');
   assert(css.includes('font-family: var(--collection-page-heading-font') && css.includes('color: var(--collection-page-heading-color, #f4d06f)'), 'the Main Collection heading must use the shared MVPLUX heading typography');
@@ -79,6 +80,17 @@ Deno.test('generic and Sports showrooms resolve shared Product showroom designs 
   assert(generic.includes('applyProductShowroomDesign(state.stage, product)'), 'generic Collection showroom must apply the resolved shared stage design');
   assert(sports.includes("applyProductShowroomDesign(mainStage, product.sourceProduct || product, 'sports')"), 'Sport Legends showroom must use the same shared stage resolver');
   for (const control of ['Buy Now', 'addSelectedToCart(this)', 'Offer Now']) assert(source.includes(control), `shared showroom work must preserve ${control}`);
+});
+
+Deno.test('all Collection showrooms keep image and background choices in one compact accessible carousel', () => {
+  const carousel = between('function setupShowroomChoiceCarousel', 'function showroomPurchaseMarkup');
+  const generic = between('function setupGenericCategoryShowroom', 'function normalizeFrontPageCategoryLinks');
+  assert(carousel.includes("[data-showroom-choice-scroll]") && carousel.includes('strip.scrollBy({'), 'shared choice carousel must expose working previous and next controls');
+  assert(generic.includes('data-showroom-choice-carousel') && generic.includes('showroomChoiceSupportMarkup'), 'generic Main Collection showrooms must use the shared carousel and support note');
+  assert(sportsHtml.includes('data-showroom-choice-carousel') && sportsHtml.includes('Request Another Background or Color'), 'Sport Legends must use the same carousel and request action');
+  assert(source.includes('“No Background” normally means a clean white printed background') && sportsHtml.includes('rear support/stand is normally white'), 'the customer explanation must cover white background and white rear-stand behavior');
+  assert(styleSource.includes('grid-auto-flow: column') && styleSource.includes('overflow-x: auto') && styleSource.includes('scroll-snap-type: inline mandatory'), 'choice cards must stay in one horizontally scrollable row instead of wrapping downward');
+  for (const control of ['Buy Now', 'addSelectedToCart(this)', 'Offer Now']) assert(source.includes(control), `carousel work must preserve ${control}`);
 });
 
 Deno.test('normal product-page purchase UI retains prices, sizes, Buy, and cart controls', () => {
