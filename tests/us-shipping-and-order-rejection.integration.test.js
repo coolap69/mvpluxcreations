@@ -8,6 +8,7 @@ const adminHtml = await Deno.readTextFile(new URL('../admin.html', import.meta.u
 const homepage = await Deno.readTextFile(new URL('../index.html', import.meta.url));
 const schema = await Deno.readTextFile(new URL('../supabase-schema.sql', import.meta.url));
 const migration = await Deno.readTextFile(new URL('../supabase/migrations/20261008233000_us_only_shipping_and_order_rejection.sql', import.meta.url));
+const customOrderShippingFix = await Deno.readTextFile(new URL('../supabase/migrations/20261016120000_allow_custom_order_inquiries_without_shipping.sql', import.meta.url));
 
 const normalizeSource = script.match(/function normalizeShippingCountry\(value\) \{[\s\S]*?\n\}/)?.[0];
 const countrySource = script.match(/function isUnitedStatesShippingCountry\(value\) \{[\s\S]*?\n\}/)?.[0];
@@ -36,6 +37,8 @@ assert(migration.includes('before insert or update of shipping_address on public
 assert(migration.includes('before update of payment_shipping_address on public.offers'), 'Accepted-offer checkout must enforce the same shipping restriction.');
 assert(migration.includes("'rejected'"), 'The protected Admin status operation must support rejected orders.');
 assert(schema.includes('enforce_us_order_shipping') && schema.includes("'rejected'"), 'The canonical schema must include the shipping guard and rejection status.');
+assert(customOrderShippingFix.includes(`new.items, '[]'::jsonb`) && customOrderShippingFix.includes(`@> '[{"type":"custom-order"}]'::jsonb`), 'Custom Order inquiries must bypass checkout shipping validation before an address is agreed.');
+assert(customOrderShippingFix.includes('not public.is_us_shipping_address(new.shipping_address)'), 'Normal website orders must retain U.S. shipping validation.');
 
 assert(adminHtml.includes('id="adminOrdersRejected"') && adminHtml.includes('Rejected Orders'), 'Orders Admin must have a visible preserved Rejected queue.');
 assert(admin.includes('data-order-status="rejected"') && admin.includes('Reject Order'), 'Eligible orders must expose a Reject Order action.');

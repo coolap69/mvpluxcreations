@@ -270,7 +270,7 @@ Deno.test('Product showroom inheritance is Product override then Main Collection
 Deno.test('showroom height formatting accepts saved feet and inches text', () => {
   const formatSource = sourceRange(storefrontSource, 'function formatHeight', '\n\nfunction formatMoney');
   const format = new Function('parseHeightToInches', `${formatSource}\nreturn formatHeight;`)((value) => value === "5'5" ? 65 : Number(value));
-  assert(format("5'5") === `5'5"`, 'saved feet/inches text must never render as NaN');
+  assert(format("5'5") === '5 ft 5 in', 'saved feet/inches text must render in the plain feet-and-inches format, never as NaN');
 });
 
 Deno.test('published explicit empty Product image beats catalog and static fallback imagery', () => {
@@ -370,6 +370,8 @@ Deno.test('alternate Product images keep optional customer title and description
   const editor = sourceRange(adminSource, 'function productImageChoicesMarkup', '\n\nfunction populateProductImageChoiceBrowser');
   assert(editor.includes('data-image-choice-title') && editor.includes('data-image-choice-description'), 'Product editor must expose optional title and description for every alternate image');
   assert(editor.includes('Blank uses the main Product title') && editor.includes('Blank uses the main Product description'), 'inheritance behavior must be clear in the editor');
+  assert(editor.includes('uses the main Product title, description, fun fact, and height automatically'), 'folder images must clearly inherit all main Product information by default');
+  assert(editor.includes('admin-image-choice-customize') && editor.includes('<details'), 'per-image title and description overrides must stay in a compact optional editor');
 
   const genericSelection = sourceRange(storefrontSource, 'function selectGenericCategoryOption', '\n\nfunction buildGenericCategoryOptions');
   const sportsSelection = sourceRange(storefrontSource, 'function selectSportsOption', '\n\nfunction requestedCollectionCardImage');

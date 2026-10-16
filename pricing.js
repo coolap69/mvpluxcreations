@@ -12,10 +12,18 @@
     if (value === null || value === undefined || value === '') return null;
     const raw = String(value).trim().toLowerCase();
     const feetInchesMatch = raw.match(/^(\d+)\s*'\s*(\d+)?\s*"?$/);
+    const feetWordsMatch = raw.match(/^(\d+)\s*(?:ft|foot|feet)\s*(\d+)?\s*(?:in|inch|inches)?$/);
+    const inchesMatch = raw.match(/^(\d+(?:\.\d+)?)\s*(?:in|inch|inches)$/);
 
-    if (feetInchesMatch) {
-      const feet = parseInt(feetInchesMatch[1], 10);
-      const inches = parseInt(feetInchesMatch[2] || '0', 10);
+    if (inchesMatch) {
+      const inches = Number(inchesMatch[1]);
+      return inches >= 24 && inches <= 120 ? inches : null;
+    }
+
+    const parsedFeet = feetInchesMatch || feetWordsMatch;
+    if (parsedFeet) {
+      const feet = parseInt(parsedFeet[1], 10);
+      const inches = parseInt(parsedFeet[2] || '0', 10);
       return inches < 12 ? (feet * 12) + inches : null;
     }
 
@@ -48,6 +56,15 @@
     return parseHeight(value) || normalizePriceSettings(settings).defaultMerchandiseHeight;
   }
 
+  function formatHeight(value) {
+    const inches = parseHeight(value);
+    if (!inches) return 'Size unavailable';
+    const wholeInches = Math.round(inches);
+    const feet = Math.floor(wholeInches / 12);
+    const remainder = wholeInches % 12;
+    return `${feet} ft ${remainder} in`;
+  }
+
   function calculateHeightPrice(height, settings = {}) {
     const inches = parseHeight(height);
     if (!inches || inches < 24) return null;
@@ -70,6 +87,7 @@
   global.MVPLUX_PRICING = Object.freeze({
     DEFAULT_PRICE_SETTINGS,
     parseHeight,
+    formatHeight,
     normalizePriceSettings,
     resolveMerchandiseHeight,
     calculateHeightPrice

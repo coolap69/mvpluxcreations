@@ -19,11 +19,15 @@
     const output = document.getElementById('customOrderPrice');
     if (!output) return;
     const price = height ? window.MVPLUX_PRICING.calculateHeightPrice(height, window.mvpluxPublishedAdminSettings?.priceSettings || {}) : null;
-    output.textContent = Number.isFinite(price) ? `${formatMoney(price)} at ${formatHeight(height)}` : 'Enter a valid size (24–120 inches)';
+    output.textContent = Number.isFinite(price) ? `${formatMoney(price)} at ${formatHeight(height)}` : 'Enter a valid size from 2 ft 0 in to 10 ft 0 in';
   }
 
   function orderMode(form) {
     return new FormData(form).get('orderMode') === 'discussed' ? 'discussed' : 'new';
+  }
+
+  function fulfillmentType(form) {
+    return new FormData(form).get('fulfillmentType') === 'digital' ? 'digital' : 'physical';
   }
 
   function validateFiles(files, { required = true } = {}) {
@@ -39,7 +43,7 @@
     const fileError = validateFiles(files, { required: !discussed });
     const height = desiredHeight(form);
     if (fileError) throw new Error(fileError);
-    if (!height || height < 24 || height > 120) throw new Error('Enter a desired height between 24 and 120 inches.');
+    if (!height || height < 24 || height > 120) throw new Error('Enter a desired height from 2 ft 0 in to 10 ft 0 in.');
     if (discussed) {
       const agreedPrice = Number(form.elements.agreedPrice.value);
       const tipAmount = Number(form.elements.tipAmount.value || 0);
@@ -50,6 +54,7 @@
 
     const client = window.getMvpluxSupabaseClient?.();
     const session = client ? (await client.auth.getSession()).data?.session : null;
+    if (!session?.access_token || !session?.user) throw new Error('Sign in to submit a Custom Order request.');
     const payload = new FormData(form);
     payload.set('desiredHeight', String(height));
     const project = window.MVPLUX_SUPABASE;
@@ -81,6 +86,22 @@
     const button = document.getElementById('customOrderSubmit');
     if (button) button.textContent = discussed ? 'Submit Request & Continue to Payment' : 'Send Custom Order Request';
     updatePaymentTotal(form);
+  }
+
+  async function initializeAccountAccess(form) {
+    const gate = document.getElementById('customOrderAccountGate');
+    const client = window.getMvpluxSupabaseClient?.();
+    const session = client ? (await client.auth.getSession()).data?.session : null;
+    if (!session?.user) {
+      form.hidden = true;
+      if (gate) gate.innerHTML = 'A free account is required to protect your Custom Order history. <a href="signin.html?returnTo=custom-order.html">Sign in</a> or <a href="signup.html?returnTo=custom-order.html">create an account</a>.';
+      return null;
+    }
+    form.hidden = false;
+    if (gate) gate.textContent = `Signed in as ${session.user.email}. Your request will be saved to this account.`;
+    form.elements.email.value = session.user.email || '';
+    if (!form.elements.name.value) form.elements.name.value = session.user.user_metadata?.screen_name || '';
+    return session;
   }
 
   function updatePaymentTotal(form) {
@@ -115,6 +136,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     const form = document.getElementById('customOrderForm');
     if (!form) return;
+    void initializeAccountAccess(form);
     form.elements.desiredHeight.addEventListener('input', () => updatePrice(form));
     form.querySelectorAll('[name="orderMode"]').forEach((input) => input.addEventListener('change', () => updateMode(form)));
     form.elements.agreedPrice.addEventListener('input', () => updatePaymentTotal(form));
@@ -149,7 +171,7 @@
           : ' Your request was saved, but an email confirmation could not be sent. Please keep this reference number.';
         status((result.paymentRequired
           ? `Request received. ${result.orderNumber} is waiting for payment and Admin verification.`
-          : `Request received. Your reference number is ${result.orderNumber}.`) + emailConfirmation, 'success');
+          : `Request received. Your reference number is ${result.orderNumber}.`) + ` ${fulfillmentType(form) === 'digital' ? 'Digital file request — no shipping is required.' : 'Physical standee request — free shipping is U.S.-only.'}` + emailConfirmation, 'success');
         showPaymentActions(result);
         form.reset();
         updatePrice(form);

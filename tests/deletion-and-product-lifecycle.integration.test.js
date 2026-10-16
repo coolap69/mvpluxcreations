@@ -4,9 +4,10 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const [adminSource, storefrontSource] = await Promise.all([
+const [adminSource, storefrontSource, adminHtml] = await Promise.all([
   Deno.readTextFile(new URL('../admin.js', import.meta.url)),
-  Deno.readTextFile(new URL('../script.js', import.meta.url))
+  Deno.readTextFile(new URL('../script.js', import.meta.url)),
+  Deno.readTextFile(new URL('../admin.html', import.meta.url))
 ]);
 
 function sourceRange(source, start, end) {
@@ -171,4 +172,15 @@ Deno.test('delete controls remain private until explicit publish and expose both
   assert(deleteProductSource.includes('patch.deletedProducts') && deleteProductSource.includes('saved privately') && !deleteProductSource.includes('publishScopedChangeIds'), 'Delete Product must save a private tombstone without auto-publishing');
   assert(deleteCollectionSource.includes("collectionKey: 'deletedCategories'") && deleteCollectionSource.includes('saved privately') && !deleteCollectionSource.includes('publishScopedChangeIds'), 'Delete Main Collection must save privately without auto-publishing');
   assert(reviewSource.includes('product-delete:') && reviewSource.includes('category-delete:'), 'both saved deletion types must become explicit shared publish items');
+});
+
+Deno.test('bulk Product cleanup deletes selected normalized records in one private save without deleting image files', () => {
+  const bulkSource = sourceRange(adminSource, 'async function deleteSelectedProducts', '\n\nasync function returnProductToDraft');
+  assert(adminHtml.includes('id="bulkSelectProducts"') && adminHtml.includes('id="deleteSelectedProducts"'), 'Products must expose explicit bulk-selection and bulk-delete controls');
+  assert(bulkSource.includes('deletions.forEach((slug) => delete products[slug])'), 'bulk cleanup must remove only explicitly selected normalized Product records');
+  assert(bulkSource.includes('customProducts.filter((product) => !deletionSet.has(product.slug))'), 'bulk cleanup must remove selected custom Product records from the same normalized draft');
+  assert(bulkSource.includes('deletedProducts: [...new Set([...readDeletedProducts(), ...deletions])]'), 'bulk cleanup must save tombstones so old catalog fallbacks cannot resurrect deleted Products');
+  assert((bulkSource.match(/saveProductWorkflowPatch\(patch\)/g) || []).length === 1, 'all selected deletions must use one authoritative private save');
+  assert(!/remove\(|unlink|deleteFile|storage\.from/.test(bulkSource), 'bulk Product cleanup must never delete a physical repository or storage image');
+  assert(!bulkSource.includes('publishScopedChangeIds') && bulkSource.includes('saved privately in one batch'), 'bulk cleanup must remain private until the existing explicit live-save lifecycle is used');
 });

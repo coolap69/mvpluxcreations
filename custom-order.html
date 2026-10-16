@@ -29,7 +29,14 @@
       <p>Send up to five reference images and describe the display you want. Your images stay private and are used only to review your request.</p>
     </section>
 
-    <form id="customOrderForm" class="custom-order-form">
+    <section id="customOrderAccountGate" class="custom-order-status" aria-live="polite">Checking your account…</section>
+
+    <form id="customOrderForm" class="custom-order-form" hidden>
+      <fieldset class="custom-order-mode">
+        <legend>What would you like to receive?</legend>
+        <label class="custom-order-choice"><input name="fulfillmentType" type="radio" value="physical" checked> Physical custom standee — free shipping is available only to U.S. delivery addresses</label>
+        <label class="custom-order-choice"><input name="fulfillmentType" type="radio" value="digital"> Custom digital design file — available worldwide with no physical shipping</label>
+      </fieldset>
       <fieldset class="custom-order-mode">
         <legend>Where are you in the process?</legend>
         <label class="custom-order-choice"><input name="orderMode" type="radio" value="new" checked> I need a new custom-order quote</label>
@@ -45,7 +52,7 @@
           <textarea name="description" rows="6" maxlength="3000" required placeholder="Who or what should the standee show? Include pose, outfit, colors, event theme, or other important details."></textarea>
         </label>
         <label>Desired height
-          <input name="desiredHeight" type="text" required placeholder="Example: 5'8 or 68">
+          <input name="desiredHeight" type="text" required placeholder="Example: 5 ft 8 in or 68 inches">
         </label>
         <div class="custom-order-price" aria-live="polite">
           <span>Estimated standee price at this size</span>
@@ -74,7 +81,7 @@
       <fieldset>
         <legend>Contact information</legend>
         <label>Name<input name="name" autocomplete="name" maxlength="120" required></label>
-        <label>Email<input name="email" type="email" autocomplete="email" maxlength="200" required></label>
+        <label>Account email<input name="email" type="email" autocomplete="email" maxlength="200" readonly required></label>
         <label>Phone<input name="phone" type="tel" autocomplete="tel" maxlength="40"></label>
         <label>Preferred contact
           <select name="contactPreference">
@@ -102,6 +109,6 @@
   <script src="pricing.js?v=20260823-merchandise-height"></script>
   <script src="category-presentation.js?v=20260824-collection-representative"></script>
   <script src="script.js?v=20261014-unified-collection-showrooms"></script>
-  <script src="custom-order.js?v=20261015-confirmation-emails"></script>
+  <script src="custom-order.js?v=20261016-account-digital-orders"></script>
 </body>
 </html>

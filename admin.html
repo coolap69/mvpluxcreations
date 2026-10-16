@@ -185,7 +185,7 @@
         <div class="admin-panel-header">
           <div>
             <h3>Collection Product Folder Import</h3>
-            <p class="admin-note">Choose a Main Collection. One final image folder becomes one normalized Product; its other files become alternate image choices. Existing Products are integrated instead of duplicated. Nothing is published automatically.</p>
+            <p class="admin-note">Choose a Main Collection. New folders can create one normalized Product. Folders already linked to a Product stay out of the creation list; later image additions appear separately under Product Image Revisions. Nothing is published automatically.</p>
           </div>
           <div class="admin-panel-actions">
             <label>Main Collection<select data-folder-import-collection></select></label>
@@ -219,7 +219,7 @@
             </div>
             <p class="admin-note admin-ai-status" data-ai-status aria-live="polite"></p>
             <p class="admin-note">AI suggestions fill these fields for your review. They never save or publish automatically.</p>
-            <label>Original Height<input name="originalHeight" type="text" placeholder="Known height, or leave blank for the Admin default"></label>
+            <label>Original Height<input name="originalHeight" type="text" placeholder="Example: 6 ft 6 in"></label>
             <label>Choose Background<select name="backgroundImage" data-admin-image-picker="background"><option value="">Use the clean showroom background</option></select></label>
             <fieldset><legend>Collection / Subcollection assignments</legend><div class="admin-category-options" data-create-product-categories></div></fieldset>
             <details class="admin-advanced-fields"><summary>Advanced</summary>
@@ -337,8 +337,11 @@
         </div>
         <div class="admin-panel-actions">
           <input id="adminProductSearch" type="search" placeholder="Search products" aria-label="Search products">
+          <button id="bulkSelectProducts" class="admin-button admin-button-secondary" type="button" aria-pressed="false">Bulk Select</button>
+          <button id="deleteSelectedProducts" class="admin-button admin-button-warning" type="button" hidden disabled>Delete Selected Products</button>
         </div>
       </div>
+      <p id="productBulkDeleteStatus" class="admin-note" hidden>Select only duplicate Product records you no longer need. Product image files will not be deleted.</p>
       <section id="sharedProductShowroomController" class="admin-shared-product-showroom" aria-label="Shared Product Showroom Design"></section>
       <div id="approvedProducts" class="admin-product-list"></div>
     </section>
@@ -444,11 +447,11 @@
         </label>
         <label>
           Full-size height
-          <input id="fullHeight" type="text" placeholder="6'6 or 78" />
+          <input id="fullHeight" type="text" placeholder="6 ft 6 in or 78 inches" />
         </label>
         <label>
           Default merchandise height
-          <input id="defaultMerchandiseHeight" type="text" placeholder="6'6 or 78" />
+          <input id="defaultMerchandiseHeight" type="text" placeholder="6 ft 6 in or 78 inches" />
           <small>Used only when a new sellable product has no known real-world height.</small>
         </label>
         <label>
@@ -623,6 +626,6 @@
   <script src="category-presentation.js?v=20261007-shared-subcollection-design"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
   <script src="storefront-section-layout.js?v=20260911-featured-stage-balance"></script>
-  <script src="admin.js?v=20261015-custom-order-history"></script>
+  <script src="admin.js?v=20261016-bulk-product-cleanup"></script>
 </body>
 </html>

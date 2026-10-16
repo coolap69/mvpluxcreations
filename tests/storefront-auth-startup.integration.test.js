@@ -150,13 +150,13 @@ Deno.test('successful approved sign-in authorizes the session and returns to the
   assert(navigation.href === '/', 'approved Admin must return to the normal homepage');
 });
 
-Deno.test('successful unapproved sign-in stays signed in and shows a visible Admin authorization error', async () => {
+Deno.test('successful customer sign-in remains a customer session and may return to Custom Order', async () => {
   const source = await Deno.readTextFile(new URL('../script.js', import.meta.url));
   const start = source.indexOf('async function signInCustomerWithSupabase');
   const end = source.indexOf('\n\nasync function signUpCustomerWithSupabase', start);
   const messages = [];
   const storage = new Map();
-  const navigation = { href: 'signin.html' };
+  const navigation = { href: 'signin.html', search: '?returnTo=custom-order.html' };
   const signIn = new Function('dependencies', `
     const { getSupabaseClient, showSupabaseConnectionAlert, isSupabaseNetworkError, showSiteMessage,
       checkCurrentUserAdminAccess, localStorage, window, console } = dependencies;
@@ -173,8 +173,8 @@ Deno.test('successful unapproved sign-in stays signed in and shows a visible Adm
 
   await signIn('customer@example.com', 'secret');
   assert(storage.get('mvpluxCustomerSignedIn') === 'true', 'a valid Supabase session must remain signed in');
-  assert(navigation.href === 'signin.html', 'unapproved account must not enter Admin or silently navigate away');
-  assert(messages.some(([text, type]) => text.includes('not approved for Admin access') && type === 'error'), 'authorization failure must be visibly explained');
+  assert(navigation.href === 'custom-order.html', 'a valid customer account must return to the protected Custom Order form');
+  assert(!messages.some(([text]) => text.includes('not approved for Admin access')), 'ordinary customers must not be shown an Admin authorization error');
 });
 
 Deno.test('Admin authorization verifies the persisted session against admin_profiles', async () => {

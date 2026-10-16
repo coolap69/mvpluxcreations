@@ -80,6 +80,7 @@ async function sendCustomOrderNotifications(input: {
   referenceCount: number;
   alreadyDiscussed: boolean;
   paymentTotal: number;
+  fulfillmentType: 'physical' | 'digital';
 }) {
   const adminEmail = Deno.env.get('CUSTOM_ORDER_ADMIN_EMAIL')?.trim();
   const safeOrder = escapeHtml(input.orderNumber);
@@ -87,13 +88,13 @@ async function sendCustomOrderNotifications(input: {
   const customer = sendTransactionalEmail({
     to: input.email,
     subject: `We received your MVPLUXCREATIONS custom request — ${input.orderNumber}`,
-    html: `<h1>Custom Order request received</h1><p>Hi ${safeName},</p><p>Your request was saved securely. Your reference number is <strong>${safeOrder}</strong>.</p><p>Requested height: ${escapeHtml(input.desiredHeight)} inches.</p><p>${input.alreadyDiscussed ? `Your submitted payment total is $${input.paymentTotal.toFixed(2)} and will be verified by an Admin before production begins.` : 'We will review the details and contact you about the design and quote.'}</p><p>Keep this reference number for your records.</p>`
+    html: `<h1>Custom Order request received</h1><p>Hi ${safeName},</p><p>Your request was saved securely. Your reference number is <strong>${safeOrder}</strong>.</p><p>Request type: ${input.fulfillmentType === 'digital' ? 'Digital design file — no shipping' : 'Physical standee — free shipping is U.S.-only'}.</p><p>Requested height: ${escapeHtml(input.desiredHeight)} inches.</p><p>${input.alreadyDiscussed ? `Your submitted payment total is $${input.paymentTotal.toFixed(2)} and will be verified by an Admin before production begins.` : 'We will review the details and contact you about the design and quote.'}</p><p>Keep this reference number for your records.</p>`
   });
   const admin = adminEmail && validEmail(adminEmail)
     ? sendTransactionalEmail({
       to: adminEmail,
       subject: `New Custom Order request — ${input.orderNumber}`,
-      html: `<h1>New Custom Order request</h1><p><strong>Reference:</strong> ${safeOrder}</p><p><strong>Customer:</strong> ${safeName}<br><strong>Email:</strong> ${escapeHtml(input.email)}<br><strong>Phone:</strong> ${escapeHtml(input.phone || 'Not provided')}<br><strong>Preferred contact:</strong> ${escapeHtml(input.contactPreference)}</p><p><strong>Desired height:</strong> ${escapeHtml(input.desiredHeight)} inches<br><strong>Private reference images:</strong> ${escapeHtml(input.referenceCount)}</p><p><strong>Description:</strong><br>${escapeHtml(input.description).replaceAll('\n', '<br>')}</p><p><a href="https://mvpluxcreations.com/admin.html#custom-order-requests">Open the private Custom Order Requests page</a></p>`
+      html: `<h1>New Custom Order request</h1><p><strong>Reference:</strong> ${safeOrder}</p><p><strong>Customer:</strong> ${safeName}<br><strong>Email:</strong> ${escapeHtml(input.email)}<br><strong>Phone:</strong> ${escapeHtml(input.phone || 'Not provided')}<br><strong>Preferred contact:</strong> ${escapeHtml(input.contactPreference)}</p><p><strong>Request type:</strong> ${input.fulfillmentType === 'digital' ? 'Digital design file — no shipping' : 'Physical standee — free shipping is U.S.-only'}<br><strong>Desired height:</strong> ${escapeHtml(input.desiredHeight)} inches<br><strong>Private reference images:</strong> ${escapeHtml(input.referenceCount)}</p><p><strong>Description:</strong><br>${escapeHtml(input.description).replaceAll('\n', '<br>')}</p><p><a href="https://mvpluxcreations.com/admin.html#custom-order-requests">Open the private Custom Order Requests page</a></p>`
     })
     : Promise.resolve({ configured: false, sent: false });
   const [customerResult, adminResult] = await Promise.all([customer, admin]);
@@ -171,10 +172,11 @@ Deno.serve(async (request) => {
     if (declaredSize > 31_000_000) return json(request, { error: 'The custom-order request is too large.' }, 413);
     const form = await request.formData();
     const name = clean(form.get('name'), 120);
-    const email = clean(form.get('email'), 200).toLowerCase();
+    const submittedEmail = clean(form.get('email'), 200).toLowerCase();
     const phone = clean(form.get('phone'), 40);
     const description = clean(form.get('description'), 3000);
     const contactPreference = clean(form.get('contactPreference'), 20) || 'email';
+    const fulfillmentType = clean(form.get('fulfillmentType'), 20) === 'digital' ? 'digital' : 'physical';
     const desiredHeight = Number(clean(form.get('desiredHeight'), 6));
     const orderMode = clean(form.get('orderMode'), 20) === 'discussed' ? 'discussed' : 'new';
     const alreadyDiscussed = orderMode === 'discussed';
@@ -182,7 +184,7 @@ Deno.serve(async (request) => {
     const tipAmount = alreadyDiscussed ? Number(clean(form.get('tipAmount'), 20) || 0) : 0;
     const agreedPriceConfirmed = clean(form.get('agreedPriceConfirmed'), 10) === 'on';
     const files = form.getAll('referenceImages').filter((entry): entry is File => entry instanceof File && entry.size > 0);
-    if (!name || !validEmail(email) || !description) return json(request, { error: 'Name, a valid email, and a design description are required.' }, 400);
+    if (!name || !validEmail(submittedEmail) || !description) return json(request, { error: 'Name, a valid email, and a design description are required.' }, 400);
     if (!Number.isFinite(desiredHeight) || desiredHeight < 24 || desiredHeight > 120) return json(request, { error: 'Desired height must be between 24 and 120 inches.' }, 400);
     if ((!alreadyDiscussed && !files.length) || files.length > 5) return json(request, { error: 'Choose between one and five reference images for a new request.' }, 400);
     if (alreadyDiscussed && (!Number.isFinite(agreedPrice) || agreedPrice < 1 || agreedPrice > 20000)) return json(request, { error: 'Enter the complete price agreed with MVPLUXCREATIONS.' }, 400);
@@ -191,11 +193,18 @@ Deno.serve(async (request) => {
     for (const file of files) {
       if (!allowedTypes.has(file.type) || file.size > 6_000_000) return json(request, { error: 'Each reference must be PNG, JPG, or WebP and no larger than 6 MB.' }, 400);
     }
-    rateLimit(requestKey(request, email));
-    failureContext = { name, email, phone, description, desiredHeight, error: '' };
-
     const url = required('SUPABASE_URL').replace(/\/$/, '');
     const serviceKey = required('SUPABASE_SERVICE_ROLE_KEY');
+    const authorization = request.headers.get('authorization') || '';
+    if (!authorization.toLowerCase().startsWith('bearer ')) return json(request, { error: 'Sign in to submit a Custom Order request.' }, 401);
+    const userResponse = await fetch(`${url}/auth/v1/user`, {
+      headers: { apikey: serviceKey, Authorization: authorization }
+    });
+    const user = userResponse.ok ? await userResponse.json() : null;
+    const email = String(user?.email || '').trim().toLowerCase();
+    if (!user?.id || !validEmail(email)) return json(request, { error: 'Your account session expired. Sign in again before submitting.' }, 401);
+    rateLimit(requestKey(request, email));
+    failureContext = { name, email, phone, description, desiredHeight, error: '' };
     storageUrl = url;
     storageServiceKey = serviceKey;
     const requestId = crypto.randomUUID();
@@ -221,7 +230,9 @@ Deno.serve(async (request) => {
       agreed_price: agreedPrice,
       optional_tip: tipAmount,
       payment_status: alreadyDiscussed ? 'awaiting_manual_verification' : 'quote_required',
-      underpayment_fee_notice: alreadyDiscussed ? 20 : 0
+      underpayment_fee_notice: alreadyDiscussed ? 20 : 0,
+      fulfillment_type: fulfillmentType,
+      requires_shipping: fulfillmentType === 'physical'
     };
     const insert = await fetch(`${url}/rest/v1/order_requests`, {
       method: 'POST',
@@ -232,6 +243,7 @@ Deno.serve(async (request) => {
         Prefer: 'return=minimal'
       },
       body: JSON.stringify({
+        customer_id: user.id,
         customer_name: name,
         customer_email: email,
         customer_phone: phone || null,
@@ -242,7 +254,7 @@ Deno.serve(async (request) => {
         customer_fee: 0,
         total: paymentTotal,
         status: 'new',
-        notes: `Order number: ${orderNumber}\nCustom order mode: ${alreadyDiscussed ? 'Design and price already discussed' : 'New quote requested'}\nCustom design description: ${description}\nDesired height: ${desiredHeight} inches\nPreferred contact: ${contactPreference}${alreadyDiscussed ? `\nAgreed price: $${agreedPrice.toFixed(2)}\nOptional extra / tip: $${tipAmount.toFixed(2)}\nExpected payment total: $${paymentTotal.toFixed(2)}\nPayment must be manually verified before production. Underpayment does not begin production and may require an additional $20 processing fee.` : ''}`
+        notes: `Order number: ${orderNumber}\nFulfillment: ${fulfillmentType === 'digital' ? 'Digital design file — no shipping' : 'Physical standee — free shipping is U.S.-only'}\nCustom order mode: ${alreadyDiscussed ? 'Design and price already discussed' : 'New quote requested'}\nCustom design description: ${description}\nDesired height: ${desiredHeight} inches\nPreferred contact: ${contactPreference}${alreadyDiscussed ? `\nAgreed price: $${agreedPrice.toFixed(2)}\nOptional extra / tip: $${tipAmount.toFixed(2)}\nExpected payment total: $${paymentTotal.toFixed(2)}\nPayment must be manually verified before production. Underpayment does not begin production and may require an additional $20 processing fee.` : ''}`
       })
     });
     if (!insert.ok) {
@@ -258,7 +270,8 @@ Deno.serve(async (request) => {
       orderNumber,
       referenceCount: uploaded.length,
       alreadyDiscussed,
-      paymentTotal
+      paymentTotal,
+      fulfillmentType
     });
     return json(request, {
       orderNumber,

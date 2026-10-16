@@ -70,6 +70,12 @@ Deno.test('ambiguous existing Products require an explicit integration target in
   assert(source.includes("conflict ? 'disabled'"), 'ambiguous folders must not be selectable for automatic import');
   assert(source.includes("Conflict: ${row.matches.join(', ')}"), 'the conflicting Product slugs must be shown to the Admin');
   assert(source.includes('data-collection-folder-existing-product'), 'a conflict must let the Admin choose the existing normalized Product to integrate');
+
+  const setupStart = adminSource.indexOf('function setupCollectionFolderProductImporter');
+  const setupEnd = adminSource.indexOf('\n\nfunction productVisualOptionsMarkup', setupStart);
+  const setupSource = adminSource.slice(setupStart, setupEnd);
+  assert(setupSource.includes("row.dataset.folderConflict = event.target.value ? 'resolved' : 'true'"), 'choosing the Product owner must resolve the conflict so the selected folder can be imported');
+  assert(setupSource.includes('checkbox.checked = Boolean(event.target.value)'), 'the resolved folder must become intentionally selected for integration');
 });
 
 Deno.test('collection folder integration records durable ownership and rechecks current server state', () => {
@@ -102,4 +108,25 @@ Deno.test('durable collection folder ownership wins over old overlapping image r
   };
   const matches = helpers.collectionFolderMatchingProductSlugs(folder, products);
   assert(matches.length === 1 && matches[0] === 'chosen', 'the linked normalized Product must remain the single folder owner on later scans');
+});
+
+Deno.test('already-linked folders stay out of Product creation and new files appear as revisions', () => {
+  const rowsStart = adminSource.indexOf('function collectionFolderProductImportRows');
+  const rowsEnd = adminSource.indexOf('\n\nfunction setCollectionFolderImportStatus', rowsStart);
+  const rowsSource = adminSource.slice(rowsStart, rowsEnd);
+  assert(rowsSource.includes("? 'revision'") && rowsSource.includes(": 'synced'"), 'folder rows must distinguish later image revisions from fully synchronized Product folders');
+  assert(rowsSource.includes('group.images.filter((image) => !existingReferences.has(image))'), 'revision detection must compare repository images with the Product normalized image references');
+
+  const renderStart = adminSource.indexOf('function renderCollectionFolderProductImporter');
+  const renderEnd = adminSource.indexOf('\n\nasync function importSelectedCollectionFolderProducts', renderStart);
+  const renderSource = adminSource.slice(renderStart, renderEnd);
+  assert(renderSource.includes("row.importKind === 'new' || row.importKind === 'conflict'"), 'the creation list must contain only genuinely new or unresolved folders');
+  assert(renderSource.includes("row.importKind === 'revision'"), 'new files in owned folders must have a separate revisions section');
+  assert(renderSource.includes('Product Image Revisions'), 'the Admin must clearly label the optional revision workflow');
+  assert(renderSource.includes('up to date and hidden from this list'), 'fully synchronized folders must not keep reappearing as work to do');
+
+  const setupStart = adminSource.indexOf('function setupCollectionFolderProductImporter');
+  const setupEnd = adminSource.indexOf('\n\nfunction productVisualOptionsMarkup', setupStart);
+  const setupSource = adminSource.slice(setupStart, setupEnd);
+  assert(setupSource.includes('[data-folder-import-kind="new"]'), 'Select Safe Folders must not automatically select Product revisions');
 });

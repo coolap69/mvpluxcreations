@@ -346,7 +346,7 @@ function getAutoAcceptRule(heightInches) {
     return {
       discountPercent: 10,
       minimumMultiplier: 0.9,
-      label: "5 ft to 5'11 auto-accept limit"
+      label: '5 ft 0 in to 5 ft 11 in auto-accept limit'
     };
   }
   if (height >= 72 && height <= 96) {
@@ -1313,7 +1313,7 @@ function renderMemberOfferConfigurator() {
   sizeOptions.innerHTML = `
     <button type="button" class="${activeOfferState.sizeStatus !== 'Custom size selected' ? 'active' : ''}" data-member-offer-size="original" onclick="selectMemberOfferSize('original')">Original ${escapeOfferText(formatHeight(activeOfferState.originalHeight))}</button>
     ${activeOfferState.supportsCustomSize ? `<button type="button" class="${activeOfferState.sizeStatus === 'Custom size selected' ? 'active' : ''}" data-member-offer-size="custom" onclick="selectMemberOfferSize('custom')">Custom Size</button>` : ''}
-    ${activeOfferState.supportsCustomSize ? `<div id="memberOfferCustomSizeBox" class="member-offer-custom-size" ${activeOfferState.sizeStatus === 'Custom size selected' ? '' : 'hidden'}><input id="memberOfferCustomHeight" type="text" value="${activeOfferState.sizeStatus === 'Custom size selected' ? escapeOfferText(activeOfferState.sizeLabel) : ''}" placeholder="Type height: 5'8 or 68" oninput="updateMemberOfferCustomSize(this.value)"></div>` : ''}
+    ${activeOfferState.supportsCustomSize ? `<div id="memberOfferCustomSizeBox" class="member-offer-custom-size" ${activeOfferState.sizeStatus === 'Custom size selected' ? '' : 'hidden'}><input id="memberOfferCustomHeight" type="text" value="${activeOfferState.sizeStatus === 'Custom size selected' ? escapeOfferText(activeOfferState.sizeLabel) : ''}" placeholder="5 ft 8 in or 68 inches" oninput="updateMemberOfferCustomSize(this.value)"></div>` : ''}
   `;
 
   imageOptions.innerHTML = activeOfferState.imageOptions.map((option, index) => `
@@ -2576,12 +2576,10 @@ async function signInCustomerWithSupabase(email, password) {
     const screenName = user?.user_metadata?.screen_name || email.split('@')[0] || 'Guest';
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', screenName);
-    const canUseAdmin = await checkCurrentUserAdminAccess({ showMessages: false });
-    if (!canUseAdmin) {
-      showSiteMessage('Sign-in succeeded, but this account is not approved for Admin access.', 'error');
-      return true;
-    }
-    window.location.href = '/';
+    await checkCurrentUserAdminAccess({ showMessages: false });
+    const requestedReturn = new URLSearchParams(window.location.search).get('returnTo') || '';
+    const safeReturn = /^(?:custom-order\.html|index\.html)(?:[?#].*)?$/.test(requestedReturn) ? requestedReturn : '/';
+    window.location.href = safeReturn;
   } catch (error) {
     console.warn('Supabase sign-in failed:', error);
     showSupabaseConnectionAlert('sign in');
@@ -2621,8 +2619,10 @@ async function signUpCustomerWithSupabase(screenName, email, password) {
     localStorage.setItem('mvpluxCustomerSignedIn', 'true');
     localStorage.setItem('mvpluxSignedInName', screenName);
     showSiteMessage(pendingConfirmation ? 'Account created. Please check your email if Supabase asks you to confirm it.' : 'Account created.', 'success');
+    const requestedReturn = new URLSearchParams(window.location.search).get('returnTo') || '';
+    const safeReturn = /^(?:custom-order\.html|index\.html)(?:[?#].*)?$/.test(requestedReturn) ? requestedReturn : 'index.html';
     window.setTimeout(() => {
-      window.location.href = 'index.html';
+      window.location.href = safeReturn;
     }, 800);
   } catch (error) {
     console.warn('Supabase sign-up failed:', error);
@@ -2850,9 +2850,10 @@ function ensureFinishChoices(root = document) {
 function formatHeight(inches) {
   const normalized = parseHeightToInches(String(inches ?? '')) || Number(inches);
   if (!Number.isFinite(normalized) || normalized <= 0) return 'Size unavailable';
-  const feet = Math.floor(normalized / 12);
-  const remainder = normalized % 12;
-  return remainder ? `${feet}'${remainder}"` : `${feet}'`;
+  const wholeInches = Math.round(normalized);
+  const feet = Math.floor(wholeInches / 12);
+  const remainder = wholeInches % 12;
+  return `${feet} ft ${remainder} in`;
 }
 
 function formatMoney(price) {
@@ -3850,7 +3851,7 @@ const standeeCatalog = {
       { name: 'Big Court', image: 'images/Sport Legends/Basketball/Kobe/KB1bigcourtbackground.png', stage: 'images/Sport Legends/Basketball/Kobe/KB1bigcourtbackground.png' },
       { name: 'Small Court', image: 'images/Sport Legends/Basketball/Kobe/KB1smallcourtbackground.png', stage: 'images/Sport Legends/Basketball/Kobe/KB1smallcourtbackground.png' }
     ],
-    facts: ['Original height reference: 6\'6".', 'Great for sports rooms, parties, and themed displays.', 'Purple and gold background options are available.', 'Custom sizes use the original height to calculate pricing.']
+    facts: ['Original height reference: 6 ft 6 in.', 'Great for sports rooms, parties, and themed displays.', 'Purple and gold background options are available.', 'Custom sizes use the original height to calculate pricing.']
   },
   'basketball-center': {
     title: 'Basketball Center Standee',
@@ -3863,7 +3864,7 @@ const standeeCatalog = {
       { name: 'Light/Dark Court', image: 'images/Sport Legends/Basketball/Shaq/shaqlightdarkbackground.png', stage: 'images/Sport Legends/Basketball/Shaq/shaqlightdarkbackground.png' },
       { name: 'Darker Look', image: 'images/Sport Legends/Basketball/Shaq/shaqDarker.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' }
     ],
-    facts: ['Original height reference: 7\'1".', 'Oversize displays price from the extra-inch calculator.', 'Best for sports bars, fan rooms, and entrance displays.', 'Choose a printed background or keep the cutout clean.']
+    facts: ['Original height reference: 7 ft 1 in.', 'Oversize displays price from the extra-inch calculator.', 'Best for sports bars, fan rooms, and entrance displays.', 'Choose a printed background or keep the cutout clean.']
   },
   'alternate-sports-pose': {
     title: 'Alternate Sports Pose Standee',
@@ -3875,7 +3876,7 @@ const standeeCatalog = {
       { name: 'Darker Look', image: 'images/Sport Legends/Basketball/Shaq/shaqDarker.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
       { name: 'Light/Dark Court', image: 'images/Sport Legends/Basketball/Shaq/shaqlightdarkbackground.png', stage: 'images/Sport Legends/Basketball/Shaq/shaqlightdarkbackground.png' }
     ],
-    facts: ['Original height reference: 7\'1".', 'Custom sizes are available from 2 feet and up.', 'A dramatic background makes the pose feel more collectible.', 'Useful for wall-side or corner displays.']
+    facts: ['Original height reference: 7 ft 1 in.', 'Custom sizes are available from 2 feet and up.', 'A dramatic background makes the pose feel more collectible.', 'Useful for wall-side or corner displays.']
   },
   'endoskeleton-dark': {
     title: 'Endoskeleton Dark Standee',
@@ -3888,7 +3889,7 @@ const standeeCatalog = {
       { name: 'No Background', image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endornobackground.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
       { name: 'White Shoulder', image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endorwhiteinsideshouldercutout.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' }
     ],
-    facts: ['Original height reference: 6\'6".', 'Sci-fi stage options work well for theater rooms.', 'Choose clean or printed versions.', 'Custom sizing follows the same live price calculator.']
+    facts: ['Original height reference: 6 ft 6 in.', 'Sci-fi stage options work well for theater rooms.', 'Choose clean or printed versions.', 'Custom sizing follows the same live price calculator.']
   },
   'endoskeleton-white': {
     title: 'Endoskeleton White Standee',
@@ -3900,7 +3901,7 @@ const standeeCatalog = {
       { name: 'White Shoulder', image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endorwhiteinsideshouldercutout.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' },
       { name: 'Dark Shoulder', image: 'images/Movie Stars/Movie Characters/Endorskeleton/Endordarkinsideshouldercutout.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg' }
     ],
-    facts: ['Original height reference: 6\'6".', 'White-backed art helps details stand out.', 'Good for bright rooms and event spaces.', 'Pick original size or enter a custom height.']
+    facts: ['Original height reference: 6 ft 6 in.', 'White-backed art helps details stand out.', 'Good for bright rooms and event spaces.', 'Pick original size or enter a custom height.']
   },
   'classic-horror-host': {
     title: 'Classic Horror Host Standee',
@@ -3912,7 +3913,7 @@ const standeeCatalog = {
       { name: 'Classic Cutout', image: 'images/Movie Stars/Movie Characters/Elvira/elviranew.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
       { name: 'Alternate Cutout', image: 'images/Movie Stars/Movie Characters/Elvira1/elviraforother.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg' }
     ],
-    facts: ['Original height reference: 5\'7".', 'Great for Halloween displays and movie rooms.', 'Background choices can shift the mood quickly.', 'Smaller custom sizes are available for tables and shelves.']
+    facts: ['Original height reference: 5 ft 7 in.', 'Great for Halloween displays and movie rooms.', 'Background choices can shift the mood quickly.', 'Smaller custom sizes are available for tables and shelves.']
   },
   'red-jacket-performer': {
     title: 'Red Jacket Performer Standee',
@@ -3925,7 +3926,7 @@ const standeeCatalog = {
       { name: 'Triangle Stage', image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR/MJTRTrianglehalf.png', stage: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-concert.jpg' },
       { name: 'White Stage', image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR/MJTRTrianglehalfblank.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' }
     ],
-    facts: ['Original height reference: 5\'9".', 'Concert backgrounds make this feel like a mini stage.', 'Works well for music rooms and birthday setups.', 'Custom size pricing comes from the entered height.']
+    facts: ['Original height reference: 5 ft 9 in.', 'Concert backgrounds make this feel like a mini stage.', 'Works well for music rooms and birthday setups.', 'Custom size pricing comes from the entered height.']
   },
   'zombie-dance-look': {
     title: 'Zombie Dance Look Standee',
@@ -3937,7 +3938,7 @@ const standeeCatalog = {
       { name: 'Zombie Look', image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR2/MJzombie.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-scifi.jpg' },
       { name: 'Alternate Zombie', image: 'images/Music Artists/MichaelJackson/MJacksonTriller/MJTR1/MJzombie1.png', stage: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-concert.jpg' }
     ],
-    facts: ['Original height reference: 5\'9".', 'A strong pick for music and Halloween themes.', 'Choose a darker or concert-style background.', 'The size picker can make mini versions too.']
+    facts: ['Original height reference: 5 ft 9 in.', 'A strong pick for music and Halloween themes.', 'Choose a darker or concert-style background.', 'The size picker can make mini versions too.']
   },
   'pop-star-look': {
     title: 'Pop Star Look Standee',
@@ -3951,7 +3952,7 @@ const standeeCatalog = {
       { name: 'Off White', image: 'images/Music Artists/TaylorSwift/TSfinaloffwhitebackground.png', stage: 'images/Music Artists/TaylorSwift/TSfinaloffwhitebackground.png' },
       { name: 'Pink', image: 'images/Music Artists/TaylorSwift/Taylor12pink.png', stage: 'images/Music Artists/TaylorSwift/Taylor12pink.png' }
     ],
-    facts: ['Original height reference: 5\'11".', 'Colorful backgrounds work well for party photos.', 'Original and custom sizes update live.', 'A clean cutout version is available for simple displays.']
+    facts: ['Original height reference: 5 ft 11 in.', 'Colorful backgrounds work well for party photos.', 'Original and custom sizes update live.', 'A clean cutout version is available for simple displays.']
   },
   'celebration-display': {
     title: 'Celebration Display Standee',
@@ -3964,7 +3965,7 @@ const standeeCatalog = {
       { name: 'Light', image: 'images/Faith Celebration/Jesus1/J13LN.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' },
       { name: 'Print', image: 'images/Faith Celebration/Jesus3/JesusPrint.png', stage: 'images/CardBackgrounds/FanBackgrounds-gallery-poster-premium.jpg' }
     ],
-    facts: ['Original height reference: 6\'.', 'Good for church events and home displays.', 'Gold and premium backgrounds are available.', 'Custom sizes help fit smaller rooms.']
+    facts: ['Original height reference: 6 ft 0 in.', 'Good for church events and home displays.', 'Gold and premium backgrounds are available.', 'Custom sizes help fit smaller rooms.']
   },
   't-rex': {
     title: 'T-Rex Standee',
@@ -3977,7 +3978,7 @@ const standeeCatalog = {
       { name: 'Clean T-Rex', image: 'images/Dinosaurs-Animals/Dinosaur/JPRex.png', stage: 'images/CardBackgrounds/Herobackgroundparts-backgroundforimages.jpg' },
       { name: 'Dinosaur Group', image: 'images/Dinosaurs-Animals/Dinosaur/JPall.png', stage: 'images/CardBackgrounds/FanBackgrounds-top-favorite-stage-premium.jpg' }
     ],
-    facts: ['Original height reference: 6\'.', 'Popular for birthdays and adventure rooms.', 'Group dinosaur art is available as another option.', 'Custom sizing can make a smaller party version.']
+    facts: ['Original height reference: 6 ft 0 in.', 'Popular for birthdays and adventure rooms.', 'Group dinosaur art is available as another option.', 'Custom sizing can make a smaller party version.']
   }
 };
 
@@ -4226,7 +4227,7 @@ function showroomPurchaseMarkup(productName = 'Selected Standee', originalHeight
         </label>
       </div>
       <div class="custom-size-box">
-        <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+        <input class="custom-height-input" type="text" placeholder="5 ft 8 in or 68 inches">
       </div>
       <p class="live-price-line">Price: <span class="live-size-price">${formatMoney(price)}</span></p>
     </div>
@@ -5670,7 +5671,7 @@ function renderStandeeDetailPage() {
               <span>Custom Size</span>
             </label>
             <div class="custom-size-box">
-              <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+              <input class="custom-height-input" type="text" placeholder="5 ft 8 in or 68 inches">
             </div>
           </div>
           <p class="live-price-line">Price: <span class="live-size-price">${formatMoney(originalPrice)}</span></p>
@@ -5754,7 +5755,7 @@ function productCardMarkup(product) {
             <span>Custom Size</span>
           </label>
           <div class="custom-size-box">
-            <input class="custom-height-input" type="text" placeholder="Type height: 5'8 or 68">
+            <input class="custom-height-input" type="text" placeholder="5 ft 8 in or 68 inches">
           </div>
         </div>
         <p class="live-price-line">Price: <span class="live-size-price">${formatMoney(Number(originalPrice))}</span></p>
@@ -6131,7 +6132,7 @@ function ensureStageOptionBoxes(root = document) {
 
     stage.insertAdjacentHTML('beforeend', `
       <div class="stage-option-boxes">
-        <span class="active" data-stage-choice="original" role="button" tabindex="0">Original 6'6</span>
+        <span class="active" data-stage-choice="original" role="button" tabindex="0">Original 6 ft 6 in</span>
         <span data-stage-choice="custom" role="button" tabindex="0">Custom Size</span>
       </div>
     `);
@@ -6201,7 +6202,7 @@ function installSizeAdmin(builder) {
     <div class="admin-size-tools">
       <label>
         Admin original height
-        <input class="admin-original-height-input" type="text" placeholder="Example: 6'6 or 78">
+        <input class="admin-original-height-input" type="text" placeholder="Example: 6 ft 6 in or 78 inches">
       </label>
     </div>
   `);
@@ -8593,7 +8594,7 @@ function inlineProductEditorMarkup(product = {}) {
       <label>Title<input name="title" value="${escapeHtml(product.title || '')}"></label>
       <label>Description<textarea name="description">${escapeHtml(product.description || '')}</textarea></label>
       <label>Fun fact<textarea name="funFact">${escapeHtml(product.funFact || '')}</textarea></label>
-      <label>Original height<input name="originalHeight" value="${escapeHtml(String(product.originalHeight || ''))}"></label>
+      <label>Original height<input name="originalHeight" value="${escapeHtml(product.originalHeight ? formatHeight(product.originalHeight) : '')}" placeholder="Example: 6 ft 8 in"></label>
       <label>Price override<input name="priceOverride" type="number" min="0" step="0.01" value="${escapeHtml(String(product.priceOverride ?? ''))}"></label>
     </details>
     <details><summary>Images</summary>

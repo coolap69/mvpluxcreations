@@ -140,6 +140,7 @@ let adminAccessReady = false;
 let adminCommerceLoaded = false;
 let adminCustomOrdersLoaded = false;
 let adminCustomOrderOffset = 0;
+let adminNewCustomOrderCount = null;
 const ADMIN_CUSTOM_ORDER_PAGE_SIZE = 50;
 let adminDiscountCodesLoaded = false;
 let adminTestModeLoaded = false;
@@ -148,6 +149,8 @@ let adminRecoveryStateLoaded = false;
 let imageInventoryLoaded = false;
 const adminAreaLoadState = new Map();
 const openedProductEditors = new Set();
+let productBulkSelectionMode = false;
+const selectedProductDeletionSlugs = new Set();
 const openedCategoryEditors = new Set();
 let categoryManagerAutoOpenedEditor = false;
 const openedCategoryProductLists = new Set();
@@ -1540,7 +1543,13 @@ function productPublishTitle(product, fallbackSlug = '') {
 
 function formatPublishedHeight(value) {
   const text = String(value || '').trim();
-  return /^\d+$/.test(text) ? `${text}"` : text || 'not set';
+  if (!text) return 'not set';
+  const formatted = window.MVPLUX_PRICING?.formatHeight?.(text);
+  return formatted && formatted !== 'Size unavailable' ? formatted : text;
+}
+
+function formatEditableHeight(value) {
+  return String(value || '').trim() ? formatPublishedHeight(value) : '';
 }
 
 function addPublishImageLine(lines, seenImages, prefix, path) {
@@ -2856,7 +2865,7 @@ function offerCardMarkup(offer) {
       <p><strong>Design:</strong> ${escapeAdminHtml(details.design || 'Not provided')}</p>
       <p><strong>Description:</strong> ${escapeAdminHtml(details.description || 'Not provided')}</p>
       <p><strong>Selected size:</strong> ${escapeAdminHtml(details['selected size'] || 'Not provided')}</p>
-      <p><strong>Original height:</strong> ${escapeAdminHtml(details['original height'] || 'Not provided')}</p>
+      <p><strong>Original height:</strong> ${escapeAdminHtml(details['original height'] ? formatPublishedHeight(details['original height']) : 'Not provided')}</p>
       <p><strong>Background/display:</strong> ${escapeAdminHtml(details.background || 'Not provided')}</p>
       <p><strong>Normal asking price:</strong> ${escapeAdminHtml(details['asking price'] || 'Not provided')}</p>
       <p><strong>Offer:</strong> ${adminMoney(offer.amount)}</p>
@@ -3022,6 +3031,19 @@ async function loadAdminCustomOrderRequests({ reset = true } = {}) {
   status.textContent = `${adminCustomOrderOffset} Custom Order request${adminCustomOrderOffset === 1 ? '' : 's'} loaded${search ? ` for “${search}”` : ''}.`;
   adminCustomOrdersLoaded = true;
   await hydrateCustomOrderReferences(list);
+}
+
+async function loadAdminCustomOrderNotificationCount() {
+  const client = getAdminClient();
+  if (!client) return;
+  const { count, error } = await client
+    .from('order_requests')
+    .select('id', { count: 'exact', head: true })
+    .contains('items', [{ type: 'custom-order' }])
+    .eq('status', 'new');
+  if (error) return;
+  adminNewCustomOrderCount = Number(count) || 0;
+  renderAdminDashboard();
 }
 
 async function updateAdminOffer(button) {
@@ -3760,10 +3782,23 @@ function collectionFolderProductImportRows(categoryKey = selectedCollectionFolde
     const matches = collectionFolderMatchingProductSlugs(group.folder, products);
     const existing = matches.length === 1 ? products[matches[0]] : null;
     const currentMain = existing && normalizedProductImageReferences({ cutoutImage: existing.cutoutImage })[0];
+    const existingReferences = new Set(existing ? normalizedProductImageReferences(existing) : []);
+    const newImages = existing ? group.images.filter((image) => !existingReferences.has(image)) : [...group.images];
+    const ownsFolder = Boolean(existing && normalizedProductFolder(existing.repositoryImageFolder) === normalizedProductFolder(group.folder));
+    const importKind = matches.length > 1
+      ? 'conflict'
+      : !existing
+        ? 'new'
+        : (!ownsFolder || newImages.length)
+          ? 'revision'
+          : 'synced';
     return {
       ...group,
       matches,
       existing,
+      newImages,
+      ownsFolder,
+      importKind,
       matchingProducts: Object.fromEntries(matches.map((slug) => [slug, products[slug]])),
       mainImage: currentMain && group.images.includes(currentMain) ? currentMain : preferredCollectionFolderMainImage(group.images)
     };
@@ -3788,26 +3823,36 @@ function renderCollectionFolderProductImporter() {
   const category = categoryDefinitionsForAdmin().find((entry) => entry.key === categoryKey);
   const collectionTitle = category?.title || category?.label || categoryKey;
   const rows = collectionFolderProductImportRows(categoryKey);
-  container.innerHTML = rows.map((row) => {
+  const newRows = rows.filter((row) => row.importKind === 'new' || row.importKind === 'conflict');
+  const revisionRows = rows.filter((row) => row.importKind === 'revision');
+  const syncedCount = rows.filter((row) => row.importKind === 'synced').length;
+  const rowMarkup = (row) => {
     const conflict = row.matches.length > 1;
     const destination = conflict
       ? `Conflict: ${row.matches.join(', ')}`
       : row.existing
-        ? `Update existing Product: ${row.existing.title || row.matches[0]}`
+        ? `Add ${row.newImages.length} new image version${row.newImages.length === 1 ? '' : 's'} to: ${row.existing.title || row.matches[0]}`
         : 'Create one new private Product draft';
     const integrationChoice = conflict
       ? `<label>Integrate folder into existing Product<select data-collection-folder-existing-product><option value="">Choose the Product that owns this folder…</option>${row.matches.map((slug) => `<option value="${escapeAdminHtml(slug)}">${escapeAdminHtml(row.matchingProducts?.[slug]?.title || slug)} (${escapeAdminHtml(slug)})</option>`).join('')}</select></label>`
       : '';
-    return `<article class="admin-movie-folder-row" data-collection-product-folder="${escapeAdminHtml(row.folder)}" data-existing-product="${escapeAdminHtml(row.matches.length === 1 ? row.matches[0] : '')}" data-folder-conflict="${conflict}">
-      <label class="admin-review-select"><input type="checkbox" data-select-collection-product-folder ${conflict ? 'disabled' : ''}> Import / integrate</label>
+    return `<article class="admin-movie-folder-row" data-collection-product-folder="${escapeAdminHtml(row.folder)}" data-existing-product="${escapeAdminHtml(row.matches.length === 1 ? row.matches[0] : '')}" data-folder-conflict="${conflict}" data-folder-import-kind="${escapeAdminHtml(row.importKind)}">
+      <label class="admin-review-select"><input type="checkbox" data-select-collection-product-folder ${conflict ? 'disabled' : ''}> ${row.existing ? 'Add revisions' : 'Create Product'}</label>
       <img src="${escapeAdminHtml(row.mainImage)}" alt="" data-collection-folder-preview loading="lazy">
       <div class="admin-review-summary"><strong>${escapeAdminHtml(row.title)}</strong><code>${escapeAdminHtml(row.folder)}</code><span>${row.images.length} image${row.images.length === 1 ? '' : 's'}</span><span class="${conflict ? 'admin-warning-message' : ''}">${escapeAdminHtml(destination)}</span></div>
       <label>Draft title<input type="text" data-collection-folder-title value="${escapeAdminHtml(row.existing?.title || row.title)}" ${row.existing ? 'readonly' : ''}></label>
       <label>Main Product image<select data-collection-folder-main-image>${row.images.map((image) => `<option value="${escapeAdminHtml(image)}" ${image === row.mainImage ? 'selected' : ''}>${escapeAdminHtml(creationImageLabel(image))}</option>`).join('')}</select></label>
       ${integrationChoice}
     </article>`;
-  }).join('') || `<p class="admin-empty-state">No organized image folders were found for ${escapeAdminHtml(collectionTitle)}.</p>`;
-  setCollectionFolderImportStatus(`${rows.length} ${collectionTitle} folders found. Existing Products will be updated, not duplicated. Conflicts require you to choose the Product that owns the folder.`, 'loaded');
+  };
+  const newMarkup = newRows.length
+    ? `<h4>New Product Folders</h4><p class="admin-note">Only folders that are not already linked to a Product appear here.</p>${newRows.map(rowMarkup).join('')}`
+    : `<p class="admin-empty-state">No new Product folders were found for ${escapeAdminHtml(collectionTitle)}.</p>`;
+  const revisionMarkup = revisionRows.length
+    ? `<details class="admin-folder-revisions"><summary>Product Image Revisions (${revisionRows.length})</summary><p class="admin-note">These folders already belong to Products. Select one only when you want to add its new image versions to that same Product.</p>${revisionRows.map(rowMarkup).join('')}</details>`
+    : '';
+  container.innerHTML = `${newMarkup}${revisionMarkup}${syncedCount ? `<p class="admin-note">${syncedCount} already-linked Product folder${syncedCount === 1 ? ' is' : 's are'} up to date and hidden from this list.</p>` : ''}`;
+  setCollectionFolderImportStatus(`${newRows.length} new or unresolved folder${newRows.length === 1 ? '' : 's'}, ${revisionRows.length} Product revision${revisionRows.length === 1 ? '' : 's'}, and ${syncedCount} already up to date. Nothing is saved until you select an item and import it.`, 'loaded');
 }
 
 async function importSelectedCollectionFolderProducts() {
@@ -3908,7 +3953,7 @@ function setupCollectionFolderProductImporter() {
     renderCollectionFolderProductImporter();
   });
   importer.querySelector('[data-select-safe-collection-folders]')?.addEventListener('click', () => {
-    importer.querySelectorAll('[data-select-collection-product-folder]:not(:disabled)').forEach((input) => { input.checked = true; });
+    importer.querySelectorAll('[data-folder-import-kind="new"] [data-select-collection-product-folder]:not(:disabled)').forEach((input) => { input.checked = true; });
   });
   importer.querySelector('[data-import-collection-folder-products]')?.addEventListener('click', importSelectedCollectionFolderProducts);
   importer.addEventListener('change', (event) => {
@@ -3917,6 +3962,7 @@ function setupCollectionFolderProductImporter() {
       const checkbox = row?.querySelector('[data-select-collection-product-folder]');
       if (row && checkbox) {
         row.dataset.existingProduct = event.target.value;
+        row.dataset.folderConflict = event.target.value ? 'resolved' : 'true';
         checkbox.disabled = !event.target.value;
         checkbox.checked = Boolean(event.target.value);
       }
@@ -4400,6 +4446,60 @@ async function deleteProduct(slug) {
   if (!await saveProductWorkflowPatch(patch)) return;
   renderAdminProducts();
   setStatus('Product deletion saved privately. Its image file was not changed. Publish the Product deletion when ready.');
+}
+
+function updateProductBulkDeleteControls() {
+  const toggle = document.getElementById('bulkSelectProducts');
+  const remove = document.getElementById('deleteSelectedProducts');
+  const status = document.getElementById('productBulkDeleteStatus');
+  const count = selectedProductDeletionSlugs.size;
+  if (toggle) {
+    toggle.setAttribute('aria-pressed', String(productBulkSelectionMode));
+    toggle.textContent = productBulkSelectionMode ? 'Cancel Bulk Select' : 'Bulk Select';
+  }
+  if (remove) {
+    remove.hidden = !productBulkSelectionMode;
+    remove.disabled = count === 0;
+    remove.textContent = count ? `Delete ${count} Selected Product${count === 1 ? '' : 's'}` : 'Delete Selected Products';
+  }
+  if (status) {
+    status.hidden = !productBulkSelectionMode;
+    status.textContent = count
+      ? `${count} Product${count === 1 ? '' : 's'} selected. Physical image files will remain available for the Product you keep.`
+      : 'Select only duplicate Product records you no longer need. Product image files will not be deleted.';
+  }
+}
+
+function toggleProductBulkSelection() {
+  productBulkSelectionMode = !productBulkSelectionMode;
+  if (!productBulkSelectionMode) selectedProductDeletionSlugs.clear();
+  renderAdminProducts();
+  updateProductBulkDeleteControls();
+}
+
+async function deleteSelectedProducts() {
+  const slugs = [...selectedProductDeletionSlugs].filter((slug) => Boolean(slug));
+  if (!slugs.length) return;
+  if (!window.confirm(`Delete ${slugs.length} selected Product record${slugs.length === 1 ? '' : 's'}? Physical image files will not be deleted. The deletion remains private until you choose Save Live.`)) return;
+
+  const products = readAdminProducts();
+  const customProducts = readCustomProducts();
+  const knownProducts = new Set(allAdminProducts().filter((product) => !product.categoryCard).map((product) => product.slug));
+  const deletions = slugs.filter((slug) => knownProducts.has(slug));
+  deletions.forEach((slug) => delete products[slug]);
+  const deletionSet = new Set(deletions);
+  const patch = {
+    products,
+    customProducts: customProducts.filter((product) => !deletionSet.has(product.slug)),
+    deletedProducts: [...new Set([...readDeletedProducts(), ...deletions])]
+  };
+  if (!deletions.length || !await saveProductWorkflowPatch(patch)) return;
+
+  selectedProductDeletionSlugs.clear();
+  productBulkSelectionMode = false;
+  renderAdminProducts();
+  updateProductBulkDeleteControls();
+  setStatus(`${deletions.length} Product deletion${deletions.length === 1 ? '' : 's'} saved privately in one batch. Physical image files were not changed. Use Save Live when you want customers to see the cleanup.`);
 }
 
 async function returnProductToDraft(slug) {
@@ -5257,27 +5357,34 @@ function productImageChoicesMarkup(value) {
   return `
     <fieldset class="admin-image-choice-manager admin-product-visual-section">
       <legend>Alternate Image Choices</legend>
-      <p class="admin-note">These are customer-selectable alternate images for this Product / Standee. Changing or removing a choice does not delete the Product or any physical image file.</p>
+      <p class="admin-note">Every image below uses the main Product title, description, fun fact, and height automatically. Open “Customize this image” only when one background or pose needs its own customer-facing title or description. Changing or removing a choice never deletes the Product or physical image file.</p>
       ${choices.length ? choices.map((choice) => `
         <div class="admin-image-choice-row">
-          <img src="${escapeAdminHtml(choice.image)}" alt="">
-          <span><strong>${escapeAdminHtml(choice.label)}</strong><br>${escapeAdminHtml(choice.image)}</span>
-          <label>Rename choice<input type="text" value="${escapeAdminHtml(choice.label)}" data-image-choice-label="${escapeAdminHtml(choice.image)}"></label>
-          <label>Choice title <span>(optional)</span><input type="text" value="${escapeAdminHtml(choice.title || '')}" data-image-choice-title="${escapeAdminHtml(choice.image)}" placeholder="Blank uses the main Product title"></label>
-          <label>Choice description <span>(optional)</span><textarea rows="2" data-image-choice-description="${escapeAdminHtml(choice.image)}" placeholder="Blank uses the main Product description">${escapeAdminHtml(choice.description || '')}</textarea></label>
-          <button type="button" data-rename-image-choice="${escapeAdminHtml(choice.image)}">Save Choice Text</button>
-          <label>Change image
-            <select data-replace-image-choice-target="${escapeAdminHtml(choice.image)}">${productVisualOptionsMarkup('product', choice.image)}</select>
-          </label>
-          <button type="button" data-replace-image-choice="${escapeAdminHtml(choice.image)}">Change Image Choice</button>
-          <label>Move choice to
-            <select data-move-image-choice-target="${escapeAdminHtml(choice.image)}">
-              <option value="">Select product</option>
-              ${moveTargets.map((product) => `<option value="${escapeAdminHtml(product.slug)}">${escapeAdminHtml(product.title)} — ${escapeAdminHtml(product.slug)}</option>`).join('')}
-            </select>
-          </label>
-          <button type="button" data-move-image-choice="${escapeAdminHtml(choice.image)}">Move choice</button>
-          <button type="button" data-remove-image-choice="${escapeAdminHtml(choice.image)}">Remove Image Choice</button>
+          <div class="admin-image-choice-summary">
+            <img src="${escapeAdminHtml(choice.image)}" alt="">
+            <span><strong>${escapeAdminHtml(choice.label)}</strong><small>${escapeAdminHtml(choice.image)}</small><em>${choice.title || choice.description ? 'Custom title or description' : 'Uses main Product text, fun fact, and height'}</em></span>
+          </div>
+          <details class="admin-image-choice-customize">
+            <summary>Customize this image <span>(optional)</span></summary>
+            <div class="admin-image-choice-fields">
+              <label>Choice label<input type="text" value="${escapeAdminHtml(choice.label)}" data-image-choice-label="${escapeAdminHtml(choice.image)}"></label>
+              <label>Customer title <span>(optional)</span><input type="text" value="${escapeAdminHtml(choice.title || '')}" data-image-choice-title="${escapeAdminHtml(choice.image)}" placeholder="Blank uses the main Product title"></label>
+              <label>Customer description <span>(optional)</span><textarea rows="2" data-image-choice-description="${escapeAdminHtml(choice.image)}" placeholder="Blank uses the main Product description">${escapeAdminHtml(choice.description || '')}</textarea></label>
+              <button type="button" data-rename-image-choice="${escapeAdminHtml(choice.image)}">Save Image Text</button>
+              <label>Replace with another repository image
+                <select data-replace-image-choice-target="${escapeAdminHtml(choice.image)}">${productVisualOptionsMarkup('product', choice.image)}</select>
+              </label>
+              <button type="button" data-replace-image-choice="${escapeAdminHtml(choice.image)}">Replace Image Choice</button>
+              <label>Move image choice to another Product
+                <select data-move-image-choice-target="${escapeAdminHtml(choice.image)}">
+                  <option value="">Select product</option>
+                  ${moveTargets.map((product) => `<option value="${escapeAdminHtml(product.slug)}">${escapeAdminHtml(product.title)} — ${escapeAdminHtml(product.slug)}</option>`).join('')}
+                </select>
+              </label>
+              <button type="button" data-move-image-choice="${escapeAdminHtml(choice.image)}">Move Image Choice</button>
+              <button type="button" data-remove-image-choice="${escapeAdminHtml(choice.image)}">Remove Image Choice</button>
+            </div>
+          </details>
         </div>
       `).join('') : '<p class="admin-note">No alternate image choices assigned.</p>'}
       <div class="admin-add-image-choice" data-add-image-choice-controls>
@@ -9096,7 +9203,7 @@ function renderAdminProducts() {
               <div class="admin-form-row">
                 <label>
                   Original height
-                  <input name="originalHeight" type="text" value="${value.originalHeight || ''}" placeholder="6'6, 78, 2, or 24">
+                  <input name="originalHeight" type="text" value="${escapeAdminHtml(formatEditableHeight(value.originalHeight))}" placeholder="Example: 6 ft 6 in">
                 </label>
                 <label>
                   Original price
@@ -9131,8 +9238,8 @@ function renderAdminProducts() {
     const previewPage = readAdminCategories()[value.categories?.[0]]?.page || 'index.html#shop';
     const editorOpen = openedProductEditors.has(product.slug);
     const imagePresentation = adminImageReferencePresentation(value.cutoutImage);
-    return `<article class="admin-product-summary-card" data-product-summary="${escapeAdminHtml(product.slug)}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
-      <div class="admin-review-image">${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
+    return `<article class="admin-product-summary-card${productBulkSelectionMode ? ' admin-product-summary-card-selecting' : ''}" data-product-summary="${escapeAdminHtml(product.slug)}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
+      <div class="admin-review-image">${productBulkSelectionMode ? `<label class="admin-product-bulk-choice"><input type="checkbox" data-select-product-delete="${escapeAdminHtml(product.slug)}" ${selectedProductDeletionSlugs.has(product.slug) ? 'checked' : ''}><span>Select</span></label>` : ''}${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
       <div><h3>${escapeAdminHtml(value.title || product.title)}</h3><code>${escapeAdminHtml(product.slug)}</code><p>${escapeAdminHtml(productCategoryNames(value))}</p><strong>${escapeAdminHtml(lifecycle)}</strong></div>
       <div class="admin-card-actions"><button type="button" data-edit-product="${escapeAdminHtml(product.slug)}">Edit</button><a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminPreviewUrl(previewPage))}" target="_blank" rel="noopener">Preview</a></div>
       <div class="admin-product-editor-mount" data-product-editor-mount>${editorOpen ? productMarkup([product]) : ''}</div>
@@ -9159,6 +9266,15 @@ function renderAdminProducts() {
       document.querySelector(`[data-product-summary="${CSS.escape(button.dataset.editProduct)}"] .admin-product-card`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   });
+
+  approvedContainer?.querySelectorAll('[data-select-product-delete]').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) selectedProductDeletionSlugs.add(checkbox.dataset.selectProductDelete);
+      else selectedProductDeletionSlugs.delete(checkbox.dataset.selectProductDelete);
+      updateProductBulkDeleteControls();
+    });
+  });
+  updateProductBulkDeleteControls();
 
   productContainers.forEach((container) => container.querySelectorAll('.admin-product-card').forEach((form) => {
     const baseProduct = allAdminProducts().find((product) => product.slug === form.dataset.slug) || {};
@@ -9362,8 +9478,8 @@ function fillPriceSettingsForm() {
 
   if (twoFootPrice) twoFootPrice.value = settings.twoFootPrice || '35.00';
   if (threeFootPrice) threeFootPrice.value = settings.threeFootPrice || '50.00';
-  if (fullHeight) fullHeight.value = settings.fullHeight || '78';
-  if (defaultMerchandiseHeight) defaultMerchandiseHeight.value = settings.defaultMerchandiseHeight || settings.fullHeight || '78';
+  if (fullHeight) fullHeight.value = formatEditableHeight(settings.fullHeight || '78');
+  if (defaultMerchandiseHeight) defaultMerchandiseHeight.value = formatEditableHeight(settings.defaultMerchandiseHeight || settings.fullHeight || '78');
   if (fullPrice) fullPrice.value = settings.fullPrice || '129.99';
   if (extraInchPrice) extraInchPrice.value = settings.extraInchPrice || '2.00';
 }
@@ -10477,7 +10593,7 @@ function renderImageDrafts() {
               <label>Title<input name="title" type="text" value="${escapeAdminHtml(draft.title || '')}"></label>
               <label>Description<textarea name="description" rows="3">${escapeAdminHtml(draft.description || '')}</textarea></label>
               <label>Fun fact<textarea name="funFact" rows="2">${escapeAdminHtml(draft.funFact || '')}</textarea></label>
-              <label data-import-destinations="create-product">Original height<input name="originalHeight" type="text" value="${escapeAdminHtml(draft.originalHeight || '')}" placeholder="6'6 or 78"><small>AI may suggest the commonly listed real-world height when it can identify the subject. Review it before saving.</small></label>
+              <label data-import-destinations="create-product">Original height<input name="originalHeight" type="text" value="${escapeAdminHtml(formatEditableHeight(draft.originalHeight))}" placeholder="Example: 6 ft 6 in"><small>AI may suggest the commonly listed real-world height when it can identify the subject. Review it before saving.</small></label>
               <div class="admin-ai-actions" aria-label="Optional AI assistance">
                 <button type="button" data-ai-suggest="fillAll">Fill Product Details with AI</button>
               </div>
@@ -10877,6 +10993,7 @@ function adminSystemNotices() {
   if (!newAdminArchitectureEnabled()) add('error', 'Normalized Admin architecture is not active', 'Old Admin readers may still control part of the editing experience.', '#advanced');
   if (adminPublishedFileState.reachable === false) add('error', 'Published customer content is unavailable', 'Neither the Supabase live snapshot nor its static emergency fallback could be validated.', '#advanced');
   else if (adminPublishedFileState.source === 'static-fallback') add('legacy', 'Static emergency snapshot is active', 'Supabase live content was unavailable. Customers are seeing the complete published-admin-settings.json fallback.', '#advanced');
+  if (adminNewCustomOrderCount > 0) add('healthy', 'New Custom Order requests', `${adminNewCustomOrderCount} new request${adminNewCustomOrderCount === 1 ? '' : 's'} need review.`, '#custom-order-requests', 'Review Requests');
 
   const legacyMainCollections = Object.values(mainCollectionMigrationDrafts()).map((category) => category.title || category.key);
   if (legacyMainCollections.length) add(
@@ -11260,6 +11377,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const hasAdminAccess = await requireSupabaseAdminAccess();
   setupAdminTestMode();
   adminAccessReady = hasAdminAccess;
+  if (hasAdminAccess) void loadAdminCustomOrderNotificationCount();
   const loadedAdminState = hasAdminAccess ? await loadAdminLiveSettings(ADMIN_DASHBOARD_COLLECTIONS, { replace: true }).catch(() => null) : null;
   imageImportReady = Boolean(hasAdminAccess && loadedAdminState);
   await loadPublishedPublishBaseline();
@@ -11289,6 +11407,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('saveSelectedImageDrafts')?.addEventListener('click', saveSelectedImageImportsForLater);
   document.getElementById('publishSelectedImageDrafts')?.addEventListener('click', openSelectedImageDraft);
   document.getElementById('adminProductSearch')?.addEventListener('input', filterAdminProductLibrary);
+  document.getElementById('bulkSelectProducts')?.addEventListener('click', toggleProductBulkSelection);
+  document.getElementById('deleteSelectedProducts')?.addEventListener('click', deleteSelectedProducts);
   document.querySelectorAll('[data-new-product]').forEach((link) => link.addEventListener('click', () => {
     window.setTimeout(() => document.getElementById('createProductForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   }));
