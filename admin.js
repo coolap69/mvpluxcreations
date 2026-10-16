@@ -138,6 +138,9 @@ let adminPotentiallyStale = false;
 let adminCrossTabRefreshTimer = null;
 let adminAccessReady = false;
 let adminCommerceLoaded = false;
+let adminCustomOrdersLoaded = false;
+let adminCustomOrderOffset = 0;
+const ADMIN_CUSTOM_ORDER_PAGE_SIZE = 50;
 let adminDiscountCodesLoaded = false;
 let adminTestModeLoaded = false;
 let adminRecoveryBackupAvailable = false;
@@ -2969,6 +2972,58 @@ async function loadAdminCustomerHistory(searchValue = '') {
   adminCustomerHistoryLoaded = true;
 }
 
+function customOrderSearchTerm(value) {
+  return String(value || '').trim().replace(/[,%()]/g, ' ').replace(/\s+/g, ' ').slice(0, 120);
+}
+
+async function loadAdminCustomOrderRequests({ reset = true } = {}) {
+  const client = getAdminClient();
+  const list = document.getElementById('adminCustomOrderRequestList');
+  const status = document.getElementById('adminCustomOrderStatus');
+  const more = document.getElementById('loadMoreCustomOrderRequests');
+  if (!client || !list || !status || !more) return;
+
+  if (reset) {
+    adminCustomOrderOffset = 0;
+    list.innerHTML = commerceEmptyMarkup('Loading Custom Order requests…');
+  }
+  status.textContent = 'Loading private Custom Order history…';
+  more.disabled = true;
+
+  const search = customOrderSearchTerm(document.getElementById('adminCustomOrderSearch')?.value || '');
+  const statusFilter = String(document.getElementById('adminCustomOrderStatusFilter')?.value || '').trim();
+  let query = client
+    .from('order_requests')
+    .select('*')
+    .contains('items', [{ type: 'custom-order' }])
+    .order('created_at', { ascending: false })
+    .range(adminCustomOrderOffset, adminCustomOrderOffset + ADMIN_CUSTOM_ORDER_PAGE_SIZE - 1);
+  if (search) {
+    const pattern = `*${search}*`;
+    query = query.or(`customer_name.ilike.${pattern},customer_email.ilike.${pattern},notes.ilike.${pattern}`);
+  }
+  if (statusFilter) query = query.eq('status', statusFilter);
+
+  const { data, error } = await query;
+  if (error) {
+    if (reset) list.innerHTML = commerceEmptyMarkup('Custom Order requests could not be loaded.');
+    status.textContent = `Custom Order history could not be loaded. ${error.message || error}`;
+    more.hidden = true;
+    return;
+  }
+
+  const rows = data || [];
+  if (reset) list.innerHTML = '';
+  if (rows.length) list.insertAdjacentHTML('beforeend', rows.map(orderCardMarkup).join(''));
+  if (!list.children.length) list.innerHTML = commerceEmptyMarkup('No matching Custom Order requests.');
+  adminCustomOrderOffset += rows.length;
+  more.hidden = rows.length < ADMIN_CUSTOM_ORDER_PAGE_SIZE;
+  more.disabled = false;
+  status.textContent = `${adminCustomOrderOffset} Custom Order request${adminCustomOrderOffset === 1 ? '' : 's'} loaded${search ? ` for “${search}”` : ''}.`;
+  adminCustomOrdersLoaded = true;
+  await hydrateCustomOrderReferences(list);
+}
+
 async function updateAdminOffer(button) {
   const client = window.getMvpluxSupabaseClient?.();
   const action = button?.dataset?.offerAction;
@@ -3195,6 +3250,7 @@ async function updateOrderStatus(button) {
     : `Order moved to ${nextStatus.replace(/_/g, ' ')}.`);
   if (nextStatus === 'rejected' && button.dataset.apologyEmail) window.location.href = button.dataset.apologyEmail;
   refreshCommerceAdmin();
+  if (adminCustomOrdersLoaded) loadAdminCustomOrderRequests();
 }
 
 async function refreshCommerceAdmin() {
@@ -11030,6 +11086,7 @@ async function ensureAdminAreaLoaded(area, { force = false } = {}) {
       renderCategoryManager();
     }
     if (area === 'orders' && !adminCommerceLoaded) await refreshCommerceAdmin();
+    if (area === 'custom-order-requests' && !adminCustomOrdersLoaded) await loadAdminCustomOrderRequests();
     if (area === 'settings') {
       await ensureAdminWorkingCollections(['coupons', 'extraImages', 'globalDisplaySettings', 'priceSettings']);
       setupPriceRules();
@@ -11281,6 +11338,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('refreshCommerceAdmin')?.addEventListener('click', refreshCommerceAdmin);
   document.getElementById('checkCommerceConnection')?.addEventListener('click', refreshCommerceAdmin);
+  document.getElementById('refreshCustomOrderRequests')?.addEventListener('click', () => loadAdminCustomOrderRequests());
+  document.getElementById('adminCustomOrderSearchForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void loadAdminCustomOrderRequests();
+  });
+  document.getElementById('adminCustomOrderStatusFilter')?.addEventListener('change', () => loadAdminCustomOrderRequests());
+  document.getElementById('clearCustomOrderSearch')?.addEventListener('click', () => {
+    const search = document.getElementById('adminCustomOrderSearch');
+    const statusFilter = document.getElementById('adminCustomOrderStatusFilter');
+    if (search) search.value = '';
+    if (statusFilter) statusFilter.value = '';
+    void loadAdminCustomOrderRequests();
+  });
+  document.getElementById('loadMoreCustomOrderRequests')?.addEventListener('click', () => loadAdminCustomOrderRequests({ reset: false }));
   document.getElementById('adminCustomerHistorySearchForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
     void loadAdminCustomerHistory(document.getElementById('adminCustomerHistorySearch')?.value || '');

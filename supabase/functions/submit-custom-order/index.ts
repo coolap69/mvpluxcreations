@@ -40,6 +40,88 @@ function validEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function escapeHtml(value: unknown) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character] || character);
+}
+
+async function sendTransactionalEmail({ to, subject, html }: { to: string; subject: string; html: string }) {
+  const apiKey = Deno.env.get('RESEND_API_KEY')?.trim();
+  const from = Deno.env.get('CUSTOM_ORDER_FROM_EMAIL')?.trim();
+  if (!apiKey || !from) return { configured: false, sent: false };
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ from, to: [to], subject, html })
+    });
+    return { configured: true, sent: response.ok };
+  } catch {
+    return { configured: true, sent: false };
+  }
+}
+
+async function sendCustomOrderNotifications(input: {
+  name: string;
+  email: string;
+  phone: string;
+  description: string;
+  contactPreference: string;
+  desiredHeight: number;
+  orderNumber: string;
+  referenceCount: number;
+  alreadyDiscussed: boolean;
+  paymentTotal: number;
+}) {
+  const adminEmail = Deno.env.get('CUSTOM_ORDER_ADMIN_EMAIL')?.trim();
+  const safeOrder = escapeHtml(input.orderNumber);
+  const safeName = escapeHtml(input.name);
+  const customer = sendTransactionalEmail({
+    to: input.email,
+    subject: `We received your MVPLUXCREATIONS custom request — ${input.orderNumber}`,
+    html: `<h1>Custom Order request received</h1><p>Hi ${safeName},</p><p>Your request was saved securely. Your reference number is <strong>${safeOrder}</strong>.</p><p>Requested height: ${escapeHtml(input.desiredHeight)} inches.</p><p>${input.alreadyDiscussed ? `Your submitted payment total is $${input.paymentTotal.toFixed(2)} and will be verified by an Admin before production begins.` : 'We will review the details and contact you about the design and quote.'}</p><p>Keep this reference number for your records.</p>`
+  });
+  const admin = adminEmail && validEmail(adminEmail)
+    ? sendTransactionalEmail({
+      to: adminEmail,
+      subject: `New Custom Order request — ${input.orderNumber}`,
+      html: `<h1>New Custom Order request</h1><p><strong>Reference:</strong> ${safeOrder}</p><p><strong>Customer:</strong> ${safeName}<br><strong>Email:</strong> ${escapeHtml(input.email)}<br><strong>Phone:</strong> ${escapeHtml(input.phone || 'Not provided')}<br><strong>Preferred contact:</strong> ${escapeHtml(input.contactPreference)}</p><p><strong>Desired height:</strong> ${escapeHtml(input.desiredHeight)} inches<br><strong>Private reference images:</strong> ${escapeHtml(input.referenceCount)}</p><p><strong>Description:</strong><br>${escapeHtml(input.description).replaceAll('\n', '<br>')}</p><p><a href="https://mvpluxcreations.com/admin.html#custom-order-requests">Open the private Custom Order Requests page</a></p>`
+    })
+    : Promise.resolve({ configured: false, sent: false });
+  const [customerResult, adminResult] = await Promise.all([customer, admin]);
+  return {
+    configured: customerResult.configured && adminResult.configured,
+    customer: customerResult.sent,
+    admin: adminResult.sent
+  };
+}
+
+async function sendCustomOrderFailureAlert(input: {
+  name: string;
+  email: string;
+  phone: string;
+  description: string;
+  desiredHeight: number;
+  error: string;
+}) {
+  const adminEmail = Deno.env.get('CUSTOM_ORDER_ADMIN_EMAIL')?.trim();
+  if (!adminEmail || !validEmail(adminEmail)) return false;
+  const result = await sendTransactionalEmail({
+    to: adminEmail,
+    subject: 'Custom Order submission failed — customer follow-up needed',
+    html: `<h1>Custom Order submission was not saved</h1><p>The customer saw a failure notice. This is an alert, not a saved order.</p><p><strong>Customer:</strong> ${escapeHtml(input.name)}<br><strong>Email:</strong> ${escapeHtml(input.email)}<br><strong>Phone:</strong> ${escapeHtml(input.phone || 'Not provided')}<br><strong>Desired height:</strong> ${escapeHtml(input.desiredHeight)} inches</p><p><strong>Description:</strong><br>${escapeHtml(input.description).replaceAll('\n', '<br>')}</p><p><strong>Failure:</strong> ${escapeHtml(input.error)}</p>`
+  });
+  return result.sent;
+}
+
 function requestKey(request: Request, email: string) {
   return `${request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'}:${email.toLowerCase()}`;
 }
@@ -83,6 +165,7 @@ Deno.serve(async (request) => {
   const uploaded: string[] = [];
   let storageUrl = '';
   let storageServiceKey = '';
+  let failureContext: Parameters<typeof sendCustomOrderFailureAlert>[0] | null = null;
   try {
     const declaredSize = Number(request.headers.get('content-length') || 0);
     if (declaredSize > 31_000_000) return json(request, { error: 'The custom-order request is too large.' }, 413);
@@ -109,6 +192,7 @@ Deno.serve(async (request) => {
       if (!allowedTypes.has(file.type) || file.size > 6_000_000) return json(request, { error: 'Each reference must be PNG, JPG, or WebP and no larger than 6 MB.' }, 400);
     }
     rateLimit(requestKey(request, email));
+    failureContext = { name, email, phone, description, desiredHeight, error: '' };
 
     const url = required('SUPABASE_URL').replace(/\/$/, '');
     const serviceKey = required('SUPABASE_SERVICE_ROLE_KEY');
@@ -162,19 +246,35 @@ Deno.serve(async (request) => {
       })
     });
     if (!insert.ok) {
-      await removeReferences(uploaded, url, serviceKey);
       throw new Error('The request could not be recorded. No reference images were retained.');
     }
+    const notifications = await sendCustomOrderNotifications({
+      name,
+      email,
+      phone,
+      description,
+      contactPreference,
+      desiredHeight,
+      orderNumber,
+      referenceCount: uploaded.length,
+      alreadyDiscussed,
+      paymentTotal
+    });
     return json(request, {
       orderNumber,
       paymentRequired: alreadyDiscussed,
       agreedPrice,
       tipAmount,
-      paymentTotal
+      paymentTotal,
+      notifications
     }, 201);
   } catch (error) {
     if (uploaded.length && storageUrl && storageServiceKey) await removeReferences(uploaded, storageUrl, storageServiceKey);
     const message = error instanceof Error ? error.message : 'The custom-order request could not be sent.';
+    if (failureContext) {
+      failureContext.error = message;
+      await sendCustomOrderFailureAlert(failureContext);
+    }
     const status = /too many/i.test(message) ? 429 : /not configured/i.test(message) ? 503 : 500;
     return json(request, { error: message }, status);
   }

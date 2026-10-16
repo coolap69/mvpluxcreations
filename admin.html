@@ -36,6 +36,7 @@
       <a href="#categories">Collections</a>
       <a href="#subcollections">Subcollections</a>
       <a href="#orders">Orders &amp; Offers</a>
+      <a href="#custom-order-requests">Custom Order Requests</a>
       <a href="#settings">Settings</a>
       <a href="#advanced">Advanced</a>
     </nav>
@@ -135,6 +136,41 @@
         </div>
       </div>
       <details class="admin-technical-details"><summary>Show Technical Details</summary><p id="commerceTechnicalDetails">Connection details appear here only when loading fails.</p></details>
+    </section>
+
+    <section class="admin-panel" id="custom-order-requests" data-admin-area="custom-order-requests" hidden>
+      <div class="admin-panel-header">
+        <div>
+          <h2>Custom Order Requests</h2>
+          <p class="admin-note">Private Admin history for customer-submitted custom standee requests. New, active, completed, rejected, and archived requests remain available here.</p>
+        </div>
+        <div class="admin-panel-actions">
+          <button id="refreshCustomOrderRequests" type="button">Refresh Requests</button>
+        </div>
+      </div>
+      <form id="adminCustomOrderSearchForm" class="admin-customer-history-search">
+        <label>Search requests
+          <input id="adminCustomOrderSearch" type="search" autocomplete="off" placeholder="Customer name, email, or description">
+        </label>
+        <label>Status
+          <select id="adminCustomOrderStatusFilter">
+            <option value="">All statuses</option>
+            <option value="new">New</option>
+            <option value="in_production">In production</option>
+            <option value="shipped">Shipped</option>
+            <option value="completed">Completed</option>
+            <option value="rejected">Rejected</option>
+            <option value="archived">Archived</option>
+          </select>
+        </label>
+        <button type="submit">Search</button>
+        <button id="clearCustomOrderSearch" type="button">Show All</button>
+      </form>
+      <div id="adminCustomOrderStatus" class="admin-status" aria-live="polite">Open this page to load Custom Order requests.</div>
+      <div id="adminCustomOrderRequestList" class="admin-commerce-list"></div>
+      <div class="admin-panel-actions">
+        <button id="loadMoreCustomOrderRequests" type="button" hidden>Load More Requests</button>
+      </div>
     </section>
 
     <section class="admin-panel" id="products" data-admin-area="products" hidden>
@@ -587,6 +623,6 @@
   <script src="category-presentation.js?v=20261007-shared-subcollection-design"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
   <script src="storefront-section-layout.js?v=20260911-featured-stage-balance"></script>
-  <script src="admin.js?v=20261014-all-collection-folders"></script>
+  <script src="admin.js?v=20261015-custom-order-history"></script>
 </body>
 </html>

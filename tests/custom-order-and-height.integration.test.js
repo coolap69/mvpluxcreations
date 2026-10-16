@@ -60,6 +60,42 @@ Deno.test('Custom Order upload endpoint validates files and stores only private 
   assert(migration.includes('Admins view custom order references'), 'only approved Admins may read stored references');
 });
 
+Deno.test('Custom Order server insert is restored without allowing direct browser inserts', async () => {
+  const migration = await Deno.readTextFile(new URL('../supabase/migrations/20261015120000_restore_server_custom_order_insert.sql', import.meta.url));
+  assert(migration.includes('revoke insert on table public.order_requests from anon, authenticated'), 'anonymous and signed-in browsers must remain unable to insert Custom Orders directly');
+  assert(migration.includes('grant insert on table public.order_requests to service_role'), 'the protected Custom Order function must be able to record requests');
+  assert(!/grant\s+insert[^;]+\b(anon|authenticated)\b/i.test(migration), 'the repair must not expose direct browser insert access');
+});
+
+Deno.test('Custom Order emails are server-side, post-persistence, and honestly reported', async () => {
+  const [endpoint, browser, html] = await Promise.all([
+    Deno.readTextFile(new URL('../supabase/functions/submit-custom-order/index.ts', import.meta.url)),
+    Deno.readTextFile(new URL('../custom-order.js', import.meta.url)),
+    Deno.readTextFile(new URL('../custom-order.html', import.meta.url))
+  ]);
+  const insert = endpoint.indexOf("fetch(`${url}/rest/v1/order_requests`");
+  const insertCheck = endpoint.indexOf('if (!insert.ok)', insert);
+  const notifications = endpoint.indexOf('await sendCustomOrderNotifications', insertCheck);
+  assert(insert >= 0 && insertCheck > insert && notifications > insertCheck, 'notifications must run only after the request insert succeeds');
+  assert(endpoint.includes("Deno.env.get('RESEND_API_KEY')") && endpoint.includes("Deno.env.get('CUSTOM_ORDER_ADMIN_EMAIL')"), 'email credentials and Admin destination must remain server secrets');
+  assert(endpoint.includes('customer: customerResult.sent') && endpoint.includes('admin: adminResult.sent'), 'the response must report customer and Admin delivery separately');
+  assert(endpoint.includes('Custom Order submission failed — customer follow-up needed') && endpoint.includes('This is an alert, not a saved order.'), 'a validated server failure must alert Admin without pretending the request was saved');
+  assert(browser.includes('Your request was saved, but an email confirmation could not be sent.'), 'the browser must distinguish a saved request from a failed confirmation email');
+  assert(!browser.includes('RESEND_API_KEY') && !html.includes('RESEND_API_KEY'), 'no email provider credential may enter customer JavaScript or HTML');
+});
+
+Deno.test('Admin has a private searchable complete Custom Order history page', async () => {
+  const [html, admin] = await Promise.all([
+    Deno.readTextFile(new URL('../admin.html', import.meta.url)),
+    Deno.readTextFile(new URL('../admin.js', import.meta.url))
+  ]);
+  assert(html.includes('href="#custom-order-requests"') && html.includes('id="custom-order-requests"'), 'Admin navigation must expose the private Custom Order history');
+  assert(html.includes('id="adminCustomOrderSearch"') && html.includes('id="adminCustomOrderStatusFilter"') && html.includes('id="loadMoreCustomOrderRequests"'), 'history must support search, status filtering, and loading older requests');
+  assert(admin.includes(".contains('items', [{ type: 'custom-order' }])"), 'the page must show only normalized Custom Order records');
+  assert(admin.includes('ADMIN_CUSTOM_ORDER_PAGE_SIZE = 50') && admin.includes('.range(adminCustomOrderOffset'), 'requests must be paginated without deleting or hiding older history');
+  assert(admin.includes("area === 'custom-order-requests'") && admin.includes('loadAdminCustomOrderRequests'), 'the protected Admin area must load its history on demand');
+});
+
 Deno.test('pre-discussed Custom Order payment never auto-approves or starts production', async () => {
   const [storefront, admin] = await Promise.all([
     Deno.readTextFile(new URL('../script.js', import.meta.url)),

@@ -144,9 +144,12 @@
       status(filesForStatus(form, discussed), 'saving');
       try {
         const result = await submitCustomOrder(form);
-        status(result.paymentRequired
+        const emailConfirmation = result.notifications?.customer
+          ? ' A confirmation email was sent.'
+          : ' Your request was saved, but an email confirmation could not be sent. Please keep this reference number.';
+        status((result.paymentRequired
           ? `Request received. ${result.orderNumber} is waiting for payment and Admin verification.`
-          : `Request received. Your reference number is ${result.orderNumber}.`, 'success');
+          : `Request received. Your reference number is ${result.orderNumber}.`) + emailConfirmation, 'success');
         showPaymentActions(result);
         form.reset();
         updatePrice(form);
