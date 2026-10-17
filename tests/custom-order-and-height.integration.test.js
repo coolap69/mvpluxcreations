@@ -106,7 +106,8 @@ Deno.test('Admin has a private searchable complete Custom Order history page', a
   ]);
   assert(html.includes('href="#custom-order-requests"') && html.includes('id="custom-order-requests"'), 'Admin navigation must expose the private Custom Order history');
   assert(html.includes('id="adminCustomOrderSearch"') && html.includes('id="adminCustomOrderStatusFilter"') && html.includes('id="loadMoreCustomOrderRequests"'), 'history must support search, status filtering, and loading older requests');
-  assert(admin.includes(".contains('items', [{ type: 'custom-order' }])"), 'the page must show only normalized Custom Order records');
+  assert((admin.match(/\.eq\('items->0->>type', 'custom-order'\)/g) || []).length === 2, 'Custom Order history and notification count must filter normalized Custom Order records without an invalid JSON containment literal');
+  assert(!admin.includes(".contains('items', [{ type: 'custom-order' }])"), 'Custom Order requests must not use the production-breaking JSON containment filter');
   assert(admin.includes('ADMIN_CUSTOM_ORDER_PAGE_SIZE = 50') && admin.includes('.range(adminCustomOrderOffset'), 'requests must be paginated without deleting or hiding older history');
   assert(admin.includes("area === 'custom-order-requests'") && admin.includes('loadAdminCustomOrderRequests'), 'the protected Admin area must load its history on demand');
   assert(admin.includes('loadAdminCustomOrderNotificationCount') && admin.includes('New Custom Order requests'), 'Admin must show a lightweight new-request notification without depending on email delivery');

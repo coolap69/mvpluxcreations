@@ -356,6 +356,14 @@ Deno.test('Product Save remains private and Publish saves latest state before th
   for (const preserved of ['DRAFT PREVIEW — NOT LIVE YET', 'Reset Card Layout', 'admin-category-editor-actions']) assert(adminSource.includes(preserved), `existing Homepage Collection Card editor feature was lost: ${preserved}`);
 });
 
+Deno.test('new Product Save Live preserves the form until the public save succeeds', () => {
+  const publish = sourceRange(adminSource, 'async function publishNewProductFromForm', '\n\nasync function publishNewCategoryFromForm');
+  const save = sourceRange(adminSource, 'async function saveNewProductFromForm', '\n\nasync function saveNewCategoryFromForm');
+  assert(publish.includes("saveNewProductFromForm(form, 'draft', { resetAfterSave: false })"), 'Save Live must keep the entered Product fields while the public save is pending');
+  assert(publish.indexOf('if (published) resetNewProductCreationForm(form)') > publish.indexOf('publishSavedProductBySlug'), 'the creation form may reset only after the Product is confirmed live');
+  assert(save.includes('if (resetAfterSave) resetNewProductCreationForm(form)'), 'private draft creation must use the same explicit reset controller');
+});
+
 Deno.test('alternate Product images keep optional customer title and description with main Product fallback', () => {
   const record = normalizeProductRecord({
     slug: 'arnold', title: 'Arnold Schwarzenegger', description: 'Main description', cutoutImage: 'images/main.png',

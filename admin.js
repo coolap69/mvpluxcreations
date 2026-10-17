@@ -2470,8 +2470,10 @@ async function publishNewProductFromForm(form) {
   const button = form.querySelector('[data-publish-new-product]');
   if (button) button.disabled = true;
   try {
-    if (!await saveNewProductFromForm(form, 'draft')) return false;
-    return publishSavedProductBySlug(slug, title, form.querySelector('[data-create-product-status]'));
+    if (!await saveNewProductFromForm(form, 'draft', { resetAfterSave: false })) return false;
+    const published = await publishSavedProductBySlug(slug, title, form.querySelector('[data-create-product-status]'));
+    if (published) resetNewProductCreationForm(form);
+    return published;
   } finally {
     if (button) button.disabled = false;
   }
@@ -3004,7 +3006,7 @@ async function loadAdminCustomOrderRequests({ reset = true } = {}) {
   let query = client
     .from('order_requests')
     .select('*')
-    .contains('items', [{ type: 'custom-order' }])
+    .eq('items->0->>type', 'custom-order')
     .order('created_at', { ascending: false })
     .range(adminCustomOrderOffset, adminCustomOrderOffset + ADMIN_CUSTOM_ORDER_PAGE_SIZE - 1);
   if (search) {
@@ -3039,7 +3041,7 @@ async function loadAdminCustomOrderNotificationCount() {
   const { count, error } = await client
     .from('order_requests')
     .select('id', { count: 'exact', head: true })
-    .contains('items', [{ type: 'custom-order' }])
+    .eq('items->0->>type', 'custom-order')
     .eq('status', 'new');
   if (error) return;
   adminNewCustomOrderCount = Number(count) || 0;
@@ -4202,7 +4204,15 @@ function bindAdminAiAssistance(root = document) {
   });
 }
 
-async function saveNewProductFromForm(form, approvalStatus) {
+function resetNewProductCreationForm(form) {
+  form.reset();
+  form.querySelector('[name="backgroundPosition"]').value = 'center center';
+  populateCreationImagePickers(form);
+  syncGeneratedCreationValue(form, 'slug');
+  renderNewProductPreview(form);
+}
+
+async function saveNewProductFromForm(form, approvalStatus, { resetAfterSave = true } = {}) {
   const formData = new FormData(form);
   const slug = makeSlug(formData.get('slug') || formData.get('title'));
   if (!slug || !formData.get('title') || !formData.get('cutoutImage')) {
@@ -4231,9 +4241,7 @@ async function saveNewProductFromForm(form, approvalStatus) {
   form.dataset.lastCreatedPage = (readAdminCategories()[categories[0]]?.page || 'index.html');
   form.querySelector('[data-open-created-product]').disabled = false;
   setCreationStatus(form, approvalStatus === 'approved' ? 'Unpublished Changes' : 'Draft saved privately.', 'saved');
-  form.reset();
-  form.querySelector('[name="backgroundPosition"]').value = 'center center';
-  renderNewProductPreview(form);
+  if (resetAfterSave) resetNewProductCreationForm(form);
   renderAdminProducts();
   return true;
 }
