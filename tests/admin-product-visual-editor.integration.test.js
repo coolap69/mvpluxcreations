@@ -356,6 +356,17 @@ Deno.test('Product Save remains private and Publish saves latest state before th
   for (const preserved of ['DRAFT PREVIEW — NOT LIVE YET', 'Reset Card Layout', 'admin-category-editor-actions']) assert(adminSource.includes(preserved), `existing Homepage Collection Card editor feature was lost: ${preserved}`);
 });
 
+Deno.test('Product Preview always opens the exact normalized Product instead of its first category or Home', () => {
+  const previewHelpers = sourceRange(adminSource, 'function adminPreviewUrl', '\n\nfunction architectureReviewMarkup');
+  assert(previewHelpers.includes("`standee.html?item=${encodeURIComponent(value)}`"), 'Product Preview must use the normalized Product slug on the customer Product page');
+  const productList = sourceRange(adminSource, 'const productSummaryMarkup', '\n\n  const approvedProducts');
+  assert(productList.includes('adminProductPreviewUrl(product.slug)'), 'every Product-list Preview must use the exact Product slug');
+  assert(productList.includes('Preview Live Product'), 'the outward customer preview must be clearly distinguished from the private editor preview');
+  assert(!productList.includes("readAdminCategories()[value.categories?.[0]]?.page || 'index.html#shop'"), 'a Child Group without its own page must never send Product Preview to Home');
+  const creation = sourceRange(adminSource, 'function setupAdminCreationWorkspace', '\n\nfunction makeSlug');
+  assert(creation.includes('window.open(adminProductPreviewUrl(productForm.dataset.lastCreatedSlug)'), 'new Product preview must use the same exact-Product route');
+});
+
 Deno.test('new Product Save Live preserves the form until the public save succeeds', () => {
   const publish = sourceRange(adminSource, 'async function publishNewProductFromForm', '\n\nasync function publishNewCategoryFromForm');
   const save = sourceRange(adminSource, 'async function saveNewProductFromForm', '\n\nasync function saveNewCategoryFromForm');

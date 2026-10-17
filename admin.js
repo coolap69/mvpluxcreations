@@ -2457,7 +2457,10 @@ async function publishExistingProductForm(form) {
   try {
     if (!await saveProductForm(form, 'Draft saved privately.')) return false;
     const slug = form.dataset.slug;
-    return publishSavedProductBySlug(slug, effectiveAdminProduct(slug)?.title || slug, form.querySelector('[data-product-save-state]'), form);
+    const title = effectiveAdminProduct(slug)?.title || slug;
+    const published = await publishSavedProductBySlug(slug, title, form.querySelector('[data-product-save-state]'), form);
+    if (published) setStatus(`LIVE — ${title} was saved and verified. Preview Live Product opens the exact customer page.`);
+    return published;
   } finally {
     if (button) button.disabled = false;
   }
@@ -4374,7 +4377,7 @@ function setupAdminCreationWorkspace() {
     saveNewCategoryFromForm(categoryForm, event.submitter?.value === 'approve' ? 'approved' : 'draft');
   });
   productForm.querySelector('[data-open-created-product]')?.addEventListener('click', () => {
-    if (productForm.dataset.lastCreatedSlug) window.open(`${productForm.dataset.lastCreatedPage || 'index.html'}#${productForm.dataset.lastCreatedSlug}`, '_blank', 'noopener');
+    if (productForm.dataset.lastCreatedSlug) window.open(adminProductPreviewUrl(productForm.dataset.lastCreatedSlug), '_blank', 'noopener');
   });
   categoryForm.querySelector('[data-open-created-category]')?.addEventListener('click', () => {
     if (categoryForm.dataset.lastCreatedPage) window.open(categoryForm.dataset.lastCreatedPage, '_blank', 'noopener');
@@ -5751,6 +5754,11 @@ function adminPreviewUrl(page = 'index.html') {
   return `${value}${value.includes('?') ? '&' : '?'}adminView=preview`;
 }
 
+function adminProductPreviewUrl(slug = '') {
+  const value = String(slug || '').trim();
+  return adminPreviewUrl(value ? `standee.html?item=${encodeURIComponent(value)}` : 'standee.html');
+}
+
 function architectureReviewMarkup(items) {
   if (!items.length) return '<p class="admin-note">No private changes are waiting for review or publication.</p>';
   const groups = Object.groupBy ? Object.groupBy(items, (item) => item.group) : items.reduce((result, item) => {
@@ -5766,7 +5774,7 @@ function architectureReviewMarkup(items) {
           <div class="admin-review-summary"><strong>${escapeAdminHtml(item.title)}</strong><p>${escapeAdminHtml(item.group)}</p><p class="admin-status-message" data-state="${item.approved ? 'approved' : 'waiting'}">${item.approved ? 'Ready to publish' : 'Draft — not included in publishing'}</p><small>Last edited: ${escapeAdminHtml(item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Not available')}</small></div>
           <div class="admin-review-values"><p><strong>Published:</strong> ${escapeAdminHtml(architectureReviewSummary(item.before))}</p><p><strong>Private:</strong> ${escapeAdminHtml(architectureReviewSummary(item.after))}</p></div>
           <div class="admin-card-actions">
-            <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminPreviewUrl(item.page))}" target="_blank">Preview</a>
+            <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(item.type === 'product' ? adminProductPreviewUrl(item.key) : adminPreviewUrl(item.page))}" target="_blank">Preview</a>
             <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(item.page || 'index.html')}" target="_blank">Open on Website</a>
             ${item.approved ? `<button type="button" data-review-draft="${escapeAdminHtml(item.id)}">Return to Draft</button>` : `<button type="button" data-review-approve="${escapeAdminHtml(item.id)}">Mark Ready</button>`}
             ${item.before && ['product', 'category'].includes(item.type) ? `<button type="button" data-review-discard="${escapeAdminHtml(item.id)}">Discard Private Change</button>` : ''}
@@ -9243,13 +9251,12 @@ function renderAdminProducts() {
       }))
     };
     const lifecycle = productLifecycleState(product, saved, archived).label;
-    const previewPage = readAdminCategories()[value.categories?.[0]]?.page || 'index.html#shop';
     const editorOpen = openedProductEditors.has(product.slug);
     const imagePresentation = adminImageReferencePresentation(value.cutoutImage);
     return `<article class="admin-product-summary-card${productBulkSelectionMode ? ' admin-product-summary-card-selecting' : ''}" data-product-summary="${escapeAdminHtml(product.slug)}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
       <div class="admin-review-image">${productBulkSelectionMode ? `<label class="admin-product-bulk-choice"><input type="checkbox" data-select-product-delete="${escapeAdminHtml(product.slug)}" ${selectedProductDeletionSlugs.has(product.slug) ? 'checked' : ''}><span>Select</span></label>` : ''}${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
       <div><h3>${escapeAdminHtml(value.title || product.title)}</h3><code>${escapeAdminHtml(product.slug)}</code><p>${escapeAdminHtml(productCategoryNames(value))}</p><strong>${escapeAdminHtml(lifecycle)}</strong></div>
-      <div class="admin-card-actions"><button type="button" data-edit-product="${escapeAdminHtml(product.slug)}">Edit</button><a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminPreviewUrl(previewPage))}" target="_blank" rel="noopener">Preview</a></div>
+      <div class="admin-card-actions"><button type="button" data-edit-product="${escapeAdminHtml(product.slug)}">Edit</button><a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminProductPreviewUrl(product.slug))}" target="_blank" rel="noopener">Preview Live Product</a></div>
       <div class="admin-product-editor-mount" data-product-editor-mount>${editorOpen ? productMarkup([product]) : ''}</div>
     </article>`;
   }).join('');
