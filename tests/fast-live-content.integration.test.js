@@ -169,6 +169,7 @@ Deno.test('Admin exposes individual and batch live saves while retaining static 
   const scopedSave = sourceRange(adminSource, 'async function saveLiveChangeIds', 'async function saveAllOpenAdminChanges');
   assert(scopedSave.includes('adminArchitectureBackupVerificationV1') && scopedSave.includes('adminArchitectureMigrationV2'), 'Save Live must inspect the verified normalized migration before activation');
   assert(scopedSave.includes('await setAdminArchitectureEnabled(true)') && scopedSave.includes('Normalized Admin activation was blocked'), 'Save Live must use the guarded existing activation controller and stop cleanly when activation fails');
+  assert(!scopedSave.includes("window.confirm('The normalized Admin system"), 'explicit Save Live must activate a verified normalized system without requiring a second confirmation');
   assert(!scopedSave.includes('enabled: true'), 'Save Live must never bypass the guarded activation controller by setting the feature flag directly');
 });
 

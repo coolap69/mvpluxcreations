@@ -2164,10 +2164,6 @@ async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', status
       report('SAVE FAILED — WEBSITE NOT CHANGED. The normalized Admin system is not safely prepared. Open Advanced and complete the recovery backup and migration preparation first.', 'failed');
       return false;
     }
-    if (!window.confirm('The normalized Admin system must be activated before this Product or Collection can go live. Activate the verified system now and continue Save Live?')) {
-      report('SAVE STOPPED — WEBSITE NOT CHANGED. Your private edits remain saved.', 'failed');
-      return false;
-    }
     report('Verifying and activating the normalized Admin system…', 'saving-live');
     try {
       await setAdminArchitectureEnabled(true);
