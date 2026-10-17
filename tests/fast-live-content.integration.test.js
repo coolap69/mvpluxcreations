@@ -166,6 +166,10 @@ Deno.test('Admin exposes individual and batch live saves while retaining static 
   assert(category.includes('saveCategoryEditForm') && category.includes('saveLiveChangeIds([`category:${categoryKey}`]'), 'Collection Save Live must save current form state before scoping the normalized Collection');
   assert(all.includes('saveAllOpenAdminChanges') && all.includes('architectureReviewItems()') && all.includes('savePublicLiveSnapshot'), 'Save All Live must flush dirty editors and perform one public snapshot write');
   assert(adminSource.includes("action: 'publish'"), 'the existing GitHub/static asset publisher must remain available for rollback and new files');
+  const scopedSave = sourceRange(adminSource, 'async function saveLiveChangeIds', 'async function saveAllOpenAdminChanges');
+  assert(scopedSave.includes('adminArchitectureBackupVerificationV1') && scopedSave.includes('adminArchitectureMigrationV2'), 'Save Live must inspect the verified normalized migration before activation');
+  assert(scopedSave.includes('await setAdminArchitectureEnabled(true)') && scopedSave.includes('Normalized Admin activation was blocked'), 'Save Live must use the guarded existing activation controller and stop cleanly when activation fails');
+  assert(!scopedSave.includes('enabled: true'), 'Save Live must never bypass the guarded activation controller by setting the feature flag directly');
 });
 
 Deno.test('Admin activation control verifies the deployed static baseline and public read-back', () => {

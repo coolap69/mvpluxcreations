@@ -2157,6 +2157,29 @@ async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', status
     setStatus(message);
     onProgress?.(message, state);
   };
+  if (!newAdminArchitectureEnabled()) {
+    const verification = adminLiveSettings?.adminArchitectureBackupVerificationV1;
+    const migration = adminLiveSettings?.adminArchitectureMigrationV2;
+    if (verification?.verified !== true || migration?.version !== 1) {
+      report('SAVE FAILED — WEBSITE NOT CHANGED. The normalized Admin system is not safely prepared. Open Advanced and complete the recovery backup and migration preparation first.', 'failed');
+      return false;
+    }
+    if (!window.confirm('The normalized Admin system must be activated before this Product or Collection can go live. Activate the verified system now and continue Save Live?')) {
+      report('SAVE STOPPED — WEBSITE NOT CHANGED. Your private edits remain saved.', 'failed');
+      return false;
+    }
+    report('Verifying and activating the normalized Admin system…', 'saving-live');
+    try {
+      await setAdminArchitectureEnabled(true);
+    } catch (error) {
+      report(`SAVE FAILED — WEBSITE NOT CHANGED. Normalized Admin activation was blocked: ${error?.message || error}`, 'failed');
+      return false;
+    }
+    if (!newAdminArchitectureEnabled()) {
+      report('SAVE FAILED — WEBSITE NOT CHANGED. The normalized Admin system could not be activated.', 'failed');
+      return false;
+    }
+  }
   if (!await waitForAdminSaves() || (!workingStateCurrent && !await loadAdminLiveSettings())) {
     report(`SAVE FAILED — WEBSITE NOT CHANGED. ${adminLastSaveError || 'Private state could not be reloaded.'}`, 'failed');
     return false;
@@ -2725,11 +2748,13 @@ function orderCardMarkup(order) {
       <p><strong>Ship:</strong> ${adminAddressText(order.shipping_address)}</p>
       ${isInternational ? '<p class="admin-order-shipping-warning"><strong>International address:</strong> International checkout is not active yet. Reject and prepare the apology email to offer either a matching eBay listing (price may differ because of marketplace fees) or the manual option: customer-purchased shipping label, $15 handling fee, 3–5 business days of handling, plus carrier delivery time.</p>' : ''}
       ${order.notes ? `<p><strong>Notes:</strong> ${escapeAdminHtml(order.notes)}</p>` : ''}
-      ${customItem ? `<section class="admin-custom-order" data-custom-order-request>
+      ${customItem ? `<section class="admin-custom-order" data-custom-order-request data-custom-order-id="${escapeAdminHtml(order.id)}">
         <h4>Custom Order Design Request</h4>
         <p data-custom-order-source><strong>Description:</strong> ${escapeAdminHtml(customItem.description || '')}<br><strong>Desired height:</strong> ${escapeAdminHtml(formatPublishedHeight(customItem.selected_height || ''))}<br><strong>Preferred contact:</strong> ${escapeAdminHtml(customItem.contact_preference || 'email')}</p>
         ${customItem.already_discussed ? `<p class="admin-custom-order-payment"><strong>Pre-discussed order — verify payment manually before production.</strong><br>Agreed price: ${adminMoney(customItem.agreed_price)}<br>Optional extra / tip: ${adminMoney(customItem.optional_tip)}<br>Expected total: ${adminMoney(order.total)}<br>Status: Awaiting manual payment verification. If the full agreed amount was not received, reject the order or contact the customer for the balance before starting production.</p>` : '<p><strong>Quote requested — no payment is expected yet.</strong></p>'}
         <div class="admin-custom-order-references">${referencePaths.map((path) => `<a data-custom-reference-path="${escapeAdminHtml(path)}"><span>Loading private reference…</span></a>`).join('')}</div>
+        <h4>Customer Follow-up Messages</h4>
+        <div class="admin-custom-order-messages" data-admin-custom-order-messages>Loading timestamped messages…</div>
         <label>Editable design brief<textarea data-custom-order-design-brief rows="8" placeholder="Generate a draft brief, then edit it here."></textarea></label>
         <div class="admin-card-actions"><button type="button" data-generate-custom-order-brief>Generate Design Brief with AI</button></div>
         <p data-custom-order-ai-status aria-live="polite">AI suggestions never approve artwork, save changes, or publish anything.</p>
@@ -2760,6 +2785,35 @@ async function hydrateCustomOrderReferences(root = document) {
     link.rel = 'noopener';
     link.innerHTML = `<img src="${escapeAdminHtml(data.signedUrl)}" alt="Private custom-order reference"><span>Open reference</span>`;
   }));
+}
+
+async function hydrateCustomOrderMessages(root = document) {
+  const client = getAdminClient();
+  const sections = [...root.querySelectorAll('[data-custom-order-id]')];
+  if (!client || !sections.length) return;
+  const ids = [...new Set(sections.map((section) => section.dataset.customOrderId).filter(Boolean))];
+  const { data, error } = await client
+    .from('custom_order_messages')
+    .select('id,order_request_id,sender_type,message,created_at')
+    .in('order_request_id', ids)
+    .order('created_at', { ascending: true });
+  const byOrder = new Map();
+  (data || []).forEach((entry) => {
+    if (!byOrder.has(entry.order_request_id)) byOrder.set(entry.order_request_id, []);
+    byOrder.get(entry.order_request_id).push(entry);
+  });
+  sections.forEach((section) => {
+    const target = section.querySelector('[data-admin-custom-order-messages]');
+    if (!target) return;
+    if (error) {
+      target.textContent = `Timestamped messages unavailable. ${error.message || error}`;
+      return;
+    }
+    const entries = byOrder.get(section.dataset.customOrderId) || [];
+    target.innerHTML = entries.length
+      ? `<ol>${entries.map((entry) => `<li><p>${escapeAdminHtml(entry.message)}</p><time>${escapeAdminHtml(adminDate(entry.created_at))}</time></li>`).join('')}</ol>`
+      : '<p>No customer follow-up messages yet.</p>';
+  });
 }
 
 async function generateCustomOrderDesignBrief(button) {
@@ -3036,6 +3090,7 @@ async function loadAdminCustomOrderRequests({ reset = true } = {}) {
   status.textContent = `${adminCustomOrderOffset} Custom Order request${adminCustomOrderOffset === 1 ? '' : 's'} loaded${search ? ` for “${search}”` : ''}.`;
   adminCustomOrdersLoaded = true;
   await hydrateCustomOrderReferences(list);
+  await hydrateCustomOrderMessages(list);
 }
 
 async function loadAdminCustomOrderNotificationCount() {
@@ -3386,6 +3441,7 @@ async function refreshCommerceAdmin() {
       : commerceEmptyMarkup(queue === 'new' ? 'No new orders right now.' : `No ${queue.replace(/_/g, ' ')} orders right now.`);
   });
   await hydrateCustomOrderReferences();
+  await hydrateCustomOrderMessages();
 
   setCommerceStatus(`Loaded ${ordersResponse.data?.length || 0} orders and ${offersResponse.data?.length || 0} offers.${historyError ? ' Some conversation details are temporarily unavailable.' : ''}`);
   const technical = document.getElementById('commerceTechnicalDetails');
@@ -9256,7 +9312,7 @@ function renderAdminProducts() {
     return `<article class="admin-product-summary-card${productBulkSelectionMode ? ' admin-product-summary-card-selecting' : ''}" data-product-summary="${escapeAdminHtml(product.slug)}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
       <div class="admin-review-image">${productBulkSelectionMode ? `<label class="admin-product-bulk-choice"><input type="checkbox" data-select-product-delete="${escapeAdminHtml(product.slug)}" ${selectedProductDeletionSlugs.has(product.slug) ? 'checked' : ''}><span>Select</span></label>` : ''}${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
       <div><h3>${escapeAdminHtml(value.title || product.title)}</h3><code>${escapeAdminHtml(product.slug)}</code><p>${escapeAdminHtml(productCategoryNames(value))}</p><strong>${escapeAdminHtml(lifecycle)}</strong></div>
-      <div class="admin-card-actions"><button type="button" data-edit-product="${escapeAdminHtml(product.slug)}">Edit</button><a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminProductPreviewUrl(product.slug))}" target="_blank" rel="noopener">Preview Live Product</a></div>
+      <div class="admin-card-actions"><button type="button" data-edit-product="${escapeAdminHtml(product.slug)}">Edit</button><a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminProductPreviewUrl(product.slug))}" target="_blank" rel="noopener">Preview Live Product</a><button class="admin-button admin-button-warning" type="button" data-delete-product-summary="${escapeAdminHtml(product.slug)}">Delete Product</button></div>
       <div class="admin-product-editor-mount" data-product-editor-mount>${editorOpen ? productMarkup([product]) : ''}</div>
     </article>`;
   }).join('');
@@ -9280,6 +9336,10 @@ function renderAdminProducts() {
       renderAdminProducts();
       document.querySelector(`[data-product-summary="${CSS.escape(button.dataset.editProduct)}"] .admin-product-card`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
+  });
+
+  approvedContainer?.querySelectorAll('[data-delete-product-summary]').forEach((button) => {
+    button.addEventListener('click', () => deleteProduct(button.dataset.deleteProductSummary));
   });
 
   approvedContainer?.querySelectorAll('[data-select-product-delete]').forEach((checkbox) => {
@@ -10937,6 +10997,7 @@ async function setAdminArchitectureEnabled(enabled) {
   setupAdminCreationWorkspace();
   renderAdminProducts();
   renderPublishSummary();
+  renderAdminDashboard();
   return true;
 }
 
@@ -10999,13 +11060,20 @@ function renderAdminDashboard() {
 
 function adminSystemNotices() {
   const notices = [];
-  const add = (severity, title, detail, href = '#advanced', action = 'Review') => notices.push({ severity, title, detail, href, action });
+  const add = (severity, title, detail, href = '#advanced', action = 'Review', control = '') => notices.push({ severity, title, detail, href, action, control });
   const migration = adminLiveSettings?.adminArchitectureMigrationV2?.productPageOverrides;
   const migrationConflicts = [...(migration?.conflicts || []), ...(migration?.unsupported || [])];
   if (adminLastSaveError) add('error', 'Save failed — website not changed', adminLastSaveError, '#dashboard');
   if (adminLatestPublishError) add('error', 'Live update failed', adminLatestPublishError, '#advanced');
   if (migrationConflicts.length) add('conflict', 'Architecture conflicts require review', `${migrationConflicts.length} migration or page override conflict${migrationConflicts.length === 1 ? '' : 's'} remain.`, '#advanced');
-  if (!newAdminArchitectureEnabled()) add('error', 'Normalized Admin architecture is not active', 'Old Admin readers may still control part of the editing experience.', '#advanced');
+  if (!newAdminArchitectureEnabled()) add(
+    'error',
+    'Normalized Admin architecture is not active',
+    'Private edits are preserved, but Save Live must safely activate the normalized readers before customers can receive those edits.',
+    '#advanced',
+    'Activate Safely',
+    'activate-normalized-admin'
+  );
   if (adminPublishedFileState.reachable === false) add('error', 'Published customer content is unavailable', 'Neither the Supabase live snapshot nor its static emergency fallback could be validated.', '#advanced');
   else if (adminPublishedFileState.source === 'static-fallback') add('legacy', 'Static emergency snapshot is active', 'Supabase live content was unavailable. Customers are seeing the complete published-admin-settings.json fallback.', '#advanced');
   if (adminNewCustomOrderCount > 0) add('healthy', 'New Custom Order requests', `${adminNewCustomOrderCount} new request${adminNewCustomOrderCount === 1 ? '' : 's'} need review.`, '#custom-order-requests', 'Review Requests');
@@ -11086,7 +11154,9 @@ function renderAdminSystemNotifications() {
       <article class="admin-system-notification" data-severity="${escapeAdminHtml(notice.severity)}">
         <span class="admin-system-notification-indicator" aria-hidden="true"></span>
         <div><strong>${escapeAdminHtml(notice.title)}</strong><p>${escapeAdminHtml(notice.detail)}</p></div>
-        <a class="admin-button admin-button-secondary" href="${escapeAdminHtml(notice.href)}">${escapeAdminHtml(notice.action)}</a>
+        ${notice.control === 'activate-normalized-admin'
+          ? `<button class="admin-button admin-button-secondary" type="button" data-activate-admin-locally>${escapeAdminHtml(notice.action)}</button>`
+          : `<a class="admin-button admin-button-secondary" href="${escapeAdminHtml(notice.href)}">${escapeAdminHtml(notice.action)}</a>`}
       </article>`).join('')}</div>
     <details class="admin-weekly-diagnostic-report">
       <summary>Weekly Check Report · ${weeklyAttentionCount ? `${weeklyAttentionCount} finding${weeklyAttentionCount === 1 ? '' : 's'}` : 'All clear'}</summary>

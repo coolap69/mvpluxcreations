@@ -27,6 +27,39 @@ function memberDate(value) {
   });
 }
 
+function memberCustomOrderItem(order) {
+  return (Array.isArray(order?.items) ? order.items : []).find((item) => item?.type === 'custom-order') || null;
+}
+
+function memberCustomOrderMessagesMarkup(messages = []) {
+  return messages.length
+    ? `<ol class="member-custom-order-messages">${messages.map((entry) => `<li><p>${memberEscape(entry.message)}</p><time>${memberEscape(memberDate(entry.created_at))}</time></li>`).join('')}</ol>`
+    : '<p class="member-custom-order-empty">No follow-up details added yet.</p>';
+}
+
+function memberCustomOrderMarkup(order, messages = []) {
+  const item = memberCustomOrderItem(order);
+  return `
+    <article class="member-offer-card member-custom-order-card" data-member-custom-order="${memberEscape(order.id)}">
+      <div class="member-offer-head">
+        <h3>${memberEscape(item?.name || 'Custom standee request')}</h3>
+        <span>${memberEscape(String(order.status || 'new').replace(/_/g, ' '))}</span>
+      </div>
+      <p><strong>Submitted:</strong> ${memberEscape(memberDate(order.created_at))}</p>
+      <p><strong>Your request:</strong> ${memberEscape(item?.description || 'No description recorded')}</p>
+      <p><strong>Desired height:</strong> ${memberEscape(window.MVPLUX_PRICING?.formatHeight?.(item?.selected_height) || item?.selected_height || 'Not recorded')}</p>
+      <h4>Additional Details</h4>
+      <div data-member-custom-order-messages>${memberCustomOrderMessagesMarkup(messages)}</div>
+      <label>Add more information
+        <textarea data-member-custom-order-message maxlength="3000" rows="4" placeholder="Add another detail about this request…"></textarea>
+      </label>
+      <div class="member-custom-order-actions">
+        <button type="button" data-submit-custom-order-message>Add Timestamped Note</button>
+        <span data-member-custom-order-message-status aria-live="polite"></span>
+      </div>
+    </article>`;
+}
+
 function memberOfferEffectiveStatus(offer) {
   const status = String(offer?.status || 'pending');
   if (status === 'countered' && offer?.expires_at && new Date(offer.expires_at).getTime() <= Date.now()) return 'expired';
@@ -197,6 +230,8 @@ async function loadMemberAccount() {
   }
 
   const offers = offersResponse.data || [];
+  const orders = ordersResponse.data || [];
+  const customOrders = orders.filter((order) => memberCustomOrderItem(order));
   let history = [];
   let historyError = null;
   if (offers.length) {
@@ -215,6 +250,23 @@ async function loadMemberAccount() {
     historyByOffer.get(event.offer_id).push(event);
   });
 
+  let customOrderMessages = [];
+  let customOrderMessagesError = null;
+  if (customOrders.length) {
+    const response = await client
+      .from('custom_order_messages')
+      .select('id,order_request_id,sender_type,message,created_at')
+      .in('order_request_id', customOrders.map((order) => order.id))
+      .order('created_at', { ascending: true });
+    customOrderMessages = response.data || [];
+    customOrderMessagesError = response.error;
+  }
+  const messagesByCustomOrder = new Map();
+  customOrderMessages.forEach((entry) => {
+    if (!messagesByCustomOrder.has(entry.order_request_id)) messagesByCustomOrder.set(entry.order_request_id, []);
+    messagesByCustomOrder.get(entry.order_request_id).push(entry);
+  });
+
   const activeStatuses = new Set(['pending', 'countered', 'buyer_countered', 'accepted', 'accepted_awaiting_payment', 'payment_pending', 'payment_submitted']);
   const activeOffers = offers.filter((offer) => activeStatuses.has(String(offer.status || 'pending')));
   const pastOffers = offers.filter((offer) => !activeStatuses.has(String(offer.status || 'pending')));
@@ -224,9 +276,13 @@ async function loadMemberAccount() {
   document.getElementById('memberPastOffersList').innerHTML = pastOffers.length
     ? pastOffers.map((offer) => memberOfferMarkup(offer, historyByOffer.get(offer.id) || [])).join('')
     : '<p>No past offers.</p>';
-  document.getElementById('memberOrdersList').innerHTML = ordersResponse.data?.length
-    ? ordersResponse.data.map((order) => `<article class="member-order-card"><strong>${order.is_test ? '<b class="test-record-badge">TEST</b> ' : ''}${memberEscape(order.status || 'new')}</strong><span>${memberMoney(order.total)} · ${memberDate(order.created_at)}</span></article>`).join('')
+  const regularOrders = orders.filter((order) => !memberCustomOrderItem(order));
+  document.getElementById('memberOrdersList').innerHTML = regularOrders.length
+    ? regularOrders.map((order) => `<article class="member-order-card"><strong>${order.is_test ? '<b class="test-record-badge">TEST</b> ' : ''}${memberEscape(order.status || 'new')}</strong><span>${memberMoney(order.total)} · ${memberDate(order.created_at)}</span></article>`).join('')
     : '<p>No orders yet.</p>';
+  document.getElementById('memberCustomOrdersList').innerHTML = customOrders.length
+    ? customOrders.map((order) => memberCustomOrderMarkup(order, messagesByCustomOrder.get(order.id) || [])).join('')
+    : '<p>No Custom Order requests yet.</p>';
   const discountList = document.getElementById('memberDiscountsList');
   if (discountList) {
     discountList.innerHTML = discountsResponse.error
@@ -238,11 +294,48 @@ async function loadMemberAccount() {
   document.getElementById('memberProfileSummary').textContent = user.user_metadata?.screen_name
     ? `${user.user_metadata.screen_name} · ${user.email || ''}`
     : user.email || 'Signed-in member';
-  status.textContent = historyError
-    ? 'Account loaded. Offer history becomes available after the offer-history database migration is applied.'
+  status.textContent = historyError || customOrderMessagesError
+    ? 'Account loaded. Some conversation history is temporarily unavailable.'
     : 'Your private account is up to date.';
   content.hidden = false;
   updateMemberOfferCountdowns();
+}
+
+async function handleCustomOrderMessage(event) {
+  const button = event.target.closest?.('[data-submit-custom-order-message]');
+  const card = button?.closest?.('[data-member-custom-order]');
+  if (!button || !card) return;
+  const input = card.querySelector('[data-member-custom-order-message]');
+  const status = card.querySelector('[data-member-custom-order-message-status]');
+  const message = String(input?.value || '').trim();
+  if (!message) {
+    status.textContent = 'Write a message before adding it.';
+    return;
+  }
+  if (message.length > 3000) {
+    status.textContent = 'Keep the additional information under 3,000 characters.';
+    return;
+  }
+  const client = memberAccountClient();
+  const session = (await client?.auth?.getSession())?.data?.session;
+  if (!session?.user) {
+    status.textContent = 'Sign in again before adding information.';
+    return;
+  }
+  button.disabled = true;
+  status.textContent = 'Saving your timestamped note…';
+  const { error } = await client.from('custom_order_messages').insert({
+    order_request_id: card.dataset.memberCustomOrder,
+    sender_user_id: session.user.id,
+    sender_type: 'customer',
+    message
+  });
+  if (error) {
+    button.disabled = false;
+    status.textContent = `Your note was not saved. ${error.message || error}`;
+    return;
+  }
+  await loadMemberAccount();
 }
 
 async function handleMemberOfferAction(event) {
@@ -296,6 +389,7 @@ async function signOutMemberAccount() {
 
 document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('click', handleMemberOfferAction);
+  document.addEventListener('click', handleCustomOrderMessage);
   document.getElementById('accountSignOut')?.addEventListener('click', signOutMemberAccount);
   loadMemberAccount();
   window.setInterval(updateMemberOfferCountdowns, 1000);

@@ -172,6 +172,7 @@ Deno.test('delete controls remain private until explicit publish and expose both
   assert(deleteProductSource.includes('patch.deletedProducts') && deleteProductSource.includes('saved privately') && !deleteProductSource.includes('publishScopedChangeIds'), 'Delete Product must save a private tombstone without auto-publishing');
   assert(deleteCollectionSource.includes("collectionKey: 'deletedCategories'") && deleteCollectionSource.includes('saved privately') && !deleteCollectionSource.includes('publishScopedChangeIds'), 'Delete Main Collection must save privately without auto-publishing');
   assert(reviewSource.includes('product-delete:') && reviewSource.includes('category-delete:'), 'both saved deletion types must become explicit shared publish items');
+  assert(adminSource.includes('data-delete-product-summary=') && adminSource.includes('deleteProduct(button.dataset.deleteProductSummary)'), 'every compact Product row must expose the existing normalized Delete Product controller without opening the editor');
 });
 
 Deno.test('bulk Product cleanup deletes selected normalized records in one private save without deleting image files', () => {
