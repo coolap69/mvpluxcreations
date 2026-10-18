@@ -167,10 +167,18 @@ Deno.test('Admin exposes individual and batch live saves while retaining static 
   assert(all.includes('saveAllOpenAdminChanges') && all.includes('architectureReviewItems()') && all.includes('savePublicLiveSnapshot'), 'Save All Live must flush dirty editors and perform one public snapshot write');
   assert(adminSource.includes("action: 'publish'"), 'the existing GitHub/static asset publisher must remain available for rollback and new files');
   const scopedSave = sourceRange(adminSource, 'async function saveLiveChangeIds', 'async function saveAllOpenAdminChanges');
-  assert(scopedSave.includes('adminArchitectureBackupVerificationV1') && scopedSave.includes('adminArchitectureMigrationV2'), 'Save Live must inspect the verified normalized migration before activation');
-  assert(scopedSave.includes('await setAdminArchitectureEnabled(true)') && scopedSave.includes('Normalized Admin activation was blocked'), 'Save Live must use the guarded existing activation controller and stop cleanly when activation fails');
+  const oneStepPreparation = sourceRange(adminSource, 'async function ensureNormalizedAdminArchitectureForLive', 'function newAdminArchitectureEnabled');
+  assert(scopedSave.includes('ensureNormalizedAdminArchitectureForLive(report)'), 'Save Live must perform its required safety preparation in the same user action');
+  assert(oneStepPreparation.includes('createAndVerifyAdminArchitectureBackup()'), 'one-step Save Live must create and verify the recovery checkpoint when it is missing');
+  assert(oneStepPreparation.includes('checkpointExistingAdminArchitectureForBackup') && oneStepPreparation.includes('prepareAdminArchitectureMigrationExplicitly()'), 'one-step Save Live must safely reuse prepared normalized records or prepare them through the existing migration controller');
+  assert(oneStepPreparation.includes('await setAdminArchitectureEnabled(true)') && scopedSave.includes('One-step Save Live safety preparation was blocked'), 'Save Live must use the guarded existing activation controller and stop cleanly when activation fails');
   assert(!scopedSave.includes("window.confirm('The normalized Admin system"), 'explicit Save Live must activate a verified normalized system without requiring a second confirmation');
-  assert(!scopedSave.includes('enabled: true'), 'Save Live must never bypass the guarded activation controller by setting the feature flag directly');
+  assert(!oneStepPreparation.includes('enabled: true'), 'Save Live must never bypass the guarded activation controller by setting the feature flag directly');
+  assert(individual.includes('{ workingStateCurrent }'), 'Product Save Live must reuse the authoritative Product state instead of downloading it again');
+  const existingProduct = sourceRange(adminSource, 'async function publishExistingProductForm', 'async function publishNewProductFromForm');
+  assert(existingProduct.includes("approvalStatus: 'approved'") && !existingProduct.includes("'Draft saved privately.'"), 'Product Save Live must avoid a separate private-draft and approval round trip');
+  const edgeLiveSave = sourceRange(edgeSource, 'async function saveLiveSnapshot', '\n\ntype PublishImageFile');
+  assert(edgeLiveSave.includes('snapshot: _verifiedSnapshot') && edgeLiveSave.includes('return { ...metadata, snapshotFingerprint: fingerprint }'), 'Save Live must not return a duplicate full snapshot after the browser performs its public verification read');
 });
 
 Deno.test('Admin activation control verifies the deployed static baseline and public read-back', () => {

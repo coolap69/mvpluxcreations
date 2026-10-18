@@ -370,7 +370,8 @@ Deno.test('Product Preview always opens the exact normalized Product instead of 
 Deno.test('new Product Save Live preserves the form until the public save succeeds', () => {
   const publish = sourceRange(adminSource, 'async function publishNewProductFromForm', '\n\nasync function publishNewCategoryFromForm');
   const save = sourceRange(adminSource, 'async function saveNewProductFromForm', '\n\nasync function saveNewCategoryFromForm');
-  assert(publish.includes("saveNewProductFromForm(form, 'draft', { resetAfterSave: false })"), 'Save Live must keep the entered Product fields while the public save is pending');
+  assert(publish.includes("saveNewProductFromForm(form, 'approved', { resetAfterSave: false })"), 'Save Live must persist the entered Product fields as live-ready in its single protected Product write');
+  assert(publish.includes('{ workingStateCurrent: true }'), 'new Product Save Live must reuse the authoritative state returned by its save instead of reloading it');
   assert(publish.indexOf('if (published) resetNewProductCreationForm(form)') > publish.indexOf('publishSavedProductBySlug'), 'the creation form may reset only after the Product is confirmed live');
   assert(save.includes('if (resetAfterSave) resetNewProductCreationForm(form)'), 'private draft creation must use the same explicit reset controller');
 });

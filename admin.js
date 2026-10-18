@@ -467,6 +467,66 @@ async function prepareAdminArchitectureMigrationExplicitly() {
   }
 }
 
+async function checkpointExistingAdminArchitectureForBackup(verification) {
+  const architecture = await adminArchitecturePromise;
+  const latest = await fetchAuthoritativeAdminGlobal([
+    'products', 'categories', 'globalDisplaySettings', 'schemaVersion',
+    architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY,
+    architecture.ADMIN_ARCHITECTURE_VERIFICATION_KEY
+  ]);
+  const storedVerification = latest.edits?.[architecture.ADMIN_ARCHITECTURE_VERIFICATION_KEY];
+  const migration = latest.edits?.[architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY];
+  if (storedVerification?.verified !== true || storedVerification.checksum !== verification?.checksum) {
+    throw new Error('The recovery checkpoint could not be matched to the current Admin state.');
+  }
+  if (migration?.version !== 1 || !latest.edits?.products || !latest.edits?.categories) return false;
+  if (migration.backupChecksum === verification.checksum) return true;
+  const checkpointedMigration = {
+    ...migration,
+    backupChecksum: verification.checksum,
+    checkpointedAt: new Date().toISOString()
+  };
+  const { data, error } = await getAdminClient().rpc('save_site_edits', {
+    p_page_key: 'admin-global',
+    p_edits: { [architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY]: checkpointedMigration },
+    p_expected_revision: latest.revision,
+    p_replace: false
+  });
+  if (error) throw error;
+  adminLiveSettings = data?.edits || {
+    ...adminLiveSettings,
+    ...latest.edits,
+    [architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY]: checkpointedMigration
+  };
+  adminLiveRevision = Number(data?.revision) || latest.revision + 1;
+  adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
+  announceAdminSave('admin-global', adminLiveRevision, [architecture.ADMIN_ARCHITECTURE_MIGRATION_KEY]);
+  return true;
+}
+
+async function ensureNormalizedAdminArchitectureForLive(report = () => {}) {
+  if (newAdminArchitectureEnabled()) return true;
+  const architecture = await adminArchitecturePromise;
+  report('Preparing the one-time safety checkpoint for Save Live…', 'saving-live');
+  let verified = await verifyStoredAdminArchitectureBackup();
+  if (!verified.ok) {
+    await createAndVerifyAdminArchitectureBackup();
+    verified = await verifyStoredAdminArchitectureBackup();
+  }
+  if (!verified.ok) throw new Error(`Recovery checkpoint verification failed: ${verified.errors.join(' ')}`);
+
+  const checkpointed = await checkpointExistingAdminArchitectureForBackup({ checksum: verified.checksum });
+  if (!checkpointed) {
+    report('Preparing the normalized Product and Collection records…', 'saving-live');
+    await prepareAdminArchitectureMigrationExplicitly();
+  }
+
+  report('Activating the normalized Admin system and continuing Save Live…', 'saving-live');
+  await setAdminArchitectureEnabled(true);
+  if (!newAdminArchitectureEnabled()) throw new Error('The normalized Admin system could not be activated.');
+  return true;
+}
+
 function newAdminArchitectureEnabled() {
   return adminArchitectureState?.feature?.enabled === true;
 }
@@ -2158,21 +2218,10 @@ async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', status
     onProgress?.(message, state);
   };
   if (!newAdminArchitectureEnabled()) {
-    const verification = adminLiveSettings?.adminArchitectureBackupVerificationV1;
-    const migration = adminLiveSettings?.adminArchitectureMigrationV2;
-    if (verification?.verified !== true || migration?.version !== 1) {
-      report('SAVE FAILED — WEBSITE NOT CHANGED. The normalized Admin system is not safely prepared. Open Advanced and complete the recovery backup and migration preparation first.', 'failed');
-      return false;
-    }
-    report('Verifying and activating the normalized Admin system…', 'saving-live');
     try {
-      await setAdminArchitectureEnabled(true);
+      await ensureNormalizedAdminArchitectureForLive(report);
     } catch (error) {
-      report(`SAVE FAILED — WEBSITE NOT CHANGED. Normalized Admin activation was blocked: ${error?.message || error}`, 'failed');
-      return false;
-    }
-    if (!newAdminArchitectureEnabled()) {
-      report('SAVE FAILED — WEBSITE NOT CHANGED. The normalized Admin system could not be activated.', 'failed');
+      report(`SAVE FAILED — WEBSITE NOT CHANGED. One-step Save Live safety preparation was blocked: ${error?.message || error}`, 'failed');
       return false;
     }
   }
@@ -2465,16 +2514,16 @@ async function publishScopedChangeIds(changeIds, label, statusTarget = null, { o
   }
 }
 
-async function publishSavedProductBySlug(slug, label, statusTarget = null, form = null) {
+async function publishSavedProductBySlug(slug, label, statusTarget = null, form = null, { workingStateCurrent = Boolean(form) } = {}) {
   const base = effectiveAdminProduct(slug) || form?._adminBaseRecord || {};
-  return saveLiveChangeIds([`product:${slug}`], label || base.title || slug, statusTarget);
+  return saveLiveChangeIds([`product:${slug}`], label || base.title || slug, statusTarget, { workingStateCurrent });
 }
 
 async function publishExistingProductForm(form) {
   const button = form.querySelector('[data-publish-product]');
   if (button) button.disabled = true;
   try {
-    if (!await saveProductForm(form, 'Draft saved privately.')) return false;
+    if (!await saveProductForm(form, 'Product prepared for Save Live.', { approvalStatus: 'approved' })) return false;
     const slug = form.dataset.slug;
     const title = effectiveAdminProduct(slug)?.title || slug;
     const published = await publishSavedProductBySlug(slug, title, form.querySelector('[data-product-save-state]'), form);
@@ -2492,8 +2541,14 @@ async function publishNewProductFromForm(form) {
   const button = form.querySelector('[data-publish-new-product]');
   if (button) button.disabled = true;
   try {
-    if (!await saveNewProductFromForm(form, 'draft', { resetAfterSave: false })) return false;
-    const published = await publishSavedProductBySlug(slug, title, form.querySelector('[data-create-product-status]'));
+    if (!await saveNewProductFromForm(form, 'approved', { resetAfterSave: false })) return false;
+    const published = await publishSavedProductBySlug(
+      slug,
+      title,
+      form.querySelector('[data-create-product-status]'),
+      null,
+      { workingStateCurrent: true }
+    );
     if (published) resetNewProductCreationForm(form);
     return published;
   } finally {
@@ -4813,8 +4868,15 @@ function collectProductFormData(form, dirtyFields = form?._adminDirtyFields || n
   return patch;
 }
 
-async function saveProductForm(form, message = 'DRAFT SAVED — PRIVATE. Use Save Live when customers should see the saved work.') {
-  const patch = collectProductFormData(form);
+async function saveProductForm(
+  form,
+  message = 'DRAFT SAVED — PRIVATE. Use Save Live when customers should see the saved work.',
+  { approvalStatus = 'draft' } = {}
+) {
+  let patch = collectProductFormData(form);
+  if (approvalStatus === 'approved' && (Object.keys(patch).length || form._adminBaseRecord?.approvalStatus !== 'approved')) {
+    patch = { ...patch, draftStatus: 'ready', approvalStatus: 'approved', updatedAt: new Date().toISOString() };
+  }
   if (!Object.keys(patch).length) {
     setProductSaveState(form, 'DRAFT SAVED — PRIVATE', 'saved');
     setStatus('No product fields have changed.');
@@ -4837,21 +4899,26 @@ async function saveProductForm(form, message = 'DRAFT SAVED — PRIVATE. Use Sav
     };
     const displayPatch = Object.fromEntries(Object.entries(patch).flatMap(([field, value]) => displayFieldMap[field] ? [[displayFieldMap[field], value === '' ? null : Number(value)]] : []));
     const latestCategory = readAdminCategories()[categoryKey] || {};
+    const lifecyclePatch = {
+      updatedAt: new Date().toISOString(),
+      draftStatus: 'ready',
+      approvalStatus
+    };
     const operations = [];
     if (Object.keys(rootPatch).length) operations.push({
       type: 'record', collectionKey: 'categories', entryKey: categoryKey,
       baseRecord: latestCategory,
-      patch: { ...rootPatch, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'draft' }
+      patch: { ...rootPatch, ...lifecyclePatch }
     });
     if (Object.keys(cardPatch).length) operations.push({
       type: 'record', collectionKey: 'categories', entryKey: categoryKey,
       baseRecord: latestCategory,
-      patch: { card: { ...(latestCategory.card || {}), ...cardPatch }, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'draft' }
+      patch: { card: { ...(latestCategory.card || {}), ...cardPatch }, ...lifecyclePatch }
     });
     if (Object.keys(displayPatch).length) operations.push({
       type: 'record', collectionKey: 'categories', entryKey: categoryKey,
       baseRecord: latestCategory,
-      patch: { displaySettings: { ...(latestCategory.displaySettings || {}), ...displayPatch }, updatedAt: new Date().toISOString(), draftStatus: 'ready', approvalStatus: 'draft' }
+      patch: { displaySettings: { ...(latestCategory.displaySettings || {}), ...displayPatch }, ...lifecyclePatch }
     });
     const saved = await saveAdminCollectionOperations(operations);
     result = saved.ok ? { ok: true, record: { ...(form._adminBaseRecord || {}), ...patch } } : saved;

@@ -319,7 +319,10 @@ async function saveLiveSnapshot(
   if (!publicSnapshot || publicFingerprint !== fingerprint) {
     throw new PublishError('live-verification', 502, 'LIVE_VERIFY_FAILED', 'The saved public snapshot could not be verified.');
   }
-  return { ...result, snapshotFingerprint: fingerprint };
+  const { snapshot: _verifiedSnapshot, ...metadata } = result && typeof result === 'object' && !Array.isArray(result)
+    ? result as Record<string, unknown>
+    : {};
+  return { ...metadata, snapshotFingerprint: fingerprint };
 }
 
 type PublishImageFile = { path: string; content: string };
