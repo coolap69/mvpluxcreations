@@ -4000,7 +4000,7 @@ function renderCollectionFolderProductImporter() {
     ? `<details class="admin-folder-revisions"><summary>Product Image Revisions (${revisionRows.length})</summary><p class="admin-note">These folders already belong to Products. Select one only when you want to add its new image versions to that same Product.</p>${revisionRows.map(rowMarkup).join('')}</details>`
     : '';
   container.innerHTML = `${newMarkup}${revisionMarkup}${syncedCount ? `<p class="admin-note">${syncedCount} already-linked Product folder${syncedCount === 1 ? ' is' : 's are'} up to date and hidden from this list.</p>` : ''}`;
-  setCollectionFolderImportStatus(`${newRows.length} new or unresolved folder${newRows.length === 1 ? '' : 's'}, ${revisionRows.length} Product revision${revisionRows.length === 1 ? '' : 's'}, and ${syncedCount} already up to date. Nothing is saved until you select an item and import it.`, 'loaded');
+  setCollectionFolderImportStatus(`${newRows.length} new or unresolved folder${newRows.length === 1 ? '' : 's'}, ${revisionRows.length} Product revision${revisionRows.length === 1 ? '' : 's'}, and ${syncedCount} already up to date. Select the folders you want, choose each main image, then use Add Selected Products Live once.`, 'loaded');
 }
 
 async function importSelectedCollectionFolderProducts() {
@@ -4008,10 +4008,10 @@ async function importSelectedCollectionFolderProducts() {
   const selectedRows = [...document.querySelectorAll('[data-collection-product-folder]')]
     .filter((row) => row.querySelector('[data-select-collection-product-folder]')?.checked && row.dataset.folderConflict !== 'true');
   if (!selectedRows.length) {
-    setCollectionFolderImportStatus('Select at least one safe Product folder first.', 'error');
+    setCollectionFolderImportStatus('Select at least one Product folder first. A conflict must be connected to its existing Product before it can be selected.', 'error');
     return false;
   }
-  setCollectionFolderImportStatus('Saving selected Product drafts privately…', 'saving');
+  setCollectionFolderImportStatus('Adding the selected folders as Products and saving them live…', 'saving-live');
   const latest = await fetchAuthoritativeAdminGlobal(['products', 'categories']);
   const products = latest.edits?.products || {};
   const categories = latest.edits?.categories || readAdminCategories();
@@ -4053,7 +4053,7 @@ async function importSelectedCollectionFolderProducts() {
           cutoutImage: mainImage,
           imageChoices: normalizeImageChoices([...retainedChoices, ...folderChoices]),
           categories: [...new Set([...(existing.categories || []), ...folderAssignments])],
-          updatedAt: now, draftStatus: 'draft', approvalStatus: 'draft'
+          updatedAt: now, draftStatus: 'ready', approvalStatus: 'approved'
         }
       });
       return;
@@ -4066,8 +4066,8 @@ async function importSelectedCollectionFolderProducts() {
     }
     const product = buildNewProductRecord({
       slug, title, cutoutImage: mainImage, imageChoices: folderChoices,
-      categories: folderAssignments, visible: false,
-      approvalStatus: 'draft', createdAt: now
+      categories: folderAssignments, visible: true,
+      approvalStatus: 'approved', createdAt: now
     });
     product.repositoryImageFolder = normalizedProductFolder(group.folder);
     operations.push(newProductRecordOperation(product));
@@ -4081,7 +4081,15 @@ async function importSelectedCollectionFolderProducts() {
     setCollectionFolderImportStatus(adminLastSaveError || 'Product folder import failed. Nothing was published.', 'error');
     return false;
   }
-  setCollectionFolderImportStatus(`DRAFT SAVED — PRIVATE. ${operations.length} Product folder${operations.length === 1 ? '' : 's'} imported into ${categoryKey}. Customers cannot see these changes until you use Save Live.`, 'saved');
+  const productIds = [...new Set(operations.map((operation) => `product:${operation.entryKey}`))];
+  const published = await saveLiveChangeIds(
+    productIds,
+    `${operations.length} Product folder${operations.length === 1 ? '' : 's'} added from ${categoryKey}`,
+    document.querySelector('[data-collection-folder-import-status]'),
+    { workingStateCurrent: true }
+  );
+  if (!published) return false;
+  setCollectionFolderImportStatus(`LIVE — ${operations.length} Product folder${operations.length === 1 ? '' : 's'} added without creating duplicate Products.`, 'published');
   renderAdminProducts();
   renderCollectionFolderProductImporter();
   return true;

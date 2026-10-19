@@ -6,8 +6,8 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-Deno.test('organized folder importer uses one normalized private Product workflow for every Main Collection', () => {
-  for (const text of ['Create Products From Organized Image Folders', 'Choose a Main Collection', 'Import Selected as Private Drafts']) {
+Deno.test('organized folder importer uses one normalized Product and Save Live workflow for every Main Collection', () => {
+  for (const text of ['Add Products From Image Folders', 'Choose a Main Collection', 'Add Selected Products Live']) {
     assert(adminHtml.includes(text), `missing collection folder importer guidance: ${text}`);
   }
   assert(adminHtml.includes('data-folder-import-collection'), 'folder import must expose a Main Collection dropdown');
@@ -16,8 +16,10 @@ Deno.test('organized folder importer uses one normalized private Product workflo
   const source = adminSource.slice(start, end);
   assert(source.includes("collectionKey: 'products'") && source.includes('newProductRecordOperation(product)'), 'folder import must use normalized Product record operations');
   assert(source.includes('saveAdminCollectionOperations(operations)'), 'folder import must use the existing protected private save controller');
-  assert(!source.includes('savePublicLiveSnapshot') && !source.includes('callAdminPublisher') && !source.includes('publishSavedProductBySlug'), 'folder import must not publish automatically');
-  assert(source.includes("visible: false") && source.includes("approvalStatus: 'draft'"), 'new folder Products must remain private and hidden for review');
+  assert(source.includes('saveLiveChangeIds(') && source.includes('productIds'), 'folder import must use the existing scoped Save Live controller after its protected save');
+  assert(!source.includes('savePublicLiveSnapshot') && !source.includes('callAdminPublisher'), 'folder import must not create a second publisher');
+  assert(source.includes("visible: true") && source.includes("approvalStatus: 'approved'"), 'new folder Products must be prepared for the requested one-step live save');
+  assert(source.includes('new Set(operations.map') && source.includes('workingStateCurrent: true'), 'the batch must publish each affected normalized Product once from the state it just saved');
   assert(source.includes('collectionFolderCategoryAssignments(group.folder, categoryKey, categories)'), 'new Products must use the Main Collection selected in the dropdown');
   assert(source.includes("categories: [...new Set([...(existing.categories || []), ...folderAssignments])]"), 'integrating an existing Product must add the explicitly selected Collection assignment without removing its other assignments');
 });

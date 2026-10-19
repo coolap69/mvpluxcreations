@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin | MVPLUXCREATIONS</title>
-  <link rel="stylesheet" href="style.css?v=20261017-custom-order-messages" />
+  <link rel="stylesheet" href="style.css?v=20261019-folder-products" />
 </head>
 <body class="admin-shell">
   <header class="top-nav">
@@ -181,20 +181,20 @@
         </div>
       </div>
       <details class="admin-movie-folder-importer admin-technical-details" id="collectionFolderProductImporter">
-        <summary>Create Products From Organized Image Folders</summary>
+        <summary>Add Products From Image Folders</summary>
         <div class="admin-panel-header">
           <div>
-            <h3>Collection Product Folder Import</h3>
-            <p class="admin-note">Choose a Main Collection. New folders can create one normalized Product. Folders already linked to a Product stay out of the creation list; later image additions appear separately under Product Image Revisions. Nothing is published automatically.</p>
+            <h3>One Folder = One Product / Standee</h3>
+            <p class="admin-note">Choose a Main Collection, select its folders, and add them live in one step. The selected main image becomes the Product image and the other files in that folder become image choices. Existing matching Products are updated instead of duplicated.</p>
           </div>
           <div class="admin-panel-actions">
             <label>Main Collection<select data-folder-import-collection></select></label>
             <button type="button" data-refresh-collection-folder-products>Refresh Folders</button>
-            <button type="button" data-select-safe-collection-folders>Select Safe Folders</button>
-            <button class="admin-button admin-button-primary" type="button" data-import-collection-folder-products>Import Selected as Private Drafts</button>
+            <button type="button" data-select-safe-collection-folders>Select New Folders</button>
+            <button class="admin-button admin-button-primary" type="button" data-import-collection-folder-products>Add Selected Products Live</button>
           </div>
         </div>
-        <p class="admin-status" data-collection-folder-import-status aria-live="polite">Choose a Main Collection to review its organized image folders.</p>
+        <p class="admin-status" data-collection-folder-import-status aria-live="polite">Choose a Main Collection to review its image folders.</p>
         <div class="admin-movie-folder-list" data-collection-folder-product-list></div>
       </details>
       <div class="admin-create-workspaces">
@@ -626,6 +626,6 @@
   <script src="category-presentation.js?v=20261007-shared-subcollection-design"></script>
   <script src="category-publisher.js?v=20260824-collection-representative"></script>
   <script src="storefront-section-layout.js?v=20260911-featured-stage-balance"></script>
-  <script src="admin.js?v=20261018-save-live-timeout-recovery"></script>
+  <script src="admin.js?v=20261019-folder-products"></script>
 </body>
 </html>

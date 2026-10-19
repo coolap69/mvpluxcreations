@@ -47,7 +47,10 @@ img {
   gap: 18px;
   flex: 1 1 auto;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .top-nav a {
@@ -6794,7 +6797,7 @@ button[aria-label="Add to cart"]::before {
   display: inline-flex;
   gap: 4px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .admin-view-controls .admin-header-link.active {
