@@ -276,14 +276,19 @@ async function loadAdminRecoveryState() {
   const rows = Array.isArray(result.rows) ? result.rows : [];
   adminSiteEditRows = rows;
   const globalRow = rows.find((row) => row.page_key === 'admin-global');
+  const recoveryRow = rows.find((row) => row.page_key === 'admin-recovery-v1');
+  const recoveryBackup = recoveryRow?.edits?.adminPublishingMigrationBackupV1
+    || globalRow?.edits?.adminPublishingMigrationBackupV1;
   if (globalRow?.edits) {
-    adminLiveSettings = globalRow.edits;
+    adminLiveSettings = recoveryBackup
+      ? { ...globalRow.edits, adminPublishingMigrationBackupV1: recoveryBackup }
+      : globalRow.edits;
     adminLiveRevision = Number(globalRow.revision) || adminLiveRevision;
-    adminRecoveryBackupAvailable = Boolean(globalRow.edits.adminPublishingMigrationBackupV1);
+    adminRecoveryBackupAvailable = Boolean(recoveryBackup);
   }
   adminHomepageLiveEdits = rows.find((row) => row.page_key === 'index.html')?.edits || {};
   adminPageLiveEdits = Object.fromEntries(rows
-    .filter((row) => row.page_key !== 'admin-global' && row.edits && typeof row.edits === 'object')
+    .filter((row) => !['admin-global', 'admin-recovery-v1'].includes(row.page_key) && row.edits && typeof row.edits === 'object')
     .map((row) => [String(row.page_key || '').toLowerCase(), row.edits]));
   adminRecoveryStateLoaded = true;
   return rows;
@@ -343,7 +348,9 @@ async function verifyStoredAdminArchitectureBackup() {
   const architecture = await adminArchitecturePromise;
   const rows = await fetchAuthoritativeSiteEditRows();
   const globalRow = rows.find((row) => row.page_key === 'admin-global') || { edits: {}, revision: 0 };
-  const backup = globalRow.edits?.[architecture.ADMIN_ARCHITECTURE_BACKUP_KEY];
+  const recoveryRow = rows.find((row) => row.page_key === architecture.ADMIN_ARCHITECTURE_RECOVERY_PAGE_KEY);
+  const backup = recoveryRow?.edits?.[architecture.ADMIN_ARCHITECTURE_BACKUP_KEY]
+    || globalRow.edits?.[architecture.ADMIN_ARCHITECTURE_BACKUP_KEY];
   const result = await architecture.verifyMigrationBackup({
     backup,
     currentAdminGlobal: globalRow.edits,
@@ -362,15 +369,16 @@ async function createAndVerifyAdminArchitectureBackup() {
   }
   const sourceRows = await fetchAuthoritativeSiteEditRows();
   const sourceGlobal = sourceRows.find((row) => row.page_key === 'admin-global') || { edits: {}, revision: 0 };
+  const recoveryRow = sourceRows.find((row) => row.page_key === architecture.ADMIN_ARCHITECTURE_RECOVERY_PAGE_KEY);
   const backup = await architecture.buildVerifiedMigrationBackup({
     ...adminBackupInputs(sourceGlobal.edits, sourceRows, architecture),
     sourceRevision: Number(sourceGlobal.revision) || 0
   });
   const { error } = await getAdminClient().rpc('save_site_edits', {
-    p_page_key: 'admin-global',
+    p_page_key: architecture.ADMIN_ARCHITECTURE_RECOVERY_PAGE_KEY,
     p_edits: { [architecture.ADMIN_ARCHITECTURE_BACKUP_KEY]: backup },
-    p_expected_revision: Number(sourceGlobal.revision) || 0,
-    p_replace: false
+    p_expected_revision: Number(recoveryRow?.revision) || 0,
+    p_replace: true
   });
   if (error) throw error;
   const readBack = await verifyStoredAdminArchitectureBackup();
@@ -394,7 +402,7 @@ async function createAndVerifyAdminArchitectureBackup() {
   adminLiveRevision = Number(data?.revision) || Number(readBack.globalRow.revision) + 1;
   adminSiteEditRows = await fetchAuthoritativeSiteEditRows();
   adminArchitectureState = await buildAdminArchitectureState(adminLiveSettings);
-  announceAdminSave('admin-global', adminLiveRevision, [architecture.ADMIN_ARCHITECTURE_BACKUP_KEY, architecture.ADMIN_ARCHITECTURE_VERIFICATION_KEY]);
+  announceAdminSave('admin-global', adminLiveRevision, [architecture.ADMIN_ARCHITECTURE_VERIFICATION_KEY]);
   return readBack;
 }
 
@@ -2078,15 +2086,32 @@ async function callAdminPublisher(payload) {
   const client = getAdminClient();
   const projectUrl = window.MVPLUX_SUPABASE?.url;
   if (!client?.auth || !projectUrl) throw new Error('Supabase is unavailable.');
-  const request = (token) => fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      apikey: window.MVPLUX_SUPABASE?.publishableKey || ''
-    },
-    body: JSON.stringify(payload)
-  });
+  const request = async (token) => {
+    const controller = new AbortController();
+    const timeoutMs = payload?.action === 'save-live' ? 30000 : 0;
+    const timeoutId = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : 0;
+    try {
+      return await fetch(`${projectUrl}/functions/v1/publish-admin-changes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          apikey: window.MVPLUX_SUPABASE?.publishableKey || ''
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        const timeoutError = new Error('Save Live timed out before Supabase confirmed the result. Checking the customer website before reporting failure.');
+        timeoutError.code = 'ADMIN_SAVE_LIVE_TIMEOUT';
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  };
   const { data } = await client.auth.getSession();
   let token = data?.session?.access_token;
   if (!token) throw new Error('Your Admin session expired. Sign in again before saving.');
@@ -2138,14 +2163,25 @@ async function savePublicLiveSnapshot(snapshot, label, statusTarget = null, { on
       report(`SAVE FAILED — WEBSITE NOT CHANGED. New physical image file requires the static asset publisher: ${undeployedImages[0]}`, 'failed');
       return false;
     }
-    const result = await callAdminPublisher({
-      action: 'save-live',
-      title: String(label || 'Admin live content').slice(0, 120),
-      snapshot,
-      expectedRevision: adminLiveRevision,
-      expectedLiveRevision: Number(adminLiveSettings?.liveContentRevision) || 0
-    });
-    const verified = await loadPublicLivePublishBaseline();
+    let result = {};
+    let verified = null;
+    try {
+      result = await callAdminPublisher({
+        action: 'save-live',
+        title: String(label || 'Admin live content').slice(0, 120),
+        snapshot,
+        expectedRevision: adminLiveRevision,
+        expectedLiveRevision: Number(adminLiveSettings?.liveContentRevision) || 0
+      });
+    } catch (error) {
+      if (error?.code !== 'ADMIN_SAVE_LIVE_TIMEOUT') throw error;
+      report('SAVE LIVE RESPONSE DELAYED — verifying the customer website…', 'saving-live');
+      verified = await loadPublicLivePublishBaseline({ timeoutMs: 5000 });
+      if (!semanticValuesEqual(normalizePublishedBaseline(verified.snapshot), normalizePublishedBaseline(snapshot))) throw error;
+      const working = await callAdminPublisher({ action: 'working-state', keys: [] });
+      result = { siteRevision: Number(working?.rows?.[0]?.revision) || 0 };
+    }
+    verified ||= await loadPublicLivePublishBaseline();
     if (!semanticValuesEqual(normalizePublishedBaseline(verified.snapshot), normalizePublishedBaseline(snapshot))) {
       throw new Error('Public read-back did not match the saved normalized snapshot.');
     }
@@ -11066,13 +11102,14 @@ async function setAdminArchitectureEnabled(enabled) {
 
 async function restoreAdminArchitectureBackup() {
   const architecture = await adminArchitecturePromise;
+  await loadAdminRecoveryState();
   const latest = await fetchAuthoritativeAdminGlobal();
-  const backup = latest.edits?.[architecture.ADMIN_ARCHITECTURE_BACKUP_KEY];
+  const backup = adminLiveSettings?.[architecture.ADMIN_ARCHITECTURE_BACKUP_KEY]
+    || latest.edits?.[architecture.ADMIN_ARCHITECTURE_BACKUP_KEY];
   if (!backup?.recoveryOnly || !backup.adminGlobal || !Array.isArray(backup.siteEdits)) throw new Error('The migration backup is unavailable or invalid.');
   if (!window.confirm('Restore the recovery backup and switch back to the old Admin readers? Current normalized data will remain in the recovery export but active Admin state will be replaced.')) return false;
   const restoredGlobal = {
     ...structuredClone(backup.adminGlobal),
-    [architecture.ADMIN_ARCHITECTURE_BACKUP_KEY]: backup,
     [architecture.ADMIN_ARCHITECTURE_FEATURE_KEY]: { ...architecture.architectureFeature(latest.edits), enabled: false, updatedAt: new Date().toISOString() }
   };
   const { error } = await getAdminClient().rpc('save_site_edits', {

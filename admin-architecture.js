@@ -1,5 +1,6 @@
 export const ADMIN_ARCHITECTURE_SCHEMA_VERSION = 2;
 export const ADMIN_ARCHITECTURE_BACKUP_KEY = 'adminPublishingMigrationBackupV1';
+export const ADMIN_ARCHITECTURE_RECOVERY_PAGE_KEY = 'admin-recovery-v1';
 export const ADMIN_ARCHITECTURE_FEATURE_KEY = 'adminArchitectureV2';
 export const ADMIN_ARCHITECTURE_MIGRATION_KEY = 'adminArchitectureMigrationV2';
 export const ADMIN_ARCHITECTURE_LOCK_KEY = 'adminArchitectureMigrationLockV2';
@@ -83,7 +84,7 @@ export function adminArchitectureSource(settings = {}) {
 }
 
 function normalizedBackupRows(rows = []) {
-  return (Array.isArray(rows) ? rows : []).map((row) => ({
+  return (Array.isArray(rows) ? rows : []).filter((row) => row?.page_key !== ADMIN_ARCHITECTURE_RECOVERY_PAGE_KEY).map((row) => ({
     page_key: String(row?.page_key || ''),
     revision: row?.page_key === 'admin-global' ? 0 : Number(row?.revision) || 0,
     edits: row?.page_key === 'admin-global' ? adminArchitectureSource(row?.edits) : clone(asObject(row?.edits))
@@ -408,7 +409,9 @@ export function buildMainCollectionMigrationDrafts({
 export function buildMigrationBackup({ checkpointCommit = ADMIN_ARCHITECTURE_ROLLBACK_COMMIT, capturedAt = new Date().toISOString(), adminGlobal = {}, siteEditRows = [], publishedSettings = {}, fallbackCatalog = [], categoryCardDefaults = [] } = {}) {
   const safeGlobal = clone(asObject(adminGlobal));
   delete safeGlobal[ADMIN_ARCHITECTURE_BACKUP_KEY];
-  const safeSiteEdits = clone(Array.isArray(siteEditRows) ? siteEditRows : []).map((row) => (
+  const safeSiteEdits = clone(Array.isArray(siteEditRows) ? siteEditRows : [])
+    .filter((row) => row?.page_key !== ADMIN_ARCHITECTURE_RECOVERY_PAGE_KEY)
+    .map((row) => (
     row?.page_key === 'admin-global'
       ? { ...row, edits: adminArchitectureSource(row.edits) }
       : row

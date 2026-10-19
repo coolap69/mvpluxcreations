@@ -178,7 +178,9 @@ Deno.test('Admin exposes individual and batch live saves while retaining static 
   const existingProduct = sourceRange(adminSource, 'async function publishExistingProductForm', 'async function publishNewProductFromForm');
   assert(existingProduct.includes("approvalStatus: 'approved'") && !existingProduct.includes("'Draft saved privately.'"), 'Product Save Live must avoid a separate private-draft and approval round trip');
   const edgeLiveSave = sourceRange(edgeSource, 'async function saveLiveSnapshot', '\n\ntype PublishImageFile');
+  const save = sourceRange(adminSource, 'async function savePublicLiveSnapshot', 'async function prepareArchitectureItemsForLive');
   assert(edgeLiveSave.includes('snapshot: _verifiedSnapshot') && edgeLiveSave.includes('return { ...metadata, snapshotFingerprint: fingerprint }'), 'Save Live must not return a duplicate full snapshot after the browser performs its public verification read');
+  assert(save.includes("error?.code !== 'ADMIN_SAVE_LIVE_TIMEOUT'") && save.includes('loadPublicLivePublishBaseline({ timeoutMs: 5000 })'), 'a delayed Save Live response must verify the public customer state instead of hanging or blindly retrying the write');
 });
 
 Deno.test('Admin activation control verifies the deployed static baseline and public read-back', () => {

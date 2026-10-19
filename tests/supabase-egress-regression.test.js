@@ -12,6 +12,7 @@ const [admin, storefront, architecture, publisher, migration, supabaseConfig] = 
   read('supabase/migrations/20261004120000_reduce_admin_state_egress.sql'),
   read('supabase-config.js')
 ]);
+const recoveryMigration = await read('supabase/migrations/20261018120000_separate_admin_recovery_backup.sql');
 
 function between(source, start, end) {
   const from = source.indexOf(start);
@@ -75,6 +76,15 @@ Deno.test('recovery backup cannot recursively embed the previous admin-global ba
   const backup = between(architecture, 'export function buildMigrationBackup', 'export function buildNormalizedAdminCandidate');
   assert(backup.includes('adminArchitectureSource'));
   assert(backup.includes('delete safeGlobal[ADMIN_ARCHITECTURE_BACKUP_KEY]'));
+});
+
+Deno.test('recovery backup is preserved outside the frequently written admin-global row', () => {
+  assert(architecture.includes("ADMIN_ARCHITECTURE_RECOVERY_PAGE_KEY = 'admin-recovery-v1'"));
+  assert(recoveryMigration.includes("'admin-recovery-v1'") && recoveryMigration.includes("edits - 'adminPublishingMigrationBackupV1'"));
+  assert(recoveryMigration.includes("page_key = 'admin-recovery-v1'") && recoveryMigration.includes("'recoveryBackupAvailable', recovery_available"));
+  const createBackup = between(admin, 'async function createAndVerifyAdminArchitectureBackup', 'async function acquireAdminArchitectureMigrationLock');
+  assert(createBackup.includes('architecture.ADMIN_ARCHITECTURE_RECOVERY_PAGE_KEY'));
+  assert(!createBackup.includes("p_page_key: 'admin-global',\n    p_edits: { [architecture.ADMIN_ARCHITECTURE_BACKUP_KEY]: backup }"));
 });
 
 Deno.test('reduced RPCs are authenticated Admin-only and preserve revision checks', () => {

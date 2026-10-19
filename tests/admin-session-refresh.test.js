@@ -65,3 +65,26 @@ Deno.test('Admin publisher reports a clear sign-in instruction when refresh cann
   assert(message.includes('Sign out, sign in again'));
   assert(message.includes('website was not changed'));
 });
+
+Deno.test('Save Live publisher requests time out instead of remaining stuck forever', async () => {
+  const functionSource = sourceRange('async function callAdminPublisher', '\n\nasync function undeployedLiveSnapshotImages');
+  const auth = { getSession: async () => ({ data: { session: { access_token: 'admin-token' } } }) };
+  const factory = new Function('getAdminClient', 'window', 'fetch', `${functionSource}; return callAdminPublisher;`);
+  const callAdminPublisher = factory(
+    () => ({ auth }),
+    { MVPLUX_SUPABASE: { url: 'https://example.supabase.co', publishableKey: 'public-key' } },
+    async (_url, options) => new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+  );
+
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback) => originalSetTimeout(callback, 1);
+  let code = '';
+  try {
+    await callAdminPublisher({ action: 'save-live' });
+  } catch (error) {
+    code = error.code;
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+  assertEquals(code, 'ADMIN_SAVE_LIVE_TIMEOUT');
+});
