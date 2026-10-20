@@ -1843,22 +1843,49 @@ function normalizePublishedBaseline(snapshot) {
   return baseline;
 }
 
-async function loadPublicLivePublishBaseline({ timeoutMs = 3500 } = {}) {
+const ADMIN_PUBLIC_LIVE_FAILURE_BACKOFF_MS = 15 * 1000;
+let adminPublicLiveRequest = null;
+let adminPublicLiveRetryAt = 0;
+
+async function loadPublicLivePublishBaseline({ timeoutMs = 3500, force = false } = {}) {
+  if (adminPublicLiveRequest) return adminPublicLiveRequest;
+  if (!force && adminPublicLiveRetryAt > Date.now()) {
+    throw new Error('Supabase public content is temporarily backed off after a failed request.');
+  }
   const client = getAdminClient();
   if (!client?.rpc) throw new Error('Supabase public content is unavailable.');
-  let timeoutId = 0;
-  const timeout = new Promise((_, reject) => {
-    timeoutId = window.setTimeout(() => reject(new Error('Supabase public content timed out.')), timeoutMs);
-  });
-  try {
-    const { data, error } = await Promise.race([client.rpc('get_public_site_snapshot'), timeout]);
-    if (error) throw error;
-    if (!data?.snapshot || data.snapshot.version !== 1 || !data.snapshot.products || !data.snapshot.categoryDisplayCards) {
-      throw new Error('Supabase returned no activated valid public snapshot.');
+  adminPublicLiveRequest = (async () => {
+    const controller = new AbortController();
+    let timeoutId = 0;
+    const timeout = new Promise((_, reject) => {
+      timeoutId = window.setTimeout(() => {
+        controller.abort();
+        reject(new Error('Supabase public content timed out.'));
+      }, timeoutMs);
+    });
+    try {
+      const rpcRequest = client.rpc('get_public_site_snapshot');
+      const abortableRequest = typeof rpcRequest?.abortSignal === 'function'
+        ? rpcRequest.abortSignal(controller.signal)
+        : rpcRequest;
+      const { data, error } = await Promise.race([abortableRequest, timeout]);
+      if (error) throw error;
+      if (!data?.snapshot || data.snapshot.version !== 1 || !data.snapshot.products || !data.snapshot.categoryDisplayCards) {
+        throw new Error('Supabase returned no activated valid public snapshot.');
+      }
+      adminPublicLiveRetryAt = 0;
+      return data;
+    } catch (error) {
+      adminPublicLiveRetryAt = Date.now() + ADMIN_PUBLIC_LIVE_FAILURE_BACKOFF_MS;
+      throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
     }
-    return data;
+  })();
+  try {
+    return await adminPublicLiveRequest;
   } finally {
-    window.clearTimeout(timeoutId);
+    adminPublicLiveRequest = null;
   }
 }
 
@@ -1899,7 +1926,7 @@ async function activateFastLiveContent() {
 
     report('ACTIVATING FAST LIVE…', 'saving-live');
     const result = await callAdminPublisher({ action: 'activate-live-content', snapshot: staticSnapshot });
-    const publicState = await loadPublicLivePublishBaseline();
+    const publicState = await loadPublicLivePublishBaseline({ force: true });
     if (!semanticValuesEqual(normalizePublishedBaseline(publicState.snapshot), normalizePublishedBaseline(staticSnapshot))) {
       throw new Error('Activation completed but the customer read-back did not match the current website.');
     }
@@ -2214,12 +2241,12 @@ async function savePublicLiveSnapshot(snapshot, label, statusTarget = null, { on
     } catch (error) {
       if (error?.code !== 'ADMIN_SAVE_LIVE_TIMEOUT') throw error;
       report('SAVE LIVE RESPONSE DELAYED — verifying the customer website…', 'saving-live');
-      verified = await loadPublicLivePublishBaseline({ timeoutMs: 5000 });
+      verified = await loadPublicLivePublishBaseline({ timeoutMs: 5000, force: true });
       if (!semanticValuesEqual(normalizePublishedBaseline(verified.snapshot), normalizePublishedBaseline(snapshot))) throw error;
       const working = await callAdminPublisher({ action: 'working-state', keys: [] });
       result = { siteRevision: Number(working?.rows?.[0]?.revision) || 0 };
     }
-    verified ||= await loadPublicLivePublishBaseline();
+    verified ||= await loadPublicLivePublishBaseline({ force: true });
     if (!semanticValuesEqual(normalizePublishedBaseline(verified.snapshot), normalizePublishedBaseline(snapshot))) {
       throw new Error('Public read-back did not match the saved normalized snapshot.');
     }

@@ -3077,29 +3077,85 @@ function validatePublishedAdminSettings(value) {
   };
 }
 
-async function loadPublicLiveAdminSettings({ timeoutMs = 3500 } = {}) {
+const PUBLIC_LIVE_FAILURE_BACKOFF_KEY = 'mvpluxPublicLiveFailureBackoff';
+const PUBLIC_LIVE_FAILURE_BACKOFF_BASE_MS = 15 * 1000;
+const PUBLIC_LIVE_FAILURE_BACKOFF_MAX_MS = 2 * 60 * 1000;
+let publicLiveAdminSettingsRequest = null;
+let publicLiveFailureMemory = {};
+
+function publicLiveFailureState() {
+  try {
+    return JSON.parse(window.sessionStorage?.getItem(PUBLIC_LIVE_FAILURE_BACKOFF_KEY) || 'null') || publicLiveFailureMemory;
+  } catch (_error) {
+    return publicLiveFailureMemory;
+  }
+}
+
+function recordPublicLiveFailure() {
+  const previous = publicLiveFailureState();
+  const failures = Math.min((Number(previous.failures) || 0) + 1, 8);
+  const delay = Math.min(PUBLIC_LIVE_FAILURE_BACKOFF_BASE_MS * (2 ** (failures - 1)), PUBLIC_LIVE_FAILURE_BACKOFF_MAX_MS);
+  publicLiveFailureMemory = { failures, retryAt: Date.now() + delay };
+  try {
+    window.sessionStorage?.setItem(PUBLIC_LIVE_FAILURE_BACKOFF_KEY, JSON.stringify(publicLiveFailureMemory));
+  } catch (_error) {
+    // A disabled browser cache must not block the static storefront fallback.
+  }
+}
+
+function clearPublicLiveFailure() {
+  publicLiveFailureMemory = {};
+  try {
+    window.sessionStorage?.removeItem(PUBLIC_LIVE_FAILURE_BACKOFF_KEY);
+  } catch (_error) {
+    // A disabled browser cache must not block live content.
+  }
+}
+
+async function loadPublicLiveAdminSettings({ timeoutMs = 3500, force = false } = {}) {
+  if (publicLiveAdminSettingsRequest) return publicLiveAdminSettingsRequest;
+  const failure = publicLiveFailureState();
+  if (!force && Number(failure.retryAt) > Date.now()) {
+    throw new Error('Supabase public content is temporarily backed off after a failed request.');
+  }
   const client = getSupabaseClient();
   if (!client?.rpc) throw new Error('Supabase public content is unavailable.');
-  let timeoutId = 0;
-  const timeout = new Promise((_, reject) => {
-    timeoutId = window.setTimeout(() => reject(new Error('Supabase public content timed out.')), timeoutMs);
-  });
+  publicLiveAdminSettingsRequest = (async () => {
+    const controller = new AbortController();
+    let timeoutId = 0;
+    const timeout = new Promise((_, reject) => {
+      timeoutId = window.setTimeout(() => {
+        controller.abort();
+        reject(new Error('Supabase public content timed out.'));
+      }, timeoutMs);
+    });
+    try {
+      const rpcRequest = client.rpc('get_public_site_snapshot');
+      const abortableRequest = typeof rpcRequest?.abortSignal === 'function'
+        ? rpcRequest.abortSignal(controller.signal)
+        : rpcRequest;
+      const { data, error } = await Promise.race([abortableRequest, timeout]);
+      if (error) throw error;
+      const snapshot = validatePublishedAdminSettings(data);
+      if (!snapshot) throw new Error('Supabase returned no activated valid public snapshot.');
+      clearPublicLiveFailure();
+      return {
+        snapshot,
+        liveRevision: Number(data?.liveRevision) || 0,
+        publishedAt: String(data?.publishedAt || ''),
+        source: 'supabase-live'
+      };
+    } catch (error) {
+      recordPublicLiveFailure();
+      throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  })();
   try {
-    const { data, error } = await Promise.race([
-      client.rpc('get_public_site_snapshot'),
-      timeout
-    ]);
-    if (error) throw error;
-    const snapshot = validatePublishedAdminSettings(data);
-    if (!snapshot) throw new Error('Supabase returned no activated valid public snapshot.');
-    return {
-      snapshot,
-      liveRevision: Number(data?.liveRevision) || 0,
-      publishedAt: String(data?.publishedAt || ''),
-      source: 'supabase-live'
-    };
+    return await publicLiveAdminSettingsRequest;
   } finally {
-    window.clearTimeout(timeoutId);
+    publicLiveAdminSettingsRequest = null;
   }
 }
 

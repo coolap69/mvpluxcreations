@@ -80,17 +80,83 @@ function memberOfferCountdownText(expiresAt) {
   return `${hours}h ${minutes}m ${seconds}s remaining`;
 }
 
+const memberOfferExpirationStates = new Map();
+let memberOfferExpirationRpcInFlight = null;
+let memberOfferExpirationReloadTimer = 0;
+const MEMBER_OFFER_EXPIRATION_RETRY_BASE_MS = 15 * 1000;
+const MEMBER_OFFER_EXPIRATION_RETRY_MAX_MS = 5 * 60 * 1000;
+
+function scheduleMemberAccountExpirationReload() {
+  if (memberOfferExpirationReloadTimer) return;
+  memberOfferExpirationReloadTimer = window.setTimeout(async () => {
+    memberOfferExpirationReloadTimer = 0;
+    await loadMemberAccount();
+  }, 500);
+}
+
+async function expireMemberOfferOnce(offerId) {
+  const key = String(offerId || '');
+  if (!key) return false;
+  const current = memberOfferExpirationStates.get(key) || {
+    handled: false,
+    inFlight: false,
+    attempts: 0,
+    retryAt: 0,
+    retryTimer: 0
+  };
+  if (current.handled || current.inFlight || current.retryAt > Date.now()) return false;
+
+  current.inFlight = true;
+  if (current.retryTimer) {
+    window.clearTimeout(current.retryTimer);
+    current.retryTimer = 0;
+  }
+  memberOfferExpirationStates.set(key, current);
+
+  try {
+    if (!memberOfferExpirationRpcInFlight) {
+      const client = memberAccountClient();
+      if (!client?.rpc) throw new Error('Account service unavailable.');
+      memberOfferExpirationRpcInFlight = Promise.resolve(client.rpc('expire_stale_member_offers'))
+        .then((response) => {
+          if (response?.error) throw response.error;
+          return response;
+        })
+        .finally(() => {
+          memberOfferExpirationRpcInFlight = null;
+        });
+    }
+    await memberOfferExpirationRpcInFlight;
+    current.handled = true;
+    current.attempts = 0;
+    current.retryAt = 0;
+    scheduleMemberAccountExpirationReload();
+    return true;
+  } catch (_error) {
+    current.attempts += 1;
+    const delay = Math.min(
+      MEMBER_OFFER_EXPIRATION_RETRY_BASE_MS * (2 ** Math.max(0, current.attempts - 1)),
+      MEMBER_OFFER_EXPIRATION_RETRY_MAX_MS
+    );
+    current.retryAt = Date.now() + delay;
+    current.retryTimer = window.setTimeout(() => {
+      current.retryTimer = 0;
+      current.retryAt = 0;
+      expireMemberOfferOnce(key);
+    }, delay);
+    return false;
+  } finally {
+    current.inFlight = false;
+    memberOfferExpirationStates.set(key, current);
+  }
+}
+
 function updateMemberOfferCountdowns() {
-  let foundExpired = false;
   document.querySelectorAll('[data-member-offer-countdown]').forEach((clock) => {
     const text = memberOfferCountdownText(clock.dataset.memberOfferCountdown);
     clock.textContent = text;
-    if (text === 'Expired' && clock.dataset.expirationHandled !== 'true') {
-      clock.dataset.expirationHandled = 'true';
-      foundExpired = true;
-    }
+    if (text === 'Expired') expireMemberOfferOnce(clock.dataset.memberOfferId);
   });
-  if (foundExpired) window.setTimeout(loadMemberAccount, 500);
 }
 
 function memberOfferDetails(message) {
@@ -162,7 +228,7 @@ function memberOfferMarkup(offer, history) {
         <div><dt>Created</dt><dd>${memberDate(offer.created_at)}</dd></div>
         <div><dt>Last updated</dt><dd>${memberDate(offer.updated_at || offer.created_at)}</dd></div>
       </dl>
-      ${memberOfferDeadline(offer) ? `<p class="member-offer-deadline"><strong>48-hour response deadline:</strong> ${memberEscape(memberOfferDeadline(offer))}<br><time data-member-offer-countdown="${memberEscape(offer.expires_at)}">${memberEscape(memberOfferCountdownText(offer.expires_at))}</time></p>` : ''}
+      ${memberOfferDeadline(offer) ? `<p class="member-offer-deadline"><strong>48-hour response deadline:</strong> ${memberEscape(memberOfferDeadline(offer))}<br><time data-member-offer-countdown="${memberEscape(offer.expires_at)}" data-member-offer-id="${memberEscape(offer.id)}">${memberEscape(memberOfferCountdownText(offer.expires_at))}</time></p>` : ''}
       ${awaitingPayment ? `
         <div class="member-accepted-offer">
           ${details.image ? `<img src="${memberEscape(details.image)}" alt="${memberEscape(offer.product_name || 'Selected product')} preview">` : ''}
@@ -214,11 +280,6 @@ async function loadMemberAccount() {
     document.body.insertAdjacentHTML('afterbegin', '<div id="memberTestModeWarning" class="admin-test-mode-warning storefront-test-warning">TEST MODE — No real payment will be requested, sent, captured, or recorded.</div>');
   }
 
-  try {
-    await client.rpc('expire_stale_member_offers');
-  } catch (_) {
-    // Older deployments remain readable until the offer-expiration migration is applied.
-  }
   const [offersResponse, ordersResponse, discountsResponse] = await Promise.all([
     client.from('offers').select('*').order('created_at', { ascending: false }),
     client.from('order_requests').select('*').order('created_at', { ascending: false }),
@@ -268,8 +329,8 @@ async function loadMemberAccount() {
   });
 
   const activeStatuses = new Set(['pending', 'countered', 'buyer_countered', 'accepted', 'accepted_awaiting_payment', 'payment_pending', 'payment_submitted']);
-  const activeOffers = offers.filter((offer) => activeStatuses.has(String(offer.status || 'pending')));
-  const pastOffers = offers.filter((offer) => !activeStatuses.has(String(offer.status || 'pending')));
+  const activeOffers = offers.filter((offer) => activeStatuses.has(memberOfferEffectiveStatus(offer)));
+  const pastOffers = offers.filter((offer) => !activeStatuses.has(memberOfferEffectiveStatus(offer)));
   document.getElementById('memberActiveOffersList').innerHTML = activeOffers.length
     ? activeOffers.map((offer) => memberOfferMarkup(offer, historyByOffer.get(offer.id) || [])).join('')
     : '<p>No active offers.</p>';
@@ -299,6 +360,9 @@ async function loadMemberAccount() {
     : 'Your private account is up to date.';
   content.hidden = false;
   updateMemberOfferCountdowns();
+  offers
+    .filter((offer) => String(offer.status || '') === 'countered' && memberOfferEffectiveStatus(offer) === 'expired')
+    .forEach((offer) => expireMemberOfferOnce(offer.id));
 }
 
 async function handleCustomOrderMessage(event) {

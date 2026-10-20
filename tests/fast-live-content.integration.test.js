@@ -16,7 +16,7 @@ function sourceRange(source, startToken, endToken) {
 }
 
 Deno.test('storefront uses one Supabase live snapshot and falls back atomically to static JSON', async () => {
-  const code = sourceRange(storefrontSource, 'async function loadPublicLiveAdminSettings', '\n\nfunction getPublishedProducts');
+  const code = sourceRange(storefrontSource, 'const PUBLIC_LIVE_FAILURE_BACKOFF_KEY', '\n\nfunction getPublishedProducts');
   const liveSnapshot = { version: 1, products: { live: {} }, categoryDisplayCards: {} };
   const staticSnapshot = { version: 1, products: { static: {} }, categoryDisplayCards: {} };
   let rpcResult = { data: { snapshot: liveSnapshot, liveRevision: 7, publishedAt: 'live-now' }, error: null };
@@ -45,7 +45,7 @@ Deno.test('storefront uses one Supabase live snapshot and falls back atomically 
 });
 
 Deno.test('same-tab Collection navigation reuses the validated live snapshot without another blocking Supabase read', async () => {
-  const code = sourceRange(storefrontSource, 'async function loadPublicLiveAdminSettings', '\n\nfunction getPublishedProducts');
+  const code = sourceRange(storefrontSource, 'const PUBLIC_LIVE_FAILURE_BACKOFF_KEY', '\n\nfunction getPublishedProducts');
   const liveSnapshot = { version: 1, products: { live: {} }, categoryDisplayCards: {}, categories: {} };
   const memory = new Map();
   let rpcReads = 0;
@@ -73,6 +73,16 @@ Deno.test('same-tab Collection navigation reuses the validated live snapshot wit
   const second = await runtime.loadPublishedAdminSettings();
   assert(second.products.live && rpcReads === 1, 'the next Collection page must render from the same validated session snapshot without a second blocking read');
   assert(window.mvpluxPublishedAdminSettingsSource === 'supabase-live-navigation-cache', 'the reused state must remain identified as the Supabase live snapshot, not a static merge');
+});
+
+Deno.test('public snapshot reads are abortable, deduplicated, and backed off after failure', () => {
+  const code = sourceRange(storefrontSource, 'const PUBLIC_LIVE_FAILURE_BACKOFF_KEY', '\n\nconst PUBLIC_LIVE_NAVIGATION_CACHE_KEY');
+  assert(code.includes('let publicLiveAdminSettingsRequest = null'), 'the storefront must share one in-flight public snapshot request');
+  assert(code.includes('rpcRequest.abortSignal(controller.signal)') && code.includes('controller.abort()'), 'a timed-out Supabase snapshot request must be cancelled where supported');
+  assert(code.includes('retryAt') && code.includes('PUBLIC_LIVE_FAILURE_BACKOFF_MAX_MS'), 'failed public reads must use bounded navigation-session backoff');
+  assert(adminSource.includes('let adminPublicLiveRequest = null')
+    && adminSource.includes('rpcRequest.abortSignal(controller.signal)')
+    && adminSource.includes('adminPublicLiveRetryAt'), 'Admin public snapshot verification must have equivalent cancellation, deduplication, and backoff');
 });
 
 Deno.test('signed-in homepage rerenders keep the fast Collection navigation handoff', () => {
@@ -180,7 +190,7 @@ Deno.test('Admin exposes individual and batch live saves while retaining static 
   const edgeLiveSave = sourceRange(edgeSource, 'async function saveLiveSnapshot', '\n\ntype PublishImageFile');
   const save = sourceRange(adminSource, 'async function savePublicLiveSnapshot', 'async function prepareArchitectureItemsForLive');
   assert(edgeLiveSave.includes('snapshot: _verifiedSnapshot') && edgeLiveSave.includes('return { ...metadata, snapshotFingerprint: fingerprint }'), 'Save Live must not return a duplicate full snapshot after the browser performs its public verification read');
-  assert(save.includes("error?.code !== 'ADMIN_SAVE_LIVE_TIMEOUT'") && save.includes('loadPublicLivePublishBaseline({ timeoutMs: 5000 })'), 'a delayed Save Live response must verify the public customer state instead of hanging or blindly retrying the write');
+  assert(save.includes("error?.code !== 'ADMIN_SAVE_LIVE_TIMEOUT'") && save.includes('loadPublicLivePublishBaseline({ timeoutMs: 5000, force: true })'), 'a delayed Save Live response must verify the public customer state instead of hanging or blindly retrying the write');
 });
 
 Deno.test('Admin activation control verifies the deployed static baseline and public read-back', () => {
@@ -188,7 +198,7 @@ Deno.test('Admin activation control verifies the deployed static baseline and pu
   const activation = sourceRange(adminSource, 'async function activateFastLiveContent', '\n\nasync function loadPublishedPublishBaseline');
   assert(activation.includes("action: 'verify-live-baseline'") && activation.includes("action: 'activate-live-content'"), 'activation must verify the exact static baseline before using the existing secure activation operation');
   assert(activation.indexOf("action: 'verify-live-baseline'") < activation.indexOf("action: 'activate-live-content'"), 'baseline verification must happen before activation');
-  assert(activation.includes('loadStaticPublishedSnapshot()') && activation.includes('loadPublicLivePublishBaseline()'), 'activation must compare the deployed static snapshot and verify through the customer public read path');
+  assert(activation.includes('loadStaticPublishedSnapshot()') && activation.includes('loadPublicLivePublishBaseline({ force: true })'), 'activation must compare the deployed static snapshot and verify through the customer public read path');
   assert(activation.includes('semanticValuesEqual(normalizePublishedBaseline(publicState.snapshot), normalizePublishedBaseline(staticSnapshot))'), 'activation must refuse to report success unless customer read-back exactly matches the static baseline');
   assert(activation.includes('ACTIVATION FAILED — WEBSITE NOT CHANGED') && activation.includes('FAST LIVE ACTIVATED'), 'activation must display unambiguous failure and success states');
   assert(adminSource.includes("document.getElementById('activateFastLiveContent')?.addEventListener('click', activateFastLiveContent)"), 'the activation button must call the single guarded controller');

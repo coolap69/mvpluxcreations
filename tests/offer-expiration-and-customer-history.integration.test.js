@@ -31,6 +31,16 @@ Deno.test('customer account shows a live countdown and moves expired offers to P
   assert(storefront.includes('data-storefront-offer-countdown') && storefront.includes('setInterval(updateStorefrontOfferCountdowns, 1000)'), 'The storefront Offer panel must show the same live countdown.');
 });
 
+Deno.test('expired member offers are guarded across DOM rebuilds and retry with bounded backoff', () => {
+  assert(member.includes('const memberOfferExpirationStates = new Map()'), 'expiration handling must survive a DOM rebuild for the current page session');
+  assert(member.includes('memberOfferExpirationRpcInFlight'), 'simultaneous expired offers must share one expiration RPC');
+  assert(member.includes('current.handled || current.inFlight || current.retryAt > Date.now()'), 'handled, in-flight, and backed-off offers must not start another expiration request');
+  assert(member.includes('MEMBER_OFFER_EXPIRATION_RETRY_BASE_MS') && member.includes('MEMBER_OFFER_EXPIRATION_RETRY_MAX_MS'), 'failed expiration must use bounded retry backoff');
+  const countdown = member.slice(member.indexOf('function updateMemberOfferCountdowns'), member.indexOf('function memberOfferDetails'));
+  assert(!countdown.includes('loadMemberAccount'), 'the one-second visual countdown must never reload the whole member account');
+  assert(member.includes('activeStatuses.has(memberOfferEffectiveStatus(offer))'), 'an expired offer must move to Past Offers immediately even before the cleanup RPC completes');
+});
+
 Deno.test('Admin has bounded searchable rejection, offer, and purchase history', () => {
   assert(adminHtml.includes('data-commerce-tab="customer-history"') && adminHtml.includes('Customer Offer & Purchase History'), 'Orders & Offers must expose a dedicated Customer History page.');
   assert(adminHtml.includes('id="adminOffersExpired"') && adminHtml.includes('Expired Offers'), 'Expired offers must remain visible to Admin.');
