@@ -143,13 +143,16 @@ Deno.test('explicitly removed Product relationships stay empty instead of inheri
 });
 
 Deno.test('Product lifecycle labels derive from the published customer snapshot and distinguish all four editor states', () => {
+  const assignmentSource = sourceRange(adminSource, 'function missingProductMainCollectionAssignments', '\n\nfunction productLifecycleState');
   const lifecycleSource = sourceRange(adminSource, 'function productLifecycleState', '\n\nfunction getProductLifecycleCounts');
-  const stateFor = new Function('publishedSnapshot', 'product', 'saved', `
+  const stateFor = new Function('publishedSnapshot', 'product', 'saved', 'categories', `
     let adminLiveSettings = null;
     let adminLastSuccessfulSnapshot = null;
     let adminPublishedBaseline = publishedSnapshot;
+    const readAdminCategories = () => categories || {};
     const publishableProduct = (value) => structuredClone(value);
     const semanticProductEqual = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+    ${assignmentSource}
     ${lifecycleSource}
     return productLifecycleState(product, saved, new Set());
   `);
@@ -158,11 +161,51 @@ Deno.test('Product lifecycle labels derive from the published customer snapshot 
   assert(stateFor({ products: { player: product } }, product, { player: { title: 'New private title', approvalStatus: 'draft' } }).label === 'PUBLISHED VERSION EXISTS · DRAFT HAS UNPUBLISHED CHANGES', 'older customer version plus private edits must not look absent from the website');
   assert(stateFor({ products: {} }, product, {}).label === 'DRAFT SAVED — PRIVATE', 'saved Product with no customer snapshot must be labeled private');
 
+  const pennywise = { slug: 'penny', title: 'Pennywise', visible: true, categories: ['halloween', 'movie-character'] };
+  const categories = {
+    holiday: { key: 'holiday', title: 'Holidays' },
+    halloween: { key: 'halloween', title: 'Halloween', parentKey: 'holiday' },
+    'movie-characters': { key: 'movie-characters', title: 'Movie Stars' },
+    'movie-character': { key: 'movie-character', title: 'Movie Character', parentKey: 'movie-characters' }
+  };
+  const placement = stateFor({ products: { penny: pennywise } }, pennywise, {}, categories);
+  assert(placement.key === 'live-warning' && placement.label.includes('To appear in Halloween, add Holidays') && placement.label.includes('To appear in Movie Character, add Movie Stars'), 'a live Product with dormant Child Group assignments must be orange and name its missing Main Collections');
+
   const dirtySource = sourceRange(adminSource, 'function markProductFieldDirty', '\n\nasync function handleImageUpload');
   let dirtyStatus = '';
   const markDirty = new Function('setProductSaveState', `${dirtySource}\nreturn markProductFieldDirty;`)((_form, message) => { dirtyStatus = message; });
   markDirty({}, 'title');
   assert(dirtyStatus === 'UNSAVED CHANGES — title', 'editing after a save must enter the explicit unsaved state');
+});
+
+Deno.test('Product assignment editor makes missing Main Collections explicit without silently changing live data', () => {
+  assert(adminSource.includes('data-add-required-main-collections'), 'the Product editor must offer one explicit assignment repair control');
+  assert(adminSource.includes("field.name === 'categories' && field.checked"), 'selecting a Child Group must select its required Main Collection in the same unsaved form');
+  assert(adminSource.includes("setProductSaveState(form, `UNSAVED CHANGES — added"), 'assignment repair must remain unsaved until the Admin chooses Save Live');
+});
+
+Deno.test('every Product creation and save path automatically includes required Main Collections', () => {
+  const normalizationSource = sourceRange(adminSource, 'function productCategoriesWithRequiredMainCollections', '\n\nfunction productLifecycleState');
+  const normalize = new Function('categoryKeys', 'categories', `${normalizationSource}\nreturn productCategoriesWithRequiredMainCollections(categoryKeys, categories);`);
+  const categories = {
+    holiday: { key: 'holiday', title: 'Holidays' },
+    halloween: { key: 'halloween', title: 'Halloween', parentKey: 'holiday' },
+    'movie-characters': { key: 'movie-characters', title: 'Movie Stars' },
+    'movie-character': { key: 'movie-character', title: 'Movie Character', parentKey: 'movie-characters' }
+  };
+  const assignments = normalize(['halloween', 'movie-character'], categories);
+  assert(assignments.includes('holiday') && assignments.includes('movie-characters'), 'Pennywise-style Child Group assignments must automatically include both Main Collections');
+  assert(new Set(assignments).size === assignments.length, 'automatic hierarchy completion must not duplicate assignments');
+  assert(adminSource.includes("productCategoriesWithRequiredMainCollections(formData.getAll('categories'))"), 'Product Editor and Image Box save paths must use the same hierarchy normalizer');
+  assert(adminSource.includes('const normalizedCategories = productCategoriesWithRequiredMainCollections(categories);'), 'new and folder-imported Products must use the same hierarchy normalizer');
+});
+
+Deno.test('Product editor explains exactly where the current and live images appear', () => {
+  assert(adminSource.includes('function productPlacementSummary'), 'the Product editor must derive placement from normalized Collection relationships');
+  assert(adminSource.includes('Where this Product image appears'), 'the Product editor must expose a compact placement panel');
+  assert(adminSource.includes("productDisplayLocationsContent(published, 'Live website')"), 'the panel must distinguish the customer-live placement from the current form');
+  assert(adminSource.includes("active.push(`${parent?.title || category.parentKey} → ${category.title || key}`)"), 'active Subcollection placement must name its Main Collection hierarchy');
+  assert(adminSource.includes('Not displaying:'), 'dormant or hidden assignments must be called out instead of looking live');
 });
 
 Deno.test('delete controls remain private until explicit publish and expose both deletion types to the shared publisher', () => {

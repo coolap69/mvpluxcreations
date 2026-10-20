@@ -9518,12 +9518,77 @@ button[aria-label="Add to cart"]::before {
 
 [data-product-save-state][data-state="unsaved"],
 [data-product-save-state][data-state="saving"] {
-  color: #92400e;
+  color: #ffd56a;
+  font-weight: 900;
 }
 
 [data-product-save-state][data-state="conflict"],
 [data-product-save-state][data-state="error"] {
-  color: #b91c1c;
+  color: #ff8585;
+  font-weight: 900;
+}
+
+[data-product-save-state][data-state="published"],
+[data-product-lifecycle-state="published"] {
+  color: #70e497;
+  font-weight: 900;
+}
+
+[data-product-save-state][data-state="live-warning"],
+[data-product-lifecycle-state="live-warning"],
+[data-product-save-state][data-state="unpublished"],
+[data-product-lifecycle-state="unpublished"],
+[data-product-save-state][data-state="draft"],
+[data-product-lifecycle-state="draft"] {
+  color: #ffbd61;
+  font-weight: 900;
+}
+
+.admin-product-assignment-warning {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 2px solid #f0a43b;
+  border-radius: 10px;
+  background: #2d1905;
+  color: #fff;
+}
+
+.admin-product-assignment-warning strong {
+  color: #ffbd61;
+}
+
+.admin-product-display-locations {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(224, 184, 52, 0.55);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.admin-product-display-locations summary {
+  color: #f3d66f;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-product-location-state {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(224, 184, 52, 0.22);
+}
+
+.admin-product-location-state p {
+  margin: 4px 0;
+}
+
+.admin-product-location-state code {
+  overflow-wrap: anywhere;
+}
+
+.admin-product-location-warning {
+  color: #ffbd61;
 }
 
 /* Compact Admin overlays must stay smaller than customer-facing buttons. */

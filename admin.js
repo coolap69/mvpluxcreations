@@ -1961,13 +1961,51 @@ async function loadPublishedPublishBaseline() {
   return adminPublishedBaseline;
 }
 
+function missingProductMainCollectionAssignments(product, categories = readAdminCategories()) {
+  const assigned = new Set(product?.categories || []);
+  return [...assigned].flatMap((key) => {
+    const child = categories?.[key];
+    if (!child?.parentKey || assigned.has(child.parentKey)) return [];
+    return [{
+      childKey: key,
+      childTitle: child.title || key,
+      parentKey: child.parentKey,
+      parentTitle: categories?.[child.parentKey]?.title || child.parentKey
+    }];
+  });
+}
+
+function productCategoriesWithRequiredMainCollections(categoryKeys, categories = readAdminCategories()) {
+  const normalized = new Set((categoryKeys || []).filter(Boolean));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    [...normalized].forEach((key) => {
+      const parentKey = categories?.[key]?.parentKey;
+      if (parentKey && !normalized.has(parentKey)) {
+        normalized.add(parentKey);
+        changed = true;
+      }
+    });
+  }
+  return [...normalized];
+}
+
 function productLifecycleState(product, saved, archived) {
   const privateRecord = saved[product.slug] || {};
   const current = publishableProduct({ ...product, ...privateRecord }, archived.has(product.slug));
   const publishedSnapshot = adminPublishedBaseline || adminLastSuccessfulSnapshot;
   const published = publishedSnapshot?.products?.[product.slug];
   if (!published) return { key: 'draft', label: 'DRAFT SAVED — PRIVATE' };
-  if (semanticProductEqual(current, published)) return { key: 'published', label: 'LIVE' };
+  if (semanticProductEqual(current, published)) {
+    if (published.visible === false) return { key: 'live-warning', label: 'LIVE · HIDDEN FROM CUSTOMER SECTIONS' };
+    const missingParents = missingProductMainCollectionAssignments(published);
+    if (missingParents.length) {
+      const placements = missingParents.map((item) => `To appear in ${item.childTitle}, add ${item.parentTitle}`).join(' · ');
+      return { key: 'live-warning', label: `LIVE, BUT NOT SHOWN IN ALL ASSIGNED SECTIONS · ${placements}` };
+    }
+    return { key: 'published', label: 'LIVE' };
+  }
   return { key: 'unpublished', label: 'PUBLISHED VERSION EXISTS · DRAFT HAS UNPUBLISHED CHANGES' };
 }
 
@@ -3854,9 +3892,11 @@ function collectionProductFolderGroups(paths = [], categoryKey = selectedCollect
   (paths || []).forEach((path) => {
     const reference = String(path || '');
     if (!reference.startsWith(prefix) || !validatePublishImagePath(reference)) return;
-    const separator = reference.lastIndexOf('/');
-    if (separator <= prefix.length) return;
-    const folder = reference.slice(0, separator);
+    const relativeParts = reference.slice(prefix.length).split('/').filter(Boolean);
+    if (relativeParts.length < 2) return;
+    const directoryParts = relativeParts.slice(0, -1);
+    const productFolderParts = directoryParts.length >= 2 ? directoryParts.slice(0, 2) : directoryParts;
+    const folder = `${prefix}${productFolderParts.join('/')}`;
     if (!groups.has(folder)) groups.set(folder, []);
     groups.get(folder).push(reference);
   });
@@ -4163,6 +4203,7 @@ function creationSelectedImageChoices(formData) {
 function buildNewProductRecord({ slug, title, description = '', funFact = '', originalHeight = '', priceOverride, cutoutImage, backgroundImage = IMAGE_IMPORT_DEFAULT_BACKGROUND, imageChoices = [], categories = [], visible = true, logoVisible = false, displayOverrides = {}, approvalStatus = 'draft', createdAt = new Date().toISOString() } = {}) {
   const productSlug = makeSlug(slug || title);
   const price = priceOverride === '' || priceOverride === undefined ? undefined : Number(priceOverride);
+  const normalizedCategories = productCategoriesWithRequiredMainCollections(categories);
   return {
     slug: productSlug,
     custom: true,
@@ -4174,10 +4215,10 @@ function buildNewProductRecord({ slug, title, description = '', funFact = '', or
     cutoutImage: String(cutoutImage || '').trim(),
     backgroundImage: String(backgroundImage || IMAGE_IMPORT_DEFAULT_BACKGROUND).trim(),
     imageChoices: normalizeImageChoices(imageChoices).filter((choice) => choice.image !== String(cutoutImage || '').trim()),
-    categories: [...new Set((categories || []).filter(Boolean))],
+    categories: normalizedCategories,
     visible: Boolean(visible),
     logoVisible: Boolean(logoVisible),
-    categoryOrder: Object.fromEntries((categories || []).filter(Boolean).map((category) => [category, 999])),
+    categoryOrder: Object.fromEntries(normalizedCategories.map((category) => [category, 999])),
     productOrder: 999,
     displayOverrides,
     createdAt,
@@ -4906,7 +4947,7 @@ function collectProductFormData(form, dirtyFields = form?._adminDirtyFields || n
   if (Object.prototype.hasOwnProperty.call(patch, 'priceOverride')) {
     patch.priceOverride = patch.priceOverride === '' ? null : Number(patch.priceOverride);
   }
-  if (dirtyFields.has('categories')) patch.categories = current.categoryCard ? [] : formData.getAll('categories');
+  if (dirtyFields.has('categories')) patch.categories = current.categoryCard ? [] : productCategoriesWithRequiredMainCollections(formData.getAll('categories'));
   if (dirtyFields.has('visible')) patch.visible = current.categoryCard ? current.visible !== false : formData.has('visible');
   if (dirtyFields.has('logoVisible')) patch.logoVisible = formData.has('logoVisible');
   return patch;
@@ -5107,9 +5148,77 @@ function renderSavedProducts() {
   });
 }
 
+function productPlacementSummary(product, categories = readAdminCategories()) {
+  if (!product) return { active: [], dormant: [], hidden: false };
+  if (product.visible === false) return { active: [], dormant: [], hidden: true };
+  const assigned = new Set(product.categories || []);
+  const active = [];
+  const dormant = [];
+  assigned.forEach((key) => {
+    const category = categories?.[key];
+    if (!category) {
+      dormant.push(`${key} (section no longer exists)`);
+      return;
+    }
+    if (category.visible === false) {
+      dormant.push(`${category.title || key} (section is hidden)`);
+      return;
+    }
+    if (category.parentKey) {
+      const parent = categories?.[category.parentKey];
+      if (!assigned.has(category.parentKey)) {
+        dormant.push(`${category.title || key} (needs ${parent?.title || category.parentKey})`);
+        return;
+      }
+      if (parent?.visible === false) {
+        dormant.push(`${category.title || key} (${parent.title || category.parentKey} is hidden)`);
+        return;
+      }
+      active.push(`${parent?.title || category.parentKey} → ${category.title || key}`);
+      return;
+    }
+    active.push(category.title || key);
+  });
+  return { active, dormant, hidden: false };
+}
+
+function productDisplayLocationsContent(product, label) {
+  if (!product) return `<p><strong>${escapeAdminHtml(label)}:</strong> Not saved there yet.</p>`;
+  const placement = productPlacementSummary(product);
+  const image = String(product.cutoutImage || '').trim();
+  return `<div class="admin-product-location-state">
+    <p><strong>${escapeAdminHtml(label)}:</strong> ${placement.hidden ? 'Hidden from customer sections.' : (placement.active.length ? escapeAdminHtml(placement.active.join(' · ')) : 'Not appearing in any active Collection or Subcollection.')}</p>
+    ${placement.dormant.length ? `<p class="admin-product-location-warning"><strong>Not displaying:</strong> ${escapeAdminHtml(placement.dormant.join(' · '))}</p>` : ''}
+    <p><strong>Image:</strong> ${image ? `<code>${escapeAdminHtml(image)}</code>` : 'No Product image selected'}</p>
+  </div>`;
+}
+
+function productDisplayLocationsMarkup(product) {
+  const published = (adminPublishedBaseline || adminLastSuccessfulSnapshot)?.products?.[product.slug] || null;
+  return `<details class="admin-product-display-locations" data-product-display-locations>
+    <summary>Where this Product image appears</summary>
+    <div data-product-draft-locations>${productDisplayLocationsContent(product, 'Current form')}</div>
+    <div data-product-live-locations>${productDisplayLocationsContent(published, 'Live website')}</div>
+  </details>`;
+}
+
+function refreshProductDisplayLocations(form) {
+  const panel = form.querySelector('[data-product-display-locations]');
+  if (!panel) return;
+  const product = {
+    slug: form.dataset.slug,
+    visible: form.querySelector('[name="visible"]')?.checked !== false,
+    categories: [...form.querySelectorAll('[name="categories"]:checked')].map((field) => field.value),
+    cutoutImage: String(form.querySelector('[name="cutoutImage"]')?.value || '')
+  };
+  const draft = panel.querySelector('[data-product-draft-locations]');
+  if (draft) draft.innerHTML = productDisplayLocationsContent(product, 'Current form');
+}
+
 function categoryAssignmentMarkup(value) {
   const categories = categoryDefinitionsForAdmin().filter((category) => !readDeletedCategories().includes(category.key));
   const selected = new Set(value.categories || []);
+  const missingParents = missingProductMainCollectionAssignments(value);
   return `
     <fieldset class="admin-category-controls">
       <legend>Sections</legend>
@@ -5128,6 +5237,11 @@ function categoryAssignmentMarkup(value) {
           `).join('')}
         </div>
       </details>
+      ${missingParents.length ? `<div class="admin-product-assignment-warning" data-product-assignment-warning>
+        <strong>LIVE PLACEMENT NEEDS ATTENTION</strong>
+        <p>${escapeAdminHtml(missingParents.map((item) => `${item.childTitle} requires ${item.parentTitle}`).join(' · '))}</p>
+        <button type="button" data-add-required-main-collections>Add Required Main Collections</button>
+      </div>` : ''}
       <div class="admin-category-order-row">
         <label>
           Current section
@@ -5141,8 +5255,29 @@ function categoryAssignmentMarkup(value) {
         <button type="button" data-move-product="-3" title="Move up">↑</button>
         <button type="button" data-move-product="3" title="Move down">↓</button>
       </div>
+      ${productDisplayLocationsMarkup(value)}
     </fieldset>
   `;
+}
+
+function addRequiredMainCollectionAssignments(form) {
+  const categories = readAdminCategories();
+  let added = 0;
+  form.querySelectorAll('[name="categories"]:checked').forEach((checkbox) => {
+    const parentKey = categories?.[checkbox.value]?.parentKey;
+    if (!parentKey) return;
+    const parent = form.querySelector(`[name="categories"][value="${CSS.escape(parentKey)}"]`);
+    if (parent && !parent.checked) {
+      parent.checked = true;
+      added += 1;
+    }
+  });
+  if (!added) return false;
+  markProductFieldDirty(form, 'categories');
+  form.querySelector('[data-product-assignment-warning]')?.remove();
+  refreshProductDisplayLocations(form);
+  setProductSaveState(form, `UNSAVED CHANGES — added ${added} required Main Collection assignment${added === 1 ? '' : 's'}. Use Save Live.`, 'unsaved');
+  return true;
 }
 
 async function setProductVisibility(form, visible) {
@@ -9272,7 +9407,7 @@ function renderAdminProducts() {
     return `
       <form class="admin-product-card" id="product-${product.slug}" data-slug="${product.slug}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
         <div class="admin-product-heading">
-          <div><h3>${product.title}</h3>${lifecycle ? `<p class="admin-note">${escapeAdminHtml(lifecycle)}</p>` : ''}<p class="admin-note" data-product-save-state data-state="${lifecycleState?.key === 'published' ? 'published' : 'saved'}">${editorStatus}</p></div>
+          <div><h3>${product.title}</h3>${lifecycle ? `<p class="admin-note" data-product-lifecycle-state="${escapeAdminHtml(lifecycleState?.key || '')}">${escapeAdminHtml(lifecycle)}</p>` : ''}<p class="admin-note" data-product-save-state data-state="${escapeAdminHtml(lifecycleState?.key || 'saved')}">${editorStatus}</p></div>
           <div class="admin-card-actions">
             <button type="button" data-back-to-products>Back to Products</button>
             <button type="button" data-preview-product>Preview</button>
@@ -9418,7 +9553,7 @@ function renderAdminProducts() {
     const imagePresentation = adminImageReferencePresentation(value.cutoutImage);
     return `<article class="admin-product-summary-card${productBulkSelectionMode ? ' admin-product-summary-card-selecting' : ''}" data-product-summary="${escapeAdminHtml(product.slug)}" data-product-search-value="${escapeAdminHtml(`${value.title || product.title} ${product.slug} ${productCategoryNames(value)}`.toLowerCase())}">
       <div class="admin-review-image">${productBulkSelectionMode ? `<label class="admin-product-bulk-choice"><input type="checkbox" data-select-product-delete="${escapeAdminHtml(product.slug)}" ${selectedProductDeletionSlugs.has(product.slug) ? 'checked' : ''}><span>Select</span></label>` : ''}${imagePresentation.preview ? `<img src="${escapeAdminHtml(imagePresentation.preview)}" alt="" loading="lazy">` : `<span>${escapeAdminHtml(imagePresentation.label)}</span>`}</div>
-      <div><h3>${escapeAdminHtml(value.title || product.title)}</h3><code>${escapeAdminHtml(product.slug)}</code><p>${escapeAdminHtml(productCategoryNames(value))}</p><strong>${escapeAdminHtml(lifecycle)}</strong></div>
+      <div><h3>${escapeAdminHtml(value.title || product.title)}</h3><code>${escapeAdminHtml(product.slug)}</code><p>${escapeAdminHtml(productCategoryNames(value))}</p><strong data-product-lifecycle-state="${escapeAdminHtml(productLifecycleState(product, saved, archived).key)}">${escapeAdminHtml(lifecycle)}</strong></div>
       <div class="admin-card-actions"><button type="button" data-edit-product="${escapeAdminHtml(product.slug)}">Edit</button><a class="admin-button admin-button-secondary" href="${escapeAdminHtml(adminProductPreviewUrl(product.slug))}" target="_blank" rel="noopener">Preview Live Product</a><button class="admin-button admin-button-warning" type="button" data-delete-product-summary="${escapeAdminHtml(product.slug)}">Delete Product</button></div>
       <div class="admin-product-editor-mount" data-product-editor-mount>${editorOpen ? productMarkup([product]) : ''}</div>
     </article>`;
@@ -9482,10 +9617,20 @@ function renderAdminProducts() {
     });
     form.querySelectorAll('select, input[type="checkbox"]').forEach((field) => {
       field.addEventListener('change', () => {
+        if (field.name === 'categories' && field.checked) {
+          const parentKey = readAdminCategories()?.[field.value]?.parentKey;
+          const parent = parentKey ? form.querySelector(`[name="categories"][value="${CSS.escape(parentKey)}"]`) : null;
+          if (parent && !parent.checked) {
+            parent.checked = true;
+            setProductSaveState(form, `UNSAVED CHANGES — ${field.closest('label')?.textContent.trim() || field.value} also requires its Main Collection. Both are selected.`, 'unsaved');
+          }
+        }
         markProductFieldDirty(form, productDirtyFieldForControl(field));
+        if (field.name === 'categories' || field.name === 'visible') refreshProductDisplayLocations(form);
         if (field.matches('.admin-product-visual-picker, [name="logoVisible"]')) updateProductPreview(form);
       });
     });
+    form.querySelector('[data-add-required-main-collections]')?.addEventListener('click', () => addRequiredMainCollectionAssignments(form));
     attachPreviewControls(form);
 
     form.querySelector('[name="cutoutUpload"]')?.addEventListener('change', (event) => {
@@ -10148,7 +10293,7 @@ function collectImageDraftForm(form) {
     originalHeight: String(formData.get('originalHeight') || '').trim(),
     priceOverride: String(formData.get('priceOverride') || '').trim(),
     backgroundImage: String(formData.get('backgroundImage') || IMAGE_IMPORT_DEFAULT_BACKGROUND),
-    categories: formData.getAll('categories'),
+    categories: productCategoriesWithRequiredMainCollections(formData.getAll('categories')),
     parentProductSlug: String(formData.get('parentProductSlug') || ''),
     imageChoiceLabel: String(formData.get('imageChoiceLabel') || '').trim(),
     selectedPreviewImage: String(formData.get('selectedPreviewImage') || form.dataset.imagePath || ''),

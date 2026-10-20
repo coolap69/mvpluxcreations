@@ -51,17 +51,47 @@ Deno.test('collection folder importer groups Movie and Sports files into one Pro
     'images/Movie Stars/Movie Characters/Captain America/CAPTAINAnobackgroundpng.png',
     'images/Movie Stars/Movie Characters/Captain America/CAPTAbackground.png',
     'images/Movie Stars/Movie Characters/Captain America/CAPTAwhitebackground.png',
+    'images/Movie Stars/Movie Characters/Captain America/Action Pose/CAPTAINAction.png',
     'images/Sport Legends/Football/TomBrady/TB12Nobackground.png',
     'images/Sport Legends/Football/TomBrady/TB12white.png',
+    'images/Sport Legends/Basketball/Kobe/KobeBackDunk/KBdunk.png',
+    'images/Sport Legends/Basketball/Kobe/KobeyLayout/KBlayup.png',
+    'images/Sport Legends/Basketball/Kobe/KB1nobackground.png',
     'images/CardBackgrounds/stage.jpg'
   ];
   const movies = helpers.collectionProductFolderGroups(paths, 'movie-characters');
   const sports = helpers.collectionProductFolderGroups(paths, 'sports');
-  assert(movies.length === 1 && sports.length === 1, 'the dropdown selection must isolate the chosen Main Collection folder');
+  assert(movies.length === 1 && sports.length === 2, 'the dropdown selection must isolate the chosen Main Collection and group each player folder once');
   const captain = movies[0];
-  assert(captain.images.length === 3, 'all Captain America variants must remain in one Product folder group');
+  assert(captain.images.length === 4, 'all Captain America variants, including nested pose folders, must remain in one Product folder group');
   assert(preferredCollectionFolderMainImage(captain.images).endsWith('CAPTAINAnobackgroundpng.png'), 'transparent/no-background variant should be the suggested main Product image');
-  assert(sports[0].images.length === 2, 'the same grouping architecture must work outside Movies');
+  const kobe = sports.find((group) => group.folder.endsWith('/Basketball/Kobe'));
+  const tomBrady = sports.find((group) => group.folder.endsWith('/Football/TomBrady'));
+  assert(kobe?.images.length === 3, 'all files below one Basketball player folder must become image choices on one Product');
+  assert(tomBrady?.images.length === 2, 'the same player-folder grouping must work for another Subcollection');
+});
+
+Deno.test('player folders inherit their Main Collection and immediate Subcollection assignments', () => {
+  const helperStart = adminSource.indexOf('function collectionFolderCategoryAssignments');
+  const helperEnd = adminSource.indexOf('\n\nfunction collectionFolderProductImportRows', helperStart);
+  const makeSlug = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const collectionFolderCategoryAssignments = new Function(
+    'makeSlug',
+    `${adminSource.slice(helperStart, helperEnd)}; return collectionFolderCategoryAssignments;`
+  )(makeSlug);
+  const categories = {
+    sports: { key: 'sports', title: 'Sport Legends' },
+    basketball: { key: 'basketball', title: 'Basketball', parentKey: 'sports' },
+    soccer: { key: 'soccer', title: 'Soccer', parentKey: 'sports' }
+  };
+
+  const assignments = collectionFolderCategoryAssignments(
+    'images/Sport Legends/Basketball/Kobe Bryant',
+    'sports',
+    categories
+  );
+  assert(assignments.join(',') === 'sports,basketball', 'a Basketball player folder must create one Product assigned to Sport Legends and Basketball');
+  assert(!assignments.includes('soccer'), 'a player folder must not inherit an unrelated sibling Subcollection');
 });
 
 Deno.test('ambiguous existing Products require an explicit integration target instead of duplicating', () => {
