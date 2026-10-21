@@ -128,6 +128,12 @@ let adminSiteEditRows = [];
 let adminPublishedSettingsDocument = null;
 let adminArchitectureState = null;
 let adminSaveQueue = Promise.resolve(true);
+let adminSaveLiveOperation = null;
+let adminSaveLiveRetryAt = 0;
+const ADMIN_SAVE_LIVE_LEASE_KEY = 'mvpluxAdminSaveLiveLease';
+const ADMIN_SAVE_LIVE_LEASE_MS = 2 * 60 * 1000;
+const ADMIN_SAVE_LIVE_RETRY_COOLDOWN_MS = 30 * 1000;
+const adminSaveLiveControlStates = new WeakMap();
 let adminSavePending = 0;
 let adminLastSaveSucceeded = null;
 let adminLastSaveError = '';
@@ -2212,6 +2218,130 @@ async function undeployedLiveSnapshotImages(snapshot) {
   return changedPaths.filter((path) => localOnlyImagePaths.has(path) || !repositoryImagePaths.has(path));
 }
 
+const ADMIN_SAVE_LIVE_CONTROL_SELECTOR = [
+  '#saveAllLiveDashboard',
+  '#saveAllLiveCollections',
+  '#saveAllLiveSubcollections',
+  '#saveAllLiveAdminChanges',
+  '#saveAdminPaymentMethodsLive',
+  '[data-publish-product]',
+  '[data-publish-new-product]',
+  '[data-publish-new-category]',
+  '[data-publish-category-key]',
+  '[data-publish-category-product]',
+  '[data-publish-category-deletion]',
+  '[data-save-live-product-showroom]',
+  '[data-make-products-use-shared-showroom]',
+  '[data-publish-image-box]'
+].join(',');
+
+function reportAdminSaveLiveState(message, state = '', statusTarget = null, onProgress = null) {
+  if (statusTarget) {
+    statusTarget.textContent = message;
+    statusTarget.dataset.state = state;
+  }
+  setStatus(message);
+  onProgress?.(message, state);
+}
+
+function setAdminSaveLiveControlsBusy(busy) {
+  document.querySelectorAll(ADMIN_SAVE_LIVE_CONTROL_SELECTOR).forEach((button) => {
+    if (busy) {
+      if (!adminSaveLiveControlStates.has(button)) adminSaveLiveControlStates.set(button, button.disabled);
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      return;
+    }
+    if (!adminSaveLiveControlStates.has(button)) return;
+    button.disabled = adminSaveLiveControlStates.get(button);
+    button.removeAttribute('aria-busy');
+    adminSaveLiveControlStates.delete(button);
+  });
+}
+
+function readAdminSaveLiveLease() {
+  try {
+    const lease = JSON.parse(localStorage.getItem(ADMIN_SAVE_LIVE_LEASE_KEY) || 'null');
+    return lease && Number(lease.expiresAt) > Date.now() ? lease : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function writeAdminSaveLiveLease(expiresAt = Date.now() + ADMIN_SAVE_LIVE_LEASE_MS) {
+  try {
+    localStorage.setItem(ADMIN_SAVE_LIVE_LEASE_KEY, JSON.stringify({ owner: adminTabId, expiresAt }));
+  } catch (_error) {
+    // The in-memory gate still protects this Admin tab when browser storage is unavailable.
+  }
+}
+
+function releaseAdminSaveLiveLease({ preserveUntil = 0 } = {}) {
+  try {
+    const lease = JSON.parse(localStorage.getItem(ADMIN_SAVE_LIVE_LEASE_KEY) || 'null');
+    if (lease?.owner !== adminTabId) return;
+    if (preserveUntil > Date.now()) {
+      writeAdminSaveLiveLease(preserveUntil);
+    } else {
+      localStorage.removeItem(ADMIN_SAVE_LIVE_LEASE_KEY);
+    }
+  } catch (_error) {
+    // Nothing else is required when browser storage is unavailable.
+  }
+}
+
+async function runAdminSaveLiveOperation(operation, { statusTarget = null, onProgress = null } = {}) {
+  if (adminSaveLiveOperation) {
+    reportAdminSaveLiveState('SAVE ALREADY IN PROGRESS — PLEASE WAIT.', 'saving-live', statusTarget, onProgress);
+    return false;
+  }
+  if (adminSaveLiveRetryAt > Date.now()) {
+    const seconds = Math.max(1, Math.ceil((adminSaveLiveRetryAt - Date.now()) / 1000));
+    reportAdminSaveLiveState(`SAVE LIVE IS STILL BEING VERIFIED — retry in about ${seconds} seconds.`, 'saving-live', statusTarget, onProgress);
+    return false;
+  }
+  const existingLease = readAdminSaveLiveLease();
+  if (existingLease && existingLease.owner !== adminTabId) {
+    reportAdminSaveLiveState('SAVE ALREADY IN PROGRESS IN ANOTHER ADMIN TAB — PLEASE WAIT.', 'saving-live', statusTarget, onProgress);
+    return false;
+  }
+
+  writeAdminSaveLiveLease();
+  setAdminSaveLiveControlsBusy(true);
+  const heartbeat = window.setInterval(() => writeAdminSaveLiveLease(), 15000);
+  const promise = Promise.resolve().then(operation);
+  adminSaveLiveOperation = promise;
+  try {
+    return await promise;
+  } finally {
+    window.clearInterval(heartbeat);
+    adminSaveLiveOperation = null;
+    setAdminSaveLiveControlsBusy(false);
+    releaseAdminSaveLiveLease({ preserveUntil: adminSaveLiveRetryAt });
+  }
+}
+
+async function verifyTimedOutAdminLiveSave(snapshot, report) {
+  const delays = [0, 2000, 5000, 10000];
+  let lastError = null;
+  for (let index = 0; index < delays.length; index += 1) {
+    if (delays[index]) await new Promise((resolve) => window.setTimeout(resolve, delays[index]));
+    report(`SAVE LIVE RESPONSE DELAYED — verification ${index + 1} of ${delays.length}…`, 'saving-live');
+    try {
+      const verified = await loadPublicLivePublishBaseline({ timeoutMs: 5000, force: true });
+      if (semanticValuesEqual(normalizePublishedBaseline(verified.snapshot), normalizePublishedBaseline(snapshot))) {
+        return verified;
+      }
+      lastError = new Error('The customer website has not received the requested snapshot yet.');
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  const error = new Error(`Supabase did not confirm the timed-out Save Live operation. ${lastError?.message || ''}`.trim());
+  error.code = 'ADMIN_SAVE_LIVE_VERIFY_TIMEOUT';
+  throw error;
+}
+
 async function savePublicLiveSnapshot(snapshot, label, statusTarget = null, { onProgress = null } = {}) {
   const report = (message, state = '') => {
     if (statusTarget) {
@@ -2240,9 +2370,7 @@ async function savePublicLiveSnapshot(snapshot, label, statusTarget = null, { on
       });
     } catch (error) {
       if (error?.code !== 'ADMIN_SAVE_LIVE_TIMEOUT') throw error;
-      report('SAVE LIVE RESPONSE DELAYED — verifying the customer website…', 'saving-live');
-      verified = await loadPublicLivePublishBaseline({ timeoutMs: 5000, force: true });
-      if (!semanticValuesEqual(normalizePublishedBaseline(verified.snapshot), normalizePublishedBaseline(snapshot))) throw error;
+      verified = await verifyTimedOutAdminLiveSave(snapshot, report);
       const working = await callAdminPublisher({ action: 'working-state', keys: [] });
       result = { siteRevision: Number(working?.rows?.[0]?.revision) || 0 };
     }
@@ -2268,9 +2396,13 @@ async function savePublicLiveSnapshot(snapshot, label, statusTarget = null, { on
     };
     currentPublishReview = null;
     refreshVisibleAdminAreaAfterPublish();
+    adminSaveLiveRetryAt = 0;
     report('LIVE — customer website content verified.', 'published');
     return true;
   } catch (error) {
+    if (error?.code === 'ADMIN_SAVE_LIVE_VERIFY_TIMEOUT') {
+      adminSaveLiveRetryAt = Date.now() + ADMIN_SAVE_LIVE_RETRY_COOLDOWN_MS;
+    }
     const activationPending = ['UNKNOWN_ACTION', 'LIVE_CONTENT_NOT_ACTIVATED', 'PGRST202'].includes(String(error?.code || ''))
       || /not activated|unknown publisher action|function .* does not exist/i.test(String(error?.message || ''));
     const detail = activationPending
@@ -2309,7 +2441,7 @@ async function prepareArchitectureItemsForLive(items, report) {
   return failed;
 }
 
-async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', statusTarget = null, { onProgress = null, workingStateCurrent = false } = {}) {
+async function performSaveLiveChangeIds(changeIds, label = 'Saved Admin change', statusTarget = null, { onProgress = null, workingStateCurrent = false } = {}) {
   const report = (message, state = '') => {
     if (statusTarget) {
       statusTarget.textContent = message;
@@ -2354,6 +2486,13 @@ async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', status
   return savePublicLiveSnapshot(buildSelectedArchitectureSnapshot(selected), label, statusTarget, { onProgress });
 }
 
+async function saveLiveChangeIds(changeIds, label = 'Saved Admin change', statusTarget = null, options = {}) {
+  return runAdminSaveLiveOperation(
+    () => performSaveLiveChangeIds(changeIds, label, statusTarget, options),
+    { statusTarget, onProgress: options.onProgress }
+  );
+}
+
 async function saveAllOpenAdminChanges({ quiet = false } = {}) {
   if (!await saveAllOpenCollectionChanges({ quiet: true })) return false;
   const paymentMethodsForm = document.getElementById('adminPaymentMethodsForm');
@@ -2382,7 +2521,7 @@ async function saveAllOpenAdminChanges({ quiet = false } = {}) {
   return waitForAdminSaves();
 }
 
-async function saveAllLiveChanges(label = 'All intended Admin changes', statusTarget = null) {
+async function performSaveAllLiveChanges(label = 'All intended Admin changes', statusTarget = null) {
   const report = (message, state = '') => {
     if (statusTarget) {
       statusTarget.textContent = message;
@@ -2418,6 +2557,13 @@ async function saveAllLiveChanges(label = 'All intended Admin changes', statusTa
     buildSelectedArchitectureSnapshot(ready),
     `${label} (${ready.length})`,
     statusTarget
+  );
+}
+
+async function saveAllLiveChanges(label = 'All intended Admin changes', statusTarget = null) {
+  return runAdminSaveLiveOperation(
+    () => performSaveAllLiveChanges(label, statusTarget),
+    { statusTarget }
   );
 }
 

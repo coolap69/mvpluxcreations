@@ -410,7 +410,7 @@ Deno.test('Admin loads the versioned Subcollection duplicate validator', async (
   const html = await Deno.readTextFile(new URL('../admin.html', import.meta.url));
   const source = await Deno.readTextFile(new URL('../admin.js', import.meta.url));
   assert(source.includes("import('./admin-state-utils.js?v=20261007-subcollection-key-collision')"), 'the corrected hierarchy validator must not be replaced by a stale browser-cached module');
-  assert(html.includes('admin.js?v=20261019-player-folder-products'), 'the Admin entry script must reload with the verified Product live-status, placement, and player-folder workflow');
+  assert(html.includes('admin.js?v=20261021-save-live-singleflight'), 'the Admin entry script must reload with the verified Save Live request gate');
 });
 
 Deno.test('Admin renders Subcollections in their own area with private creation and no automatic assignments', async () => {

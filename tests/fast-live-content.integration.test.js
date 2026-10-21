@@ -171,12 +171,12 @@ Deno.test('Admin exposes individual and batch live saves while retaining static 
   }
   const individual = sourceRange(adminSource, 'async function publishSavedProductBySlug', 'async function publishExistingProductForm');
   const category = sourceRange(adminSource, 'async function publishCategoryByKey', 'async function saveCategoryProductAssignments');
-  const all = sourceRange(adminSource, 'async function saveAllLiveChanges', 'function arrayBufferToBase64');
+  const all = sourceRange(adminSource, 'async function performSaveAllLiveChanges', 'async function saveAllLiveChanges');
   assert(individual.includes('saveLiveChangeIds([`product:${slug}`]'), 'Product Save Live must scope the existing normalized Product');
   assert(category.includes('saveCategoryEditForm') && category.includes('saveLiveChangeIds([`category:${categoryKey}`]'), 'Collection Save Live must save current form state before scoping the normalized Collection');
   assert(all.includes('saveAllOpenAdminChanges') && all.includes('architectureReviewItems()') && all.includes('savePublicLiveSnapshot'), 'Save All Live must flush dirty editors and perform one public snapshot write');
   assert(adminSource.includes("action: 'publish'"), 'the existing GitHub/static asset publisher must remain available for rollback and new files');
-  const scopedSave = sourceRange(adminSource, 'async function saveLiveChangeIds', 'async function saveAllOpenAdminChanges');
+  const scopedSave = sourceRange(adminSource, 'async function performSaveLiveChangeIds', 'async function saveLiveChangeIds');
   const oneStepPreparation = sourceRange(adminSource, 'async function ensureNormalizedAdminArchitectureForLive', 'function newAdminArchitectureEnabled');
   assert(scopedSave.includes('ensureNormalizedAdminArchitectureForLive(report)'), 'Save Live must perform its required safety preparation in the same user action');
   assert(oneStepPreparation.includes('createAndVerifyAdminArchitectureBackup()'), 'one-step Save Live must create and verify the recovery checkpoint when it is missing');
@@ -190,7 +190,7 @@ Deno.test('Admin exposes individual and batch live saves while retaining static 
   const edgeLiveSave = sourceRange(edgeSource, 'async function saveLiveSnapshot', '\n\ntype PublishImageFile');
   const save = sourceRange(adminSource, 'async function savePublicLiveSnapshot', 'async function prepareArchitectureItemsForLive');
   assert(edgeLiveSave.includes('snapshot: _verifiedSnapshot') && edgeLiveSave.includes('return { ...metadata, snapshotFingerprint: fingerprint }'), 'Save Live must not return a duplicate full snapshot after the browser performs its public verification read');
-  assert(save.includes("error?.code !== 'ADMIN_SAVE_LIVE_TIMEOUT'") && save.includes('loadPublicLivePublishBaseline({ timeoutMs: 5000, force: true })'), 'a delayed Save Live response must verify the public customer state instead of hanging or blindly retrying the write');
+  assert(save.includes("error?.code !== 'ADMIN_SAVE_LIVE_TIMEOUT'") && save.includes('verifyTimedOutAdminLiveSave(snapshot, report)'), 'a delayed Save Live response must verify the public customer state instead of hanging or blindly retrying the write');
 });
 
 Deno.test('Admin activation control verifies the deployed static baseline and public read-back', () => {
@@ -217,12 +217,29 @@ Deno.test('Fast Live prepares normalized Product and Collection drafts in one pr
   assert(prepare.includes("const recordItems = pending.filter((item) => ['product', 'category'].includes(item.type))"), 'normalized records must be collected before preparation');
   assert(prepare.includes('saveAdminCollectionOperations(operations)'), 'all normalized records must use one revision-protected batch save');
   assert(!prepare.includes("for (const item of items.filter((entry) => !entry.approved))"), 'Fast Live must not prepare every normalized record through a separate request');
-  const save = sourceRange(adminSource, 'async function saveLiveChangeIds', 'async function saveAllOpenAdminChanges');
+  const save = sourceRange(adminSource, 'async function performSaveLiveChangeIds', 'async function saveLiveChangeIds');
   assert(save.includes('workingStateCurrent = false'), 'a just-saved authoritative working state must be reusable without another fetch');
   assert(save.includes('if (selected.some((item) => !item.approved))'), 'already-ready Save Live changes must skip the preparation and second reload stages');
   const category = sourceRange(adminSource, 'async function publishCategoryByKey', 'async function saveCategoryProductAssignments');
   assert(category.includes("saveCategoryEditForm(form, 'approved'"), 'an intentional Main Collection Save Live must become ready in its original protected save');
   assert(category.includes('workingStateCurrent: Boolean(form)'), 'Main Collection Save Live must reuse the authoritative state returned by that save');
+});
+
+Deno.test('Admin allows only one Save Live workflow at a time and verifies a delayed write with backoff', () => {
+  const gate = sourceRange(adminSource, 'async function runAdminSaveLiveOperation', 'async function verifyTimedOutAdminLiveSave');
+  const verify = sourceRange(adminSource, 'async function verifyTimedOutAdminLiveSave', 'async function savePublicLiveSnapshot');
+  const scopedWrapper = sourceRange(adminSource, 'async function saveLiveChangeIds', 'async function saveAllOpenAdminChanges');
+  const allWrapper = sourceRange(adminSource, 'async function saveAllLiveChanges', 'function arrayBufferToBase64');
+  assert(gate.includes('adminSaveLiveOperation') && gate.includes('SAVE ALREADY IN PROGRESS'), 'a second Save Live action in the same Admin tab must be rejected while the first is running');
+  assert(gate.includes('readAdminSaveLiveLease()') && gate.includes('ANOTHER ADMIN TAB'), 'the Save Live lease must prevent overlapping writes from multiple Admin tabs');
+  assert(gate.includes('setAdminSaveLiveControlsBusy(true)') && gate.includes('setAdminSaveLiveControlsBusy(false)'), 'all Save Live controls must stay disabled for the complete operation');
+  assert(scopedWrapper.includes('runAdminSaveLiveOperation') && allWrapper.includes('runAdminSaveLiveOperation'), 'individual and batch Save Live actions must use the same gate');
+  assert(verify.includes('const delays = [0, 2000, 5000, 10000]') && verify.includes('loadPublicLivePublishBaseline'), 'a timed-out write must use paced public read-back verification rather than immediately sending another write');
+  assert(adminSource.includes('ADMIN_SAVE_LIVE_RETRY_COOLDOWN_MS = 30 * 1000'), 'an unresolved timed-out write must impose a retry cooldown');
+});
+
+Deno.test('Subcollection background batch control cannot submit its containing editor form', () => {
+  assert(/<button type="button" class="admin-button admin-button-primary" data-apply-child-group-background-all>/.test(adminSource), 'the Subcollection apply-to-all control must remain an explicit non-submit button');
 });
 
 Deno.test('new physical images keep the existing static asset publisher after Fast Live optimization', () => {
